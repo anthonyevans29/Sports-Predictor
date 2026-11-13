@@ -34,7 +34,15 @@ PHASE (`--report`, with `--index-url`) is a second block of mine and runs ONLY a
 THE URLS ARE THE ARCHITECT'S (357 item 3(b)): "read from a search on the day I write each block and printed in the
 block; none typed from memory, by either of us". This file holds no URL default.
 
-THE READER (357 item 3(d)): pypdf, pure Python, optional, laptop-only, pinned by version and hash in
+THE REPORT PHASE RUNS ON THE HOST, NEVER ON THE LAPTOP (ARCHITECT 2026-11-13, addendum 368 item 4, correcting 357
+item 3(d)): nothing of a report (the document, a parsed row, a player's name, a status) is ever on the laptop, the
+public repo, the exports mirror, a bulletin, the Cockpit, an Issue or a PR (368 item 3(a)). Its CONSOLE, which reaches
+the architect through the operator's terminal, is STRUCTURE ONLY: the report links' stamps by day, counts, the
+document's form, the column headers, the status words exactly as written with their counts, the counts of lines that
+did not read; no player name and no row's text. The rows stay in the receipt on the host: --report requires --out
+under logs/availability/, and the receipt is written mode 0600, never mirrored (368 item 4(ii)).
+
+THE READER (357 item 3(d); 368 item 4(i)): pypdf, pure Python, optional, HOST-ONLY, pinned by version and hash in
 requirements-probe-pdf.txt (the graph engine's pattern; never requirements.txt), installed by the architect's block.
 The fetched document is UNTRUSTED DATA: it is held in memory only, never written, never executed, and parsed by the
 reader alone. Without the reader the report phase prints the form and stops (exit 2: the fields are not read).
@@ -171,12 +179,23 @@ def console_safe(text: str) -> str:
                         text)
 
 
+# while the report is read, pypdf's log lines are kept here for the receipt and only counted on the console: they can
+# carry the document's own text (addendum 368 item 4(ii): no row's text on the console)
+_READER_LOG: list[str] | None = None
+
+
 class _SafeStderr(logging.Handler):
     """A library's log line on stderr, through console_safe (addendum 362 item 7): pypdf reports what it repairs in a
-    fetched document with the document's own text, and urllib3 a header it could not parse with the header's."""
+    fetched document with the document's own text, and urllib3 a header it could not parse with the header's. While a
+    report is read (_READER_LOG set), pypdf's lines go to the receipt instead (368 item 4(ii))."""
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            # pypdf (the document's text) and urllib3 (a fetched header's text): the receipt only, while the report
+            # phase runs (Codex on #985)
+            if _READER_LOG is not None and record.name.split(".")[0] in ("pypdf", "urllib3"):
+                _READER_LOG.append(f"{record.levelname} {record.name}: {record.getMessage()}")
+                return
             sys.stderr.write(console_safe(f"{record.levelname} {record.name}: {record.getMessage()}") + "\n")
         except Exception:                           # noqa: BLE001 - a log line never ends the run
             self.handleError(record)
@@ -654,16 +673,41 @@ def read_pdf_pages(data: bytes) -> list[str]:
     return [(p.extract_text() or "") for p in reader.pages]
 
 
+_LAST_READER_LOG: list[str] = []
+
+
+def _read_quietly(data: bytes) -> list[str]:
+    """read_pdf_pages with pypdf's log lines kept for the receipt (_LAST_READER_LOG), never printed (368 item 4(ii))."""
+    global _READER_LOG
+    _LAST_READER_LOG.clear()
+    before, _READER_LOG = _READER_LOG, _LAST_READER_LOG
+    try:
+        return read_pdf_pages(data)
+    finally:
+        _READER_LOG = before                         # the report phase's own capture (main) goes on after the read
+
+
+# the document's own stamp, printed only in its strict form ("Injury Report: 11/12/26 08:00 PM", the zone if written):
+# anything else on that line can be a row (368 item 4(ii)); the whole line stays in the receipt
+# each part ends at a non-letter, so a row's name joined onto the line ("... 26 Etienne", "... PM Esteban", "... 08:00
+# Amari") gives none of its letters to the stamp (the first adversarial pass on #368's PR)
+STAMP_STRICT = re.compile(r"Injury\s+Report\s*:\s*\d{1,2}/\d{1,2}/\d{2,4}(?![\dA-Za-z])"
+                          r"\s+\d{1,2}:\d{2}(?![\dA-Za-z])(?:\s*[AP]\.?M\.?(?![A-Za-z]))?"      # the clock required
+                          r"(?:\s*(?:ET|EST|EDT)(?![A-Za-z]))?", re.I)
+
+
 def fields_report(pages: list[str], say: Out) -> dict:
     lines = [trim_ws(ln) for p in pages for ln in text_lines(p) if has_word(ln)]
     first = [trim_ws(ln) for ln in text_lines(pages[0] if pages else "") if has_word(ln)][:FIRST_LINES]
     say(f"  PAGES {len(pages)} · text lines {len(lines)}")
     stamp = next((REPORT_HEADER.search(ln).group(0) for ln in lines if REPORT_HEADER.search(ln)), None)
-    say("  THE DOCUMENT'S OWN STAMP (hypothesis: a line 'Injury Report: ...'): "
-        + (f'"{stamp[:LINE_CHARS]}"' if stamp else "NOT FOUND under that form (page 1's opening lines below)"))
-    say(f"  PAGE 1, the first {len(first)} text line(s), verbatim:")
-    for ln in first:
-        say(f"    | {ln[:LINE_CHARS]}")
+    strict = STAMP_STRICT.search(stamp or "")
+    say("  THE DOCUMENT'S OWN STAMP (hypothesis: a line 'Injury Report: <date> <clock>'): "
+        + (f'"{strict.group(0)}"' if strict else
+           "found, NOT of the date-and-clock form: its line is in the receipt only" if stamp else
+           "NOT FOUND under that form"))
+    say(f"  PAGE 1's first {len(first)} text line(s): in the receipt only (no row's text on the console, addendum 368 "
+        "item 4(ii))")
     p1 = pages[0] if pages else ""
     headers = {w: (w in p1) for w in HEADER_WORDS}
     say("  COLUMN HEADERS (HYPOTHESES, never confirmed here; found on page 1 as written?): "
@@ -684,11 +728,10 @@ def fields_report(pages: list[str], say: Out) -> dict:
             and not any(re.search(rf"(?<![A-Za-z]){re.escape(w)}(?![A-Za-z])", ln) for w in STATUS_WORDS)]
     named = [ln for ln in bare if NAME_ROW.search(ln)]
     say(f"  BODY LINES WITH NONE OF THE HYPOTHESISED STATUS WORDS: {len(bare)} (of them, with a 'Last, First' name: "
-        f"{len(named)}; counted by text line as extracted)"
-        + (f"; the first {min(len(bare), ROW_SAMPLE)}, verbatim, so an unseen word surfaces:" if bare else ""))
-    for ln in bare[:ROW_SAMPLE]:
-        say(f"    | {ln[:LINE_CHARS]}")
-    return {"pages": len(pages), "lines": len(lines), "stamp": stamp, "first_lines": first, "headers": headers,
+        f"{len(named)}; counted by text line as extracted); every one is in the receipt only, so an unseen word "
+        "surfaces there and no row reaches the console (368 item 4(ii))")
+    return {"pages": len(pages), "lines": len(lines), "lines_all": lines,   # every text line (Codex on #985)
+            "stamp": stamp, "first_lines": first, "headers": headers,
             "status_lines": {w: counts.get(w, 0) for w in STATUS_WORDS}, "lines_no_status_word": len(bare),
             "name_rows_no_status_word": len(named), "lines_no_status_word_sample": bare[:ROW_SAMPLE],
             "lines_no_status_word_all": bare}           # every one, in the receipt (Codex on #970)
@@ -701,6 +744,30 @@ MAPPING = (
     "player id); the game by the two teams and the US Eastern date, matched to a stored NBA game. A new source word "
     "is a stored-schema change: it ships in the FEED PR with its own new migrate file (354 item 2), after the "
     "architect's ruling on this probe.")
+
+
+_MEDIA_TYPE = re.compile(r"[A-Za-z0-9][\w.+-]*/[A-Za-z0-9][\w.+-]*")
+
+
+def _media_type(ctype) -> str:
+    """The document's media type for the console, validated, its parameters dropped: a header's own text can carry
+    report-derived words (Codex on #985); the raw header stays in the receipt."""
+    if ctype is None:
+        return "none sent"
+    media = str(ctype).split(";", 1)[0].strip()
+    return media.lower() if _MEDIA_TYPE.fullmatch(media) else "(not a media type; in the receipt)"
+
+
+def _error_kind(err: str) -> str:
+    """A document fetch's failure for the console: an HTTP status or an empty answer as such, a raised call by its
+    type only (its text can carry the URL the index named; Codex on #985); the whole error stays in the receipt."""
+    if re.fullmatch(r"HTTP \d{3}", err) or err == "the answer is empty":
+        return err
+    if err.startswith("REFUSED:"):
+        return "REFUSED: this run already fetched this URL"
+    kind = err.split(":", 1)[0].strip()
+    return f"{kind} (its message is in the receipt only)" if re.fullmatch(r"[A-Za-z_][\w.]*", kind) else \
+        "a raised call (its message is in the receipt only)"
 
 
 def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
@@ -726,22 +793,21 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     say(f"  REPORT LINKS (.pdf) on the page: {len(links)} · with a date read from the link: {len(parsed)} · "
         f"unread: {len(links) - len(parsed)}")
     unread = [x for x in links if not x["date"]]
-    for x in unread:
-        say(f"    unread stamp: {x['file']!r} (text {x['text'][:80]!r})")
-    for x in [x for x in parsed if not x["clock"]]:
-        say(f"    no readable clock: {x['file']!r}")
+    # 368 item 4(ii): the index's own text (a file name, an anchor's words) is untrusted and stays in the receipt; the
+    # console prints the links' stamps by day and counts only (Codex on #985)
+    no_clock = [x for x in parsed if not x["clock"]]
+    say(f"  links whose stamp does not read: {len(unread)} · dated links with no readable clock: {len(no_clock)} "
+        "(their file names and text are in the receipt only)")
     by_day: dict[str, list] = defaultdict(list)
     for x in parsed:
         by_day[x["date"]].append(x)
-    say("  REPORTS PER DAY: each link's FILE NAME AS WRITTEN, with the clock read from it in brackets (normalized; "
-        "the zone is the document's own, read below):")
+    say("  REPORTS PER DAY: the clock read from each dated link (normalized; the zone is the document's own, read "
+        "below); the file names are in the receipt only:")
     for d in sorted(by_day):
         xs = sorted(by_day[d], key=lambda x: _sort_key(d, x["clock"]))
         say(f"    {d}: {len(xs)} · {', '.join(x['clock'] or 'no clock' for x in xs)}")
-        for x in xs:
-            say(f"      {x['file']} ({x['clock'] or 'no readable clock'})")
     rec["links"] = {"total": len(links), "dated": len(parsed), "files": [x["file"] for x in links],
-                    "unread": [x["file"] for x in unread],
+                    "unread": [{"file": x["file"], "text": x["text"]} for x in unread],
                     "per_day": {d: [{"file": x["file"], "clock": x["clock"]}
                                     for x in sorted(v, key=lambda x: _sort_key(d, x["clock"]))]
                                 for d, v in sorted(by_day.items())}}
@@ -754,11 +820,13 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         blind = sum(1 for x in by_day[pick["date"]] if not x["clock"])
         if blind:
             why += f"; {blind} link(s) on {pick['date']} carry no readable clock, so the newest of that day is not certain"
-    say(f"\nONE REPORT ({why}): {pick['url']}")
+    say(f"\nONE REPORT ({why}): the link stamped {pick['date'] or 'with no readable date'}"
+        f"{' ' + pick['clock'] if pick.get('clock') else ''} (its URL is in the receipt only)")
     status, hdr, data, err = fetch(pick["url"])
     ctype = next((v for k, v in hdr.items() if k.lower() == "content-type"), None)
-    say(f"  HTTP {status} · content-type {ctype!r}"
-        + (f" · {err}" if err and err.startswith(REDIRECTED) else f" · FAILED: {err}" if err else f" · {len(data)} bytes · "
+    say(f"  HTTP {status} · content-type {_media_type(ctype)}"
+        + (f" · {REDIRECTED}: its Location is in the receipt only (the index named this URL; Codex on #985)"
+           if err and err.startswith(REDIRECTED) else f" · FAILED: {_error_kind(err)}" if err else f" · {len(data)} bytes · "
         f"sha256 {hashlib.sha256(data).hexdigest()} · PDF magic {'yes' if data[:5] == b'%PDF-' else 'NO'}"))
     say("  the document is UNTRUSTED DATA: held in memory only, never written, never executed; parsed by the reader "
         "alone")
@@ -769,7 +837,7 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         return read_failed(err), rec
     rec["report"].update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), pdf_magic=data[:5] == b"%PDF-")
     try:
-        pages = read_pdf_pages(data)
+        pages = _read_quietly(data)
     except ImportError:
         say(f"  READER NOT INSTALLED ({READER}, {READER_FILE}, installed by the architect's block): the form only; "
             "the fields are NOT READ")
@@ -777,9 +845,14 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         say("\n" + MAPPING)
         return REFUSED, rec
     except Exception as e:                           # noqa: BLE001 - an unreadable document is reported, never raised
-        say(f"  FAILED: the reader could not read the document: {type(e).__name__}: {e}")
+        say(f"  FAILED: the reader could not read the document: {type(e).__name__} (its message is in the receipt: it "
+            "can carry the document's text)")
         rec["report"]["reader_error"] = f"{type(e).__name__}: {e}"
+        rec["report"]["reader_log"] = list(_LAST_READER_LOG)
         return FAILED, rec
+    rec["report"]["reader_log"] = list(_LAST_READER_LOG)
+    if _LAST_READER_LOG:
+        say(f"  the reader logged {len(_LAST_READER_LOG)} line(s) while reading (repairs; in the receipt only)")
     rec["report"]["reader"] = READER
     rec["report"]["fields"] = fields_report(pages, say)
     if not rec["report"]["fields"]["lines"]:
@@ -789,6 +862,65 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         return REFUSED, rec
     say("\n" + MAPPING)
     return OK, rec
+
+
+def host_refusal() -> str | None:
+    """The report phase runs on the HOST only (ARCHITECT 2026-11-13, addendum 368 item 4): refused, before any fetch,
+    wherever desk_policy.not_host_reason (the repo's host-only gate, addendum 178 R6) names another machine."""
+    if str(ROOT) not in sys.path:                    # run as a script, the checkout is not on the path by itself
+        sys.path.insert(0, str(ROOT))
+    try:
+        from src.walters.desk_policy import not_host_reason
+        why = not_host_reason()
+    except Exception as e:                           # noqa: BLE001 - the gate cannot be read: refused, fail closed
+        why = f"the host gate could not be read ({type(e).__name__})"
+    return None if why is None else (f"REFUSED: the report phase runs on the host only (addendum 368 item 4): {why}; "
+                                     "nothing fetched")
+
+
+def refuse_report_out(path: Path | None) -> str | None:
+    """The report phase's receipt holds the report's rows: it is required, and it lives under logs/availability/ on the
+    host (ARCHITECT 2026-11-13, addendum 368 item 4(ii)), checked before any fetch."""
+    if path is None:
+        return ("REFUSED: --report needs --out under logs/availability/ (the receipt holds the report's rows; the "
+                "console holds structure only, addendum 368 item 4(ii)); nothing fetched")
+    # the checkout's OWN logs/availability/, by resolved location: not a pair of names anywhere on the path, not
+    # another case, not the folder itself (the first adversarial pass on #368's PR)
+    home = (ROOT / "logs" / "availability").resolve()
+    entry = path.expanduser()
+    entry = entry.parent.resolve() / entry.name      # the directory entry write_private replaces (Codex on #985)
+    if home not in entry.parents or home not in entry.resolve().parents:
+        return (f"REFUSED: --out {path} is not under this checkout's logs/availability/ ({home}; the report phase's "
+                "receipt lives there on the host, mode 0600, never mirrored, addendum 368 item 4(ii)); nothing fetched")
+    return None
+
+
+def write_private(path: Path, text: str) -> None:
+    """The receipt, mode 0600 (368 item 4(ii)): written WHOLE (a short write is continued, never left truncated) to a
+    private temporary file in the receipt's own folder, then renamed over the target's directory entry, so a symlink or
+    a hard link at the target is replaced and never written through (Codex on #985)."""
+    import tempfile
+    data = text.encode("utf-8")
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")   # created mode 0600
+    try:
+        view = memoryview(data)
+        while view:
+            n = os.write(fd, view)
+            if n <= 0:
+                raise OSError("the receipt could not be written whole")
+            view = view[n:]
+        os.fchmod(fd, 0o600)
+        os.fsync(fd)
+    except BaseException:
+        os.close(fd)
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    os.close(fd)
+    try:
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def refuse_out(path: Path | None) -> str | None:
@@ -815,6 +947,7 @@ def refuse_out(path: Path | None) -> str | None:
 
 
 def main(argv=None, get=None) -> int:
+    global _READER_LOG
     ap = argparse.ArgumentParser(description="NBA injury-report probe (addendum 261 item 1(e); 357 item 3): read-only, "
                                              "two phases; the terms phase by default")
     ap.add_argument("--terms-url", default=None, help="the terms page, named in the architect's block (no default)")
@@ -829,7 +962,9 @@ def main(argv=None, get=None) -> int:
     a = ap.parse_args(argv)
     escape_library_logs()
     say = Out()
-    refused = refuse_out(a.out)
+    # the report phase: the host first, then the receipt's place, BEFORE the generic check makes any folder (Codex on
+    # #985); nothing is fetched on a refusal
+    refused = ((host_refusal() or refuse_report_out(a.out)) if a.report else None) or refuse_out(a.out)
     if refused:
         say(refused)
         return REFUSED
@@ -838,7 +973,14 @@ def main(argv=None, get=None) -> int:
         f"{phase.upper()} PHASE · {datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ} · User-Agent {USER_AGENT!r}")
     fetch = Fetcher(get)
     if a.report:
-        code, rec = report_phase(a, say, fetch)
+        # every library log line of the report phase (pypdf, urllib3) to the receipt only (368 item 4(ii))
+        library_log: list[str] = []
+        _READER_LOG = library_log
+        try:
+            code, rec = report_phase(a, say, fetch)
+        finally:
+            _READER_LOG = None
+        rec["library_log"] = library_log
     else:
         if a.index_url or a.terms_ruling:
             say("REFUSED: --index-url and --terms-ruling belong to the report phase (--report); the terms phase "
@@ -847,14 +989,22 @@ def main(argv=None, get=None) -> int:
         else:
             code, rec = terms_phase(a, say, fetch)
     receipt = {"phase": phase, "exit": code, "fetched": fetch.fetched, "redirects": fetch.redirects, **rec}
-    say(f"\nFETCHED THIS RUN ({len(fetch.fetched)}, each once): " + (" · ".join(fetch.fetched) or "nothing"))
+    # the report phase: a URL the index named (the document's, a redirect's Location) is index-derived text, so the
+    # console and the tail name only the architect's own index URL; the receipt keeps every URL (Codex on #985)
+    def shown(u):
+        return u if not a.report or u == a.index_url else "<the report document: its URL is in the receipt>"
+    shown_fetched = [shown(u) for u in fetch.fetched]
+    say(f"\nFETCHED THIS RUN ({len(fetch.fetched)}, each once): " + (" · ".join(shown_fetched) or "nothing"))
     for r in fetch.redirects:
-        say(f"  {REDIRECTED}: {r['url']} answered HTTP {r['http']}, Location "
-            f"{r['location'] if r['location'] is not None else '(none sent)'} (the architect reads it "
-            "and re-issues the block; nothing was fetched for it)")
+        loc = r['location'] if r['location'] is not None else '(none sent)'
+        own = not a.report or r['url'] == a.index_url        # a URL the architect named: its Location verbatim (362 item 5)
+        say(f"  {REDIRECTED}: {shown(r['url'])} answered HTTP {r['http']}, Location "
+            f"{loc if own else '(in the receipt)'} (the architect reads it and re-issues the block; nothing "
+            "was fetched for it)")
     if a.out:
         try:
-            a.out.write_text(json.dumps(receipt, indent=1, default=str))
+            out = a.out.expanduser()
+            write_private(out.parent.resolve() / out.name, json.dumps(receipt, indent=1, default=str))
             say(f"receipt written to {a.out}")
         except OSError as e:
             say(f"FAILED: the receipt was not written: {type(e).__name__}: {e} (the console above is the receipt)")
@@ -863,11 +1013,12 @@ def main(argv=None, get=None) -> int:
     # the tail is a SUMMARY (Codex on #970): the evidence (every page line, every robots line, every window) is in the
     # --out receipt, never on stdout
     terms, robots, report = rec.get("terms") or {}, rec.get("robots") or {}, rec.get("report") or {}
-    summary = {"phase": phase, "exit": code, "fetched": fetch.fetched, "redirects": fetch.redirects,
+    summary = {"phase": phase, "exit": code, "fetched": shown_fetched,
+               "redirects": fetch.redirects if not a.report else len(fetch.redirects),
                "receipt": str(a.out) if a.out else None, "refused": rec.get("refused"),
                "page_lines": len(terms.get("page_lines") or []), "robots_lines": robots.get("lines"),
                "windows": len(terms.get("windows") or []),
-               "report": {k: report.get(k) for k in ("file", "bytes", "sha256", "reader")} if report else None}
+               "report": {k: report.get(k) for k in ("bytes", "sha256", "reader")} if report else None}
     print(f"{TAIL} " + json.dumps(summary, default=str, sort_keys=True), flush=True)
     return code
 

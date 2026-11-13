@@ -1,4 +1,4 @@
-## 2026-11-13 (#000: 371-ledger-header-times — docs/LEDGER.md's rule 7: the addenda's header times before 371 are estimates; addenda are cited and ordered by number (addendum 371 items 1 and 2).)
+## 2026-11-13 (#988: 371-ledger-header-times — docs/LEDGER.md's rule 7: the addenda's header times before 371 are estimates; addenda are cited and ordered by number (addendum 371 items 1 and 2).)
 - **docs/LEDGER.md, rule 7**, the line addendum 371 item 2 gives, verbatim: "The header times of the architect's addenda before 371 are the architect's estimates and run up to about 70 minutes ahead of the clock; from 371 on they are clock-read. Addenda are cited by number and ordered by number (ARCHITECT, addendum 371 item 1)."
 - **The ruling it records:** addendum 371 item 1. Its header reads "ARCHITECT 2026-11-13 11:49 ET (16:49Z, read from the clock)". Its item 1 (RULED), verbatim:
   - (a) "an addendum is cited BY ITS NUMBER; its header is quoted verbatim where it is quoted, and Code never rewrites, corrects or annotates a header's time."

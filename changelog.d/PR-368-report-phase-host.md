@@ -9,3 +9,7 @@
 - **requirements-probe-pdf.txt (368 item 4(i)):** the reader is HOST-ONLY (Python 3.12, where --no-deps holds) and never installed on the laptop. The pin and hash are unchanged.
 - **docs/CLI.md, scripts/README.md, docs/roadmap.json:** lane availability-record's probe step text names the report phase on the host. The due date 11-24 is unchanged, and no date moves.
 - **Tests:** six new, failing first on main 91ec1e86. Three existing tests are inverted: rows are now absent from the console and present in the receipt.
+- **The first adversarial pass** (five confirmed; each fixed fail-first):
+  - **The stamp:** its parts now end at a non-letter, so a row's name joined onto the line ("… 26 Etienne", "… PM Esteban", "… 08:00 Amari") gives none of its letters to the console.
+  - **The placement:** the receipt must sit under THIS checkout's own `logs/availability/`, checked by resolved location. Another case of the same names, the folder itself, the mirror's `exports/bulletins/` subtree and a `logs/availability/` elsewhere are all refused.
+  - **The write:** it goes to the resolved path that was checked, so `~` cannot split the check from the write, and it opens without following a symlink.

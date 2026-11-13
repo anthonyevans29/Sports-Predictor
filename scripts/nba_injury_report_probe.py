@@ -649,8 +649,11 @@ def _read_quietly(data: bytes) -> list[str]:
 
 # the document's own stamp, printed only in its strict form ("Injury Report: 11/12/26 08:00 PM", the zone if written):
 # anything else on that line can be a row (368 item 4(ii)); the whole line stays in the receipt
-STAMP_STRICT = re.compile(r"Injury\s+Report\s*:\s*\d{1,2}/\d{1,2}/\d{2,4}(?:\s+\d{1,2}:\d{2}\s*(?:[AP]\.?M\.?)?)?"
-                          r"(?:\s*(?:ET|EST|EDT))?", re.I)
+# each part ends at a non-letter, so a row's name joined onto the line ("... 26 Etienne", "... PM Esteban", "... 08:00
+# Amari") gives none of its letters to the stamp (the first adversarial pass on #368's PR)
+STAMP_STRICT = re.compile(r"Injury\s+Report\s*:\s*\d{1,2}/\d{1,2}/\d{2,4}(?![\dA-Za-z])"
+                          r"(?:\s+\d{1,2}:\d{2}(?![\dA-Za-z])(?:\s*[AP]\.?M\.?(?![A-Za-z]))?)?"
+                          r"(?:\s*(?:ET|EST|EDT)(?![A-Za-z]))?", re.I)
 
 
 def fields_report(pages: list[str], say: Out) -> dict:
@@ -801,16 +804,18 @@ def refuse_report_out(path: Path | None) -> str | None:
     if path is None:
         return ("REFUSED: --report needs --out under logs/availability/ (the receipt holds the report's rows; the "
                 "console holds structure only, addendum 368 item 4(ii)); nothing fetched")
-    parts = [x.casefold() for x in path.expanduser().resolve().parts]
-    if not any(parts[i] == "logs" and parts[i + 1] == "availability" for i in range(len(parts) - 1)):
-        return (f"REFUSED: --out {path} is not under logs/availability/ (the report phase's receipt lives there on the "
-                "host, mode 0600, never mirrored, addendum 368 item 4(ii)); nothing fetched")
+    # the checkout's OWN logs/availability/, by resolved location: not a pair of names anywhere on the path, not
+    # another case, not the folder itself (the first adversarial pass on #368's PR)
+    home = (ROOT / "logs" / "availability").resolve()
+    if home not in path.expanduser().resolve().parents:
+        return (f"REFUSED: --out {path} is not under this checkout's logs/availability/ ({home}; the report phase's "
+                "receipt lives there on the host, mode 0600, never mirrored, addendum 368 item 4(ii)); nothing fetched")
     return None
 
 
 def write_private(path: Path, text: str) -> None:
     """The receipt, written mode 0600 whether the file is new or not (368 item 4(ii))."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         os.fchmod(fd, 0o600)
         os.write(fd, text.encode("utf-8"))
@@ -881,7 +886,7 @@ def main(argv=None, get=None) -> int:
             "and re-issues the block; nothing was fetched for it)")
     if a.out:
         try:
-            write_private(a.out, json.dumps(receipt, indent=1, default=str))
+            write_private(a.out.expanduser().resolve(), json.dumps(receipt, indent=1, default=str))
             say(f"receipt written to {a.out}")
         except OSError as e:
             say(f"FAILED: the receipt was not written: {type(e).__name__}: {e} (the console above is the receipt)")

@@ -63,14 +63,24 @@ class Fake:
 
 def run(capsys, argv, pages):
     """(exit, console, the --out RECEIPT, the fake GET). The tail line is a summary; the evidence is the receipt."""
+    import shutil
     import tempfile
     fake = Fake(pages)
-    receipt = Path(tempfile.mkdtemp()) / "logs" / "availability" / "receipt.json"   # 368 item 4(ii): the host's place
+    # 368 item 4(ii): the report phase's receipt sits under the checkout's own logs/availability/ (gitignored); a
+    # private folder per call, removed after the receipt is read
+    base = probe.ROOT / "logs" / "availability" / "_probe_tests"
+    base.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(dir=base))
+    receipt = folder / "receipt.json"
     if "--out" not in argv:
         argv = [*argv, "--out", str(receipt)]
-    code = probe.main(argv, get=fake)
-    out = capsys.readouterr().out
-    rec = json.loads(receipt.read_text()) if receipt.exists() else json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+    try:
+        code = probe.main(argv, get=fake)
+        out = capsys.readouterr().out
+        rec = (json.loads(receipt.read_text()) if receipt.exists()
+               else json.loads(out.strip().splitlines()[-1].split(" ", 1)[1]))
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
     return code, out, rec, fake
 
 
@@ -789,18 +799,25 @@ def test_368_4_the_report_phase_needs_its_receipt_under_logs_availability_before
     assert probe.main(REPORT_ARGS, get=fake) == probe.REFUSED
     assert "--report needs --out under logs/availability/" in capsys.readouterr().out and fake.asked == []
     assert probe.main([*REPORT_ARGS, "--out", str(tmp_path / "logs" / "r.json")], get=fake) == probe.REFUSED
-    assert "is not under logs/availability/" in capsys.readouterr().out and fake.asked == []
+    assert "is not under this checkout's logs/availability/" in capsys.readouterr().out and fake.asked == []
     assert probe.main(["--terms-url", TERMS, "--out", str(tmp_path / "t.json")], get=Fake(terms_pages())) == probe.OK
 
 
 def test_368_4_the_receipt_is_written_mode_0600(tmp_path, capsys, monkeypatch):
+    import shutil
+    import tempfile
     monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
-    out = tmp_path / "logs" / "availability" / "r.json"
-    out.parent.mkdir(parents=True)
+    base = probe.ROOT / "logs" / "availability" / "_probe_tests"
+    base.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(dir=base))
+    out = folder / "r.json"
     out.write_text("{}")
     out.chmod(0o644)                                            # an existing, wider file is narrowed too
-    probe.main([*REPORT_ARGS, "--out", str(out)], get=Fake(report_pages()))
-    assert (out.stat().st_mode & 0o777) == 0o600
+    try:
+        probe.main([*REPORT_ARGS, "--out", str(out)], get=Fake(report_pages()))
+        assert (out.stat().st_mode & 0o777) == 0o600
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def test_368_4_no_row_reaches_the_console_and_every_row_is_in_the_receipt(capsys, monkeypatch):
@@ -842,3 +859,43 @@ def test_368_4_the_readers_log_lines_and_error_text_stay_in_the_receipt(capsys, 
 def test_368_4_the_reader_is_host_only():
     req = (ROOT / "requirements-probe-pdf.txt").read_text()
     assert "HOST-ONLY" in req and "never installed on the laptop" in req and "Python 3.12" in req
+
+
+# ---- the first adversarial pass on the 368 change ---------------------------------------------------------------------
+
+def test_368_pass1_the_stamp_never_prints_a_rows_first_letters(capsys, monkeypatch):
+    for page in ("Injury Report: 11/12/26 Etienne Synthetic Rowname, Tyson Out",
+                 "Injury Report: 11/12/26 08:00 PM Esteban Synthetic Rowname Out",
+                 "Injury Report: 11/12/26 08:00 Amari Synthetic Rowname, Out"):
+        monkeypatch.setattr(probe, "read_pdf_pages", lambda data, page=page: [page])
+        code, out, rec, _ = run(capsys, REPORT_ARGS, report_pages())
+        stamp_line = [ln for ln in out.splitlines() if "THE DOCUMENT'S OWN STAMP" in ln][0]
+        for leak in ("Et\"", "Est\"", "Am\"", "Etienne", "Esteban", "Amari"):
+            assert leak not in stamp_line, (page, stamp_line)
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: ["Injury Report: 11/12/26 08:00 PM ET\nx Out y"])
+    code, out, rec, _ = run(capsys, REPORT_ARGS, report_pages())
+    assert '"Injury Report: 11/12/26 08:00 PM ET"' in out
+
+
+def test_368_pass1_the_receipt_must_sit_under_the_checkouts_own_logs_availability(tmp_path):
+    own = probe.ROOT / "logs" / "availability"
+    assert probe.refuse_report_out(own / "nba_injury_report" / "r.json") is None
+    for bad in (probe.ROOT / "Logs" / "Availability" / "r.json",          # another directory on a case-sensitive disk
+                probe.ROOT / "logs" / "availability",                     # the directory itself, as a file
+                probe.ROOT / "exports" / "bulletins" / "logs" / "availability" / "r.md",   # the mirror's subtree
+                tmp_path / "logs" / "availability" / "r.json"):           # a logs/availability elsewhere
+        assert probe.refuse_report_out(bad) is not None, bad
+
+
+def test_368_pass1_the_receipt_is_written_where_it_was_checked(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
+    monkeypatch.setenv("HOME", str(probe.ROOT))
+    rel = Path("~") / "logs" / "availability" / "probe_test_tilde" / "r.json"
+    target = probe.ROOT / "logs" / "availability" / "probe_test_tilde" / "r.json"
+    try:
+        probe.main([*REPORT_ARGS, "--out", str(rel)], get=Fake(report_pages()))
+        assert target.is_file() and (target.stat().st_mode & 0o777) == 0o600
+        assert not (Path.cwd() / "~").exists()
+    finally:
+        import shutil
+        shutil.rmtree(target.parent, ignore_errors=True)

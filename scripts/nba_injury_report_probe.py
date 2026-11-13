@@ -191,7 +191,9 @@ class _SafeStderr(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            if _READER_LOG is not None and record.name.split(".")[0] == "pypdf":
+            # pypdf (the document's text) and urllib3 (a fetched header's text): the receipt only, while the report
+            # phase runs (Codex on #985)
+            if _READER_LOG is not None and record.name.split(".")[0] in ("pypdf", "urllib3"):
                 _READER_LOG.append(f"{record.levelname} {record.name}: {record.getMessage()}")
                 return
             sys.stderr.write(console_safe(f"{record.levelname} {record.name}: {record.getMessage()}") + "\n")
@@ -678,11 +680,11 @@ def _read_quietly(data: bytes) -> list[str]:
     """read_pdf_pages with pypdf's log lines kept for the receipt (_LAST_READER_LOG), never printed (368 item 4(ii))."""
     global _READER_LOG
     _LAST_READER_LOG.clear()
-    _READER_LOG = _LAST_READER_LOG
+    before, _READER_LOG = _READER_LOG, _LAST_READER_LOG
     try:
         return read_pdf_pages(data)
     finally:
-        _READER_LOG = None
+        _READER_LOG = before                         # the report phase's own capture (main) goes on after the read
 
 
 # the document's own stamp, printed only in its strict form ("Injury Report: 11/12/26 08:00 PM", the zone if written):
@@ -799,7 +801,8 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     status, hdr, data, err = fetch(pick["url"])
     ctype = next((v for k, v in hdr.items() if k.lower() == "content-type"), None)
     say(f"  HTTP {status} · content-type {ctype!r}"
-        + (f" · {err}" if err and err.startswith(REDIRECTED) else f" · FAILED: {err}" if err else f" · {len(data)} bytes · "
+        + (f" · {REDIRECTED}: its Location is in the receipt only (the index named this URL; Codex on #985)"
+           if err and err.startswith(REDIRECTED) else f" · FAILED: {err}" if err else f" · {len(data)} bytes · "
         f"sha256 {hashlib.sha256(data).hexdigest()} · PDF magic {'yes' if data[:5] == b'%PDF-' else 'NO'}"))
     say("  the document is UNTRUSTED DATA: held in memory only, never written, never executed; parsed by the reader "
         "alone")
@@ -860,7 +863,9 @@ def refuse_report_out(path: Path | None) -> str | None:
     # the checkout's OWN logs/availability/, by resolved location: not a pair of names anywhere on the path, not
     # another case, not the folder itself (the first adversarial pass on #368's PR)
     home = (ROOT / "logs" / "availability").resolve()
-    if home not in path.expanduser().resolve().parents:
+    entry = path.expanduser()
+    entry = entry.parent.resolve() / entry.name      # the directory entry write_private replaces (Codex on #985)
+    if home not in entry.parents or home not in entry.resolve().parents:
         return (f"REFUSED: --out {path} is not under this checkout's logs/availability/ ({home}; the report phase's "
                 "receipt lives there on the host, mode 0600, never mirrored, addendum 368 item 4(ii)); nothing fetched")
     return None
@@ -918,6 +923,7 @@ def refuse_out(path: Path | None) -> str | None:
 
 
 def main(argv=None, get=None) -> int:
+    global _READER_LOG
     ap = argparse.ArgumentParser(description="NBA injury-report probe (addendum 261 item 1(e); 357 item 3): read-only, "
                                              "two phases; the terms phase by default")
     ap.add_argument("--terms-url", default=None, help="the terms page, named in the architect's block (no default)")
@@ -943,7 +949,14 @@ def main(argv=None, get=None) -> int:
         f"{phase.upper()} PHASE · {datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ} · User-Agent {USER_AGENT!r}")
     fetch = Fetcher(get)
     if a.report:
-        code, rec = report_phase(a, say, fetch)
+        # every library log line of the report phase (pypdf, urllib3) to the receipt only (368 item 4(ii))
+        library_log: list[str] = []
+        _READER_LOG = library_log
+        try:
+            code, rec = report_phase(a, say, fetch)
+        finally:
+            _READER_LOG = None
+        rec["library_log"] = library_log
     else:
         if a.index_url or a.terms_ruling:
             say("REFUSED: --index-url and --terms-ruling belong to the report phase (--report); the terms phase "
@@ -960,8 +973,9 @@ def main(argv=None, get=None) -> int:
     say(f"\nFETCHED THIS RUN ({len(fetch.fetched)}, each once): " + (" · ".join(shown_fetched) or "nothing"))
     for r in fetch.redirects:
         loc = r['location'] if r['location'] is not None else '(none sent)'
+        own = not a.report or r['url'] == a.index_url        # a URL the architect named: its Location verbatim (362 item 5)
         say(f"  {REDIRECTED}: {shown(r['url'])} answered HTTP {r['http']}, Location "
-            f"{loc if not a.report else '(in the receipt)'} (the architect reads it and re-issues the block; nothing "
+            f"{loc if own else '(in the receipt)'} (the architect reads it and re-issues the block; nothing "
             "was fetched for it)")
     if a.out:
         try:

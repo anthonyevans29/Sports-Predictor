@@ -20,3 +20,8 @@
   - **The stamp (P2):** it needs its clock to be the strict form.
   - **The placement (P2):** the report-phase checks run before the generic check makes a folder.
   - **The write (P2):** it is whole (short writes continued), to a private temporary file renamed over the target's entry, so a symlink or hard link there is replaced and never written through.
+- **Codex's second read of #985, three P1s, each fixed fail-first** (three tests fail on ad1cdf0d):
+  - A document's redirect Location stays off the report's status line and the closing lines, receipt only. The index's own redirect still prints its Location verbatim, so the architect can re-issue (362 item 5).
+  - The receipt's place is checked on the directory entry that is written, so an `--out` symlink outside the folder that points into it is refused.
+  - urllib3's log lines go to the receipt (`library_log`) for the whole report phase, as pypdf's do.
+- **Its P2** (a long name over NAME_MAX in the temporary file) goes to the PR's one follow-up Issue, under the review stop rule.

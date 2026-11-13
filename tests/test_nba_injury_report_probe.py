@@ -1106,3 +1106,55 @@ def test_985_run_as_a_script_off_the_host_the_report_phase_is_refused_not_crashe
                        cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=120)
     assert r.returncode == probe.REFUSED, (r.stdout[-500:], r.stderr[-800:])
     assert "runs on the host only" in r.stdout and "Traceback" not in r.stderr and not never.exists()
+
+
+# ---- Codex's second read of #985 (ad1cdf0d): three P1s ------------------------------------------------------------------
+
+def test_985r2_a_document_redirect_location_stays_off_the_console_an_index_one_prints(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
+    pages = report_pages()
+    doc = "https://reports.example.invalid/files/Injury-Report_2026-11-12_08PM.pdf"
+    pages[doc] = (302, b"", {"Location": "https://cdn.example.invalid/Synthetic-Rowname.pdf"})
+    code, out, rec, _ = run(capsys, REPORT_ARGS, pages)
+    assert "Rowname" not in out and code == probe.REFUSED
+    assert rec["report"]["location"] == "https://cdn.example.invalid/Synthetic-Rowname.pdf"
+    pages = {INDEX: (301, b"", {"Location": "https://reports.example.invalid/moved-index"})}
+    code, out, rec, _ = run(capsys, REPORT_ARGS, pages)
+    assert "Location https://reports.example.invalid/moved-index" in out     # 362 item 5: the architect re-issues
+
+
+def test_985r2_an_out_link_outside_the_folder_is_refused(tmp_path, capsys):
+    inside = probe.ROOT / "logs" / "availability" / "_probe_tests" / "inside.json"
+    inside.parent.mkdir(parents=True, exist_ok=True)
+    inside.write_text("{}")
+    link = tmp_path / "report.json"
+    link.symlink_to(inside)
+    try:
+        fake = Fake(report_pages())
+        assert probe.main([*REPORT_ARGS, "--out", str(link)], get=fake) == probe.REFUSED and fake.asked == []
+        assert link.is_symlink()
+    finally:
+        inside.unlink(missing_ok=True)
+
+
+def test_985r2_urllib3_lines_in_the_report_phase_go_to_the_receipt(capsys, monkeypatch):
+    import logging
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
+
+    class Noisy(Fake):
+        def __call__(self, url, headers=None, timeout=None, allow_redirects=True):
+            logging.getLogger("urllib3.connectionpool").warning("Failed to parse headers: Synthetic Rowname")
+            return super().__call__(url, headers, timeout, allow_redirects)
+    import shutil
+    import tempfile
+    base = probe.ROOT / "logs" / "availability" / "_probe_tests"
+    base.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(dir=base))
+    try:
+        probe.main([*REPORT_ARGS, "--out", str(folder / "r.json")], get=Noisy(report_pages()))
+        cap = capsys.readouterr()
+        rec = json.loads((folder / "r.json").read_text())
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    assert "Rowname" not in cap.out and "Rowname" not in cap.err
+    assert any("Failed to parse headers: Synthetic Rowname" in x for x in rec["library_log"])

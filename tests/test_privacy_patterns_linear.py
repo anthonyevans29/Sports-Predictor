@@ -31,7 +31,11 @@ BOUND_PER_CHAR = 20e-6
 SIZES = (2_000, 10_000, 50_000)
 DEADLINE_FACTOR, DEADLINE_SLACK = 10, 1.0
 ROOT = Path(__file__).resolve().parent.parent
-_RE_CALLS = {"compile", "search", "match", "fullmatch", "sub", "subn", "split", "findall", "finditer"}
+# each pattern function of re and the position of its flags argument (re.search(pattern, string, flags=0) ...):
+# a flag passed by position is read where that function takes it (Codex on #984)
+_FLAGS_AT = {"compile": 1, "search": 2, "match": 2, "fullmatch": 2, "findall": 2, "finditer": 2, "split": 3, "sub": 4,
+             "subn": 4}
+_RE_CALLS = set(_FLAGS_AT)
 
 SHAPES = {
     # #979's scan, the 33 shapes
@@ -68,8 +72,13 @@ def _flags(node):
 def module_patterns():
     """Every compiled pattern src/privacy_patterns.py holds or builds, by reading the module: the re.Pattern values it
     holds, and each pattern its source passes to re.* (a module-level NAME = re.compile(...) is one it holds)."""
-    found = {name: p for name, p in vars(pv).items() if isinstance(p, re.Pattern)}
-    tree = ast.parse(Path(pv.__file__).read_text(encoding="utf-8"))
+    return read_patterns(vars(pv), Path(pv.__file__).read_text(encoding="utf-8"))
+
+
+def read_patterns(names: dict, source: str) -> dict:
+    """module_patterns' reading of one module: its namespace and its source text."""
+    found = {name: p for name, p in names.items() if isinstance(p, re.Pattern)}
+    tree = ast.parse(source)
     held = {}
     for stmt in tree.body:
         if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call):
@@ -100,13 +109,16 @@ def module_patterns():
             names = held[id(node)]
             assert names and all(n in found for n in names), (node.lineno, names)
             continue
+        assert not any(isinstance(a, ast.Starred) for a in node.args) and all(k.arg for k in node.keywords), (
+            f"line {node.lineno}: re.{node.func.attr} takes *args or **kwargs; this test cannot read its pattern and "
+            f"flags")
         arg = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "pattern"), None)
         assert isinstance(arg, ast.Constant) and isinstance(arg.value, str), (
             f"line {node.lineno}: re.{node.func.attr} builds its pattern at call time; name it at module level so "
             f"this test can hold it to the bound")
         flags = 0
-        if node.func.attr == "compile" and len(node.args) > 1:
-            flags = _flags(node.args[1])
+        if len(node.args) > _FLAGS_AT[node.func.attr]:
+            flags = _flags(node.args[_FLAGS_AT[node.func.attr]])
         for k in node.keywords:
             if k.arg == "flags":
                 flags = _flags(k.value)
@@ -222,3 +234,31 @@ def test_an_exponential_pattern_fails_naming_its_read_and_does_not_hang():
     slow = slow_reads("source", "(?:a|a?)+b", 0, timeout=120)
     assert any(s.startswith("letters at 2,000 characters: past its deadline") for s in slow), slow
     assert time.perf_counter() - t0 < 60
+
+
+@pytest.mark.parametrize("call, flags", [
+    ('re.compile("(?:a+)+b", re.IGNORECASE)', re.IGNORECASE),
+    ('re.search("(?:a+)+b", text, re.IGNORECASE)', re.IGNORECASE),
+    ('re.match("(?:a+)+b", text, re.I | re.M)', re.I | re.M),
+    ('re.fullmatch("(?:a+)+b", text, re.IGNORECASE)', re.IGNORECASE),
+    ('re.findall("(?:a+)+b", text, re.IGNORECASE)', re.IGNORECASE),
+    ('re.finditer("(?:a+)+b", text, re.IGNORECASE)', re.IGNORECASE),
+    ('re.split("(?:a+)+b", text, 0, re.IGNORECASE)', re.IGNORECASE),
+    ('re.sub("(?:a+)+b", "", text, 0, re.IGNORECASE)', re.IGNORECASE),
+    ('re.subn("(?:a+)+b", "", text, 0, re.IGNORECASE)', re.IGNORECASE),
+    ('re.search("(?:a+)+b", text, flags=re.IGNORECASE)', re.IGNORECASE),
+    ('re.split("(?:a+)+b", text, 0)', 0),
+    ('re.sub("(?:a+)+b", "", text)', 0),
+])
+def test_a_flag_passed_by_position_is_read_where_the_function_takes_it(call, flags):
+    """Codex on #984: re.search(pattern, string, re.IGNORECASE) was read without its flag, so a pattern slow only under
+    IGNORECASE would have been timed as another pattern. Each function's flags are read at its own position."""
+    found = read_patterns({}, f"import re\n\ndef f(text):\n    return {call}\n")
+    (p,) = found.values()
+    assert p.pattern == "(?:a+)+b" and p.flags == re.compile("(?:a+)+b", flags).flags
+
+
+@pytest.mark.parametrize("call", ['re.search(*args)', 're.search("a", text, **kw)', 're.search("a", text, FLAGS)'])
+def test_a_call_whose_pattern_or_flags_cannot_be_read_fails(call):
+    with pytest.raises(AssertionError):
+        read_patterns({}, f"import re\n\ndef f(text, args, kw):\n    return {call}\n")

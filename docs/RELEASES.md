@@ -444,9 +444,11 @@ its compare verdict.
   due. The commit is the #989 merge b3c5fbcf, the ledger compile afc17728 (32 changelog fragments, 32 ledger entries)
   over 1790723d (#988's merge), as v1.5.0's was the #645 merge. The tag was cut and pushed by the operator from the
   architect's block once CI read green on the tag's commit: tagger stamp 2026-11-13 21:13:23Z (16:13:23 -0500). The
-  block's first run at 15:58 ET stopped on CI in progress and cut nothing (374 item 1). Verbatim (373 item 3, in part):
-  "v1.6.8 IS RULED ON b3c5fbcf0791ff9201136d57882b80d33f01a474. The commit is the #989 merge, the ledger compile
-  afc17728 over 1790723d, as v1.5.0's was the #645 merge."
+  block's first run at 15:58 ET stopped on CI in progress and cut nothing (374 item 1). Verbatim (373 item 3):
+  "THE RULING: v1.6.8 IS RULED ON b3c5fbcf0791ff9201136d57882b80d33f01a474. The commit is the #989 merge, the ledger
+  compile afc17728 over 1790723d, as v1.5.0's was the #645 merge. The operator cuts and pushes it with my block once
+  clause 1(a) reads green; the deploy follows by my block (no migration, requirements.txt unchanged, three unit files
+  shipped and neither installed nor enabled). Then 371 item 5(c)'s order."
   - **Step 1 (373 item 1, verbatim):**
     - (a): "CI ON THE TAG'S COMMIT: b3c5fbcf0791ff9201136d57882b80d33f01a474 (the #989 merge, 15:54:40 ET); its two
       smoke jobs were still running when I wrote this, and the tag block refuses to cut until every check on that sha
@@ -468,16 +470,18 @@ its compare verdict.
     fragments pending. The notes, written on the laptop from b3c5fbcf: 323 lines, 32 sections since v1.6.7, no AMENDED
     line, no ✗ line."
   - **The tag message:**
-    - Stored (`git cat-file -p v1.6.8`): 323 lines and 83,500 bytes; 33 lines begin with `#` (the header and all 32
+    - Stored (`git cat-file -p v1.6.8`): 323 lines and 83,500 bytes (its final newline included); 33 lines begin with `#` (the header and all 32
       `## ` section headings).
     - It is byte-identical to `python3 scripts/release_notes.py --to b3c5fbcf0791ff9201136d57882b80d33f01a474` (323
       lines, exit 0). `git for-each-ref --format='%(contents)'` prints one more newline, as on the earlier entries.
     - No AMENDED line. The one occurrence of the word quotes v1.6.7's record inside #951's section.
-  - **The tag, verbatim (ARCHITECT, addendum 374 item 1, in part):** "CI on b3c5fbcf: fragments=skipped
-    smoke-py310=success smoke=success"; "notes: 323 lines · 32 sections · first line: # Release notes ·
-    b3c5fbcf0791ff9201136d57882b80d33f01a474 (b3c5fbcf) · since v1.6.7"; "PUSHED v1.6.8"; "tag object:
-    5a88468c646ae2198790da448b11d4ddf7befbe1 · points at: b3c5fbcf0791ff9201136d57882b80d33f01a474 · tagger: 2026-11-13
-    16:13:23 -0500".
+  - **The tag, verbatim (ARCHITECT, addendum 374 item 1):** "THE TAG (the ritual's step 3, the operator's console,
+    16:13 ET): "CI on b3c5fbcf: fragments=skipped smoke-py310=success smoke=success"; "notes: 323 lines · 32 sections ·
+    first line: # Release notes · b3c5fbcf0791ff9201136d57882b80d33f01a474 (b3c5fbcf) · since v1.6.7"; "PUSHED
+    v1.6.8"; "tag object: 5a88468c646ae2198790da448b11d4ddf7befbe1 · points at:
+    b3c5fbcf0791ff9201136d57882b80d33f01a474 · tagger: 2026-11-13 16:13:23 -0500". My own read of origin after it: the
+    tag object 5a88468c, its commit b3c5fbcf (main's head), 32 sections in its message. The first run of the block at
+    15:58 ET stopped on CI in progress and cut nothing; that is clause 1(a) of 373 doing its work."
   - **The deploy record, verbatim (ARCHITECT, addendum 374 item 2):** "THE DEPLOY (the operator's console, the host at
     2026-11-13T21:14Z, by my block): before, "release before: v1.6.7 · 6792cefe · reboot pending: no"; "DRY RUN: would
     deploy v1.6.7 -> v1.6.8 (b3c5fbcf)", dry run exit 0; "✓ deploy v1.6.7 -> v1.6.8 (b3c5fbcf, 83 files)"; "· shipped

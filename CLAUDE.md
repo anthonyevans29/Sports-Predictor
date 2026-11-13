@@ -169,11 +169,11 @@ become MORE binding under an income goal, never less."
   nothing at T-35; Step B's live T-15 observation store runs
   (cup_lineup_observations, append-only); Step C CLOSED 2026-11-05 as a
   WRITTEN NO (addendum 256) — the exam's 14.76pp FAIL is a cross-league
-  pricing gap, not a rotation one. earliest_live CLEARED. Reopens only
-  (a) on the perfect-XI probe (read-only, 11-20; declare a context
-  candidate only at <= 6.0pp, else the R-track is closed for the season)
-  or (b) on soccer-v23's harness after v23 passes, in both cases at
-  cup_exam's unchanged gate. EFL Step A 12-15 gates nothing. The exam
+  pricing gap, not a rotation one. earliest_live CLEARED. The perfect-XI
+  probe ran once on 11-13 and MISSED (16.43pp against <= 6.0; addendum
+  367); the R-track is closed for the season; reopens only on
+  soccer-v23's harness after v23 passes, at cup_exam's unchanged gate.
+  EFL Step A 12-15 gates nothing. The exam
   harness + fix-v2 machinery stay merged. UNL: market-only today; lane
   unl (#220) is CONFIRMING on the roadmap — the 60th cohort fixture 11-11,
   the confirmation record 11-12, earliest_live 11-12.

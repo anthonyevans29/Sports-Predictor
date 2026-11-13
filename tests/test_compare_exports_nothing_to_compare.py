@@ -167,6 +167,20 @@ def test_awaiting_outranks_clean_and_a_difference_outranks_awaiting(tmp_path, ca
     assert rc == ce.EXIT_DIVERGENT and out.strip().splitlines()[-1] == "VERDICT: DIVERGENT", out
 
 
+def test_an_awaiting_verdict_line_also_names_a_paired_window_not_read(tmp_path, capsys):
+    """#930 (Codex round 3 on #929, P2): awaiting keeps its priority, but the VERDICT line that the mirror Action
+    parses also names a paired file whose window was not read, as the CLEAN and NOTHING-TO-COMPARE lines name theirs.
+    The file's own `window NOT READ` line and the summary count were already printed; only the verdict line left it."""
+    bare = "fixtures_NHL_2026-11-10.json"                       # a dated bare array: no declared rows list
+    rows = json.dumps([dict(NHL_ROW, utc_date="2027-01-01T00:00:00")])
+    rc, out = run(tmp_path, capsys, {NHL: nhl([NHL_ROW]), bare: rows}, {bare: rows})
+    assert rc == ce.EXIT_NOTHING_TO_COMPARE, out
+    assert ce.WINDOW_NOT_READ in out and "1 window not read" in out, out
+    assert out.strip().splitlines()[-1] == (
+        f"VERDICT: NOTHING-TO-COMPARE (1 compared; awaiting host: {NHL}; 1 paired, window not read: {bare}) — not a "
+        "data verdict")
+
+
 def test_a_paired_pair_empty_in_the_window_is_nothing_to_compare(tmp_path, capsys):
     """"a pair whose in-window rows are empty on both sides" (218 item 1: an empty window is reported, never a pass);
     the 12-24 gap reads neutral. And (d): a 0-row pair of any kind never counts toward CLEAN."""

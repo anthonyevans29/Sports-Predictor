@@ -863,6 +863,10 @@ def paired_verdict(compared, field_diffs, row_diffs, unparseable, paired_missing
               "no paired file differed, so it is not DIVERGENT.")
         parts = [f"{compared} compared"] + [f"awaiting {s}: {', '.join(n for n, w in paired_awaiting if w == s)}"
                                             for s in sides]
+        if paired_unread:
+            # #930 (Codex round 3 on #929, P2): awaiting keeps its priority, and its VERDICT line, which the mirror
+            # Action parses, names an unread paired window too, as the other NOTHING-TO-COMPARE line does
+            parts.append(f"{len(paired_unread)} paired, window not read: {', '.join(paired_unread)}")
         if unpaired_differs:
             parts.append(f"unpaired, on both sides, differ (not a verdict): {', '.join(unpaired_differs)}")
         print(f"VERDICT: NOTHING-TO-COMPARE ({'; '.join(parts)}) — not a data verdict")

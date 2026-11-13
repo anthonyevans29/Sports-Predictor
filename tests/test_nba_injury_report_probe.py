@@ -7,6 +7,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -59,6 +60,16 @@ class Fake:
         if 300 <= status < 400 and allow_redirects:         # what requests does: the target is a GET of its own
             return self(hdr["Location"], headers, timeout, allow_redirects)
         return NS(status_code=status, headers=hdr, content=body, url=url)
+
+
+REAL_HOST_REFUSAL = getattr(probe, "host_refusal", None)
+
+
+@pytest.fixture(autouse=True)
+def _on_the_host(monkeypatch):
+    """The report phase runs on the host only (368 item 4); these tests play the host. The gate itself is tested
+    below with the real function."""
+    monkeypatch.setattr(probe, "host_refusal", lambda: None, raising=False)
 
 
 def run(capsys, argv, pages):
@@ -174,11 +185,13 @@ def test_one_index_read_and_one_document_the_newest_by_its_links_stamp(capsys, m
     assert code == probe.OK, out
     assert [u for u, _ in fake.asked] == [INDEX, "https://reports.example.invalid/files/Injury-Report_2026-11-12_08PM.pdf"]
     assert "REPORT LINKS (.pdf) on the page: 4 · with a date read from the link: 3 · unread: 1" in out
-    assert "unread stamp: 'latest.pdf'" in out
+    assert "links whose stamp does not read: 1" in out and "latest.pdf" not in out     # the name: receipt only (#985)
+    assert [x["file"] for x in tail["links"]["unread"]] == ["latest.pdf"]
     assert "    2026-11-11: 2 · 01:30 PM, 05:30 PM" in out and "    2026-11-12: 1 · 08:00 PM" in out
     assert "ONE REPORT (the newest by its link's stamp)" in out
     assert "PDF magic yes" in out and "UNTRUSTED DATA" in out
     assert tail["report"]["file"] == "Injury-Report_2026-11-12_08PM.pdf" and tail["report"]["reader"] == "pypdf"
+    assert "Injury-Report_" not in out                           # the index's file names: receipt only (Codex on #985)
 
 
 def test_the_fields_print_as_written_with_the_hypotheses_labelled_and_unseen_words_surfaced(capsys, monkeypatch):
@@ -225,10 +238,11 @@ def test_the_script_holds_no_url_and_writes_nothing_but_its_receipt():
     tree = ast.parse(src)
     literals = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
     assert not [s for s in literals if "http://" in s or "https://" in s]
-    # one write in the file: the receipt, mode 0600, by write_private's os.open (368 item 4(ii))
-    assert "write_text(" not in src and "write_bytes(" not in src
-    assert src.count("os.open(") == 1 and src.count("os.write(") == 1
-    assert "open(" not in src.replace("os.open(", "").replace("urlopen(", "")
+    # one write in the file: the receipt, mode 0600, by write_private (a private temporary file renamed into place,
+    # 368 item 4(ii); Codex on #985)
+    assert "write_text(" not in src and "write_bytes(" not in src and "os.open(" not in src
+    assert src.count("os.write(") == 1 and src.count("os.replace(") == 1 and src.count("mkstemp(") == 1
+    assert "open(" not in src.replace("urlopen(", "")
 
 
 def test_the_reader_is_optional_pinned_by_hash_and_never_in_requirements_txt():
@@ -401,11 +415,10 @@ def test_review_every_dated_link_prints_its_file_name_as_written_and_unquoted_or
     code, out, tail, fake = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"],
                                 pages)
     assert "REPORT LINKS (.pdf) on the page: 3 · with a date read from the link: 3 · unread: 0" in out
-    assert "      Injury-Report_2026-11-12_01_30PM.pdf (01:30 PM)" in out
-    assert "      Injury-Report_2026-11-12_05PM.pdf (05:00 PM)" in out
-    assert "      Injury-Report_2026-11-11_08PM.pdf (08:00 PM)" in out
-    assert "nope.pdf" not in out
-    assert "ONE REPORT (the newest by its link's stamp): https://reports.example.invalid/files/Injury-Report_2026-11-12_05PM.pdf" in out
+    assert "    2026-11-12: 2 · 01:30 PM, 05:00 PM" in out and "    2026-11-11: 1 · 08:00 PM" in out
+    assert "nope.pdf" not in out and "Injury-Report_" not in out     # the file names: receipt only (Codex on #985)
+    assert "ONE REPORT (the newest by its link's stamp): the link stamped 2026-11-12 05:00 PM" in out
+    assert tail["report"]["url"] == "https://reports.example.invalid/files/Injury-Report_2026-11-12_05PM.pdf"
     assert sorted(tail["links"]["files"]) == sorted(["Injury-Report_2026-11-12_05PM.pdf",
                                                      "Injury-Report_2026-11-12_01_30PM.pdf",
                                                      "Injury-Report_2026-11-11_08PM.pdf"])
@@ -417,7 +430,7 @@ def test_review_a_newest_date_link_with_no_readable_clock_makes_the_pick_say_so(
              "https://reports.example.invalid/f/Injury-Report_2026-11-12_05PM.pdf": (200, PDF, {})}
     monkeypatch.setattr(probe, "read_pdf_pages", lambda data: PAGE_TEXT)
     code, out, _, _ = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"], pages)
-    assert "no readable clock: 'Injury-Report_2026-11-12_late.pdf'" in out
+    assert "dated links with no readable clock: 1" in out and "_late.pdf" not in out
     assert "the newest by its link's stamp; 1 link(s) on 2026-11-12 carry no readable clock" in out
 
 
@@ -1002,3 +1015,94 @@ def test_364_5_the_strip_is_linear_and_matches_str_strip_without_the_kept_contro
 def test_364_5_line_and_paragraph_separators_are_escaped_on_the_console():
     assert probe.console_safe("a b c") == "a\\u2028b\\u2029c"
     assert probe.console_safe("\x1b ") == "\\x1b\\u2028"
+
+
+# ---- Codex's review round on #985 --------------------------------------------------------------------------------------
+
+def test_985_the_report_phase_is_refused_off_the_host_before_any_fetch(monkeypatch, capsys):
+    monkeypatch.setattr(probe, "host_refusal", REAL_HOST_REFUSAL)
+    from src.walters import desk_policy
+    monkeypatch.setattr(desk_policy, "not_host_reason", lambda: "this machine's role is laptop")
+    fake = Fake(report_pages())
+    out = probe.ROOT / "logs" / "availability" / "_probe_tests" / "never_inproc.json"
+    out.unlink(missing_ok=True)
+    assert probe.main([*REPORT_ARGS, "--out", str(out)], get=fake) == probe.REFUSED
+    assert "runs on the host only" in capsys.readouterr().out and fake.asked == [] and not out.exists()
+    monkeypatch.setattr(desk_policy, "not_host_reason", lambda: None)
+    assert REAL_HOST_REFUSAL() is None
+
+
+def test_985_every_text_line_of_the_document_is_in_the_receipt(capsys, monkeypatch):
+    rows = [f"Synthetic Rowname, P{i} Out Knee" for i in range(40)]
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: ["Injury Report: 11/12/26 08:00 PM\n" + "\n".join(rows)])
+    code, out, rec, _ = run(capsys, REPORT_ARGS, report_pages())
+    assert set(rows) <= set(rec["report"]["fields"]["lines_all"]) and "Rowname" not in out
+
+
+def test_985_the_index_text_stays_off_the_console(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
+    pages = report_pages()
+    page = pages[INDEX][1].decode().replace("</ul>", '<li><a href="/files/Synthetic-Rowname-Notes.pdf">Synthetic '
+                                            'Rowname anchor</a></li></ul>')
+    pages[INDEX] = (200, page.encode(), pages[INDEX][2])
+    code, out, rec, _ = run(capsys, REPORT_ARGS, pages)
+    assert "Rowname" not in out and "Injury-Report_" not in out and "/files/" not in out
+    assert any("Synthetic-Rowname" in x["file"] for x in rec["links"]["unread"])
+    assert "2026-11-11: 2" in out and "2026-11-12: 1" in out and rec["report"]["url"].endswith(".pdf")
+
+
+def test_985_a_stamp_without_a_clock_is_not_the_strict_form(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: ["Injury Report: 11/12/26\nx Out y"])
+    code, out, rec, _ = run(capsys, REPORT_ARGS, report_pages())
+    assert "found, NOT of the date-and-clock form" in out and '"Injury Report: 11/12/26"' not in out
+
+
+def test_985_a_refused_report_receipt_makes_no_folder(tmp_path, capsys):
+    target = tmp_path / "new" / "sub" / "r.json"
+    assert probe.main([*REPORT_ARGS, "--out", str(target)], get=Fake(report_pages())) == probe.REFUSED
+    assert not (tmp_path / "new").exists()
+
+
+def test_985_the_receipt_replaces_a_link_never_writes_through_it(tmp_path, monkeypatch, capsys):
+    import shutil
+    import tempfile
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
+    base = probe.ROOT / "logs" / "availability" / "_probe_tests"
+    base.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(dir=base))
+    try:
+        other = folder / "other.json"
+        other.write_text("keep me")
+        hard = folder / "hard.json"
+        os.link(other, hard)                                        # a hard link at the target
+        probe.main([*REPORT_ARGS, "--out", str(hard)], get=Fake(report_pages()))
+        assert other.read_text() == "keep me" and "Rowname" in hard.read_text()
+        sym = folder / "sym.json"
+        sym.symlink_to(other)                                       # a symlink at the target
+        probe.main([*REPORT_ARGS, "--out", str(sym)], get=Fake(report_pages()))
+        assert other.read_text() == "keep me" and not sym.is_symlink() and "Rowname" in sym.read_text()
+        assert (sym.stat().st_mode & 0o777) == 0o600
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_985_a_short_write_is_continued(monkeypatch, tmp_path):
+    real = os.write
+    monkeypatch.setattr(probe.os, "write", lambda fd, b: real(fd, bytes(b)[:7]))     # seven bytes a call
+    target = tmp_path / "r.json"
+    probe.write_private(target, json.dumps({"a": "x" * 100}))
+    assert json.loads(target.read_text()) == {"a": "x" * 100}
+
+
+def test_985_run_as_a_script_off_the_host_the_report_phase_is_refused_not_crashed(tmp_path):
+    import subprocess
+    import sys
+    env = {k: v for k, v in os.environ.items() if k not in ("SP_EXPORTS_MIRROR_ROLE", "PYTHONPATH")}
+    env["SP_EXPORTS_MIRROR_ROLE"] = "laptop"
+    never = probe.ROOT / "logs" / "availability" / "_probe_tests" / "never_script.json"
+    never.unlink(missing_ok=True)
+    r = subprocess.run([sys.executable, str(SCRIPT), "--report", "--index-url", INDEX, "--terms-ruling", "addendum 1",
+                        "--out", str(never)],
+                       cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=120)
+    assert r.returncode == probe.REFUSED, (r.stdout[-500:], r.stderr[-800:])
+    assert "runs on the host only" in r.stdout and "Traceback" not in r.stderr and not never.exists()

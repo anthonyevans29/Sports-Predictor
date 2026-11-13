@@ -690,7 +690,7 @@ def _read_quietly(data: bytes) -> list[str]:
 # each part ends at a non-letter, so a row's name joined onto the line ("... 26 Etienne", "... PM Esteban", "... 08:00
 # Amari") gives none of its letters to the stamp (the first adversarial pass on #368's PR)
 STAMP_STRICT = re.compile(r"Injury\s+Report\s*:\s*\d{1,2}/\d{1,2}/\d{2,4}(?![\dA-Za-z])"
-                          r"(?:\s+\d{1,2}:\d{2}(?![\dA-Za-z])(?:\s*[AP]\.?M\.?(?![A-Za-z]))?)?"
+                          r"\s+\d{1,2}:\d{2}(?![\dA-Za-z])(?:\s*[AP]\.?M\.?(?![A-Za-z]))?"      # the clock required
                           r"(?:\s*(?:ET|EST|EDT)(?![A-Za-z]))?", re.I)
 
 
@@ -728,7 +728,8 @@ def fields_report(pages: list[str], say: Out) -> dict:
     say(f"  BODY LINES WITH NONE OF THE HYPOTHESISED STATUS WORDS: {len(bare)} (of them, with a 'Last, First' name: "
         f"{len(named)}; counted by text line as extracted); every one is in the receipt only, so an unseen word "
         "surfaces there and no row reaches the console (368 item 4(ii))")
-    return {"pages": len(pages), "lines": len(lines), "stamp": stamp, "first_lines": first, "headers": headers,
+    return {"pages": len(pages), "lines": len(lines), "lines_all": lines,   # every text line (Codex on #985)
+            "stamp": stamp, "first_lines": first, "headers": headers,
             "status_lines": {w: counts.get(w, 0) for w in STATUS_WORDS}, "lines_no_status_word": len(bare),
             "name_rows_no_status_word": len(named), "lines_no_status_word_sample": bare[:ROW_SAMPLE],
             "lines_no_status_word_all": bare}           # every one, in the receipt (Codex on #970)
@@ -766,22 +767,21 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     say(f"  REPORT LINKS (.pdf) on the page: {len(links)} · with a date read from the link: {len(parsed)} · "
         f"unread: {len(links) - len(parsed)}")
     unread = [x for x in links if not x["date"]]
-    for x in unread:
-        say(f"    unread stamp: {x['file']!r} (text {x['text'][:80]!r})")
-    for x in [x for x in parsed if not x["clock"]]:
-        say(f"    no readable clock: {x['file']!r}")
+    # 368 item 4(ii): the index's own text (a file name, an anchor's words) is untrusted and stays in the receipt; the
+    # console prints the links' stamps by day and counts only (Codex on #985)
+    no_clock = [x for x in parsed if not x["clock"]]
+    say(f"  links whose stamp does not read: {len(unread)} · dated links with no readable clock: {len(no_clock)} "
+        "(their file names and text are in the receipt only)")
     by_day: dict[str, list] = defaultdict(list)
     for x in parsed:
         by_day[x["date"]].append(x)
-    say("  REPORTS PER DAY: each link's FILE NAME AS WRITTEN, with the clock read from it in brackets (normalized; "
-        "the zone is the document's own, read below):")
+    say("  REPORTS PER DAY: the clock read from each dated link (normalized; the zone is the document's own, read "
+        "below); the file names are in the receipt only:")
     for d in sorted(by_day):
         xs = sorted(by_day[d], key=lambda x: _sort_key(d, x["clock"]))
         say(f"    {d}: {len(xs)} · {', '.join(x['clock'] or 'no clock' for x in xs)}")
-        for x in xs:
-            say(f"      {x['file']} ({x['clock'] or 'no readable clock'})")
     rec["links"] = {"total": len(links), "dated": len(parsed), "files": [x["file"] for x in links],
-                    "unread": [x["file"] for x in unread],
+                    "unread": [{"file": x["file"], "text": x["text"]} for x in unread],
                     "per_day": {d: [{"file": x["file"], "clock": x["clock"]}
                                     for x in sorted(v, key=lambda x: _sort_key(d, x["clock"]))]
                                 for d, v in sorted(by_day.items())}}
@@ -794,7 +794,8 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         blind = sum(1 for x in by_day[pick["date"]] if not x["clock"])
         if blind:
             why += f"; {blind} link(s) on {pick['date']} carry no readable clock, so the newest of that day is not certain"
-    say(f"\nONE REPORT ({why}): {pick['url']}")
+    say(f"\nONE REPORT ({why}): the link stamped {pick['date'] or 'with no readable date'}"
+        f"{' ' + pick['clock'] if pick.get('clock') else ''} (its URL is in the receipt only)")
     status, hdr, data, err = fetch(pick["url"])
     ctype = next((v for k, v in hdr.items() if k.lower() == "content-type"), None)
     say(f"  HTTP {status} · content-type {ctype!r}"
@@ -836,6 +837,20 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     return OK, rec
 
 
+def host_refusal() -> str | None:
+    """The report phase runs on the HOST only (ARCHITECT 2026-11-13, addendum 368 item 4): refused, before any fetch,
+    wherever desk_policy.not_host_reason (the repo's host-only gate, addendum 178 R6) names another machine."""
+    if str(ROOT) not in sys.path:                    # run as a script, the checkout is not on the path by itself
+        sys.path.insert(0, str(ROOT))
+    try:
+        from src.walters.desk_policy import not_host_reason
+        why = not_host_reason()
+    except Exception as e:                           # noqa: BLE001 - the gate cannot be read: refused, fail closed
+        why = f"the host gate could not be read ({type(e).__name__})"
+    return None if why is None else (f"REFUSED: the report phase runs on the host only (addendum 368 item 4): {why}; "
+                                     "nothing fetched")
+
+
 def refuse_report_out(path: Path | None) -> str | None:
     """The report phase's receipt holds the report's rows: it is required, and it lives under logs/availability/ on the
     host (ARCHITECT 2026-11-13, addendum 368 item 4(ii)), checked before any fetch."""
@@ -852,13 +867,31 @@ def refuse_report_out(path: Path | None) -> str | None:
 
 
 def write_private(path: Path, text: str) -> None:
-    """The receipt, written mode 0600 whether the file is new or not (368 item 4(ii))."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    """The receipt, mode 0600 (368 item 4(ii)): written WHOLE (a short write is continued, never left truncated) to a
+    private temporary file in the receipt's own folder, then renamed over the target's directory entry, so a symlink or
+    a hard link at the target is replaced and never written through (Codex on #985)."""
+    import tempfile
+    data = text.encode("utf-8")
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")   # created mode 0600
     try:
+        view = memoryview(data)
+        while view:
+            n = os.write(fd, view)
+            if n <= 0:
+                raise OSError("the receipt could not be written whole")
+            view = view[n:]
         os.fchmod(fd, 0o600)
-        os.write(fd, text.encode("utf-8"))
-    finally:
+        os.fsync(fd)
+    except BaseException:
         os.close(fd)
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    os.close(fd)
+    try:
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def refuse_out(path: Path | None) -> str | None:
@@ -899,7 +932,9 @@ def main(argv=None, get=None) -> int:
     a = ap.parse_args(argv)
     escape_library_logs()
     say = Out()
-    refused = refuse_out(a.out) or (refuse_report_out(a.out) if a.report else None)
+    # the report phase: the host first, then the receipt's place, BEFORE the generic check makes any folder (Codex on
+    # #985); nothing is fetched on a refusal
+    refused = ((host_refusal() or refuse_report_out(a.out)) if a.report else None) or refuse_out(a.out)
     if refused:
         say(refused)
         return REFUSED
@@ -917,14 +952,21 @@ def main(argv=None, get=None) -> int:
         else:
             code, rec = terms_phase(a, say, fetch)
     receipt = {"phase": phase, "exit": code, "fetched": fetch.fetched, "redirects": fetch.redirects, **rec}
-    say(f"\nFETCHED THIS RUN ({len(fetch.fetched)}, each once): " + (" · ".join(fetch.fetched) or "nothing"))
+    # the report phase: a URL the index named (the document's, a redirect's Location) is index-derived text, so the
+    # console and the tail name only the architect's own index URL; the receipt keeps every URL (Codex on #985)
+    def shown(u):
+        return u if not a.report or u == a.index_url else "<the report document: its URL is in the receipt>"
+    shown_fetched = [shown(u) for u in fetch.fetched]
+    say(f"\nFETCHED THIS RUN ({len(fetch.fetched)}, each once): " + (" · ".join(shown_fetched) or "nothing"))
     for r in fetch.redirects:
-        say(f"  {REDIRECTED}: {r['url']} answered HTTP {r['http']}, Location "
-            f"{r['location'] if r['location'] is not None else '(none sent)'} (the architect reads it "
-            "and re-issues the block; nothing was fetched for it)")
+        loc = r['location'] if r['location'] is not None else '(none sent)'
+        say(f"  {REDIRECTED}: {shown(r['url'])} answered HTTP {r['http']}, Location "
+            f"{loc if not a.report else '(in the receipt)'} (the architect reads it and re-issues the block; nothing "
+            "was fetched for it)")
     if a.out:
         try:
-            write_private(a.out.expanduser().resolve(), json.dumps(receipt, indent=1, default=str))
+            out = a.out.expanduser()
+            write_private(out.parent.resolve() / out.name, json.dumps(receipt, indent=1, default=str))
             say(f"receipt written to {a.out}")
         except OSError as e:
             say(f"FAILED: the receipt was not written: {type(e).__name__}: {e} (the console above is the receipt)")
@@ -933,11 +975,12 @@ def main(argv=None, get=None) -> int:
     # the tail is a SUMMARY (Codex on #970): the evidence (every page line, every robots line, every window) is in the
     # --out receipt, never on stdout
     terms, robots, report = rec.get("terms") or {}, rec.get("robots") or {}, rec.get("report") or {}
-    summary = {"phase": phase, "exit": code, "fetched": fetch.fetched, "redirects": fetch.redirects,
+    summary = {"phase": phase, "exit": code, "fetched": shown_fetched,
+               "redirects": fetch.redirects if not a.report else len(fetch.redirects),
                "receipt": str(a.out) if a.out else None, "refused": rec.get("refused"),
                "page_lines": len(terms.get("page_lines") or []), "robots_lines": robots.get("lines"),
                "windows": len(terms.get("windows") or []),
-               "report": {k: report.get(k) for k in ("file", "bytes", "sha256", "reader")} if report else None}
+               "report": {k: report.get(k) for k in ("bytes", "sha256", "reader")} if report else None}
     print(f"{TAIL} " + json.dumps(summary, default=str, sort_keys=True), flush=True)
     return code
 

@@ -13,3 +13,10 @@
   - **The stamp:** its parts now end at a non-letter, so a row's name joined onto the line ("… 26 Etienne", "… PM Esteban", "… 08:00 Amari") gives none of its letters to the console.
   - **The placement:** the receipt must sit under THIS checkout's own `logs/availability/`, checked by resolved location. Another case of the same names, the folder itself, the mirror's `exports/bulletins/` subtree and a `logs/availability/` elsewhere are all refused.
   - **The write:** it goes to the resolved path that was checked, so `~` cannot split the check from the write, and it opens without following a symlink.
+- **Codex's review round on #985** (three P1s and four P2s, each fixed fail-first; eight tests fail on e17c8583):
+  - **The host gate (P1):** the report phase is refused before any fetch off the host, by `desk_policy.not_host_reason`. Run as a script, the checkout is put on the path; a gate that cannot be read refuses.
+  - **The receipt (P1):** it holds every text line of the document (`lines_all`).
+  - **The index's text (P1):** file names, anchor text, the document's URL and a redirect's Location stay off the console and the tail line. The console prints the stamps by day and counts.
+  - **The stamp (P2):** it needs its clock to be the strict form.
+  - **The placement (P2):** the report-phase checks run before the generic check makes a folder.
+  - **The write (P2):** it is whole (short writes continued), to a private temporary file renamed over the target's entry, so a symlink or hard link there is replaced and never written through.

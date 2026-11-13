@@ -1,0 +1,22 @@
+**2026-11-13 — THE INFERRED DATA LAYER (ARCHITECT, addendum 375 at 16:40 ET, amended by addendum 376 at 16:45 ET): the operator's decisions recorded, the two sourcing steps closed, lane nhl's dates cleared, lane inferred-layer opened (#992). NOTHING IS BUILT OR RUN ON EITHER ADDENDUM, AND NO BAR MOVES.**
+- **Sourcing (375 item 1(vi)):** NHL: none bought; "we build and measure our own". NFL: the 11-06 decision stands (nflverse depth charts; no feed bought).
+- **Adopted (375 item 1(i)–(v)):**
+  - one pilot, NHL starting goalies, shadow only;
+  - the inferred rows live in their own store on the host, never in sports.db, and never on the laptop, in the public repo or in an Issue;
+  - the LLM provider sits behind a plug;
+  - inferred context reaches a bulletin only after the pilot's first scored read;
+  - after the pilot: NBA, NFL, soccer leagues, MLB and tennis at their 2027 seasons, college last.
+- **The provider and the cap (376 item 1):**
+  - The first provider plug is the Claude API. Its key's NAME is `ANTHROPIC_API_KEY`, and its value goes into host.env by the operator's hand only.
+  - There is no spend cap during the controlled tests. The daily cap is set by the operator on their measured cost and is in force before anything runs on a timer.
+  - Controlled tests (376 item 2): run by hand by the architect's block on the host; bounded by count; token counts printed; no dollar figure written to the repo, an Issue or a PR; test rows never enter the scored record.
+- **The layer's rules, standing from 2026-11-13 (375 item 2, verbatim):**
+  > 2. THE LAYER'S RULES, standing from today (the page he approved, in my words here; quote these in the records). (a) TWO TIERS, NEVER ONE TABLE: tier api is a fact a provider or league endpoint serves; tier inferred is a stamped claim derived from public news, with a confidence. Every row carries its tier. An inferred row never overwrites or fills an API field; where an API fact exists for the same question the API fact is used and the inferred row stays as the record to be scored. (b) STATUS WORDS of the inferred tier: projected (our estimate under a declared rule, no source), likely (a source suggests it), stated (a source says it outright); each row with its evidence links, the publication time each source showed, the fetch time, the model and prompt version. Append-only: a change of mind is a new row. (c) TWO CLASSES: a TRACKED ELEMENT has a truth that arrives later and is scored on every row; a CONTEXT NOTE is anything else, never scored, never a model input, labelled as reading. A note becomes an element only by promotion from a candidate register (its definition, the truth that scores it, its free baseline), reviewed by me monthly and approved by the operator. (d) SCORED AND GATED: by element, by status, by lead time, with calibration, against the best free baseline (the API layer's own listing where one exists; "the same as last game"). The sample and the margin are written before the first row is stored and do not move. An element that passes may be DECLARED as an input to a candidate, which then runs at that sport's UNCHANGED gate. (e) FORWARD-ONLY: no season is backfilled by an LLM. (f) NO MARKET CONTENT in what the reader is given: no odds, lines or betting articles (the market is a reference, never a model feature). (g) UNKNOWN STAYS UNKNOWN: no evidence, no row. (h) STORED, NEVER REGENERATED: a new model or prompt version starts a new scored series. (i) EACH SOURCE'S TERMS ARE READ BEFORE ITS FIRST FETCH, by a terms phase as the NBA probe has; facts kept, text not republished; one fetch per page per run; on an objection the source is unplugged and its rows destroyed. (j) EVERY PART IS A PLUG. (k) PASS STAYS PASS: nothing inferred changes a call or a stake before its gates.
+- **lane nhl:**
+  - The 11-13 sourcing step is done, and earliest_live 2027-01-22 is cleared.
+  - The 12-28, 12-29, 01-20 and 01-21 steps are removed, with their dates kept in the moved line.
+  - Added: the ceiling readiness read (code, 11-19), and the true-starter ceiling test declared with its threshold or a written no (architect, 11-24).
+  - live_needs is untouched.
+- **lane nfl-qb:** the 11-13 step is done; 11-16 stands.
+- **lane inferred-layer (#992):** design proposal 11-25; design PR 12-01; the architect's ruling with the pilot's gate written 12-03.
+- **"No date here is a reason to shorten anything (59 item 5(c))"** (375 item 3).

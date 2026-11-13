@@ -294,34 +294,25 @@
           "what": "the operator's sourcing decision on an external projected-starters feed: a named source with a pregame stamp, or none (ARCHITECT 2026-10-31 11:50 ET, addendum 191 item 2(a): the 12-28, 12-29, 01-20 and 01-21 steps and earliest_live 2027-01-22 stand only on a source by 11-13; the clearing, if it comes, is a later moved line)",
           "owner": "operator",
           "due": "2026-11-13",
+          "done": {
+            "date": "2026-11-13",
+            "receipt": "ARCHITECT 2026-11-13 16:40 ET, addendum 375 item 1(vi), verbatim: \"(vi) THE TWO SOURCING STEPS DUE TODAY: NHL — none bought; we build and measure our own. NFL — his 11-06 decision stands (nflverse depth charts; no feed bought).\" The operator's words (375 item 1, verbatim): \"we need to create a prediction layer for these data points ... an LLM-based layer that may even be scanning sports news on a daily basis to infer these additional enriched data elements ... we could always create a secondary lane for predicted inputs for analysis\"; then: \"We should be layering this as an inferred layer that not only targets our specific missing data, but any additional data points. But it does need to be tagged as separate because it's not written in stone and validated by an API\"; and on the architect's strategy page: \"it looks good. I wanted a solid data-driven foundation and this is where we're at\". The six recommendations adopted (375 item 1(i)-(vi)); the inferred layer is lane inferred-layer (#992), its pilot NHL starting goalies, shadow only (375 item 1(i)). Done by addendum 375 item 3(a)."
+          }
+        },
+        {
+          "what": "the ceiling readiness read (item 4(a))",
+          "owner": "code",
+          "due": "2026-11-19",
           "done": null
         },
         {
-          "what": "the 600th regular-season game of 2026-27 is final (a projection; the stored schedule gives the date in the block of 2026-10-14)",
-          "owner": "calendar",
-          "due": "2026-12-28",
-          "done": null
-        },
-        {
-          "what": "the one run, on my word, and the verdict",
+          "what": "the true-starter ceiling test declared with its threshold, or my written no",
           "owner": "architect",
-          "due": "2026-12-29",
-          "done": null
-        },
-        {
-          "what": "the last confirmation game is played (150 games in the last three declarations)",
-          "owner": "calendar",
-          "due": "2027-01-20",
-          "done": null
-        },
-        {
-          "what": "the confirmation record and the Desk policy ruling",
-          "owner": "architect",
-          "due": "2027-01-21",
+          "due": "2026-11-24",
           "done": null
         }
       ],
-      "earliest_live": "2027-01-22",
+      "earliest_live": null,
       "live_needs": "PASS at the frozen bar on 600 or more regular-season games of 2026-27 (the NHL API's game type 2; the included ids and counts listed in the run's receipt), CONFIRMED, and a Desk policy ruling. The bar is the harness's criterion set as written in src/walters/nhl_backtest.py: the candidate's test log-loss at or under the home-rate baseline's minus 0.010 (LL_MARGIN), the calibration bands, the ratings range; its number is read from the 600-game cohort at the run, never before (0.6866 was the rule's value on the retired 2025 cohort, not the rule). A candidate whose state is not an Elo rating declares its own stability guards with its declaration (addendum 157 item 3).",
       "vs_close": "behind. The shadow (v7) reads 0.6747 against the market's 0.6482 over the 64 games graded to 2026-10-13 (my read of the laptop's shadow exports on the mirror). The bar certifies better than the schedule, not better than the market.",
       "moved": [
@@ -340,6 +331,14 @@
           "now": "2026-11-06",
           "why": "the 10-30 step (candidate nine declared, or a written no) is done as the 08:10 ET ruling of no candidate today; the declaration or the written no follows the leaders-order receipt, on 11-06",
           "ruling": "ARCHITECT 2026-10-31 12:40 ET, addendum 192 item 1: \"THE NHL 11-06 STEP — RULED IN (the 10-30 08:10 ET ruling's item (4) appended it; addendum 191 item 2(a) dropped it by omission). Two steps land before the 11-13 sourcing step, each with its moved line quoting this addendum\"; ARCHITECT 2026-10-30 08:10 ET, #105, item (4): \"My declaration or written no on 11-06 (a moved line: the 10-30 ruling done, the 11-06 step appended).\""
+        },
+        {
+          "moved_on": "2026-11-13",
+          "which": "earliest_live",
+          "was": "2027-01-22",
+          "now": null,
+          "why": "the operator's sourcing decision of 2026-11-13 named no source (addendum 375 item 1(vi): \"NHL — none bought; we build and measure our own.\"), and by addendum 191 item 2(a) the 12-28, 12-29, 01-20 and 01-21 steps and earliest_live 2027-01-22 stand only on a source by 11-13. No live date stands, and the four steps are cleared with it, by the same item: \"the 600th regular-season game of 2026-27 is final (a projection; the stored schedule gives the date in the block of 2026-10-14)\" due 2026-12-28; \"the one run, on my word, and the verdict\" due 2026-12-29; \"the last confirmation game is played (150 games in the last three declarations)\" due 2027-01-20; \"the confirmation record and the Desk policy ruling\" due 2027-01-21 (a step's due is never cleared and a moved line's now is null only for earliest_live, addendum 61 item 4: the steps are removed by the quoted ruling and their dates are recorded here, as addendum 302 item 3 did for ncaa and 267 item 2(3) for nfl-v2). Two steps are added by the same item: \"the ceiling readiness read (item 4(a))\" (addendum 375 item 4(a), Dev 2's read on #105), code, due 2026-11-19; \"the true-starter ceiling test declared with its threshold, or my written no\", architect, due 2026-11-24. The bar's text in live_needs is not touched. The bar did not move",
+          "ruling": "ARCHITECT 2026-11-13 16:40 ET, addendum 375 item 3(a), MOVED LINE: \"(a) docs/roadmap.json, lane nhl: the 11-13 sourcing step done, its receipt this addendum's item 1(vi) with his words; by addendum 191 item 2(a) the 12-28, 12-29, 01-20 and 01-21 steps and earliest_live 2027-01-22 do not stand without a source named today, so each is cleared with its moved line (now null) quoting this item; two steps added: \"the ceiling readiness read (item 4(a))\", code, due 2026-11-19, and \"the true-starter ceiling test declared with its threshold, or my written no\", architect, due 2026-11-24. The bar's text in live_needs is not touched.\""
         }
       ]
     },
@@ -500,7 +499,10 @@
           "what": "the operator's sourcing decision on an external pregame starters/depth-chart source for the NFL (a named source with a pregame stamp and its terms, or none) — the same date as the NHL's sourcing step, the two decisions together",
           "owner": "operator",
           "due": "2026-11-13",
-          "done": null
+          "done": {
+            "date": "2026-11-13",
+            "receipt": "ARCHITECT 2026-11-13 16:40 ET, addendum 375 item 1(vi), verbatim: \"(vi) THE TWO SOURCING STEPS DUE TODAY: NHL — none bought; we build and measure our own. NFL — his 11-06 decision stands (nflverse depth charts; no feed bought).\" The operator's words (375 item 1, verbatim): \"we need to create a prediction layer for these data points ... an LLM-based layer that may even be scanning sports news on a daily basis to infer these additional enriched data elements ... we could always create a secondary lane for predicted inputs for analysis\"; then: \"We should be layering this as an inferred layer that not only targets our specific missing data, but any additional data points. But it does need to be tagged as separate because it's not written in stone and validated by an API\"; and on the architect's strategy page: \"it looks good. I wanted a solid data-driven foundation and this is where we're at\". Done by addendum 375 item 3(b), verbatim: \"(b) lane nfl-qb: the 11-13 sourcing step done on item 1(vi); the 11-16 step stands.\""
+          }
         },
         {
           "what": "the STALE_BOOK_H NFL re-read as already dated, and the written declaration or no on any sourced feed",
@@ -943,6 +945,37 @@
       "earliest_live": null,
       "live_needs": "No model and no call (addendum 261 item 4). ARCHITECT 2026-11-05 11:40 ET, addendum 261 item 2(e), verbatim: \"A MODEL: NONE DECLARED. Tennis is the one new sport with a known public mechanism (surface-specific Elo) and a literature in which it has held its own against the market — modestly, and mostly before 2015. A candidate declares only on the certified pot, at a frozen gate written before any result; earliest_live null.\" NOTE (ARCHITECT 2026-11-06 12:20 ET, addendum 270 item 6, verbatim): \"results source: Kalshi settlement (269); history pot: Kalshi settled markets (270); tennis-data.co.uk closed by access from the US (270 item 1), its terms and listing on #838; the GitHub archive closed by licence (270 item 3)\". THE SOURCES, RULED on the stage-1 receipt (ARCHITECT 2026-11-06, addendum 269 items 1-3, 11:40 ET, and addendum 270 items 1-5, 12:20 ET; verbatim in the records PR's ledger entry): the market-only record is the two tour series KXATPMATCH and KXWTAMATCH \"and nothing else\" (269 item 1, K1); \"THE MATCHER KEYS ON THE MARKET'S yes_sub_title, NEVER THE EVENT TITLE\" (K2); \"for the MARKET-ONLY record, KALSHI'S OWN SETTLEMENT IS THE RESULTS SOURCE\" (269 item 2): 'yes' / 'no' names the winner (expiration_value), 'scalar' is its own status with the fraction kept and NO winner, '' is not settled (269 item 3(b)); the score, the sets, the retirement's point and the official winner of an incomplete match are \"NULL AND LABELLED (law 4) until a source serves them under terms we have read\" (269 item 2). The wiring PR (12-12) reads 269 item 3(a)-(f) before anything is mapped: the series' contract_terms_url clause on incomplete matches QUOTED on the PR before the status map (3(c)); the adapter pages to the last page, a cursor left a refusal (3(d)); the fee M for the two series READ from the schedule, KXATPMATCH and KXWTAMATCH (1.0, 1.0) (274 item 1(b), not in #848). \"the first PAPER record is the first KXATPMATCH / KXWTAMATCH event the chain captures on or after 12-28\" (269 item 2). tennis-data.co.uk is CLOSED as a SOURCE \"by ACCESS, not by terms\" (270): \"a source is readable for this project only from where the project's machines run — the laptop and the host, both in the US — by a plain client, under terms we have quoted\" (270 item 1); stage 2 does not run, block_1106_tennis_stage2.txt is WITHDRAWN and the --user-agent PR of 269 item 4(c)(ii) is NOT built (270). The GitHub match archive is CLOSED by its licence, Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (270 item 3: \"A non-commercial licence closes a source for this project\"). THE HISTORY POT is Kalshi's own settled markets (270 item 5): it ACCRUES from 12-28 under the chain as the PAPER record itself; a ONE-TIME read-only backfill of the 2026 season's settled markets only on the day a model lane asks for it, \"by a block of mine, and not before — no model lane exists, so no backfill is scheduled\"; \"A future tennis model candidate is declared on this pot or not at all; a paid results API is named in that declaration, not bought before it (261 item 3).\" No date moves (269, 270). Undated lines: the operator's paste on #838, verbatim, of the 'Legal disclaimer' and 'Liability Disclaimer' pages and the data pages' listing for 2025 and 2026, men's and women's (270 item 2); the licence line from the original repository's README, read on the laptop (270 item 3); the wiring waits for the off-season window (261 item 3); the chain's timer is the architect's block (261 item 0). THE HISTORY-POT STEP (due 2027-01-10) REMOVED by a quoted ruling (ARCHITECT 2026-11-06 19:35 ET, addendum 278 item 1; the validator's rule, addendum 61 item 4: \"A step's due is never cleared: a step is done, moved, or removed by a quoted ruling\"), on addendum 270 item 5, verbatim: \"THE HISTORY POT, RULED: Kalshi's own settled markets are the pot — Kalshi-native, the mission's own word. [...] The pot ACCRUES from 12-28 under the chain as the PAPER record itself; a ONE-TIME read-only backfill of the 2026 season's settled markets (704 ATP and 864 WTA events read in stage 1) is possible on the day a model lane asks for it, by a block of mine, and not before — no model lane exists, so no backfill is scheduled.\" THE UNDATED STEP, recorded here and not as a step (src/roadmap.py validate() requires every step's due to be a real date, so an undated step does not validate; a ruling may add validator support): ARCHITECT 2026-11-07 16:15 ET, addendum 287 item 2, verbatim: \"THE RECORDS after the merge (286 item 4(f)): the wiring step done early 11-07; the new undated step \"the kickoff instant ruled from THE TIMES; the retraction fix; the timer enabled by the architect's block after both\"; in the next records PR.\" It is addendum 286 item 4(f)'s step (ARCHITECT 2026-11-07 14:55 ET, verbatim: \"a new undated step on the lane: \"the kickoff instant ruled from the served receipt's THE TIMES; the timer enabled by the architect's block after it\"; the first PAPER record on or after 12-28 stands and now depends on that step\") with the retraction fix added: the chain ships disabled and no tennis row is written in production before the kickoff ruling (286 item 4(a)); the retraction fix rides the kickoff follow-up PR with its fail-first test, and sp-tennis-daily.timer is enabled only after both are on the host (287 item 2). THE TOUR SEASON, a records note (ARCHITECT 2026-11-07 14:55 ET, addendum 286 item 4(b), verbatim): \"the tour season (the 2027 season opening in late December 2026) is a records note on the lane, and a model lane that ever needs tour seasons declares the boundary from the tours' published calendars, never from a date guessed here.\" THE UNDATED STEP'S TEXT, RULED (ARCHITECT 2026-11-08 07:50 ET, addendum 289 item 1(a), verbatim): \"the kickoff = the served occurrence_datetime; the retraction fix; the expiration_value shape read; the timer enabled by the architect's block after the stored receipt\". It is recorded here and not as a step, for the reason above (src/roadmap.py validate() requires every step's due to be a real date); the 287 item 2 text above is superseded by 289 item 1(a) and stays as the record. THE KICKOFF, RULED from THE TIMES (ARCHITECT 2026-11-08 07:55 ET, addendum 288 item 1, the RULED sentences verbatim): \"RULED: a tennis row's kickoff = the event's occurrence_datetime, as served, UTC; both markets of the event must carry the same value (a difference refuses the event with its own label, counted); absent on both → expected_expiration_time by the same rule; absent on all four → the row is stored with the conservative UTC+14 instant AND the label START_UNREAD, so it is never captured and the receipt counts it. The stored kickoff is re-read on every sync (a postponed match's market \"will remain open and close after the rescheduled match has finished (within two weeks)\" — the venue's own words below — so the instant moves and the row follows it). The coverage day is the ET day of the kickoff, which is the ticker's date; the shared matcher's date-only rule therefore reads the right row; the IN_PLAY refusal fires at the real start. The chain's three ticker days at 06:53Z now write rows whose kickoffs lie ahead.\" THE CONTRACT CLAUSE (ARCHITECT 2026-11-08 07:55 ET, addendum 288 item 3, from its clause sentence to the early_close_condition, verbatim; source: the tennis served receipt the architect read in addendum 288, \"12:29Z, 22 calls, exit 0\"): \"[...] quoted from rules_secondary (686 distinct values, one sentence common to every market; CONTRACT_TERMS_QUOTE fills from this): \"If the match does not occur (signaled by a ball being played) due to a player injury, walkover, forfeiture, or any other cancellation (all before the match starts), the market will resolve to a fair price in accordance with the rules. If this match is postponed or delayed, the market will remain open and close after the rescheduled match has finished (within two weeks).\" And rules_primary: \"If <player> wins the <A> vs <B> professional tennis match in the <event> after a ball has been played, then the market resolves to Yes.\" early_close_condition on every market: \"This market will close and expire after a winner is declared.\" [...]\" THE LISTING'S EROSION, a records note (ARCHITECT 2026-11-09 12:25 ET, addendum 308 item 1(b): \"the lane's text names the erosion\"; the limitation #905): the venue's /markets listing is not a stable history, as settled markets leave it (30 events of ~1,500 between the 11-08 and 11-09 served reads, 308 item 1), so, RULED (308 item 1(a), verbatim): \"the history pot is what the DB stores from the first load on, as 270 item 5 already has it (\"no backfill is scheduled\") — the 7-day window stands, no back-load by windows\".",
       "vs_close": "n/a: no model; the lane prices nothing (addendum 261 item 4: no model, no call, no Desk family). The close is captured for the PAPER record from the wiring PR on (item 0).",
+      "moved": []
+    },
+    {
+      "lane": "inferred-layer",
+      "title": "The inferred data layer: two tiers (api, inferred), scored and gated; the pilot is NHL starting goalies, shadow only",
+      "issue": 992,
+      "registry_id": null,
+      "state": "to declare",
+      "steps": [
+        {
+          "what": "the design proposal to the architect (item 4(b))",
+          "owner": "code",
+          "due": "2026-11-25",
+          "done": null
+        },
+        {
+          "what": "the design PR, nothing built behind it",
+          "owner": "code",
+          "due": "2026-12-01",
+          "done": null
+        },
+        {
+          "what": "the architect's ruling on the design, the pilot's gate written",
+          "owner": "architect",
+          "due": "2026-12-03",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "Nothing inferred changes a call or a stake before its gates (addendum 375 item 2(k)). An element is scored by element, by status and by lead time, with calibration, against the best free baseline, on a sample and a margin written before its first row is stored, which do not move (2(d)); an element that passes may be DECLARED as an input to a candidate, which then runs at that sport's UNCHANGED gate (2(d)). Inferred context reaches a bulletin only after the pilot's first scored read (1(iv)). The store is host-only and apart from sports.db (1(ii)). The provider is the Claude API behind a plug, its key by NAME ANTHROPIC_API_KEY in host.env; no spend cap during the controlled tests, the daily cap set by the operator on their measured cost and in force before anything runs on a timer (addendum 376 item 1). After the pilot: NBA, NFL, soccer leagues, MLB and tennis at their 2027 seasons, college last (375 item 1(v)). The rules of 375 item 2 and the controlled-test rules of 376 item 2 are quoted in full on #992. Nothing is built or run on 375 or 376; no bar moves.",
+      "vs_close": "n/a: a data layer, no model; nothing inferred is a model input until an element passes its gate and a candidate declares it (addendum 375 item 2(d))",
       "moved": []
     }
   ]

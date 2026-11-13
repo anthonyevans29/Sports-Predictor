@@ -768,6 +768,9 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
   `install.sh` enables nothing and `sp_deploy.py` installs no unit, so nothing runs until hosting-h1.md's live-host
   recipe is run, in that block, after the migration tag that carries `migrate_availability_record.py` is deployed.
   Until then the deploy receipt's timers line names it as a `TIMERS` timer not enabled.
+  **ENABLED on the host 2026-11-09 at 14:16Z**, by that block, on v1.6.5: the 2025 read first (14:12Z, observation
+  #1, exit 0), then one enable of this timer and sp-nba-daily's, exit 0, both active
+  (ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 2, the deploy record docs/RELEASES.md quotes under v1.6.5).
 
 ### Attribution
 
@@ -911,7 +914,9 @@ refuses to write (exit 2). The nflverse rows set no `scheduled_at`, so the key r
 `sp-availability-observe.service` (oneshot, `cli.py availability-nhl-observe`, OnFailure through
 `sp-notify@availability-observe`, at most one page in thirty minutes: `sp_notify.THROTTLED_UNITS`, addendum 343
 item 2) and `.timer` (every five minutes at :00 .. :55, hours 00-03 and 06-23 UTC,
-`Persistent=false`, `AccuracySec=1s`), on T11's `TIMERS`, shipped disabled; the architect's block enables it. Not a
+`Persistent=false`, `AccuracySec=1s`), on T11's `TIMERS`, shipped disabled; the architect's block enables it
+(**ENABLED on the host 2026-11-12 at 15:23–15:25Z** by that block, on v1.6.7, ARCHITECT 2026-11-12 10:55 ET,
+addendum 354 item 1: the first tick, at 15:25:02Z, wrote observation #5; the timer set read CLEAN at 21). Not a
 chain: no `chains.py` entry, no chain receipt per tick. A tick plans mode=ro; with no poll due it calls no game page and
 takes no lock; with a poll due it takes the chains' DB lock and plans again under it.
 

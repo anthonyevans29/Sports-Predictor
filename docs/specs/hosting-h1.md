@@ -901,6 +901,9 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
     && systemctl list-timers sp-availability-daily.timer --no-pager   # receipt: next elapse at 08:45 UTC
   [ "$rc" = 0 ] && sudo -u sp venv/bin/python deploy/hosting/sp_run.py availability-daily   # first 2026 run, receipted
   ```
+  **ENABLED on the host 2026-11-09 at 14:16Z** by that block, on v1.6.5: the 2025 read first (14:12Z, observation #1,
+  exit 0), then the enable, both timers active (ARCHITECT 2026-11-09 09:55 ET, addendum 304 item 2; the deploy record
+  in docs/RELEASES.md, v1.6.5). The recipe above stays as the block's shape for a fresh host.
 - `sp-availability-observe.timer` (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 3(b); 2026-11-11 11:40 ET,
   addendum 340 item 3; every 5 minutes, hours 00-03 and 06-23 UTC): the availability record's NHL landing watch, one
   `availability-nhl-observe` tick (its own `sp-availability-observe.service`, not a chain; OnFailure pages through
@@ -955,6 +958,10 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   echo sp-nba-daily.timer | sudo tee -a /etc/sports-predictor/timers.enabled
   systemctl list-timers sp-nba-daily.timer --no-pager   # receipt: next elapse at 06:47 UTC
   ```
+  **ENABLED on the host 2026-11-09 at 14:16Z** by that block, on v1.6.5: one enable of this timer and
+  sp-availability-daily's, exit 0, both active, next runs 06:47Z and 08:45Z (ARCHITECT 2026-11-09 09:55 ET,
+  addendum 304 item 2; the deploy record in docs/RELEASES.md, v1.6.5). The recipe above stays as the block's shape for
+  a fresh host.
 - `sp-ncaamb-daily.timer` (ARCHITECT 2026-11-12 11:05 ET, addendum 352 items 2-4; 10:45 ET, addendum 353 item 2; daily
   07:07 UTC): NCAA men's basketball, market-only, the chain `ncaamb-daily` (three single-day `sync-matches --competition
   NCAAMB --season 2026` steps and `sync-kalshi-ncaamb`). 07:07 is off every timer's minute and off the five-minute marks

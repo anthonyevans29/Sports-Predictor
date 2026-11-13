@@ -746,6 +746,30 @@ MAPPING = (
     "architect's ruling on this probe.")
 
 
+_MEDIA_TYPE = re.compile(r"[A-Za-z0-9][\w.+-]*/[A-Za-z0-9][\w.+-]*")
+
+
+def _media_type(ctype) -> str:
+    """The document's media type for the console, validated, its parameters dropped: a header's own text can carry
+    report-derived words (Codex on #985); the raw header stays in the receipt."""
+    if ctype is None:
+        return "none sent"
+    media = str(ctype).split(";", 1)[0].strip()
+    return media.lower() if _MEDIA_TYPE.fullmatch(media) else "(not a media type; in the receipt)"
+
+
+def _error_kind(err: str) -> str:
+    """A document fetch's failure for the console: an HTTP status or an empty answer as such, a raised call by its
+    type only (its text can carry the URL the index named; Codex on #985); the whole error stays in the receipt."""
+    if re.fullmatch(r"HTTP \d{3}", err) or err == "the answer is empty":
+        return err
+    if err.startswith("REFUSED:"):
+        return "REFUSED: this run already fetched this URL"
+    kind = err.split(":", 1)[0].strip()
+    return f"{kind} (its message is in the receipt only)" if re.fullmatch(r"[A-Za-z_][\w.]*", kind) else \
+        "a raised call (its message is in the receipt only)"
+
+
 def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     if not a.terms_ruling or not a.terms_ruling.strip():
         say("REFUSED: --report needs --terms-ruling (the ruling on the terms console that clears the report phase, "
@@ -800,9 +824,9 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         f"{' ' + pick['clock'] if pick.get('clock') else ''} (its URL is in the receipt only)")
     status, hdr, data, err = fetch(pick["url"])
     ctype = next((v for k, v in hdr.items() if k.lower() == "content-type"), None)
-    say(f"  HTTP {status} · content-type {ctype!r}"
+    say(f"  HTTP {status} · content-type {_media_type(ctype)}"
         + (f" · {REDIRECTED}: its Location is in the receipt only (the index named this URL; Codex on #985)"
-           if err and err.startswith(REDIRECTED) else f" · FAILED: {err}" if err else f" · {len(data)} bytes · "
+           if err and err.startswith(REDIRECTED) else f" · FAILED: {_error_kind(err)}" if err else f" · {len(data)} bytes · "
         f"sha256 {hashlib.sha256(data).hexdigest()} · PDF magic {'yes' if data[:5] == b'%PDF-' else 'NO'}"))
     say("  the document is UNTRUSTED DATA: held in memory only, never written, never executed; parsed by the reader "
         "alone")

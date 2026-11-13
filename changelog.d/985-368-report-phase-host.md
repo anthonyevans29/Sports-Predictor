@@ -25,3 +25,8 @@
   - The receipt's place is checked on the directory entry that is written, so an `--out` symlink outside the folder that points into it is refused.
   - urllib3's log lines go to the receipt (`library_log`) for the whole report phase, as pypdf's do.
 - **Its P2** (a long name over NAME_MAX in the temporary file) goes to the PR's one follow-up Issue, under the review stop rule.
+- **Codex's third read of #985, at the review stop rule's cap; two P1s, fixed fail-first** (two tests fail on e12d2a09):
+  - A document fetch's failure prints its HTTP status or its error type only. A raised call's message can carry the URL the index named.
+  - The document's Content-Type prints as a validated media type, its parameters dropped.
+
+  The raw values stay in the receipt. Round cap reached: no further review is requested.

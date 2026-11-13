@@ -217,7 +217,7 @@ def test_without_the_reader_the_form_prints_and_the_fields_are_not_read(capsys, 
     code, out, tail, _ = run(capsys, ["--report", "--index-url", INDEX, "--terms-ruling", "addendum 999 item 1"],
                              report_pages())
     assert code == probe.REFUSED
-    assert "content-type 'application/pdf'" in out and "READER NOT INSTALLED (pypdf, requirements-probe-pdf.txt" in out
+    assert "content-type application/pdf" in out and "READER NOT INSTALLED (pypdf, requirements-probe-pdf.txt" in out
     assert tail["report"]["reader"] is None and tail["report"]["bytes"] == len(PDF)
 
 
@@ -1158,3 +1158,43 @@ def test_985r2_urllib3_lines_in_the_report_phase_go_to_the_receipt(capsys, monke
         shutil.rmtree(folder, ignore_errors=True)
     assert "Rowname" not in cap.out and "Rowname" not in cap.err
     assert any("Failed to parse headers: Synthetic Rowname" in x for x in rec["library_log"])
+
+
+# ---- Codex's third read of #985 (e12d2a09; the review cap): two P1s ----------------------------------------------------
+
+def test_985r3_a_document_fetch_error_prints_its_type_only(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
+    doc = "https://reports.example.invalid/files/Injury-Report_2026-11-12_08PM.pdf"
+
+    class Failing(Fake):
+        def __call__(self, url, headers=None, timeout=None, allow_redirects=True):
+            if url == doc:
+                self.asked.append((url, dict(headers or {})))
+                raise ConnectionError(f"Max retries exceeded with url: /Synthetic-Rowname.pdf ({url})")
+            return super().__call__(url, headers, timeout, allow_redirects)
+    import shutil
+    import tempfile
+    base = probe.ROOT / "logs" / "availability" / "_probe_tests"
+    base.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(dir=base))
+    try:
+        code = probe.main([*REPORT_ARGS, "--out", str(folder / "r.json")], get=Failing(report_pages()))
+        out = capsys.readouterr().out
+        rec = json.loads((folder / "r.json").read_text())
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    assert code == probe.FAILED and "Rowname" not in out and "FAILED: ConnectionError" in out
+    assert "Synthetic-Rowname" in rec["report"]["error"]
+
+
+def test_985r3_the_documents_media_type_prints_validated_only(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
+    pages = report_pages()
+    doc = "https://reports.example.invalid/files/Injury-Report_2026-11-12_08PM.pdf"
+    pages[doc] = (200, PDF, {"Content-Type": 'application/pdf; name="Synthetic-Rowname.pdf"'})
+    code, out, rec, _ = run(capsys, REPORT_ARGS, pages)
+    assert "Rowname" not in out and "content-type application/pdf" in out
+    assert rec["report"]["content_type"] == 'application/pdf; name="Synthetic-Rowname.pdf"'
+    pages[doc] = (200, PDF, {"Content-Type": "Synthetic Rowname"})
+    code, out, rec, _ = run(capsys, REPORT_ARGS, pages)
+    assert "Rowname" not in out and "content-type (not a media type; in the receipt)" in out

@@ -1,0 +1,15 @@
+## 2026-11-14 (#000: 1001-state-vs-annotation — `dedupe-matches --orphans`: "live, resync needed" is for a change of state; annotations are named, never counted; an id that serves another pair has its own label (ARCHITECT, addendum 382 item 4).)
+- **The rule (382 item 4, verbatim in part):** "THE LABEL "live, resync needed" IS FOR A CHANGE OF STATE THE PROVIDER SERVES AND OUR ROW LACKS."
+  - (a) **State, each named when it differs:** the status, a score, the kickoff, and a stored provider_orientation key the upsert would remove on the same pair.
+  - (b) **Annotations:** status_raw, matchday and stage "do NOT count, alone or together". A row that differs only in them reads `live`, and they are named on its line (`annotation`), printed under `--sample`.
+  - (c) **"live, the id serves another pair":** an id that serves neither the stored pair nor its reverse gets its own label and count on the plan line. It is printed always, with both pairs by team id and whether the row records the mismatch. A reversed pair is the same game: a reversal not yet recorded names the key a resync would write (`live, resync needed`), and one already recorded reads `live`.
+- **As built** (`src/ingestion/match_dedupe.py`):
+  - `served_diff` returns (state, annotation), or None for another pair. A reversed pair's served scores are compared in the stored orientation.
+  - `live_entry` labels `live_other_pair` for another pair, stale or not (382 item 4(c) names no staleness). The stale split is otherwise unchanged.
+  - `cli._dedupe_orphans`: the plan line gains "live, the id serves another pair N", and those rows print whole.
+  - `scripts/ncaa_live_resync_rows.py`'s pointer names the three lines.
+- **Tests:**
+  - `tests/test_945_live_label.py`: the #945 pins that 382 item 4 changes are amended (status_raw alone, a new status code, the reversed final, the foreign pair). New: a recorded reversal reads live; matchday and stage are annotations; a not-stale other pair; the console's count and annotation lines.
+  - `tests/test_dedupe_orphans.py`: the OR1 world's `resync` row (served NS on a NULL code only) now reads `live`.
+  - All fail on 151aadae.
+- **The twenty (382 item 5):** listed on #945 with the provider's game id and the stored kickoff, the keys that hold on both machines.

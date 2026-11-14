@@ -82,8 +82,8 @@ def test_945_a_final_score_served_is_resync_needed_with_status_and_score_named(w
     _serve(prov, status=MatchStatus.FINISHED, status_raw="FT", score=(31, 24))
     p = _plan_row(prov, ids["resync"])
     assert p["action"] == "live_resync"
-    assert p["differs"] == {"status": "SCHEDULED -> FINISHED", "status_raw": "NS -> FT", "home_score": "None -> 31",
-                            "away_score": "None -> 24"}
+    assert p["differs"] == {"status": "SCHEDULED -> FINISHED", "home_score": "None -> 31", "away_score": "None -> 24"}
+    assert p["annotation"] == {"status_raw": "NS -> FT"}            # 382 item 4(b): named, never counted
 
 
 def test_945_a_moved_kickoff_is_resync_needed_with_the_kickoff_named(world):
@@ -95,13 +95,14 @@ def test_945_a_moved_kickoff_is_resync_needed_with_the_kickoff_named(world):
     assert p["differs"] == {"kickoff": f"{PAST.isoformat()} -> {(PAST + timedelta(hours=3)).isoformat()}"}
 
 
-def test_945_a_new_status_code_served_is_resync_needed_with_the_code_named(world):
-    """A code the map keeps SCHEDULED, served where the row stores another: a resync writes it, so it is named."""
+def test_1001_a_new_status_code_alone_is_live_with_the_code_named_as_an_annotation(world):
+    """382 item 4(b): status_raw is an annotation of a state we already hold; a row that differs only in it reads
+    `live`, the code named ("annotation"). Was `live_resync` under #997 (fail-first on 151aadae)."""
     ids, prov = world
     _store(ids["resync"], "NS")
     _serve(prov, status_raw="XQ")
     p = _plan_row(prov, ids["resync"])
-    assert p["action"] == "live_resync" and p["differs"] == {"status_raw": "NS -> XQ"}
+    assert p["action"] == "live" and "differs" not in p and p["annotation"] == {"status_raw": "NS -> XQ"}
 
 
 def test_945_an_answer_with_no_game_kept_is_never_read_as_equal(world):
@@ -114,35 +115,46 @@ def test_945_an_answer_with_no_game_kept_is_never_read_as_equal(world):
     assert p["differs"] == {"served": "unknown: the id answers and the adapter kept no game"}
 
 
-def test_945_a_stored_code_absent_and_one_served_is_resync_needed_with_the_code_named(world):
-    """Stored status_raw NULL (never recorded), served NS, all else equal: a resync writes NS over NULL (the upsert's
-    rule), so the row reads `live_resync` with status_raw named. Whether a status_raw-only difference should instead
-    read `live` is not settled by 365 item 3(b)'s two sentences; this pins the reading the PR asks the architect on."""
+def test_1001_a_stored_code_absent_and_one_served_is_live_its_annotation_named(world):
+    """Question 6, ruled (382 item 4(b)): "a difference in status_raw alone reads `live`". Stored NULL, served NS."""
     ids, prov = world
     _serve(prov)                                     # the world stores no status_raw on the resync row
     p = _plan_row(prov, ids["resync"])
-    assert p["action"] == "live_resync" and p["differs"] == {"status_raw": "None -> NS"}
+    assert p["action"] == "live" and p["annotation"] == {"status_raw": "None -> NS"}
 
 
-def test_945_a_reversed_pair_is_resync_needed_with_teams_named_and_no_side_read_in_its_orientation(world):
+def test_1001_a_reversed_final_is_resync_needed_with_the_key_status_and_scores_named_in_stored_orientation(world):
+    """382 item 4(c): the REVERSED pair "is the same game, and it follows (a)": a reversal not yet recorded is a
+    provider_orientation key a resync would write, named; its served scores are compared in the stored orientation
+    (the provider's home 10 scored 31: our row's away). Was `teams` alone (fail-first on 151aadae)."""
     ids, prov = world
     _store(ids["resync"], "NS")
     g = _nm(10, 11, SID, PAST, status=MatchStatus.FINISHED)          # the stored 11 v 10, served 10 v 11
     g.status_raw, g.home_score, g.away_score = "FT", 31, 24
     prov.games = [x for x in prov.games if x.source_id != SID] + [g]
     p = _plan_row(prov, ids["resync"])
-    assert p["action"] == "live_resync" and list(p["differs"]) == ["teams"]
-    assert p["differs"]["teams"].endswith("(reversed)") and "home_score" not in p["differs"]
+    assert p["action"] == "live_resync"
+    assert p["differs"] == {"provider_orientation": "None -> reversed", "status": "SCHEDULED -> FINISHED",
+                            "home_score": "None -> 24", "away_score": "None -> 31"}
+    assert p["annotation"] == {"status_raw": "NS -> FT"}
 
 
-def test_945_a_pair_neither_stored_nor_reversed_is_never_read_as_equal(world):
-    """The id served for two other teams, at the stored kickoff, SCHEDULED/NS: kept as `live_resync` (law 4)."""
+def test_1001_an_id_that_serves_another_pair_has_its_own_label_with_both_pairs(world):
+    """382 item 4(c): "neither `live` nor `live, resync needed`. It gets ITS OWN LABEL AND ITS OWN COUNT [...] with the
+    stored pair and the served pair by team id, whether or not the row already records the mismatch." Was
+    `live_resync` (fail-first on 151aadae)."""
     ids, prov = world
     _store(ids["resync"], "NS")
     prov.games = [x for x in prov.games if x.source_id != SID] + [_nm(14, 15, SID, PAST)]
     p = _plan_row(prov, ids["resync"])
-    assert p["action"] == "live_resync"
-    assert p["differs"]["teams"].endswith("(neither the stored pair nor its reverse)")
+    assert p["action"] == "live_other_pair" and "differs" not in p
+    assert p["pair"].startswith(f"stored teams {p['home']} v {p['away']} -> served provider teams ")
+    assert p["recorded"] == "the mismatch is not recorded"
+    with session_scope() as s:                                       # the mismatch already recorded: the same label
+        m = s.get(Match, ids["resync"])
+        m.external_ids = {**(m.external_ids or {}), "provider_orientation": "mismatch"}
+    p = _plan_row(prov, ids["resync"])
+    assert p["action"] == "live_other_pair" and p["recorded"] == "provider_orientation = mismatch"
 
 
 def test_945_a_stored_orientation_key_on_the_same_pair_is_resync_needed_with_the_key_named(world):
@@ -197,3 +209,68 @@ def test_945_console_names_the_differing_fields_on_a_resync_line(world, monkeypa
     out = _console(monkeypatch, capsys, prov, None)
     line = next(ln for ln in out if ln.startswith(f"  [live_resync] id {ids['resync']} "))
     assert "'differs': {'status': 'SCHEDULED -> FINISHED'" in line and "'home_score': 'None -> 31'" in line
+
+
+# ---- #1001 (ARCHITECT 2026-11-14 13:38 ET, addendum 382 item 4): state against annotation; the id that serves another
+# pair ----------------------------------------------------------------------------------------------------------------
+
+def test_1001_a_reversal_already_recorded_with_everything_equal_is_live(world):
+    """382 item 4(c): "one already recorded reads `live`". The key held `reversed`, the provider serves the reversed
+    pair, SCHEDULED, no score, the stored kickoff: a resync writes nothing. Fail-first: on 151aadae `live_resync`."""
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    with session_scope() as s:
+        m = s.get(Match, ids["resync"])
+        m.external_ids = {**(m.external_ids or {}), "provider_orientation": "reversed"}
+    prov.games = [x for x in prov.games if x.source_id != SID] + [_nm(10, 11, SID, PAST)]
+    p = _plan_row(prov, ids["resync"])
+    assert p["action"] == "live" and "differs" not in p and "annotation" not in p
+
+
+def test_1001_matchday_and_stage_alone_read_live_and_are_named_as_annotations(world):
+    """Question 4, ruled (382 item 4(b)): "matchday and stage do not count". Fail-first: on 151aadae neither was even
+    named (the row read `live` with nothing said)."""
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    with session_scope() as s:
+        m = s.get(Match, ids["resync"])
+        m.matchday, m.stage = 3, "Regular Season"
+    g = _nm(11, 10, SID, PAST)
+    g.matchday, g.stage = 4, "Post Season"
+    prov.games = [x for x in prov.games if x.source_id != SID] + [g]
+    p = _plan_row(prov, ids["resync"])
+    assert p["action"] == "live" and p["annotation"] == {"matchday": "3 -> 4", "stage": "Regular Season -> Post Season"}
+
+
+def test_1001_a_not_stale_id_that_serves_another_pair_has_the_label_too(world):
+    """382 item 4(c) names no staleness: "the id that answers with ANOTHER pair [...] is neither `live` nor `live,
+    resync needed`". A twin's live row (kickoff ahead) whose id now serves two other teams reads the label."""
+    ids, prov = world
+    with session_scope() as s:
+        sid = (s.get(Match, ids["twin_new"]).external_ids or {}).get(md_src())
+    g = next(x for x in prov.games if x.source_id == sid)
+    prov.games = [x for x in prov.games if x.source_id != sid] + [_nm(14, 15, sid, g.utc_date)]
+    p = _plan_row(prov, ids["twin_new"])
+    assert p["action"] == "live_other_pair" and p["stale"] is False
+
+
+def md_src():
+    from tests.test_dedupe_orphans import SRC
+    return SRC
+
+
+def test_1001_console_counts_the_other_pair_always_and_names_annotations_only_under_sample(world, monkeypatch, capsys):
+    """The plan line carries "live, the id serves another pair N", its rows print whole without --sample; a `live`
+    row's annotation prints on its [live] line under --sample ("annotation")."""
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    prov.games = [x for x in prov.games if x.source_id != SID] + [_nm(14, 15, SID, PAST)]
+    out = _console(monkeypatch, capsys, prov, None)
+    plan = next(ln for ln in out if ln.startswith("  plan: "))
+    assert "live, resync needed 0 · live, the id serves another pair 1 · " in plan
+    line = next(ln for ln in out if ln.startswith(f"  [live_other_pair] id {ids['resync']} "))
+    assert "'pair': 'stored teams " in line and "'recorded': 'the mismatch is not recorded'" in line
+    _serve(prov, status_raw="XQ")
+    out = _console(monkeypatch, capsys, prov, 30)
+    line = next(ln for ln in out if ln.startswith(f"  [live] id {ids['resync']} "))
+    assert "'annotation': {'status_raw': 'NS -> XQ'}" in line

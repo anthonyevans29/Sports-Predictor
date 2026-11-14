@@ -476,11 +476,20 @@ def _kept(now: datetime, name: str, sha: str) -> tuple[str, Path]:
 
 
 def _missing_dirs(final: Path) -> list[Path]:
-    """The folders above `final`, up to PAYLOAD_BASE, that do not exist yet (deepest first): what a keep would make."""
+    """The folders above `final`, up to PAYLOAD_BASE, that do not exist yet (deepest first): what a keep would make.
+    Never raises (Codex on #1004): each folder is lstat'ed, and one that cannot be read (an unsearchable ancestor's
+    PermissionError) ends the walk as not this keep's to remove; the keep's own mkdir then fails and is the refusal."""
     out, d = [], final.parent
-    while d != PAYLOAD_BASE and PAYLOAD_BASE in d.parents and not d.exists():
-        out.append(d)
-        d = d.parent
+    while d != PAYLOAD_BASE and PAYLOAD_BASE in d.parents:
+        try:
+            d.lstat()
+        except FileNotFoundError:
+            out.append(d)
+            d = d.parent
+            continue
+        except OSError:
+            pass
+        break
     return out
 
 
@@ -681,8 +690,9 @@ def from_file(copy: Path, name: str, sha: str, prev: tuple[str, str] | None, now
     if prev and sha == prev[0]:
         return Got(ep, now, None, prev[0], prev[1], etag="n/a (--file); byte-identical to the last kept payload")
     rel, final = _kept(now, name, sha)
-    made = _missing_dirs(final)
+    made: list[Path] = []
     try:
+        made = _missing_dirs(final)                # inside the guard too (Codex on #1004)
         created = _retain(copy, final, sha)
     except Refused:
         _remove_dirs_made(made)                    # the keep's own refusals (other bytes there, a hash mismatch)

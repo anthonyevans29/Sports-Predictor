@@ -1786,3 +1786,47 @@ def test_1003_a_keep_whose_date_folder_fails_after_its_source_folder_is_made_lea
     assert "nflverse_depth_charts" in made and "2026-10-03" in made        # the source folder was made, then the date
     assert sorted(p.name for p in (tmp_path / "logs" / "availability").iterdir()) == ["keep.txt"]
     assert keep.read_text() == "an earlier file, never removed\n" and _counts() == (0, 0)
+
+
+def test_1003_codex_an_unsearchable_payload_folder_is_refused_exit_2_never_a_traceback(tmp_path, monkeypatch):
+    """Codex on #1004 (P2): Path.exists() raises PermissionError when an ancestor cannot be searched, and the probe of
+    the folders a keep would make ran before the guarded keep. Now the probe never raises (an unreadable folder is not
+    this keep's to remove) and the keep's own failure is the refusal: exit 2, nothing written, nothing removed.
+    Fail-first: on 886c34b2 the PermissionError escaped run()."""
+    import errno
+    import pathlib
+    _teams("BAL")
+    d = tmp_path / "in"
+    d.mkdir()
+    path = _write(d / "depth_charts_2026.csv", _chart(D1, "BAL", 3))
+    (tmp_path / "logs" / "availability" / "nflverse_depth_charts").mkdir(parents=True)
+
+    def denied(p):
+        return "nflverse_depth_charts" in str(p) and str(p).rstrip("/").split("/")[-1] != "nflverse_depth_charts"
+    real_stat, real_lstat, real_mkdir = pathlib.Path.stat, pathlib.Path.lstat, os.mkdir
+
+    def stat(self, *a, **kw):
+        if denied(self):
+            raise PermissionError(errno.EACCES, "Permission denied", str(self))
+        return real_stat(self, *a, **kw)
+
+    def lstat(self):
+        if denied(self):
+            raise PermissionError(errno.EACCES, "Permission denied", str(self))
+        return real_lstat(self)
+
+    def mkdir(p, *a, **kw):
+        if denied(p):
+            raise PermissionError(errno.EACCES, "Permission denied", str(p))
+        return real_mkdir(p, *a, **kw)
+    with monkeypatch.context() as m:
+        m.setattr(pathlib.Path, "stat", stat)
+        m.setattr(pathlib.Path, "lstat", lstat)
+        m.setattr(os, "mkdir", mkdir)
+        if hasattr(pathlib, "_NormalAccessor"):                       # Python 3.10: the accessor's bound os.mkdir
+            m.setattr(pathlib._NormalAccessor, "mkdir", staticmethod(mkdir))
+        with pytest.raises(nv.Refused, match="could not be kept"):
+            nv.run(file=str(path), now_fn=lambda: F1)
+        r = CliRunner().invoke(_cli(), ["availability-nflverse", "--file", str(path)])
+        assert r.exit_code == 2 and "Traceback" not in r.output, (r.exit_code, r.exception, r.output)
+    assert _counts() == (0, 0) and (tmp_path / "logs" / "availability" / "nflverse_depth_charts").is_dir()

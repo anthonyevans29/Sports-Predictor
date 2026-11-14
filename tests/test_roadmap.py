@@ -162,7 +162,9 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
                                                                  "soccer-v23",            # addendum 216 item 3
                                                                  "basketball-market-only",  # addendum 261 item 1(f)
                                                                  "tennis-market-only",    # addendum 261 item 2(e)
-                                                                 "ncaa"}                  # addendum 302 item 3
+                                                                 "ncaa",                  # addendum 302 item 3
+                                                                 "nhl",                   # addendum 375 item 3(a)
+                                                                 "inferred-layer"}        # addendum 375 item 3(c)
     # ncaa: since ARCHITECT 2026-11-09 09:35 ET, addendum 302 item 3, the one run's step done on the #79 console and the
     # two on-PASS steps cleared by the FAIL; ARCHITECT 2026-11-09 12:50 ET, addendum 309 item 3(1): state "to declare"
     # with ONE dated step, the 2027 candidate's declaration due 2027-02-01 (owner architect): its next step
@@ -249,8 +251,9 @@ BROKEN = [
      "lane 'cups': state 'blocked' and no step left to do"),
     ("due dates never go backwards", lambda d: _lane(d, "ncaa")["steps"][4].__setitem__("due", "2026-11-07"),
      "lane 'ncaa' step 5: due 2026-11-07 goes backwards from step 4's 2026-11-08"),
-    ("earliest_live not before the last step's due", lambda d: _lane(d, "nhl").__setitem__("earliest_live", "2027-01-20"),
-     "lane 'nhl': earliest_live 2027-01-20 is before the last step's due date 2027-01-21"),
+    # lane nhl's last step is the 11-24 ceiling-test step since addendum 375 item 3(a) (earliest_live cleared)
+    ("earliest_live not before the last step's due", lambda d: _lane(d, "nhl").__setitem__("earliest_live", "2026-11-20"),
+     "lane 'nhl': earliest_live 2026-11-20 is before the last step's due date 2026-11-24"),
     ("every moved line has its six parts",
      lambda d: _lane(d, "ncaa")["moved"].append({"moved_on": "2026-10-20", "which": "steps[2].due", "was": "2026-10-20",
                                                  "now": "2026-10-22", "why": "late"}),
@@ -323,7 +326,8 @@ RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["PD", "SA", "BL1
                       "availability-record": None,   # addendum 252: tooling, prices nothing (never SHADOW evidence)
                       "soccer-v23": ["PL"],       # addendum 216 item 3: the PASS shadow is on the host's PL pages
                       "basketball-market-only": ["NBA", "NCAAMB", "WNBA"],   # addendum 261 item 1: market-only
-                      "tennis-market-only": ["ATP", "WTA"]}   # addendum 261 item 2: "competitions ATP, WTA"
+                      "tennis-market-only": ["ATP", "WTA"],   # addendum 261 item 2: "competitions ATP, WTA"
+                      "inferred-layer": None}   # addendum 375 item 3(c): a data layer across sports, no competitions ruled
 
 
 def test_each_lane_carries_the_ruled_competitions():
@@ -616,12 +620,14 @@ def test_a_lane_or_a_step_only_one_side_holds_needs_nothing():
 
 
 def test_several_moves_each_named():
+    # lane pd, not nhl: nhl's earliest_live is null since addendum 375 item 3(a), and a date set where the base had
+    # none needs no moved line
     def edit(d):
         _lane(d, "cups")["steps"][0]["due"] = "2026-10-13"
-        _lane(d, "nhl")["earliest_live"] = "2027-02-01"
+        _lane(d, "pd")["earliest_live"] = "2027-02-01"
     base, head = _base_head(edit)
     errs = rm.check_moves(base, head)
-    assert [e.split(":")[0] for e in errs] == ["lane 'nhl'", "lane 'cups' step 1"]     # in the file's order
+    assert [e.split(":")[0] for e in errs] == ["lane 'pd'", "lane 'cups' step 1"]     # in the file's order
 
 
 def test_no_base_file_or_a_base_of_another_shape_needs_nothing():
@@ -959,10 +965,13 @@ def test_the_real_roadmap_records_the_quarterback_probe_done():
     assert [st["due"] for st in lane["steps"]] == ["2026-10-21", "2026-10-23", "2026-11-02", "2026-11-13",
                                                   "2026-11-16"] and lane["moved"] == []
     assert [st["owner"] for st in lane["steps"][3:]] == ["operator", "architect"]
+    # ARCHITECT 2026-11-13 16:40 ET, addendum 375 item 3(b): "lane nfl-qb: the 11-13 sourcing step done on item 1(vi);
+    # the 11-16 step stands." The next step is the architect's 11-16.
+    assert lane["steps"][3]["done"]["date"] == "2026-11-13" and "addendum 375 item 1(vi)" in lane["steps"][3]["done"]["receipt"]
     nx = rm.next_step(lane)
-    assert nx[0] == 4 and nx[1]["owner"] == "operator" and nx[1]["due"] == "2026-11-13"
+    assert nx[0] == 5 and nx[1]["owner"] == "architect" and nx[1]["due"] == "2026-11-16"
     lines, _ = rm.report(date(2026, 11, 2))
-    assert f"  next: {lane['steps'][3]['what']} · operator · due 2026-11-13 · in 11 days" in lines
+    assert f"  next: {lane['steps'][4]['what']} · architect · due 2026-11-16 · in 14 days" in lines
 
 
 def test_a_done_milestone_prints_done_and_is_never_overdue(tmp_path, monkeypatch):

@@ -146,9 +146,15 @@ become MORE binding under an income goal, never less."
   MARKET-ONLY via `export-fixtures --competition NHL` (season gate
   2026-09-29, the operator-confirmed opening day). The goalie probe came
   back NEGATIVE (2026-09-26): the reopening condition is an EXTERNAL
-  goalie/lineup source (lane nhl, #105, is TO DECLARE on the roadmap: the
-  operator's sourcing decision 11-13, the one run 12-29, earliest_live
-  2027-01-22). The bar did not move.
+  goalie/lineup source (lane nhl, #105, is TO DECLARE on the roadmap).
+  SOURCING DECIDED 2026-11-13: "NHL — none bought; we build and measure our
+  own" (addendum 375 item 1(vi)). So the 12-28/12-29/01-20/01-21 steps and
+  earliest_live 2027-01-22 are CLEARED. Next: the ceiling readiness read
+  11-19 (does knowing who ACTUALLY started move an NHL model past its bar at
+  all?), then the true-starter ceiling test declared or a written no 11-24.
+  Projected starters are the INFERRED LAYER's pilot (NHL starting goalies,
+  shadow only; lane inferred-layer, #992; host-only store, never sports.db).
+  The bar did not move.
 - **NCAA**: data certified (9,245 games, 743 programs; two 2025 rows overwritten by a reused provider id on
   11-07/08 and restored 11-10 (#902); every provider-id lookup is season-scoped since #906); market-only
   doctrine; Kalshi (KXNCAAFGAME) is the PRIMARY college market source,

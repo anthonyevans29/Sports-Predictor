@@ -1,0 +1,15 @@
+## 2026-11-13 (#993: 375-inferred-layer-records — the inferred data layer recorded: the two sourcing steps closed, the NHL lane's dates cleared, the lane inferred-layer opened (ARCHITECT, addenda 375 and 376).)
+- **docs/roadmap.json, lane `nhl` (375 item 3(a)):**
+  - **The 11-13 sourcing step is done.** Its receipt is 375 item 1(vi) ("NHL — none bought; we build and measure our own") with the operator's words.
+  - **earliest_live 2027-01-22 is cleared** with a moved line (`now` null) quoting 375 item 3(a).
+    - The 12-28, 12-29, 01-20 and 01-21 steps are removed. Their dates are recorded in that line, because a step's due is never cleared (addendum 61 item 4), as ncaa (302) and nfl-v2 (265, the form 267 item 2(3) accepted) were done.
+  - **Two steps are added:** "the ceiling readiness read (item 4(a))", code, due 11-19; and "the true-starter ceiling test declared with its threshold, or my written no", architect, due 11-24.
+  - The bar's text in live_needs is not touched.
+- **Lane `nfl-qb` (375 item 3(b)):** the 11-13 sourcing step is done on 375 item 1(vi), since the operator's 11-06 decision stands (nflverse depth charts; no feed bought). The 11-16 step stands.
+- **A new lane, `inferred-layer` (#992; 375 item 3(c)):**
+  - Its state is "to declare" and earliest_live is null.
+  - Steps: the design proposal (code, 11-25), the design PR with nothing built behind it (code, 12-01), and the architect's ruling on the design with the pilot's gate written (architect, 12-03).
+  - Issue #992 quotes 375 items 1–2 and 376 items 1–2 verbatim.
+- **Addendum 376 item 1 amends 375 item 1(iii)** (recorded in the ledger entry and #992): the provider is the Claude API, by key NAME `ANTHROPIC_API_KEY`; there is no spend cap during the controlled tests; the daily cap is set by the operator on their measured cost and is in force before anything runs on a timer.
+- **CLAUDE.md's NHL line** is brought to this state: sourcing decided (none bought), the dates cleared, the ceiling read 11-19 and its declaration or a written no 11-24, and projected starters as the inferred layer's pilot.
+- Records only: nothing is built or run, and no bar moves.

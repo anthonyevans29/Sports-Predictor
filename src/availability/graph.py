@@ -71,7 +71,14 @@ MAX_AGE_HOURS = 26                             # the 09:30 UTC daily backup, rea
 #       database is closed and reopened every REOPEN_EVERY COPYs and between tables: a checkpoint that rewrites a string
 #       segment leaves that segment's de-duplication table on the heap, outside the pool, until the database closes
 #       (v0.22.3 src/include/storage/table/dictionary_chunk.h, a std::vector of slots; dictionary_chunk.cpp, "flush"
-#       never clears it; a reopened dictionary starts empty). Without it ten times today's was killed by MemoryMax;
+#       never clears it; a reopened dictionary starts empty). Without it ten times today's was killed by MemoryMax.
+#       AND each relationship table is ONE COPY into the empty table: a COPY into a non-empty one builds, for EVERY
+#       node group of the assertions (not only the one it writes), a CSR index on the heap (csr_node_group.cpp,
+#       appendChunkedCSRGroup / getCSRIndexForAppend: std::array<NodeCSRIndex, 2^17>), which an untouched group's
+#       checkpoint never frees; ~8 MiB a group, so it grew with the record. One COPY sends every group down the flush
+#       path; its partitioner's buffers are the pool's and spill to a .tmp beside the graph (the docs' "spill some of
+#       this data to a .tmp file"). Measured at three times today's: each edge table 4 s and 150 MiB against 15 s
+#       and 560; the nodes stay in COPYs of CHUNK rows (one COPY of every assertion would build its key index whole);
 #   (3) the walk stages in a forked child that exits before the load starts (_stage_in_child), so the peak is the
 #       larger of the walk's heap (888 MiB at ten times today's history) and the load's, never their sum;
 #   (4) the shape bounds a checkpoint's work: each assertion is a node, so a checkpoint rewrites at most one node group
@@ -484,7 +491,16 @@ def _load(lb, path: Path, tables: dict[str, _Table], pool: int) -> None:
         for ddl in SCHEMA:
             con.execute(ddl)
         for name in (*NODE_TABLES, *REL_TABLES):
-            for f in tables[name].files:
+            files = tables[name].files
+            if name in REL_TABLES and files:
+                # rule (2): a relationship table in ONE COPY into the empty table, every file at once, so every node
+                # group takes the flush path and none builds the per-group CSR index a later COPY leaves on the heap
+                listed = ", ".join(f"'{f}'" for f in files)
+                con.execute(f"COPY {name} FROM [{listed}] (HEADER=true, QUOTE='\"', ESCAPE='\"', PARALLEL=FALSE)")
+                for f in files:
+                    f.unlink()
+                files = []
+            for f in files:
                 # PARALLEL=FALSE: the parallel CSV reader refuses a quoted newline, and the record keeps any text
                 # its source gave (a name with a newline would fail every rebuild for good: append-only)
                 con.execute(f"COPY {name} FROM '{f}' (HEADER=true, QUOTE='\"', ESCAPE='\"', PARALLEL=FALSE)")

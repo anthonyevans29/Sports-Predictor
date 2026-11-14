@@ -582,12 +582,23 @@ def test_379_2_the_load_reopens_the_database_every_ten_copies_and_between_tables
         f = tmp_path / f"Assertion.{i:04d}.csv"
         f.write_text("x")
         tables["Assertion"].files.append(f)
+    for i in range(23):                                              # a relationship table's 23 files
+        f = tmp_path / f"NAMES_PLAYER.{i:04d}.csv"
+        f.write_text("x")
+        tables["NAMES_PLAYER"].files.append(f)
+    copies = []
+    Con.execute = lambda self, q: (events.append("copy" if q.startswith("COPY") else "ddl"),
+                                   copies.append(q) if q.startswith("COPY") else None)
     g._load(LB, tmp_path / "x.lbug", tables, 1 << 28)
-    assert g.REOPEN_EVERY == 10 and events.count("copy") == 23
-    # one open at the start, one at each tenth COPY (2), one after each table (11)
+    assert g.REOPEN_EVERY == 10 and events.count("copy") == 23 + 1
+    # the nodes: one COPY a file; a relationship table: ONE COPY of every file, as a list
+    rel = [q for q in copies if q.startswith("COPY NAMES_PLAYER")]
+    assert len(rel) == 1 and all(f"'{f}'" in rel[0] for f in tables["NAMES_PLAYER"].files)
+    assert rel[0].startswith("COPY NAMES_PLAYER FROM ['") and "PARALLEL=FALSE" in rel[0]
+    # one open at the start, one at each tenth node COPY (2), one after each table (11)
     assert events.count("open") == 1 + 2 + len(g.NODE_TABLES) + len(g.REL_TABLES)
     assert events.count("close") == events.count("open")
-    assert not any(f.exists() for f in tables["Assertion"].files)
+    assert not any(f.exists() for x in ("Assertion", "NAMES_PLAYER") for f in tables[x].files)
 
 
 def test_review_a_sigterm_removes_the_staging_and_writes_its_line(fresh_db, tmp_path, monkeypatch):

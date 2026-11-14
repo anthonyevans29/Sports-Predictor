@@ -1658,7 +1658,7 @@ def test_1003_a_file_that_cannot_be_kept_is_refused_exit_2_nothing_written_and_n
                 msg = r.output
         assert "could not be kept" in msg and why in msg and "nothing kept, nothing written" in msg, msg
         assert str(tmp_path) not in msg and ".nflverse-file-" not in msg, msg
-        assert _counts() == (0, 0) and _kept_files(tmp_path) == []          # no file and no empty folder left
+        assert _counts() == (0, 0) and not (tmp_path / "logs").exists()      # no file and no folder the keep made
 
 
 @pytest.mark.parametrize("case, why", KEEP_FAULTS)
@@ -1666,7 +1666,9 @@ def test_1003_a_fetch_that_cannot_keep_its_payload_is_a_failed_observation_with_
                                                                                             case, why):
     """#1003, the fetch side of the same keep: a failed observation (exit 1, written, nothing asserted), no kept file
     and no partial file left, the error naming the fault. This pins what fetch's broad handler already does on
-    c7dc2680 (these pass there): the probe's other half, so the keep is probed on both paths."""
+    c7dc2680 (these pass there): the probe's other half, so the keep is probed on both paths. On a fetch the payload
+    directory is made by fetch itself, for the partial download, before _retain (whose own mkdir then finds it), so the
+    "mkdir" case here is that directory failing before the download, not inside _retain."""
     _teams("BAL")
     with monkeypatch.context() as m:
         _keep_fault(case, m)
@@ -1709,3 +1711,78 @@ def test_1003_a_header_only_file_carried_twice_reads_empty_both_times(tmp_path):
     first, second = _ingest(tmp_path, [], F1), _ingest(tmp_path, [], F2)
     assert first.status == second.status == "empty" and second.rows_asserted == 0
     assert [x["status"] for x in _obs()] == ["empty", "empty"]
+
+
+def test_1003_a_pre_merge_complete_row_after_a_header_only_payload_never_carries_complete_forward(tmp_path):
+    """382 item 3 is the PAYLOAD's status (review of #1003): before the rule's merge a 304 on a header-only payload was
+    stored `complete`; a 304 after the merge reads the payload (`empty`), never that newest row's `complete`. Fail-first:
+    on c8ca938d the third run read `complete`."""
+    _teams("BAL")
+    header = _body([])
+    first = nv.run(2026, http_get=FakeHTTP(FakeResp(200, header, '"h1"')), now_fn=lambda: F1)
+    assert first.status == "empty"
+    rec.write_observation({"sport": "nfl", "source": nv.SOURCE, "endpoint": first.got.endpoint,      # the old rule's
+                           "fetched_at": F1 + timedelta(hours=1), "http_status": 304, "status": "complete",  # row
+                           "payload_sha256": first.got.sha256, "payload_path": first.got.payload_path, "error": None}, [])
+    third = nv.run(2026, http_get=FakeHTTP(FakeResp(304)), now_fn=lambda: F2)
+    assert third.status == "empty" and [x["status"] for x in _obs()] == ["empty", "complete", "empty"]
+
+
+def test_1003_a_restore_after_a_header_only_payload_reads_empty(tmp_path):
+    """A restore (274 item 3(1): the recorded bytes kept again because their kept file was lost) is a byte-identical
+    answer to the recorded payload, so it takes that payload's status: `empty` after a header-only one."""
+    _teams("BAL")
+    header = _body([])
+    first = nv.run(2026, http_get=FakeHTTP(FakeResp(200, header, '"h1"')), now_fn=lambda: F1)
+    (tmp_path / first.got.payload_path).unlink()                           # the kept file lost
+    again = nv.run(2026, http_get=FakeHTTP(FakeResp(200, header, '"h2"')), now_fn=lambda: F2)
+    assert again.got.restored and again.status == "empty" and again.rows_asserted == 0
+
+
+def test_1003_a_keep_refused_for_a_hash_mismatch_leaves_no_folder(tmp_path, monkeypatch):
+    """The keep's own refusal (the copied bytes are not the hashed payload) leaves no folder the keep made either
+    (review of #1003). Fail-first: on c8ca938d the source and date folders stayed."""
+    _teams("BAL")
+    d = tmp_path / "in"
+    d.mkdir()
+    path = _write(d / "depth_charts_2026.csv", _chart(D1, "BAL", 3))
+    real = nv.snapshot_copy
+    monkeypatch.setattr(nv, "snapshot_copy", lambda p: (real(p)[0], "0" * 64))
+    with pytest.raises(nv.Refused, match="not the hashed payload"):
+        nv.run(file=str(path), now_fn=lambda: F1)
+    assert _counts() == (0, 0) and not (tmp_path / "logs").exists()
+
+
+def test_1003_a_keep_whose_date_folder_fails_after_its_source_folder_is_made_leaves_no_folder(tmp_path, monkeypatch):
+    """mkdir(parents=True) makes the source folder, then the date folder fails (ENOSPC): the refusal removes exactly the
+    folders this keep made, never one that existed before (logs/availability here). Fail-first: on c8ca938d the empty
+    source folder stayed."""
+    import errno
+    _teams("BAL")
+    (tmp_path / "logs" / "availability").mkdir(parents=True)
+    keep = tmp_path / "logs" / "availability" / "keep.txt"
+    keep.write_text("an earlier file, never removed\n")
+    d = tmp_path / "in"
+    d.mkdir()
+    path = _write(d / "depth_charts_2026.csv", _chart(D1, "BAL", 3))
+    real_mkdir = os.mkdir
+
+    def date_fails(p, *a, **kw):
+        if Path(p).parent.name == "nflverse_depth_charts" and Path(p).parent.is_dir():   # after the source folder
+            raise OSError(errno.ENOSPC, "No space left on device", str(p))
+        return real_mkdir(p, *a, **kw)
+    import pathlib
+    made = []
+
+    def date_fails_seen(p, *a, **kw):
+        made.append(Path(p).name)
+        return date_fails(p, *a, **kw)
+    with monkeypatch.context() as m:
+        m.setattr(os, "mkdir", date_fails_seen)
+        if hasattr(pathlib, "_NormalAccessor"):                       # Python 3.10: Path.mkdir is the accessor's
+            m.setattr(pathlib._NormalAccessor, "mkdir", staticmethod(date_fails_seen))   # os.mkdir, bound at import
+        with pytest.raises(nv.Refused, match="could not be kept"):
+            nv.run(file=str(path), now_fn=lambda: F1)
+    assert "nflverse_depth_charts" in made and "2026-10-03" in made        # the source folder was made, then the date
+    assert sorted(p.name for p in (tmp_path / "logs" / "availability").iterdir()) == ["keep.txt"]
+    assert keep.read_text() == "an earlier file, never removed\n" and _counts() == (0, 0)

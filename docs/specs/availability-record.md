@@ -97,7 +97,7 @@ that replaces one trigger, not a table rebuild.
 | `failed` | the call raised; the error is kept, redacted | none |
 | `missed` | the poll's time passed with no call made; `fetched_at` NULL | none |
 
-A byte-identical nflverse refetch is `complete` with `rows_asserted` 0 (item 3(a)). The writer refuses assertions on
+A byte-identical nflverse refetch is `complete` with `rows_asserted` 0 (item 3(a)), or `empty` when the payload it is unchanged from is a header-only one (addendum 382 item 3: an unchanged answer takes the status of its payload). The writer refuses assertions on
 an `empty`, `failed` or `missed` observation, and so does the insert trigger.
 
 ## 3. The two clocks (item 1, ruled; verbatim)

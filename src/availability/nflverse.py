@@ -65,12 +65,14 @@ How it reads and writes (law 1: every column by its name, as 259 item 1 read the
   only when the kept file exists and its sha256 matches, else no If-None-Match and the next 200 restores it"
   (lost_refusal): a missing or altered kept file is no previous payload, so a byte-identical 200 is kept again (a new
   path) and a 304 is refused; the same holds for a --file byte-identical to a lost one. That kept-again copy is a
-  RESTORE (Got.restored), recorded as the byte-identical answer is (complete, rows_asserted 0, nothing read: those
-  bytes' facts are held), never as a new load, so the source's watermark never refuses it (an older season's file
+  RESTORE (Got.restored), recorded as the byte-identical answer is (the status of the payload it restores, rows_asserted
+  0, nothing read: those bytes' facts are held; addendum 382 item 3), never as a new load, so the source's watermark never refuses it (an older season's file
   fetched after newer loads) and the restored copy is the previous payload, its ETag sent, from the next run on.
-  - 304: a `complete` observation, rows_asserted 0, carrying the previous payload's sha256 and path;
-  - 200: the body streamed to disk and hashed; byte-identical to the last kept payload: the copy removed, a `complete`
-    observation with rows_asserted 0 carrying that payload's sha256 and path, and the answer's ETag, where it differs
+  - 304: an observation with the status of the payload it carries (`complete`, or `empty` after a header-only payload:
+    addendum 382 item 3, "AN UNCHANGED ANSWER TAKES THE STATUS OF THE PAYLOAD IT IS UNCHANGED FROM"), rows_asserted 0,
+    carrying the previous payload's sha256 and path;
+  - 200: the body streamed to disk and hashed; byte-identical to the last kept payload: the copy removed, an
+    observation with that payload's status (382 item 3, as for a 304) and rows_asserted 0 carrying that payload's sha256 and path, and the answer's ETag, where it differs
     from the stored one, written beside that payload (the sidecar is not the record: no row changes), so the next
     unchanged day sends a validator the server matches; changed: kept under
     logs/availability/nflverse_depth_charts/<UTC date>/<HHMMSS>Z-<sha256, first 16 hex>-depth_charts_<season>.csv
@@ -356,9 +358,12 @@ def stored_complete_groups(s) -> dict:
 
 
 def previous_observation(s, endpoint: str) -> tuple[str, str, str] | None:
-    """(sha256, payload_path, status) of the newest complete, partial or empty observation of this endpoint that kept a
-    payload: previous_payload's row, with its status, which an unchanged answer takes (#1003, ARCHITECT 2026-11-14,
-    addendum 382 item 3: "AN UNCHANGED ANSWER TAKES THE STATUS OF THE PAYLOAD IT IS UNCHANGED FROM")."""
+    """(sha256, payload_path, status) of previous_payload's row, its status the PAYLOAD's (#1003, ARCHITECT
+    2026-11-14, addendum 382 item 3: "AN UNCHANGED ANSWER TAKES THE STATUS OF THE PAYLOAD IT IS UNCHANGED FROM"):
+    `empty` when any observation of the source recorded those bytes `empty` (a header and no row is a fact of the
+    bytes, so one such row proves it), else that row's status. Never the newest row's alone: before the rule's merge
+    an unchanged answer to a header-only payload was stored `complete`, and reading that row would carry `complete`
+    forward on every later unchanged answer ("Nothing stored is rewritten; the rule holds from its merge")."""
     from sqlalchemy import select
 
     from src.db.schema import AvailabilityObservation as O
@@ -366,14 +371,19 @@ def previous_observation(s, endpoint: str) -> tuple[str, str, str] | None:
                     .where(O.source == SOURCE, O.endpoint == endpoint, O.status.in_((*rec.ASSERTING, "empty")),
                            O.payload_sha256.is_not(None), O.payload_path.is_not(None))
                     .order_by(O.id.desc()).limit(1)).first()
-    return (got[0], got[1], got[2]) if got else None
+    if not got:
+        return None
+    empty = s.execute(select(O.id).where(O.source == SOURCE, O.payload_sha256 == got[0], O.status == "empty")
+                      .limit(1)).first()
+    return got[0], got[1], "empty" if empty else got[2]
 
 
 def unchanged_status(prev_status: str | None) -> str:
     """The status of an unchanged answer (a 304, a byte-identical 200 or --file, a restore), verbatim from addendum 382
     item 3: "After a header-only payload a 304, a byte-identical 200 or a byte-identical --file is recorded `empty`,
     never `complete` with zero rows [...] After a complete or partial payload it stays `complete` with rows_asserted
-    0". Nothing stored is rewritten; the rule holds from its merge."""
+    0". A restore is a byte-identical answer to the recorded payload, so it reads the same (274 item 3(1)'s
+    "complete, nothing asserted" predates the rule). Nothing stored is rewritten; the rule holds from its merge."""
     return "empty" if prev_status == "empty" else "complete"
 
 
@@ -440,7 +450,7 @@ class Got:
     etag: str = "none"                    # the ETag line: sent/not sent, the answer
     created: bool = False                 # this run created the kept file (not an earlier run's same bytes, reused)
     # 274 item 3(1), "the next 200 restores it": the recorded payload's own bytes kept again because its kept file was
-    # lost; recorded as the byte-identical answer is (complete, nothing read or asserted: those bytes' facts are held),
+    # lost; recorded as the byte-identical answer is (the payload's status, 382 item 3; nothing read or asserted),
     # so no watermark check refuses it and the restored copy is the previous payload from then on
     restored: bool = False
 
@@ -465,11 +475,23 @@ def _kept(now: datetime, name: str, sha: str) -> tuple[str, Path]:
     return rel, abs_dir / final
 
 
-def _remove_empty_payload_dirs(final: Path) -> None:
-    """The kept file's date and source folders, each only when it is left empty (a refused keep leaves no folder)."""
-    for d in (final.parent, final.parent.parent):
+def _missing_dirs(final: Path) -> list[Path]:
+    """The folders above `final`, up to PAYLOAD_BASE, that do not exist yet (deepest first): what a keep would make."""
+    out, d = [], final.parent
+    while d != PAYLOAD_BASE and PAYLOAD_BASE in d.parents and not d.exists():
+        out.append(d)
+        d = d.parent
+    return out
+
+
+def _remove_dirs_made(made: list[Path]) -> None:
+    """The folders a failed keep made (_missing_dirs, read before it), deepest first, each only while empty: a folder
+    that existed before the run, or one another payload sits in, is never removed (#1003, 382 item 2)."""
+    for d in made:
         try:
             d.rmdir()
+        except FileNotFoundError:
+            continue
         except OSError:
             break
 
@@ -659,14 +681,19 @@ def from_file(copy: Path, name: str, sha: str, prev: tuple[str, str] | None, now
     if prev and sha == prev[0]:
         return Got(ep, now, None, prev[0], prev[1], etag="n/a (--file); byte-identical to the last kept payload")
     rel, final = _kept(now, name, sha)
+    made = _missing_dirs(final)
     try:
         created = _retain(copy, final, sha)
+    except Refused:
+        _remove_dirs_made(made)                    # the keep's own refusals (other bytes there, a hash mismatch)
+        raise
     except OSError as e:
         # #1003 (ARCHITECT, addendum 382 item 2): the keep's own I/O (the payload directory, the kept file's exclusive
         # create, the copy, the copy's source) failing is a refusal (exit 2), never a traceback (exit 1 is a failed
-        # observation's code). _retain has removed its partial file; the folders it made and left empty go too, so a
-        # refusal leaves nothing on disk. Named by the error's type and strerror, never str(e), which names a path.
-        _remove_empty_payload_dirs(final)
+        # observation's code). _retain has removed its partial file; the folders this keep made go too (exactly
+        # those, read before it), so a refusal leaves nothing on disk. Named by the error's type and strerror, never
+        # str(e), which names a path.
+        _remove_dirs_made(made)
         raise Refused(f"REFUSED: --file {name!r} could not be kept ({type(e).__name__}: "
                       f"{e.strerror or 'no error text'}); nothing kept, nothing written") from None
     return Got(ep, now, None, sha, rel, changed=True, created=created, restored=restoring,

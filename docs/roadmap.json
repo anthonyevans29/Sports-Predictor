@@ -907,7 +907,10 @@
           "what": "the first host NBA PAPER page (addendum 261 item 1(b)): the first NBA page the host writes on a tag carrying the wiring PR, after the architect's block enables nba-daily",
           "owner": "operator",
           "due": "2026-11-21",
-          "done": null
+          "done": {
+            "date": "2026-11-10",
+            "receipt": "ARCHITECT 2026-11-14 11:25 ET, addendum 381 item 2: \"A STEP ALREADY MET [...] is DONE 2026-11-10. The receipt, from the private mirror: host/2026-11-10/coverage_2026-11-10.json, written 2026-11-10T07:22:07Z, carries competition NBA with its paper block (\\\"PAPER, never a call\\\"), 6 games, a stored Kalshi quote on all 6; every day since has one (10, 4, 9 and 5 games on 11-11 to 11-14, a quote on each), and the host's window_24h.json holds NBA rows with a Kalshi bid and ask. sp-nba-daily.timer has been enabled since 2026-11-09 14:16Z (section O).\" No figure of a quote is recorded (381 item 2). Done before its due 2026-11-21, which stays as the record."
+          }
         },
         {
           "what": "NCAA men's (addendum 261 item 1(c)): competition NCAAMB (never \"NCAA\", which is football), the same adapter, the Kalshi college-basketball game series with its ticker READ from the API's series listing (find_series) and printed on the PR, the matcher's universe game-derived with a Kalshi market, never the provider's team list (272 item 2; the 'NCAA' league served 740 teams on 2026-27); refusals expected and correct, the PAPER record",

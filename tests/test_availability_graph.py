@@ -279,6 +279,201 @@ def test_review_one_run_at_a_time_and_a_killed_runs_staging_is_removed(fresh_db,
     assert line["removed_stale_staging"] == [left.name] and "synthetic" in line["error"]
 
 
+def test_378_d_a_failed_line_names_the_staged_size_and_a_killed_runs_size_is_named_next(fresh_db, tmp_path,
+                                                                                       monkeypatch):
+    """ARCHITECT 2026-11-14 08:23 ET, addendum 378 item 4(d): "the run's receipt line carries the STAGED counts before
+    the load starts, so a failed line names the size it failed at (today's failed line names none)"; (e) "a failed
+    build still exits 1 with the previous graph untouched and its line written". A SIGKILLed run (MemoryMax) writes no
+    line: the size it staged stays in its staging directory and the next run names it."""
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    (out / g.GRAPH_NAME).write_bytes(b"the previous graph")
+    seen = {}
+
+    def boom(lb, path, tables, pool):
+        seen["staged_file"] = json.loads((path.parent / g.STAGED).read_text())
+        seen["pool"] = pool
+        raise RuntimeError("synthetic: the buffer pool is full")
+    monkeypatch.setattr(g, "_load", boom)
+    with pytest.raises(RuntimeError, match="buffer pool is full"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert line["ok"] is False and "buffer pool is full" in line["error"]
+    assert set(line["staged"]) == {*g.NODE_TABLES, *g.REL_TABLES} and line["staged"]["FACT"] > 0
+    assert seen["staged_file"] == {"staged": line["staged"], "memory_limit": line["memory_limit"],
+                                   "buffer_pool": line["buffer_pool"]}   # written before the load began
+    assert line["buffer_pool"] == seen["pool"] == g.buffer_pool(line["memory_limit"]) == line["memory_limit"] // 2
+    assert (out / g.GRAPH_NAME).read_bytes() == b"the previous graph"
+    assert sorted(p.name for p in out.iterdir()) == [LOCK, g.GRAPH_NAME, g.RECEIPTS]
+    killed = out / f".{g.GRAPH_NAME}.build-99998"                     # a SIGKILLed run's, mid-load
+    killed.mkdir()
+    (killed / g.STAGED).write_text(json.dumps(seen["staged_file"]))
+    early = out / f".{g.GRAPH_NAME}.build-99997"                      # one killed before its load began
+    early.mkdir()
+    with pytest.raises(RuntimeError):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    nxt = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert nxt["removed_stale_staging"] == [early.name, killed.name]
+    assert nxt["stale_staged"] == {killed.name: seen["staged_file"]}
+    assert not killed.exists() and not early.exists()
+
+
+def test_378_c_the_pool_is_half_the_limit_the_rebuild_runs_under(tmp_path, monkeypatch):
+    """Addendum 378 item 4(c): "the pool and the checkpoint behaviour stated as a rule tied to the unit's MemoryMax,
+    not a bare constant". The limit is read from the process's cgroup (v2 memory.max, v1 memory.limit_in_bytes, the
+    smallest on the path up), the unit's MemoryMax standing in where there is none; the pool is half of it; and the
+    load opens the engine with auto_checkpoint ON, so every COPY ends in a checkpoint (rule (2))."""
+    u = (HOSTING / "systemd" / "sp-availability-graph.service").read_text()
+    assert re.findall(r"^MemoryMax=(.+)$", u, re.M) == ["1536M"] and g.UNIT_MEMORY_MAX == 1536 * 1024 * 1024
+    assert g.buffer_pool(g.UNIT_MEMORY_MAX) == 768 * 1024 * 1024
+    root = tmp_path / "cg"
+    # cgroup v2: the unit's own cgroup carries MemoryMax; its slice none ("max")
+    unit = root / "system.slice" / "sp-availability-graph.service"
+    unit.mkdir(parents=True)
+    (unit / "memory.max").write_text("1610612736\n")
+    (root / "system.slice" / "memory.max").write_text("max\n")
+    me = tmp_path / "self_cgroup"
+    me.write_text("0::/system.slice/sp-availability-graph.service\n")
+    assert g._cgroup_limit(root, me) == (1610612736, str(unit / "memory.max"))
+    # a smaller limit higher up binds
+    (root / "system.slice" / "memory.max").write_text("1073741824\n")
+    assert g._cgroup_limit(root, me)[0] == 1073741824
+    # cgroup v1: memory.limit_in_bytes, and "no limit" (the kernel's huge value) is none
+    v1 = root / "memory" / "a" / "b"
+    v1.mkdir(parents=True)
+    (v1 / "memory.limit_in_bytes").write_text("9223372036854771712\n")
+    me.write_text("4:memory:/a/b\n1:cpu:/a/b\n")
+    assert g._cgroup_limit(root, me) is None
+    (root / "memory" / "a" / "memory.limit_in_bytes").write_text("536870912\n")
+    assert g._cgroup_limit(root, me) == (536870912, str(root / "memory" / "a" / "memory.limit_in_bytes"))
+    assert g._cgroup_limit(root, tmp_path / "absent") is None
+    monkeypatch.setattr(g, "_cgroup_limit", lambda: None)
+    assert g.memory_limit() == (g.UNIT_MEMORY_MAX, "the unit's MemoryMax (no cgroup limit on this process)")
+
+
+def test_378_c_the_load_opens_the_engine_with_the_pool_and_auto_checkpoint_on(tmp_path):
+    """Rule (2): auto_checkpoint stays ON (every COPY then ends in a checkpoint that merges and frees its rows; off,
+    the rows pile up and the 256 MiB pool failed sooner), set rather than inherited; the pool is the one given."""
+    seen = {}
+
+    class Con:
+        def __init__(self, db):
+            pass
+
+        def execute(self, q):
+            seen.setdefault("q", []).append(q)
+
+        def close(self):
+            pass
+
+    class Db:
+        def __init__(self, path, **kw):
+            seen["kw"] = kw
+
+        def close(self):
+            pass
+
+    class LB:
+        Database, Connection = Db, Con
+    g._load(LB, tmp_path / "x.lbug", {n: g._Table(tmp_path, n) for n in (*g.NODE_TABLES, *g.REL_TABLES)}, 123 << 20)
+    assert seen["kw"] == {"backend": "pybind", "buffer_pool_size": 123 << 20, "auto_checkpoint": True}
+    assert seen["q"] == list(g.SCHEMA)
+
+
+def test_378_c_a_looser_limit_never_inflates_the_pool(monkeypatch):
+    """Pre-PR review: a process in a loosely limited cgroup (a sandbox, a container, a user slice) must not open the
+    engine with half of THAT limit: the limit is the smaller of its cgroup's and the unit's MemoryMax, so a tighter
+    limit still binds and a looser one gives the unit's pool."""
+    monkeypatch.setattr(g, "_cgroup_limit", lambda: (14 << 30, "/sys/fs/cgroup/loose/memory.max"))
+    lim, where = g.memory_limit()
+    assert lim == g.UNIT_MEMORY_MAX and "the unit's MemoryMax" in where and "loose" in where
+    assert g.buffer_pool(lim) == 768 * 1024 * 1024
+    monkeypatch.setattr(g, "_cgroup_limit", lambda: (1 << 30, "/sys/fs/cgroup/tight/memory.max"))
+    assert g.memory_limit() == (1 << 30, "/sys/fs/cgroup/tight/memory.max")
+
+
+def test_378_d_a_run_killed_after_its_load_still_leaves_its_size(fresh_db, tmp_path, monkeypatch):
+    """Pre-PR review: the staged size stays in the staging directory until the commit point, so a run SIGKILLed
+    between its load and os.replace (in the read-back of its counts, the hash) still names its size to the next run."""
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    seen = {}
+
+    def load(lb, path, tables, pool):
+        path.write_bytes(b"graph")
+        for x in tables.values():
+            for f in x.files:
+                f.unlink()
+
+    def counts(lb, path, pool):
+        seen["staged_at_counts"] = (path.parent / g.STAGED).exists()
+        raise RuntimeError("synthetic: killed here")
+    monkeypatch.setattr(g, "_load", load)
+    monkeypatch.setattr(g, "_counts", counts)
+    with pytest.raises(RuntimeError, match="killed here"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    assert seen["staged_at_counts"] is True
+
+
+def test_codex_996_r1_a_finite_v2_limit_is_kept_whatever_the_machine(tmp_path, monkeypatch):
+    """Codex on #996, round 1: under cgroup v2 only "max" is no limit; a finite memory.max as large as the machine's
+    memory is still the limit (only v1's huge sentinel is read against the machine's memory)."""
+    root = tmp_path / "cg"
+    unit = root / "u"
+    unit.mkdir(parents=True)
+    (unit / "memory.max").write_text("1073741824\n")
+    me = tmp_path / "self_cgroup"
+    me.write_text("0::/u\n")
+    monkeypatch.setattr(os, "sysconf", lambda k: {"SC_PAGE_SIZE": 4096, "SC_PHYS_PAGES": 262144}[k])   # a 1 GiB machine
+    assert g._cgroup_limit(root, me) == (1073741824, str(unit / "memory.max"))
+
+
+
+def test_379_4_a_finite_v1_limit_is_kept_and_only_v1s_own_no_limit_value_is_none(tmp_path, monkeypatch):
+    """ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 4 (Codex's round-two P2 on #996): a finite cgroup v1 limit at
+    or above the machine's memory is a limit; v1's no-limit value is the kernel's own, PAGE_COUNTER_MAX pages
+    (LONG_MAX // PAGE_SIZE) times PAGE_SIZE, whatever the page size, never a comparison with the machine's memory."""
+    root = tmp_path / "cg"
+    v1 = root / "memory" / "u"
+    v1.mkdir(parents=True)
+    me = tmp_path / "self_cgroup"
+    me.write_text("4:memory:/u\n")
+    for page, phys in ((4096, 262144), (65536, 16384)):                  # a 1 GiB machine, 4 KiB and 64 KiB pages
+        monkeypatch.setattr(os, "sysconf", lambda k, page=page, phys=phys: {"SC_PAGE_SIZE": page,
+                                                                            "SC_PHYS_PAGES": phys}[k])
+        for finite in (1073741824, 2147483648):                           # equal to and above the machine's memory
+            (v1 / "memory.limit_in_bytes").write_text(f"{finite}\n")
+            assert g._cgroup_limit(root, me) == (finite, str(v1 / "memory.limit_in_bytes")), (page, finite)
+        sentinel = (2 ** 63 - 1) // page * page                           # 9223372036854771712 on 4 KiB pages
+        (v1 / "memory.limit_in_bytes").write_text(f"{sentinel}\n")
+        assert g._cgroup_limit(root, me) is None, page
+    assert (2 ** 63 - 1) // 4096 * 4096 == 9223372036854771712
+
+
+def test_codex_996_r1_the_staged_size_is_never_removed_before_the_commit_point(fresh_db, tmp_path, monkeypatch):
+    """Codex on #996, round 1: the staged size stays in the staging directory through os.replace, so a run killed at
+    any point before its commit still names its size; the cleanup after the commit removes it."""
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    _fake_build(monkeypatch)
+    seen = {}
+    real = os.replace
+
+    def replace(src, dst):
+        seen["staged_at_commit"] = (Path(src).parent / g.STAGED).exists()
+        return real(src, dst)
+    monkeypatch.setattr(g.os, "replace", replace)
+    r = g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    assert r["ok"] is True and seen["staged_at_commit"] is True
+    assert sorted(p.name for p in out.iterdir()) == [LOCK, g.GRAPH_NAME, g.RECEIPTS]
+
+
 def test_review_a_sigterm_removes_the_staging_and_writes_its_line(fresh_db, tmp_path, monkeypatch):
     import signal
     _history_b()
@@ -381,7 +576,7 @@ def test_347_b_the_unit_is_its_own_sandbox():
     body = "\n".join(x for x in u.splitlines() if not x.startswith("#"))
     assert "EnvironmentFile" not in body                                           # never host.env
     for line in ("PrivateNetwork=yes", "NoNewPrivileges=yes", "ProtectSystem=strict", "User=sp", "Type=oneshot",
-                 "InaccessiblePaths=/opt/sports-predictor/data /etc/sports-predictor", "ProtectHome=yes",
+                 "InaccessiblePaths=/etc/sports-predictor", "ProtectHome=yes",
                  "CapabilityBoundingSet=", "OnFailure=sp-notify@availability-graph.service",
                  # the pre-PR review: another sp process's /proc view, filesystem sockets, the shared /dev/shm
                  "PrivateUsers=yes", "ProtectProc=invisible", "ProcSubset=pid", "RestrictAddressFamilies=none",
@@ -390,7 +585,19 @@ def test_347_b_the_unit_is_its_own_sandbox():
     assert re.findall(r"^ReadWritePaths=(.+)$", body, re.M) == ["/opt/sports-predictor/logs/availability/graph"]
     masks = re.findall(r"^BindReadOnlyPaths=(.+)$", body, re.M)
     assert masks == ["/dev/null:/opt/sports-predictor/.env"]          # host.env: its whole directory inaccessible
-    assert re.findall(r"^TemporaryFileSystem=(.+)$", body, re.M) == ["/tmp:ro /var/tmp:ro"]
+    # addendum 378 item 3: data/ an EMPTY read-only folder, never inaccessible (the fence refuses a data/ it cannot read);
+    # addendum 379 item 3: /dev/shm too (PrivateDevices binds the host's /dev/shm, writable, into its private /dev)
+    assert re.findall(r"^TemporaryFileSystem=(.+)$", body, re.M) == [
+        "/tmp:ro /var/tmp:ro /opt/sports-predictor/data:ro /dev/shm:ro"]
+    assert "no shared /dev/shm" not in u and "PrivateDevices does NOT make /dev/shm private" in u
+    # 380 item 2: the four entries, each pinned; the header names what makes each part of "the one writable path" true
+    assert _unit_values(body, "TemporaryFileSystem") == ["/tmp:ro", "/var/tmp:ro", "/opt/sports-predictor/data:ro",
+                                                         "/dev/shm:ro"]
+    for part in ("the root read-only by\n# ProtectSystem=strict", "/dev/mqueue the unit's own by PrivateIPC",
+                 "graph's folder writable by ReadWritePaths"):
+        assert part in u, part
+    assert "ProtectSystem=strict leaves no write path" not in u
+    assert re.findall(r"^InaccessiblePaths=(.+)$", body, re.M) == ["/etc/sports-predictor"]
     assert "PrivateTmp" not in body                                               # one writable directory
     for k in ("SQLITE_TMPDIR", "TMPDIR"):
         assert re.search(rf"^Environment={k}=/opt/sports-predictor/logs/availability/graph$", body, re.M), k
@@ -400,6 +607,63 @@ def test_347_b_the_unit_is_its_own_sandbox():
                  "/opt/sports-predictor/logs/availability/graph/availability.lbug"]
     assert "Wants=" not in body and "network-online" not in body
     assert re.findall(r"^After=(.+)$", body, re.M) == ["sp-backup.service"]  # Codex #943 r1: catch-up after the backup
+
+
+def _unit_values(body: str, key: str) -> list[str]:
+    return [v for line in re.findall(rf"^{key}=(.+)$", body, re.M) for v in line.split()]
+
+
+def test_378_no_unit_that_runs_a_db_command_makes_a_fenced_data_dir_inaccessible(monkeypatch):
+    """ARCHITECT 2026-11-14 08:23 ET, addendum 378 item 3: "the test that pins the unit's lines pins these two and
+    asserts that no data/ the fence keys on is ever on InaccessiblePaths of a unit that runs a --db command". The fence
+    (check_db) walks every data/ it keys on and REFUSES one it cannot read; an inaccessible data/ refused every run of the
+    graph unit on the host. Every unit that runs the app's cli.py (directly, or a chain or a step through it) can run a
+    --db command, so none may hold the host checkout's data/ (the fence's data/ there, by its own _data_dirs() with the
+    checkout at /opt/sports-predictor), or anything above it, on InaccessiblePaths. The graph unit's data/ is an empty
+    read-only TemporaryFileSystem instead."""
+    from src.walters import mlb_pitchers_gate as mp
+    host = Path("/opt/sports-predictor")
+    monkeypatch.setattr(mp, "_data_dir", lambda: host / "data")
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: None)
+    fenced = mp._data_dirs()
+    assert fenced == [host / "data"]
+    runs_app = []
+    for unit in sorted((HOSTING / "systemd").glob("*.service")):
+        body = "\n".join(x for x in unit.read_text().splitlines() if not x.startswith("#"))
+        execs = " ".join(re.findall(r"^Exec\w*=(.+)$", body, re.M))
+        if "/opt/sports-predictor" not in execs and "cli.py" not in execs:
+            continue
+        runs_app.append(unit.name)
+        for v in _unit_values(body, "InaccessiblePaths"):
+            p = Path(v.lstrip("-+"))
+            for d in fenced:                         # data/ itself, a folder above it, or one below it the walk reads
+                assert not (p == d or p in d.parents or d in p.parents), (unit.name, v)
+    assert "sp-availability-graph.service" in runs_app and len(runs_app) > 1
+    g_body = (HOSTING / "systemd" / "sp-availability-graph.service").read_text()
+    assert "/opt/sports-predictor/data:ro" in _unit_values(g_body, "TemporaryFileSystem")
+    assert "HERE AND ONLY HERE" in g_body and "Not one line of check_db loosens for it" in g_body
+
+
+def test_378_the_fence_still_refuses_an_unreadable_data_dir(tmp_path, monkeypatch):
+    """Item 3: "the unit changes, the fence does not": a data/ the walk cannot read still refuses (#947), and an empty
+    data/ (what the unit now shows the fence) holds nothing, so the copy outside it passes."""
+    from src.walters import mlb_pitchers_gate as mp
+    data = tmp_path / "fenced"                  # the fence's data/ by monkeypatch (never a folder named data/ here)
+    data.mkdir()
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data])
+    monkeypatch.setattr(mp, "_app_db", lambda: None)
+    copy = tmp_path / "b" / "sports_2026-11-14.db"
+    copy.parent.mkdir()
+    copy.write_bytes(b"x")
+    assert mp.check_db(copy) == copy.resolve()                        # an empty data/: nothing to match
+    if os.geteuid() == 0:
+        pytest.skip("root reads a 0000 folder; the refusal itself is pinned by #947's tests")
+    data.chmod(0)
+    try:
+        with pytest.raises(mp.GateRefused, match=r"cannot read .* under data/"):
+            mp.check_db(copy)
+    finally:
+        data.chmod(0o755)
 
 
 def test_the_timer_follows_the_backup_and_ships_disabled():
@@ -573,13 +837,13 @@ def test_codex_r1_the_copy_is_never_the_out_path(fresh_db, tmp_path):
 def _fake_build(monkeypatch):
     """_load writes a stand-in graph file and _counts returns what was staged: the run reaches its commit point
     without the engine."""
-    def load(lb, path, tables):
+    def load(lb, path, tables, pool):
         path.write_bytes(b"graph")
         for t in tables.values():
             for f in t.files:
                 f.unlink()
     monkeypatch.setattr(g, "_load", load)
-    monkeypatch.setattr(g, "_counts", lambda lb, path: {n: monkeypatch._staged[n] for n in monkeypatch._staged})
+    monkeypatch.setattr(g, "_counts", lambda lb, path, pool: {n: monkeypatch._staged[n] for n in monkeypatch._staged})
     real = g._stage
 
     def stage(*a, **k):

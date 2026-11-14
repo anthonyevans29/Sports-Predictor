@@ -42,9 +42,37 @@ REQUIREMENTS = "requirements-graph.txt"
 GRAPH_NAME = "availability.lbug"
 DEFAULT_OUT = Path("logs") / "availability" / "graph" / GRAPH_NAME
 RECEIPTS = "rebuild.jsonl"                     # beside the graph: the unit's one writable directory (347 item 5(b))
+STAGED = "staged.json"                         # in the staging directory: the size a load starts at (378 item 4(d))
 DAILY = re.compile(r"^sports_\d{4}-\d{2}-\d{2}(_\d{6})?\.db$")   # pull_backup.DAILY: a daily .backup copy's name
 MAX_AGE_HOURS = 26                             # the 09:30 UTC daily backup, read at 10:20, with a day's slack
-BUFFER_POOL = 256 * 1024 * 1024                # the engine's default is ~80% of the machine's memory
+# THE POOL AND THE CHECKPOINT, AS A RULE TIED TO THE UNIT'S MemoryMax (ARCHITECT 2026-11-14 08:23 ET, addendum 378
+# item 4(c): "the pool and the checkpoint behaviour stated as a rule tied to the unit's MemoryMax, not a bare
+# constant"). What the engine documents (law 1), its installed wheel's ladybug/database.py docstring: "buffer_pool_size:
+# The maximum size of buffer pool in bytes. Defaults to ~80% of system memory."; "auto_checkpoint: If true, the
+# database will automatically checkpoint when the size of the WAL file exceeds the checkpoint threshold."; its docs
+# (LadybugDB/ladybug-docs, transaction.md): "By default, checkpoint happens automatically at the end of a write
+# transaction when the WAL file size goes beyond the `CHECKPOINT_THRESHOLD`"; and import/index.mdx: only "the memory
+# used to prepare the imported relationship table data" spills to a .tmp file. What its source adds (v0.22.3, tag
+# 6a3e04a8; quoted in the PR): every COPY FROM forces a checkpoint at its commit while auto_checkpoint is on, whatever
+# the WAL size (src/main/client_context.cpp: "We force checkpoint for COPY_FROM statement unless the user has disabled
+# automatic checkpointing"); a rel table's node group is 2^17 bound nodes; a checkpoint's buffers are never spilled.
+# The rule:
+#   (1) the pool is HALF the memory limit this process runs under: the smaller of its cgroup's limit, read at run time
+#       (memory_limit()), and the unit's MemoryMax (under the unit both are 1536M, so 768 MiB); with no limit of its own,
+#       or a looser one (a laptop, a sandbox, a test), the unit's MemoryMax binds, so the pool is never larger than the
+#       unit's and a tighter limit still binds. The other half is the staging walk's Python heap, the
+#       engine's memory outside its pool and the page cache the limit also counts (the engine's own default, 80% of the
+#       limit, would leave the walk too little);
+#   (2) auto_checkpoint stays ON, set here rather than inherited: then every COPY of CHUNK rows ends in a checkpoint
+#       that merges its rows into the stored graph and frees them. Off, COPY's rows pile up in memory unmerged
+#       (measured: the 256 MiB pool failed at the 5th FACT COPY instead of the 10th). checkpoint_threshold has no
+#       effect on a COPY and is not set;
+#   (3) the pool is a ceiling the record grows into, not a fix for growth: every Player (and every Team) is in one
+#       node group, so each FACT checkpoint rewrites every FACT edge in memory, and the pool it needs grows with the
+#       record's assertions (the PR's receipts give the measured ceiling). The line names the limit, the pool and the
+#       staged size, so the night it is reached says so.
+UNIT_MEMORY_MAX = 1536 * 1024 * 1024           # deploy/hosting/systemd/sp-availability-graph.service MemoryMax=1536M
+POOL_SHARE = 2                                 # the pool is limit // POOL_SHARE
 CHUNK = 100_000                                # rows per COPY: one COPY of 1M edges overflows a 256 MB pool
 _LBUG_ENV = ("LBUG_PYTHON_BACKEND", "LBUG_C_API_LIB_PATH")      # the package's own overrides: never honoured here
 
@@ -90,6 +118,65 @@ COLUMNS = {
 
 class Refused(Exception):
     """A refusal: nothing read or nothing written; exit 2."""
+
+
+def _cgroup_limit(cgroup_root: Path = Path("/sys/fs/cgroup"), self_cgroup: Path = Path("/proc/self/cgroup")):
+    """The smallest memory limit on this process's cgroup or any cgroup above it, (bytes, the file it came from), or
+    None when none is set or none can be read. cgroup v2: <root>/<path>/memory.max (only "max" is no limit; any number
+    is a limit, Codex on #996); v1: <root>/memory/<path>/memory.limit_in_bytes (only the kernel's own no-limit value is
+    no limit: PAGE_COUNTER_MAX pages, LONG_MAX // PAGE_SIZE, times PAGE_SIZE, 9223372036854771712 on 4 KiB pages; any
+    smaller number is a limit, even one at or above the machine's memory; addendum 379 item 4)."""
+    try:
+        lines = self_cgroup.read_text().splitlines()
+    except OSError:
+        return None
+    try:
+        page = os.sysconf("SC_PAGE_SIZE")
+    except (ValueError, OSError):
+        page = 4096
+    v1_no_limit = (2 ** 63 - 1) // page * page
+    found = []
+    for line in lines:
+        parts = line.split(":", 2)
+        if len(parts) != 3:
+            continue
+        _, controllers, path = parts
+        if controllers == "":
+            base, name, v1 = cgroup_root, "memory.max", False
+        elif "memory" in controllers.split(","):
+            base, name, v1 = cgroup_root / "memory", "memory.limit_in_bytes", True
+        else:
+            continue
+        rel = Path(path.lstrip("/"))
+        for d in [rel, *rel.parents]:
+            f = base / d / name
+            try:
+                v = f.read_text().strip()
+            except OSError:
+                continue
+            if v == "max" or not v.isdigit():
+                continue
+            n = int(v)
+            if v1 and n >= v1_no_limit:
+                continue
+            found.append((n, str(f)))
+    return min(found) if found else None
+
+
+def memory_limit() -> tuple[int, str]:
+    """(bytes, where): the memory limit the rebuild runs under (rule (1) above): the smaller of its cgroup's and the
+    unit's MemoryMax (a looser cgroup limit never inflates the pool past the unit's)."""
+    got = _cgroup_limit()
+    if got is None:
+        return UNIT_MEMORY_MAX, "the unit's MemoryMax (no cgroup limit on this process)"
+    if got[0] > UNIT_MEMORY_MAX:
+        return UNIT_MEMORY_MAX, f"the unit's MemoryMax (the looser cgroup limit {got[0]} at {got[1]})"
+    return got
+
+
+def buffer_pool(limit: int) -> int:
+    """The engine's buffer pool for a memory limit (rule (1) above): half of it."""
+    return limit // POOL_SHARE
 
 
 # ---- the copy (347 item 5(b): "reading a .backup COPY of the database opened mode=ro + immutable=1") -------------
@@ -365,8 +452,8 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
     return t
 
 
-def _load(lb, path: Path, tables: dict[str, _Table]) -> None:
-    db = lb.Database(str(path), backend="pybind", buffer_pool_size=BUFFER_POOL)
+def _load(lb, path: Path, tables: dict[str, _Table], pool: int) -> None:
+    db = lb.Database(str(path), backend="pybind", buffer_pool_size=pool, auto_checkpoint=True)   # rule (2)
     con = lb.Connection(db)
     try:
         for ddl in SCHEMA:
@@ -382,9 +469,9 @@ def _load(lb, path: Path, tables: dict[str, _Table]) -> None:
         db.close()
 
 
-def _counts(lb, path: Path) -> dict[str, int]:
+def _counts(lb, path: Path, pool: int) -> dict[str, int]:
     """The finished file's own counts, read back read-only (a read-write open would rewrite the file's bytes)."""
-    db = lb.Database(str(path), backend="pybind", read_only=True, buffer_pool_size=BUFFER_POOL // 4)
+    db = lb.Database(str(path), backend="pybind", read_only=True, buffer_pool_size=pool // 4)
     con = lb.Connection(db)
     try:
         out = {}
@@ -413,15 +500,22 @@ class Killed(Exception):
     """SIGTERM (systemd's stop, TimeoutStartSec): raised in the run so its staging is removed and its line written."""
 
 
-def _stale_stages(out: Path) -> list[str]:
+def _stale_stages(out: Path) -> tuple[list[str], dict[str, dict]]:
     """Staging directories a killed run left beside the graph (SIGKILL, MemoryMax: no finally runs). Removed by the
-    next run, under the lock, and named on its receipt line."""
-    gone = []
+    next run, under the lock, and named on its receipt line, with the staged counts the killed run's load started at
+    where it had written them (378 item 4(d): a run that dies without its own line still names its size). The size
+    stays in the staging directory through the commit point (Codex on #996); only the finally's cleanup removes it,
+    so one killed in the instant after its commit names its size too (its graph is then the one in place)."""
+    gone, sizes = [], {}
     for p in sorted(out.parent.glob(f".{out.name}.build-*")):
         if p.is_dir():
+            try:
+                sizes[p.name] = json.loads((p / STAGED).read_text())
+            except (OSError, ValueError):
+                pass                                  # killed before it staged (or its file unreadable): no size
             shutil.rmtree(p, ignore_errors=True)
             gone.append(p.name)
-    return gone
+    return gone, sizes
 
 
 def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None, lb=None,
@@ -462,9 +556,11 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             raise Refused(f"another rebuild holds {out.parent / ('.' + out.name + '.lock')}; nothing read") from None
-        left_by_killed = _stale_stages(out)
+        left_by_killed, killed_sizes = _stale_stages(out)
         if left_by_killed:
             receipt["removed_stale_staging"] = left_by_killed
+        if killed_sizes:
+            receipt["stale_staged"] = killed_sizes
         if (copy is None) == (backup_dir is None):
             raise Refused("one of --db (a .backup copy) or --backup-dir (the newest verified daily copy in it)")
         if copy is None:
@@ -495,12 +591,20 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
         finally:
             ctx.__exit__(None, None, None)
         staged = {n: tables[n].n for n in (*NODE_TABLES, *REL_TABLES)}
+        # 378 item 4(d): the line names the size BEFORE the load starts, so a failed line says what it failed at; and
+        # the staging directory keeps it too, for the next run to name if this one is killed (SIGKILL: no line)
+        receipt["staged"] = staged
+        limit, where = memory_limit()
+        pool = buffer_pool(limit)
+        receipt.update(memory_limit=limit, memory_limit_from=where, buffer_pool=pool)
+        (stage / STAGED).write_text(json.dumps(dict(staged=staged, memory_limit=limit, buffer_pool=pool),
+                                               sort_keys=True))
         graph = stage / GRAPH_NAME
-        _load(lb, graph, tables)
-        got = _counts(lb, graph)
+        _load(lb, graph, tables, pool)
+        got = _counts(lb, graph, pool)
         if got != staged:
             raise RuntimeError(f"the finished graph's counts {got} differ from what was staged {staged}")
-        left = sorted(p.name for p in stage.iterdir() if p.name != GRAPH_NAME)
+        left = sorted(p.name for p in stage.iterdir() if p.name not in (GRAPH_NAME, STAGED))
         if left:
             raise RuntimeError(f"the staging directory holds {left} beside the graph after its close")
         done = dict(ok=True, counts=got, sha256=sha256_file(graph), bytes=graph.stat().st_size)

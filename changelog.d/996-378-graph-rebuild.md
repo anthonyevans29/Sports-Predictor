@@ -16,4 +16,7 @@
   - **3× does NOT build inside 1536M** at any pool from 256 to 1024 MiB. The last COPY that built reached about 3.2–3.5M FACT edges at the rule's 768 MiB.
   - **The choice, for the architect:** a larger MemoryMax (2560M builds 3× in 565.6 s, RSS 1813 MiB), or assertions as nodes (3× builds at 256 MiB). See #995 (`needs-ruling`).
 - **The pre-PR adversarial pass:** three P2s fixed fail-first. One question goes to the architect: whether the host's /dev/shm is writable inside the unit under PrivateDevices.
-- **Tests:** tests/test_availability_graph.py, 29 passed and 11 skipped without the engine; 39 passed and 1 skipped with ladybug 0.22.3.
+- **Codex's review rounds on #996:**
+  - **Round 1:** two P2s, fixed fail-first in c986d84f. A finite cgroup v2 limit is now kept even at or above the machine's RAM, and the staged size is now kept through the commit point.
+  - **Round 2:** one P2, a finite cgroup v1 limit at or above RAM read as no limit. It is listed for the architect (378 item 5) and not changed here.
+- **Tests:** tests/test_availability_graph.py, 31 passed and 11 skipped without the engine; 41 passed and 1 skipped with ladybug 0.22.3.

@@ -123,17 +123,18 @@ class Refused(Exception):
 def _cgroup_limit(cgroup_root: Path = Path("/sys/fs/cgroup"), self_cgroup: Path = Path("/proc/self/cgroup")):
     """The smallest memory limit on this process's cgroup or any cgroup above it, (bytes, the file it came from), or
     None when none is set or none can be read. cgroup v2: <root>/<path>/memory.max (only "max" is no limit; any number
-    is a limit, Codex on #996); v1: <root>/memory/<path>/memory.limit_in_bytes (a value no smaller than the machine's
-    memory is v1's no-limit sentinel)."""
+    is a limit, Codex on #996); v1: <root>/memory/<path>/memory.limit_in_bytes (only the kernel's own no-limit value is
+    no limit: PAGE_COUNTER_MAX pages, LONG_MAX // PAGE_SIZE, times PAGE_SIZE, 9223372036854771712 on 4 KiB pages; any
+    smaller number is a limit, even one at or above the machine's memory; addendum 379 item 4)."""
     try:
         lines = self_cgroup.read_text().splitlines()
     except OSError:
         return None
-    total = None
     try:
-        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+        page = os.sysconf("SC_PAGE_SIZE")
     except (ValueError, OSError):
-        pass
+        page = 4096
+    v1_no_limit = (2 ** 63 - 1) // page * page
     found = []
     for line in lines:
         parts = line.split(":", 2)
@@ -156,7 +157,7 @@ def _cgroup_limit(cgroup_root: Path = Path("/sys/fs/cgroup"), self_cgroup: Path 
             if v == "max" or not v.isdigit():
                 continue
             n = int(v)
-            if v1 and total is not None and n >= total:
+            if v1 and n >= v1_no_limit:
                 continue
             found.append((n, str(f)))
     return min(found) if found else None

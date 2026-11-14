@@ -430,11 +430,28 @@ def test_codex_996_r1_a_finite_v2_limit_is_kept_whatever_the_machine(tmp_path, m
     me.write_text("0::/u\n")
     monkeypatch.setattr(os, "sysconf", lambda k: {"SC_PAGE_SIZE": 4096, "SC_PHYS_PAGES": 262144}[k])   # a 1 GiB machine
     assert g._cgroup_limit(root, me) == (1073741824, str(unit / "memory.max"))
+
+
+
+def test_379_4_a_finite_v1_limit_is_kept_and_only_v1s_own_no_limit_value_is_none(tmp_path, monkeypatch):
+    """ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 4 (Codex's round-two P2 on #996): a finite cgroup v1 limit at
+    or above the machine's memory is a limit; v1's no-limit value is the kernel's own, PAGE_COUNTER_MAX pages
+    (LONG_MAX // PAGE_SIZE) times PAGE_SIZE, whatever the page size, never a comparison with the machine's memory."""
+    root = tmp_path / "cg"
     v1 = root / "memory" / "u"
     v1.mkdir(parents=True)
-    (v1 / "memory.limit_in_bytes").write_text("1073741824\n")
+    me = tmp_path / "self_cgroup"
     me.write_text("4:memory:/u\n")
-    assert g._cgroup_limit(root, me) is None                          # v1: no smaller than the machine is no limit
+    for page, phys in ((4096, 262144), (65536, 16384)):                  # a 1 GiB machine, 4 KiB and 64 KiB pages
+        monkeypatch.setattr(os, "sysconf", lambda k, page=page, phys=phys: {"SC_PAGE_SIZE": page,
+                                                                            "SC_PHYS_PAGES": phys}[k])
+        for finite in (1073741824, 2147483648):                           # equal to and above the machine's memory
+            (v1 / "memory.limit_in_bytes").write_text(f"{finite}\n")
+            assert g._cgroup_limit(root, me) == (finite, str(v1 / "memory.limit_in_bytes")), (page, finite)
+        sentinel = (2 ** 63 - 1) // page * page                           # 9223372036854771712 on 4 KiB pages
+        (v1 / "memory.limit_in_bytes").write_text(f"{sentinel}\n")
+        assert g._cgroup_limit(root, me) is None, page
+    assert (2 ** 63 - 1) // 4096 * 4096 == 9223372036854771712
 
 
 def test_codex_996_r1_the_staged_size_is_never_removed_before_the_commit_point(fresh_db, tmp_path, monkeypatch):

@@ -1,0 +1,29 @@
+## 2026-11-14 (#1005: 1001-state-vs-annotation — `dedupe-matches --orphans`: "live, resync needed" is for a change of state; annotations are named, never counted; an id that serves another pair has its own label (ARCHITECT, addendum 382 item 4).)
+- **The rule (382 item 4, verbatim in part):** "THE LABEL "live, resync needed" IS FOR A CHANGE OF STATE THE PROVIDER SERVES AND OUR ROW LACKS."
+  - (a) **State, each named when it differs:** the status, a score, the kickoff, and a stored provider_orientation key the upsert would remove on the same pair.
+  - (b) **Annotations:** status_raw, matchday and stage "do NOT count, alone or together". A row that differs only in them reads `live`, and they are named on its line (`annotation`), printed under `--sample`.
+  - (c) **"live, the id serves another pair":** an id that serves neither the stored pair nor its reverse gets its own label and count on the plan line. It is printed always, with both pairs by team id and whether the row records the mismatch. A reversed pair is the same game: a reversal not yet recorded names the key a resync would write (`live, resync needed`), and one already recorded reads `live`.
+- **As built** (`src/ingestion/match_dedupe.py`):
+  - `served_diff` returns (state, annotation), or None for another pair. A reversed pair's served scores are compared in the stored orientation.
+  - `live_entry` labels `live_other_pair` for another pair, stale or not (382 item 4(c) names no staleness). The stale split is otherwise unchanged.
+  - `cli._dedupe_orphans`: the plan line gains "live, the id serves another pair N", and those rows print whole.
+  - `scripts/ncaa_live_resync_rows.py`'s pointer names the three lines.
+- **The pre-push review's fixes:**
+  - **(P1)** a live twin whose id serves another pair is never merged into. The absent rows are `refused` ("the live twin's id … serves another pair (382 item 4(c))"), so `--apply` leaves both rows and both ids.
+  - The served pair's "our teams" is resolved against every team of the sport, never only the candidates'.
+  - The same/reversed reading mirrors `score_orientation.orientation`: SAME first, never REVERSED when one team plays both sides.
+  - A not-stale live row names its annotations too.
+  - The same pair served under ANOTHER season (the upsert writes another row, addendum 310 item 3(b)) is kept flagged with the season named alone. That case is put to the architect.
+- **Codex round 1 on #1005:**
+  - **(P1)** a live twin whose id serves the pair under ANOTHER season is never merged into, for the same reason as another pair: the absent rows are `refused` ("… serves the pair under another season").
+  - The `[live_other_pair]` rows print with no cap (they were cut at 10,000). So do `[refused]` and `[unresolved]`, the other classes printed whole, which were cut at 10,000 with no "… more" line (pre-push review).
+  - A refusal names each flagged twin id with its own reason (pre-push review).
+  - The sport's teams are read by one query on the sport, never an IN list of every team id.
+  - **Open, put to the architect:** the production `get_game` parses the answer with season "", so the season check never fires on a production run today. It is kept for an answer that carries a season. No provider field is guessed: no recorded `/games?id=` answer with its league block is in the repo (law 1).
+- **Tests:**
+  - `tests/test_945_live_label.py`: the #945 pins that 382 item 4 changes are amended (status_raw alone, a new status code, the reversed final, the foreign pair). New: a recorded reversal reads live; matchday and stage are annotations; a not-stale other pair; the console's count and annotation lines.
+  - `tests/test_dedupe_orphans.py`: the OR1 world's `resync` row (served NS on a NULL code only) now reads `live`.
+  - Six review tests, five failing on beda7dde (the sixth pins the printed-always rule).
+  - All the new tests fail on 151aadae.
+  - Three Codex round-1 tests, all failing on 172480f5.
+- **The twenty (382 item 5):** listed on #945 with the provider's game id and the stored kickoff, the keys that hold on both machines.

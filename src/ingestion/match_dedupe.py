@@ -303,12 +303,17 @@ def state(s, competition_code: str, source: str) -> dict:
 # kickoffs within TWIN_H, a different source id). Each candidate's id is
 # resolved at the provider (GET /games?id=):
 #   * found               -> live: untouched. A stale one is "live, resync
-#                            needed" only when the provider serves something
-#                            our row lacks (#945; ARCHITECT, addendum
-#                            365 item 3(b)): a status, a status code, a score or
-#                            a kickoff a resync would write (served_diff); one
-#                            whose served state equals the stored one is "live",
-#                            nothing to do;
+#                            needed" only for a change of STATE the provider
+#                            serves and our row lacks (#945, #1001; ARCHITECT,
+#                            addenda 365 item 3(b) and 382 item 4): the status,
+#                            a score, the kickoff, or the provider_orientation
+#                            key a resync would write or remove (served_diff);
+#                            status_raw, matchday and stage are annotations
+#                            (named, never counted); one whose served state
+#                            equals the stored one is "live", nothing to do.
+#                            An id that serves ANOTHER pair (neither the stored
+#                            one nor its reverse), stale or not, is "live, the
+#                            id serves another pair" (382 item 4(c));
 #   * lookup error        -> UNRESOLVED: untouched (never read as absent);
 #   * NOT FOUND + exactly one twin whose id IS found -> MERGE (keeper = the older
 #     row; when the stale row is the keeper it takes the twin's id and state,
@@ -447,47 +452,95 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                     "utc": nm.utc_date.isoformat()}
 
         def served_diff(x, nm):
-            """What a resync would write on a live row, field by field, as the upsert writes it
-            (IngestionService._apply_match_updates): status and kickoff always; a status code only when one is served
-            (an absent code never blanks a stored one); a score side only when it is served. {} when the provider
-            serves nothing our row lacks. ARCHITECT, addendum 365 item 3(b) (relayed in addendum 379 item 6),
-            verbatim: ""live, resync needed" must mean the provider serves something our row lacks." With no game
-            kept there is nothing to compare, so the row is not read as equal (law 4). Nor is a served pair that is not
-            the stored one: the upsert's orientation check (IngestionService._scores_by_team) writes
-            provider_orientation on a reversed or mismatched pair, so the row keeps the old label with `teams` named,
-            and no field is compared in the provider's orientation. On the same pair that check removes a stored
-            provider_orientation key, so a row that still carries one names it."""
-            if nm is None:
-                return {"served": "unknown: the id answers and the adapter kept no game"}
+            """(state, annotation): what a resync would write on a live row, as the upsert writes it
+            (IngestionService._apply_match_updates; the orientation check _scores_by_team), split by ARCHITECT
+            2026-11-14 13:38 ET, addendum 382 item 4, verbatim: "THE LABEL "live, resync needed" IS FOR A CHANGE OF
+            STATE THE PROVIDER SERVES AND OUR ROW LACKS. (a) What counts, each named when it does: the status, a
+            score, the kickoff, and a stored provider_orientation key the upsert would remove on the same pair [...]
+            (b) What does NOT count, alone or together: status_raw, matchday and stage. They are annotations of a
+            state we already hold; a row that differs only in them reads `live`, and under --sample its line names
+            each one that differs ("annotation: status_raw None -> NS"), so nothing is hidden." State: the status and
+            the kickoff (always written), a score side (when served), the provider_orientation key (removed on the same
+            pair; written on a reversal not yet recorded). Annotation: a served, non-empty status code, matchday or
+            stage the row lacks (the writer never blanks a stored one). A REVERSED pair is the same game: its served
+            scores are compared in the stored orientation (score_orientation.scores_by_team swaps them so). Returns
+            None for a pair that is neither the stored one nor its reverse (382 item 4(c): its own label)."""
+            from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY, REVERSED
+            from src.ingestion.service import SPORT_WIDE_SOURCES, season_year
             hs, as_ = tsid.get(x.home_team_id) or set(), tsid.get(x.away_team_id) or set()
             h_, a_ = str(nm.home_team_source_id), str(nm.away_team_source_id)
-            if not (h_ in hs and a_ in as_):
-                how = "reversed" if (h_ in as_ and a_ in hs) else "neither the stored pair nor its reverse"
-                return {"teams": f"stored {x.home_team_id} v {x.away_team_id} -> provider {h_} v {a_} ({how})"}
-            d = {}
-            # the same pair: the upsert REMOVES a stored provider_orientation key (score_orientation.with_orientation_key,
-            # SAME), and the odds writers read that key, so a row still carrying one is not read as equal (#997, Codex)
-            from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY
+            # as score_orientation.orientation decides: SAME first; never REVERSED when one team plays both sides
+            same = h_ in hs and a_ in as_
+            rev = not same and h_ in as_ and a_ in hs and x.home_team_id != x.away_team_id
+            if not (same or rev):
+                return None
+            state, note = {}, {}
+            sy, ny = season_year(x.season), season_year(nm.season)
+            if source not in SPORT_WIDE_SOURCES and sy is not None and ny is not None and sy != ny:
+                # the upsert updates a stored row of the listing's OWN season only (_match_by_source, addendum 310
+                # item 3(b)): an id served under another season writes a new row and leaves this one as it is, so no
+                # field of this row is what a resync writes. Not named by 365 item 3(b) or 382 item 4: kept flagged
+                # (never `live`), the season named alone, and put to the architect (#1001's PR)
+                return {"season": f"{x.season} -> {nm.season} (a resync writes another row; this row is left as "
+                                  f"it is)"}, note
             held = (x.external_ids or {}).get(PROVIDER_ORIENTATION_KEY)
-            if held is not None:
-                d[PROVIDER_ORIENTATION_KEY] = f"{held} -> (removed: the served pair is the stored one)"
+            if same and held is not None:          # the upsert REMOVES it (SAME); the odds writers read it (#997)
+                state[PROVIDER_ORIENTATION_KEY] = f"{held} -> (removed: the served pair is the stored one)"
+            if rev and held != REVERSED:           # a reversal not yet recorded: the upsert writes the key
+                state[PROVIDER_ORIENTATION_KEY] = f"{held} -> {REVERSED}"
             if nm.status != x.status:
-                d["status"] = f"{x.status.name} -> {nm.status.name}"
-            if nm.status_raw not in (None, "") and nm.status_raw != x.status_raw:
-                d["status_raw"] = f"{x.status_raw} -> {nm.status_raw}"
-            for side in ("home_score", "away_score"):
-                if getattr(nm, side) is not None and getattr(nm, side) != getattr(x, side):
-                    d[side] = f"{getattr(x, side)} -> {getattr(nm, side)}"
-            served_utc = nm.utc_date.astimezone(timezone.utc).replace(tzinfo=None) if nm.utc_date.tzinfo else nm.utc_date
+                state["status"] = f"{x.status.name} -> {nm.status.name}"
+            served_sides = ({"home_score": nm.home_score, "away_score": nm.away_score} if same
+                            else {"home_score": nm.away_score, "away_score": nm.home_score})   # stored orientation
+            for side, v in served_sides.items():
+                if v is not None and v != getattr(x, side):
+                    state[side] = f"{getattr(x, side)} -> {v}"
+            served_utc = (nm.utc_date.astimezone(timezone.utc).replace(tzinfo=None) if nm.utc_date.tzinfo
+                          else nm.utc_date)
             if served_utc != x.utc_date:
-                d["kickoff"] = f"{x.utc_date.isoformat()} -> {served_utc.isoformat()}"
-            return d
+                state["kickoff"] = f"{x.utc_date.isoformat()} -> {served_utc.isoformat()}"
+            for f in ("status_raw", "matchday", "stage"):
+                v = getattr(nm, f, None)
+                if v not in (None, "") and v != getattr(x, f, None):
+                    note[f] = f"{getattr(x, f, None)} -> {v}"
+            return state, note
+
+        sport_sids: dict = {}                            # sport -> {team id: provider ids}, read once when needed
+
+        def other_pair(x, nm):
+            """382 item 4(c): the stored pair and the served pair, by team id; whether the row records the mismatch.
+            The served side is resolved against EVERY team of the sport (the upsert's own _find_team_by_source reads
+            them all), never only the candidates' teams: "not stored" means no team carries the id."""
+            from sqlalchemy import select
+
+            from src.db.schema import Team
+            from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY
+            if x.sport not in sport_sids:            # one query by sport, never an IN of every team id (Codex)
+                from src.ingestion.team_merge import source_ids
+                sport_sids[x.sport] = {t.id: source_ids(t.external_ids, source) for t in s.execute(
+                    select(Team).where(Team.sport == x.sport)).scalars()}
+            every = sport_sids[x.sport]
+            ours = lambda sid: sorted(t for t, ss in every.items() if sid in ss) or "not stored"   # noqa: E731
+            h_, a_ = str(nm.home_team_source_id), str(nm.away_team_source_id)
+            held = (x.external_ids or {}).get(PROVIDER_ORIENTATION_KEY)
+            return {"pair": f"stored teams {x.home_team_id} v {x.away_team_id} -> served provider teams {h_} v {a_} "
+                            f"(our teams {ours(h_)} v {ours(a_)})",
+                    "recorded": f"{PROVIDER_ORIENTATION_KEY} = {held}" if held else "the mismatch is not recorded"}
 
         def live_entry(x, nm):
-            if x.utc_date >= stale_cut:                  # not stale: live, as before (365 item 3(b) splits the stale)
-                return entry(x, "live", served=served(nm))
-            d = served_diff(x, nm)
-            return entry(x, "live_resync", served=served(nm), differs=d) if d else entry(x, "live", served=served(nm))
+            if nm is not None and served_diff(x, nm) is None:     # 382 item 4(c): "neither `live` nor `live, resync
+                return entry(x, "live_other_pair", served=served(nm), **other_pair(x, nm))   # needed`", stale or not
+            if x.utc_date >= stale_cut:                  # not stale: live, as before (365 item 3(b) splits the stale);
+                note = served_diff(x, nm)[1] if nm is not None else {}   # its annotations named too (382 item 4(b)
+                return entry(x, "live", served=served(nm), **({"annotation": note} if note else {}))   # names none)
+            if nm is None:                               # nothing to compare: never read as equal (law 4)
+                return entry(x, "live_resync", served=served(nm),
+                             differs={"served": "unknown: the id answers and the adapter kept no game"})
+            state, note = served_diff(x, nm)
+            extra = {"annotation": note} if note else {}
+            if state:
+                return entry(x, "live_resync", served=served(nm), differs=state, **extra)
+            return entry(x, "live", served=served(nm), **extra)
 
         def date_search(m):
             hs, as_ = tsid.get(m.home_team_id), tsid.get(m.away_team_id)
@@ -524,6 +577,21 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             absent = [x for x in cc if st_of[x.id][0] == "absent"]
             plan.extend(live_entry(x, st_of[x.id][1]) for x in cc if st_of[x.id][0] == "found")
             if not absent:
+                continue
+            def not_this_game(x):
+                """A live twin whose id serves ANOTHER pair (382 item 4(c), the #902 class) or the pair under ANOTHER
+                season (the upsert would write another row: Codex on #1005, P1): never a twin to merge into."""
+                nm = st_of[x.id][1]
+                if nm is None:
+                    return None
+                d = served_diff(x, nm)
+                return "serves another pair (382 item 4(c))" if d is None else (
+                    "serves the pair under another season" if "season" in d[0] else None)
+            other = [(x, why) for x in found for why in [not_this_game(x)] if why]
+            if found and other:
+                why = (f"the live twin's id {'; '.join(f'{sid_of(x)} {w}' for x, w in other)}: no merge in "
+                       f"candidate set {ids} — review")              # each id with its own reason
+                plan.extend(entry(x, "refused", why=why) for x in absent)
                 continue
             if found:
                 if len(comp) == 2 and len(found) == 1 and len(absent) == 1:

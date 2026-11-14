@@ -988,9 +988,13 @@ def _dedupe_orphans(competition_code, source, apply, sample):
     """ARCHITECT, addendum 365 item 3(b) (relayed in addendum 379 item 6), verbatim: "a live row whose served
     status, status_raw, score and kickoff equal the stored ones is counted `live` (nothing to do) and printed only under
     --sample; `live, resync needed` is kept for a served score, status or kickoff that differs, with the differing
-    fields named." The
-    `[live_resync]` lines carry `differs` (stored -> served, md.orphans' served_diff); `[live]` lines print only when
-    --sample is given (sample not None), every other class at sample or 8."""
+    fields named." ARCHITECT 2026-11-14 13:38 ET, addendum 382 item 4, reads its second clause as the binding one: the
+    label is "FOR A CHANGE OF STATE THE PROVIDER SERVES AND OUR ROW LACKS" (the status, a score, the kickoff, the
+    provider_orientation key); status_raw, matchday and stage are annotations, named on the line ("annotation") and
+    never counted; an id that serves another pair is "live, the id serves another pair", "printed always and not only
+    under --sample". The `[live_resync]` lines carry `differs` (stored -> served, md.orphans' served_diff);
+    `[live_other_pair]` lines all print, with both pairs by team id; `[live]` lines print only when --sample is given
+    (sample not None), every other class at sample or 8."""
     import os as _os
     import time as _time
 
@@ -1005,18 +1009,21 @@ def _dedupe_orphans(competition_code, source, apply, sample):
                f"{'APPLIED' if apply else 'DRY-RUN (nothing written)'} · candidates {sum(c.values())} "
                f"(SCHEDULED, no score; kickoff >{md.STALE_H}h past or a twin within {md.TWIN_H}h)")
     click.echo(f"  plan: merge {c.get('merge', 0)} · relink {c.get('relink', 0)} · stale_orphan {c.get('orphan', 0)} · "
-               f"live {c.get('live', 0)} · live, resync needed {c.get('live_resync', 0)} · refused {c.get('refused', 0)} · "
+               f"live {c.get('live', 0)} · live, resync needed {c.get('live_resync', 0)} · "
+               f"live, the id serves another pair {c.get('live_other_pair', 0)} · refused {c.get('refused', 0)} · "
                f"unresolved {c.get('unresolved', 0)} · provider lookups {r['provider_lookups']}")
     listed = sample is not None
     sample = 8 if sample is None else sample
-    order = ("merge", "relink", "orphan", "refused", "unresolved", "live_resync") + (("live",) if listed else ())
+    order = (("merge", "relink", "orphan", "refused", "unresolved", "live_other_pair", "live_resync")
+             + (("live",) if listed else ()))
+    every = ("refused", "unresolved", "live_other_pair")       # printed whole: 382 item 4(c) "printed always"
     for act in order:
         rows = [p for p in r["plan"] if p["action"] == act]
-        for p in rows[: (10_000 if act in ("refused", "unresolved") else sample)]:
+        for p in (rows if act in every else rows[:sample]):          # the classes of `every` print whole, uncapped
             extra = {k: v for k, v in p.items() if k not in ("action", "id", "sid", "utc", "home", "away", "stale")}
             click.echo(f"  [{act}] id {p['id']} sid {p['sid']} {p['utc']} home {p['home']} away {p['away']}"
                        f"{' STALE' if p['stale'] else ''} {extra or ''}")
-        if len(rows) > sample and act not in ("refused", "unresolved"):
+        if len(rows) > sample and act not in every:
             click.echo(f"  [{act}] … {len(rows) - sample} more")
     if apply:
         click.echo(f"  applied {r['applied_counts']} · refused at apply {len(r['refused_at_apply'])}")

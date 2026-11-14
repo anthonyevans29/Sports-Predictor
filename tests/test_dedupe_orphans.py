@@ -125,7 +125,8 @@ def test_orphans_dry_run_plans_every_case_and_writes_nothing(world):
     assert act[ids["relink"]] == "relink" and act[ids["orphan"]] == "orphan"
     assert act[ids["twin_old"]] == "merge" and act[ids["twin_new"]] == "live"     # the live twin: its own line
     assert act[ids["stale_new"]] == "merge" and act[ids["live_old"]] == "live"
-    assert act[ids["broken"]] == "unresolved" and act[ids["resync"]] == "live_resync"
+    assert act[ids["broken"]] == "unresolved" and act[ids["resync"]] == "live"   # served NS on a NULL code only:
+    # an annotation (ARCHITECT 2026-11-14, addendum 382 item 4(b): "a difference in status_raw alone reads `live`")
     assert act[ids["swapped"]] == "refused"
     rl = next(p for p in r["plan"] if p["id"] == ids["relink"])
     assert rl["live_sid"] == "23194"

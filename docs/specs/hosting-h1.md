@@ -84,7 +84,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-window | window (the next-24h card and delta pages); from the next deploy (ARCHITECT 2026-10-24, addendum 164 item 2(a)) also the capture-only Kalshi sync of PD `KXLALIGAGAME`, SA `KXSERIEAGAME`, BL1 `KXBUNDESLIGAGAME`, FL1 `KXLIGUE1GAME` and ELC `KXEFLCHAMPIONSHIPGAME` (`chains.WINDOW_KALSHI_CAPTURE_ONLY`: one `sync-kalshi-soccer --competition <code>` per league, one series per call, when the league's next kickoff is near or imminent; no export, no call, no venue line on the card) | hourly at :05, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-cup-observe | (cli.py observe-cup-lineups, one tick, all four cups; not a chain): cups Step B's live T-15 observation store (ARCHITECT 2026-10-27, addendum 169 item 4(i)); a tick with no poll due ends without the DB lock | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-availability-observe | (cli.py availability-nhl-observe, one tick; not a chain): the availability record's NHL landing watch (ARCHITECT 2026-11-04, addendum 252 item 3(b); 2026-11-11, addendum 340 item 3: "a STANDALONE unit on the cup-observe pattern"): the NHL schedule at most hourly per NHL day (no row), the landing page at T-120 .. T-0 and the boxscore at T+20 per game into the record; a poll more than five minutes past its time a `missed` row; a tick with no poll due takes no lock; needs `migrate_availability_record.py` run since #835 item 2's poll key (else it refuses, exit 2, and pages); enabled only by the architect's block (252 item 7; 340 item 3) | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
-| sp-availability-graph | (cli.py availability-graph-rebuild; not a chain): the availability record's graph projection (ARCHITECT 2026-11-04, addendum 252 item 4; 2026-11-11, addendum 347 item 5: LadybugDB `ladybug` 0.22.3, host-only, requirements-graph.txt): rebuilt whole from the newest daily `.backup` copy in /var/backups/sports-predictor whose `.sha256` sidecar matches (refused when older than 26 h), opened mode=ro + immutable=1, into logs/availability/graph/availability.lbug, one line of rebuild.jsonl beside it per run; its own unit with no EnvironmentFile, PrivateNetwork, ProtectSystem=strict, one writable directory (347 item 5(b)); read by nothing (347 item 5(c)); on T11's `TIMERS_BY_BLOCK` (addendum 351 item 2), enabled only by the architect's block once the engine is installed and its directory made | daily 10:20 UTC (after sp-backup 09:30) | — |
+| sp-availability-graph | (cli.py availability-graph-rebuild; not a chain): the availability record's graph projection (ARCHITECT 2026-11-04, addendum 252 item 4; 2026-11-11, addendum 347 item 5: LadybugDB `ladybug` 0.22.3, host-only, requirements-graph.txt): rebuilt whole from the newest daily `.backup` copy in /var/backups/sports-predictor whose `.sha256` sidecar matches (refused when older than 26 h), opened mode=ro + immutable=1, into logs/availability/graph/availability.lbug, one line of rebuild.jsonl beside it per run; its own unit with no EnvironmentFile, PrivateNetwork, ProtectSystem=strict, one writable directory (347 item 5(b)); read by nothing (347 item 5(c)); on T11's `TIMERS_BY_BLOCK` (addendum 351 item 2), enabled only by the architect's block once the engine is installed and its directory made, and, since addendum 378 item 5, only on a build after the next tag carries the unit's fix (the engine was installed 2026-11-14 13:08Z and the first run refused by the fence, 378 item 1; on THE HELD LIST until then) | daily 10:20 UTC (after sp-backup 09:30) | — |
 | sp-closing-watch | (closing.py watch, NFL and SOCCER; not a chain) — enabled at the cutover, 2026-10-26 13:47Z (T11 `TIMERS`; ARCHITECT 2026-10-26, addendum 168 item 5; held for the cutover ruling until then, C7) | every minute (the one H0-3 exemption, by name) | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
 
@@ -929,7 +929,9 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   OnFailure pages through `sp-notify@availability-graph`). The unit carries 347 item 5(b): no EnvironmentFile, `PrivateNetwork=yes`, `NoNewPrivileges=yes`, `ProtectSystem=strict`, the graph's directory the one writable path; because the sp user can still read what it owns, /etc/sports-predictor (host.env and an exports-mirror deploy key installed there) and data/ are inaccessible and the checkout's .env (config.py loads it on import) is /dev/null; `PrivateUsers=yes`, `ProtectProc=invisible` and `ProcSubset=pid` so another sp process's /proc/<pid>/environ and /proc/<pid>/root (its own unmasked view) are refused; `RestrictAddressFamilies=none` (PrivateNetwork leaves filesystem sockets reachable); `PrivateDevices=yes` and `PrivateIPC=yes` (no shared /dev/shm); /tmp and /var/tmp empty and read-only. The engine is HOST-ONLY (347 item
   5(a)): `requirements-graph.txt`, never requirements.txt; the laptop and CI do not install it. Its ENABLEMENT IS THE
   ARCHITECT'S BLOCK (347 item 6(D): "the unit ships disabled, enabled by my block"), after the deploy of the tag that
-  carries it; it is on T11's `TIMERS_BY_BLOCK` (351 item 2), so until then sp_deploy's receipt counts it there, held off by
+  carries it, and since addendum 378 item 5 only after the next tag carries the unit's fix and only on a build: "After
+  that tag my block installs the unit file again, runs the first run, and enables only on a build" (378 item 5; the
+  first run of 2026-11-14 was refused by the fence, 378 item 1(b)); it is on T11's `TIMERS_BY_BLOCK` (351 item 2), so until then sp_deploy's receipt counts it there, held off by
   T11. The commands the block runs, as
   Code names them (addendum 198 item 6(i): the block itself is the architect's): as `sp`, `venv/bin/pip install
   --require-hashes --only-binary :all: --no-deps -r requirements-graph.txt` (its line: `Successfully installed
@@ -938,7 +940,8 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   rebuild); install `sp-availability-graph.service` and `sp-availability-graph.timer` under /etc/systemd/system/,
   `systemctl daemon-reload`, `systemctl start sp-availability-graph.service` (the first run, in the unit's own sandbox;
   its receipt: `journalctl -u sp-availability-graph` and the last line of logs/availability/graph/rebuild.jsonl),
-  `systemctl enable --now sp-availability-graph.timer`, then
+  then, ONLY IF THAT FIRST RUN BUILT (378 item 5), `systemctl enable --now sp-availability-graph.timer`. A refused or
+  failed first run stops the block there, with the timer disabled and on THE HELD LIST. Then
   `echo sp-availability-graph.timer | sudo tee -a /etc/sports-predictor/timers.enabled` (addendum 168 item 2), then
   `systemctl list-timers sp-availability-graph.timer` (next elapse at 10:20 UTC). The graph file is deletable without loss (252 item 4): the next run rebuilds it whole.
 - `sp-nba-daily.timer` (ARCHITECT 2026-11-05, addendum 261 item 1(b): "the chain `nba-daily` [...] at a UTC minute
@@ -1246,7 +1249,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     |---|---|---|
     | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the architect's block (288 item 5). Its other condition, the tag that carries the map, is met: the map (#900, tennis-E) is in every tag from v1.6.6 on, and production is v1.6.8 (addendum 374 item 3) |
     | `sp-ncaamb-daily.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 (entered when #957 merged, 2026-11-12 20:46Z) | the architect's enabling block after the host's NCAAMB load and stored certification |
-    | `sp-availability-graph.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 | the architect's install-and-enable block (the tag that carries #943, v1.6.8, is deployed: 2026-11-13 21:14Z, addendum 374 items 2-3) |
+    | `sp-availability-graph.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 | the architect's block that enables it only on a build, after the next tag carries the unit's fix (addendum 378 item 5). On v1.6.8 the engine was installed 2026-11-14 13:08Z and both unit files installed, the timer disabled; the first run was refused by the fence (378 items 1 and 3) |
 
     - **The rule that joins THE HELD LIST and `TIMERS_BY_BLOCK` (ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2,
       verbatim in part):** "THE HELD LIST AND `TIMERS_BY_BLOCK` STAY TWO LISTS. They say different things.
@@ -1264,6 +1267,26 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       block) passes the `HELD:` line as "no unit file", as that line already reads it. On v1.6.8 both read not-found on
       the host: their unit files are in the checkout, none is in /etc/systemd/system, and install.sh runs only in the
       architect's enabling blocks (addendum 374 item 2). sp-tennis-daily.timer is installed and reads disabled.
+      Since 2026-11-14 13:08Z `sp-availability-graph`'s two unit files are installed and its timer reads disabled
+      (addendum 378 item 1(a)), so it passes the `HELD:` line as disabled; `sp-ncaamb-daily.timer` still reads not-found.
+    - **`sp-availability-graph` on the host (ARCHITECT 2026-11-14 08:23 ET, addendum 378).**
+      - **The install, 2026-11-14 13:08Z** (378 item 1(a), verbatim in part): "Successfully installed ladybug-0.22.3",
+        pip exit 0, by the recorded hash, wheel only. The two unit files were installed, "byte-identical to the
+        checkout's: yes", with the timer disabled.
+      - **The first run by the unit was refused** (378 item 1(b), its line whole): "AVAILABILITY-GRAPH REFUSED: cannot
+        read /opt/sports-predictor/data under data/ (Permission denied): the --db fence cannot check by identity what
+        it cannot read (law 4); nothing read". The block did not enable the timer.
+        - The cause is fault one of 378 item 3: the fence (`check_db`) against the unit's own `InaccessiblePaths`.
+        - A probe of the unit got past the fence, then failed on fault two, the engine's buffer pool at the
+          post-commit checkpoint (378 items 1(c) and 4).
+        - Both faults are fixed in one model-track PR (378 item 5). The unit changes; the fence does not.
+      - **What stands until then** (378 item 5, verbatim): "It rides the NEXT tag; no patch tag is cut for it. After
+        that tag my block installs the unit file again, runs the first run, and enables only on a build.
+        sp-availability-graph.timer stays on the HELD LIST. Until then the engine stays installed in the host's venv
+        (nothing imports it outside the unit) and the two unit files stay installed and disabled."
+      - **Named now for the next tag's step 1** (378 item 6, verbatim): "the one failing receipt row this leaves is
+        NAMED NOW: the failure page of 2026-11-14 13:08Z for sp-availability-graph.service, my block's first run,
+        refused by the fence. The probe ran without OnFailure and leaves no receipt row."
 
     - **Lifted: `sp-ncaa-market.timer`** (held by addendum 310 item 2 on 2026-11-09, incident #902). The hold's lifting
       condition (ARCHITECT 2026-11-10, addendum 324 item 3(e), verbatim): "`systemctl enable --now

@@ -47,23 +47,31 @@ DAILY = re.compile(r"^sports_\d{4}-\d{2}-\d{2}(_\d{6})?\.db$")   # pull_backup.D
 MAX_AGE_HOURS = 26                             # the 09:30 UTC daily backup, read at 10:20, with a day's slack
 # THE POOL AND THE CHECKPOINT, AS A RULE TIED TO THE UNIT'S MemoryMax (ARCHITECT 2026-11-14 08:23 ET, addendum 378
 # item 4(c): "the pool and the checkpoint behaviour stated as a rule tied to the unit's MemoryMax, not a bare
-# constant"). The engine's own words (the installed wheel's ladybug/database.py docstring): "buffer_pool_size: The
-# maximum size of buffer pool in bytes. Defaults to ~80% of system memory."; "auto_checkpoint: If true, the database
-# will automatically checkpoint when the size of the WAL file exceeds the checkpoint threshold."; "checkpoint_threshold:
-# The threshold of the WAL file size in bytes." The rule:
+# constant"). What the engine documents (law 1), its installed wheel's ladybug/database.py docstring: "buffer_pool_size:
+# The maximum size of buffer pool in bytes. Defaults to ~80% of system memory."; "auto_checkpoint: If true, the
+# database will automatically checkpoint when the size of the WAL file exceeds the checkpoint threshold."; its docs
+# (LadybugDB/ladybug-docs, transaction.md): "By default, checkpoint happens automatically at the end of a write
+# transaction when the WAL file size goes beyond the `CHECKPOINT_THRESHOLD`"; and import/index.mdx: only "the memory
+# used to prepare the imported relationship table data" spills to a .tmp file. What its source adds (v0.22.3, tag
+# 6a3e04a8; quoted in the PR): every COPY FROM forces a checkpoint at its commit while auto_checkpoint is on, whatever
+# the WAL size (src/main/client_context.cpp: "We force checkpoint for COPY_FROM statement unless the user has disabled
+# automatic checkpointing"); a rel table's node group is 2^17 bound nodes; a checkpoint's buffers are never spilled.
+# The rule:
 #   (1) the pool is HALF the memory limit this process runs under: its cgroup's limit (under the unit, MemoryMax=1536M,
 #       so 768 MiB), read at run time (memory_limit()); with no limit of its own (a laptop, a test) the unit's
 #       MemoryMax stands in, so the pool is the same everywhere. The other half is the staging walk's Python heap, the
-#       engine's memory outside its pool and the page cache the limit also counts;
-#   (2) every COPY is its own committed transaction and the WAL threshold is the engine's documented 16 MiB, set here
-#       rather than inherited, so the engine checkpoints after every COPY of CHUNK rows (each COPY's WAL is larger);
-#       measured: with auto_checkpoint off the 256 MiB pool failed sooner (the 5th FACT COPY against the 10th);
-#   (3) the pool is a ceiling the record grows into, not a fix for growth: a FACT checkpoint rewrites the edges of the
-#       whole node group, and every Player is in one group, so the memory it needs grows with the record's assertions
-#       (the PR's receipts give the measured ceiling). The line names the limit, the pool and the staged size.
+#       engine's memory outside its pool and the page cache the limit also counts (the engine's own default, 80% of the
+#       limit, would leave the walk too little);
+#   (2) auto_checkpoint stays ON, set here rather than inherited: then every COPY of CHUNK rows ends in a checkpoint
+#       that merges its rows into the stored graph and frees them. Off, COPY's rows pile up in memory unmerged
+#       (measured: the 256 MiB pool failed at the 5th FACT COPY instead of the 10th). checkpoint_threshold has no
+#       effect on a COPY and is not set;
+#   (3) the pool is a ceiling the record grows into, not a fix for growth: every Player (and every Team) is in one
+#       node group, so each FACT checkpoint rewrites every FACT edge in memory, and the pool it needs grows with the
+#       record's assertions (the PR's receipts give the measured ceiling). The line names the limit, the pool and the
+#       staged size, so the night it is reached says so.
 UNIT_MEMORY_MAX = 1536 * 1024 * 1024           # deploy/hosting/systemd/sp-availability-graph.service MemoryMax=1536M
 POOL_SHARE = 2                                 # the pool is limit // POOL_SHARE
-CHECKPOINT_THRESHOLD = 16 * 1024 * 1024        # the engine's documented default WAL threshold, stated
 CHUNK = 100_000                                # rows per COPY: one COPY of 1M edges overflows a 256 MB pool
 _LBUG_ENV = ("LBUG_PYTHON_BACKEND", "LBUG_C_API_LIB_PATH")      # the package's own overrides: never honoured here
 
@@ -440,8 +448,7 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
 
 
 def _load(lb, path: Path, tables: dict[str, _Table], pool: int) -> None:
-    db = lb.Database(str(path), backend="pybind", buffer_pool_size=pool, auto_checkpoint=True,
-                     checkpoint_threshold=CHECKPOINT_THRESHOLD)
+    db = lb.Database(str(path), backend="pybind", buffer_pool_size=pool, auto_checkpoint=True)   # rule (2)
     con = lb.Connection(db)
     try:
         for ddl in SCHEMA:

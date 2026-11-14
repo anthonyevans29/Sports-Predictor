@@ -323,12 +323,11 @@ def test_378_d_a_failed_line_names_the_staged_size_and_a_killed_runs_size_is_nam
 def test_378_c_the_pool_is_half_the_limit_the_rebuild_runs_under(tmp_path, monkeypatch):
     """Addendum 378 item 4(c): "the pool and the checkpoint behaviour stated as a rule tied to the unit's MemoryMax,
     not a bare constant". The limit is read from the process's cgroup (v2 memory.max, v1 memory.limit_in_bytes, the
-    smallest on the path up), the unit's MemoryMax standing in where there is none; the pool is half of it; the WAL
-    threshold is stated, the engine's documented 16 MiB."""
+    smallest on the path up), the unit's MemoryMax standing in where there is none; the pool is half of it; and the
+    load opens the engine with auto_checkpoint ON, so every COPY ends in a checkpoint (rule (2))."""
     u = (HOSTING / "systemd" / "sp-availability-graph.service").read_text()
     assert re.findall(r"^MemoryMax=(.+)$", u, re.M) == ["1536M"] and g.UNIT_MEMORY_MAX == 1536 * 1024 * 1024
     assert g.buffer_pool(g.UNIT_MEMORY_MAX) == 768 * 1024 * 1024
-    assert g.CHECKPOINT_THRESHOLD == 16 * 1024 * 1024
     root = tmp_path / "cg"
     # cgroup v2: the unit's own cgroup carries MemoryMax; its slice none ("max")
     unit = root / "system.slice" / "sp-availability-graph.service"
@@ -352,6 +351,35 @@ def test_378_c_the_pool_is_half_the_limit_the_rebuild_runs_under(tmp_path, monke
     assert g._cgroup_limit(root, tmp_path / "absent") is None
     monkeypatch.setattr(g, "_cgroup_limit", lambda: None)
     assert g.memory_limit() == (g.UNIT_MEMORY_MAX, "the unit's MemoryMax (no cgroup limit on this process)")
+
+
+def test_378_c_the_load_opens_the_engine_with_the_pool_and_auto_checkpoint_on(tmp_path):
+    """Rule (2): auto_checkpoint stays ON (every COPY then ends in a checkpoint that merges and frees its rows; off,
+    the rows pile up and the 256 MiB pool failed sooner), set rather than inherited; the pool is the one given."""
+    seen = {}
+
+    class Con:
+        def __init__(self, db):
+            pass
+
+        def execute(self, q):
+            seen.setdefault("q", []).append(q)
+
+        def close(self):
+            pass
+
+    class Db:
+        def __init__(self, path, **kw):
+            seen["kw"] = kw
+
+        def close(self):
+            pass
+
+    class LB:
+        Database, Connection = Db, Con
+    g._load(LB, tmp_path / "x.lbug", {n: g._Table(tmp_path, n) for n in (*g.NODE_TABLES, *g.REL_TABLES)}, 123 << 20)
+    assert seen["kw"] == {"backend": "pybind", "buffer_pool_size": 123 << 20, "auto_checkpoint": True}
+    assert seen["q"] == list(g.SCHEMA)
 
 
 def test_review_a_sigterm_removes_the_staging_and_writes_its_line(fresh_db, tmp_path, monkeypatch):

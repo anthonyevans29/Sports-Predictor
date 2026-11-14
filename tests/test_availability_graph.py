@@ -382,6 +382,43 @@ def test_378_c_the_load_opens_the_engine_with_the_pool_and_auto_checkpoint_on(tm
     assert seen["q"] == list(g.SCHEMA)
 
 
+def test_378_c_a_looser_limit_never_inflates_the_pool(monkeypatch):
+    """Pre-PR review: a process in a loosely limited cgroup (a sandbox, a container, a user slice) must not open the
+    engine with half of THAT limit: the limit is the smaller of its cgroup's and the unit's MemoryMax, so a tighter
+    limit still binds and a looser one gives the unit's pool."""
+    monkeypatch.setattr(g, "_cgroup_limit", lambda: (14 << 30, "/sys/fs/cgroup/loose/memory.max"))
+    lim, where = g.memory_limit()
+    assert lim == g.UNIT_MEMORY_MAX and "the unit's MemoryMax" in where and "loose" in where
+    assert g.buffer_pool(lim) == 768 * 1024 * 1024
+    monkeypatch.setattr(g, "_cgroup_limit", lambda: (1 << 30, "/sys/fs/cgroup/tight/memory.max"))
+    assert g.memory_limit() == (1 << 30, "/sys/fs/cgroup/tight/memory.max")
+
+
+def test_378_d_a_run_killed_after_its_load_still_leaves_its_size(fresh_db, tmp_path, monkeypatch):
+    """Pre-PR review: the staged size stays in the staging directory until the commit point, so a run SIGKILLed
+    between its load and os.replace (in the read-back of its counts, the hash) still names its size to the next run."""
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    seen = {}
+
+    def load(lb, path, tables, pool):
+        path.write_bytes(b"graph")
+        for x in tables.values():
+            for f in x.files:
+                f.unlink()
+
+    def counts(lb, path, pool):
+        seen["staged_at_counts"] = (path.parent / g.STAGED).exists()
+        raise RuntimeError("synthetic: killed here")
+    monkeypatch.setattr(g, "_load", load)
+    monkeypatch.setattr(g, "_counts", counts)
+    with pytest.raises(RuntimeError, match="killed here"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    assert seen["staged_at_counts"] is True
+
+
 def test_review_a_sigterm_removes_the_staging_and_writes_its_line(fresh_db, tmp_path, monkeypatch):
     import signal
     _history_b()
@@ -534,8 +571,8 @@ def test_378_no_unit_that_runs_a_db_command_makes_a_fenced_data_dir_inaccessible
         runs_app.append(unit.name)
         for v in _unit_values(body, "InaccessiblePaths"):
             p = Path(v.lstrip("-+"))
-            for d in fenced:
-                assert not (p == d or p in d.parents), (unit.name, v)
+            for d in fenced:                         # data/ itself, a folder above it, or one below it the walk reads
+                assert not (p == d or p in d.parents or d in p.parents), (unit.name, v)
     assert "sp-availability-graph.service" in runs_app and len(runs_app) > 1
     g_body = (HOSTING / "systemd" / "sp-availability-graph.service").read_text()
     assert "/opt/sports-predictor/data:ro" in _unit_values(g_body, "TemporaryFileSystem")

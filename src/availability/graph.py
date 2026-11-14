@@ -57,9 +57,10 @@ MAX_AGE_HOURS = 26                             # the 09:30 UTC daily backup, rea
 # the WAL size (src/main/client_context.cpp: "We force checkpoint for COPY_FROM statement unless the user has disabled
 # automatic checkpointing"); a rel table's node group is 2^17 bound nodes; a checkpoint's buffers are never spilled.
 # The rule:
-#   (1) the pool is HALF the memory limit this process runs under: its cgroup's limit (under the unit, MemoryMax=1536M,
-#       so 768 MiB), read at run time (memory_limit()); with no limit of its own (a laptop, a test) the unit's
-#       MemoryMax stands in, so the pool is the same everywhere. The other half is the staging walk's Python heap, the
+#   (1) the pool is HALF the memory limit this process runs under: the smaller of its cgroup's limit, read at run time
+#       (memory_limit()), and the unit's MemoryMax (under the unit both are 1536M, so 768 MiB); with no limit of its own,
+#       or a looser one (a laptop, a sandbox, a test), the unit's MemoryMax binds, so the pool is never larger than the
+#       unit's and a tighter limit still binds. The other half is the staging walk's Python heap, the
 #       engine's memory outside its pool and the page cache the limit also counts (the engine's own default, 80% of the
 #       limit, would leave the walk too little);
 #   (2) auto_checkpoint stays ON, set here rather than inherited: then every COPY of CHUNK rows ends in a checkpoint
@@ -161,11 +162,13 @@ def _cgroup_limit(cgroup_root: Path = Path("/sys/fs/cgroup"), self_cgroup: Path 
 
 
 def memory_limit() -> tuple[int, str]:
-    """(bytes, where): the memory limit the rebuild runs under (rule (1) above): its cgroup's, or the unit's
-    MemoryMax when it has none of its own."""
+    """(bytes, where): the memory limit the rebuild runs under (rule (1) above): the smaller of its cgroup's and the
+    unit's MemoryMax (a looser cgroup limit never inflates the pool past the unit's)."""
     got = _cgroup_limit()
     if got is None:
         return UNIT_MEMORY_MAX, "the unit's MemoryMax (no cgroup limit on this process)"
+    if got[0] > UNIT_MEMORY_MAX:
+        return UNIT_MEMORY_MAX, f"the unit's MemoryMax (the looser cgroup limit {got[0]} at {got[1]})"
     return got
 
 
@@ -505,7 +508,7 @@ def _stale_stages(out: Path) -> tuple[list[str], dict[str, dict]]:
             try:
                 sizes[p.name] = json.loads((p / STAGED).read_text())
             except (OSError, ValueError):
-                pass                                  # killed before its load began: no size to name
+                pass                                  # killed before it staged (or its file unreadable): no size
             shutil.rmtree(p, ignore_errors=True)
             gone.append(p.name)
     return gone, sizes
@@ -594,14 +597,14 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
                                                sort_keys=True))
         graph = stage / GRAPH_NAME
         _load(lb, graph, tables, pool)
-        (stage / STAGED).unlink()
         got = _counts(lb, graph, pool)
         if got != staged:
             raise RuntimeError(f"the finished graph's counts {got} differ from what was staged {staged}")
-        left = sorted(p.name for p in stage.iterdir() if p.name != GRAPH_NAME)
+        left = sorted(p.name for p in stage.iterdir() if p.name not in (GRAPH_NAME, STAGED))
         if left:
             raise RuntimeError(f"the staging directory holds {left} beside the graph after its close")
         done = dict(ok=True, counts=got, sha256=sha256_file(graph), bytes=graph.stat().st_size)
+        (stage / STAGED).unlink()                    # kept to here: a run killed before the commit names its size
         os.replace(graph, out)                       # the commit point: nothing after it can fail the run
         receipt.update(done)
     except Refused as e:

@@ -492,6 +492,12 @@ part that rules it, with a one-line quote. An item the ten do not cover is marke
     moved line from a null due has no real `was`, and "not needed" is not a real `now`.
 
   One ruling is needed for both: the shape of a step with `due: null`, and how a "not needed" step is recorded.
+
+  **RESOLVED (ARCHITECT 2026-11-14 06:39 ET, addendum 377 item 2):** "Record both done on this item in your next
+  records PR, the 11-21 one as not applicable, nothing built." The two steps keep their dates, 11-14 and 11-21, and
+  are marked `done` on 377 item 2 (#994): the first as the written no, with no adapter specified; the second as not
+  applicable, with nothing built. No date moved, so neither step has a moved line. The form of 254 item 2(8)
+  (`due: null` and a "not needed" moved line) was never written.
 - **(l) `--team` and `--db`.** `--team` takes our id (digits) or the source's text. `--db` is a copy behind the
   standing fence. **`--db` RULED, 254 item 2(9):** "`--db` STAYS (198 item 6(ii))." `--team`'s two forms: not among
   the ten (the PR body asked about `--db` only); as built.

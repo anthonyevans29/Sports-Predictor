@@ -7,5 +7,9 @@
   - THE HELD LIST's `sp-availability-graph.timer` row now lifts on the architect's block that enables it only on a build, after the next tag carries the unit's fix.
   - The graph's state on v1.6.8: the engine installed 2026-11-14 13:08Z; both unit files installed, the timer disabled; the first run refused by the fence.
   - The next tag's step 1 has one failing receipt row named now: the failure page of 2026-11-14 13:08Z for sp-availability-graph.service. The probe left no row.
+- **Review round 2 (Codex, 3 P2), fixed:**
+  - docs/specs/availability-record.md (k) records the paid steps' form as resolved by 377 item 2.
+  - The roadmap's graph step names what the 13:08Z block did and what still remains (378 items 1 and 5), with no date moved.
+  - The runbook's graph recipe and its timer row enable only on a build, after the next tag carries the fix (378 item 5).
 - **The schema is untouched:** the source name `sportsdataio_goalies` stays in its vocabulary, unused (377 item 2).
 - Records only: no code, no date moved, and no bar moves. The two faults are fixed on the model track (378 item 5), not here.

@@ -965,12 +965,22 @@ ids ride along as columns, each from the latest assertion that carries one.
   status, home_team_id, away_team_id)` (the columns from our matches where the game maps; a source-keyed game carries its
   `match_id` when it maps), `Observation(...)` (every observation, missed and failed ones included), and one
   `Build(built_at, copy, copy_sha256, git_sha, engine, assertions, observations)`.
-- `FACT` (Player to Team), one per assertion: `assertion_id`, `observation_id`, `sport`, `kind`, `recorded_at`,
-  `source_stamp`, `game` (the game's key, where the assertion names one), `attrs` (JSON text), the recorded clock's
-  interval (`rec_interval` = its opening assertion, `rec_start`, `rec_end`, `rec_closed_by`, `rec_why`), the source
-  clock's (`src_*`, NULL where the row carries no source stamp), `backfilled`, `post_hoc`.
-- `ASSERTED` (Observation to Player), one per assertion; `IN_GAME` (Team to Game, the side's text from the latest assertion that gives one, #944), one per pair an
-  assertion names; `ABOUT` (Observation to Game), the games an observation's assertions name, else its own match.
+- **EACH ASSERTION IS A NODE** (ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 2, amending 252 item 4's "an edge per
+  assertion"): `Assertion`, one per assertion, keyed by `assertion_id`, carrying every property the FACT edge carried,
+  unchanged: `observation_id`, `sport`, `kind`, `recorded_at`, `source_stamp`, `game` (the game's key, where the
+  assertion names one), `attrs` (JSON text), the recorded clock's interval (`rec_interval` = its opening assertion,
+  `rec_start`, `rec_end`, `rec_closed_by`, `rec_why`), the source clock's (`src_*`, NULL where the row carries no source
+  stamp), `backfilled`, `post_hoc`. Why a node (379 item 2): under the edge shape every Player (and every Team) sat in
+  one node group of 2^17, so each FACT checkpoint rewrote every FACT edge in memory, unspilled, and the pool it needed
+  grew with the record (three times today's did not build inside 1536M, #995); and an inferred claim (375) must carry
+  edges of its own, which an edge cannot.
+- From each assertion, three property-less edges, stored forward only (so their node groups are the assertions', 2^17
+  each; a reader still matches them from either end): `NAMES_PLAYER` (Assertion to Player), `NAMES_TEAM` (Assertion to
+  Team), `ASSERTED_IN` (Assertion to Observation). `IN_GAME` (Team to Game, the side's text from the latest assertion that
+  gives one, #944), one per pair an assertion names; `ABOUT` (Observation to Game), the games an observation's assertions
+  name, else its own match.
+- The line names the record's assertions (a COUNT on the copy) beside the graph's assertion nodes, and a build whose two
+  counts differ fails (379 item 2).
 - Timestamps are naive UTC (the engine drops an offset without converting it, so the rebuild converts first).
 
 **The copy (347 item 5(b)).** `--backup-dir DIR`: the newest daily `.backup` copy (`sports_YYYY-MM-DD[_HHMMSS].db`,

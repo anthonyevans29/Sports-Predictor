@@ -466,12 +466,23 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             scores are compared in the stored orientation (score_orientation.scores_by_team swaps them so). Returns
             None for a pair that is neither the stored one nor its reverse (382 item 4(c): its own label)."""
             from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY, REVERSED
+            from src.ingestion.service import SPORT_WIDE_SOURCES, season_year
             hs, as_ = tsid.get(x.home_team_id) or set(), tsid.get(x.away_team_id) or set()
             h_, a_ = str(nm.home_team_source_id), str(nm.away_team_source_id)
-            same, rev = (h_ in hs and a_ in as_), (h_ in as_ and a_ in hs)
+            # as score_orientation.orientation decides: SAME first; never REVERSED when one team plays both sides
+            same = h_ in hs and a_ in as_
+            rev = not same and h_ in as_ and a_ in hs and x.home_team_id != x.away_team_id
             if not (same or rev):
                 return None
             state, note = {}, {}
+            sy, ny = season_year(x.season), season_year(nm.season)
+            if source not in SPORT_WIDE_SOURCES and sy is not None and ny is not None and sy != ny:
+                # the upsert updates a stored row of the listing's OWN season only (_match_by_source, addendum 310
+                # item 3(b)): an id served under another season writes a new row and leaves this one as it is, so no
+                # field of this row is what a resync writes. Not named by 365 item 3(b) or 382 item 4: kept flagged
+                # (never `live`), the season named alone, and put to the architect (#1001's PR)
+                return {"season": f"{x.season} -> {nm.season} (a resync writes another row; this row is left as "
+                                  f"it is)"}, note
             held = (x.external_ids or {}).get(PROVIDER_ORIENTATION_KEY)
             if same and held is not None:          # the upsert REMOVES it (SAME); the odds writers read it (#997)
                 state[PROVIDER_ORIENTATION_KEY] = f"{held} -> (removed: the served pair is the stored one)"
@@ -493,10 +504,21 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                     note[f] = f"{getattr(x, f, None)} -> {v}"
             return state, note
 
+        sport_sids: dict = {}                            # sport -> {team id: provider ids}, read once when needed
+
         def other_pair(x, nm):
-            """382 item 4(c): the stored pair and the served pair, by team id; whether the row records the mismatch."""
+            """382 item 4(c): the stored pair and the served pair, by team id; whether the row records the mismatch.
+            The served side is resolved against EVERY team of the sport (the upsert's own _find_team_by_source reads
+            them all), never only the candidates' teams: "not stored" means no team carries the id."""
+            from sqlalchemy import select
+
+            from src.db.schema import Team
             from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY
-            ours = lambda sid: sorted(t for t, ss in tsid.items() if sid in ss) or "not stored"   # noqa: E731
+            if x.sport not in sport_sids:
+                sport_sids[x.sport] = _team_sids(s, source, [t for (t,) in s.execute(
+                    select(Team.id).where(Team.sport == x.sport))])
+            every = sport_sids[x.sport]
+            ours = lambda sid: sorted(t for t, ss in every.items() if sid in ss) or "not stored"   # noqa: E731
             h_, a_ = str(nm.home_team_source_id), str(nm.away_team_source_id)
             held = (x.external_ids or {}).get(PROVIDER_ORIENTATION_KEY)
             return {"pair": f"stored teams {x.home_team_id} v {x.away_team_id} -> served provider teams {h_} v {a_} "
@@ -506,8 +528,9 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
         def live_entry(x, nm):
             if nm is not None and served_diff(x, nm) is None:     # 382 item 4(c): "neither `live` nor `live, resync
                 return entry(x, "live_other_pair", served=served(nm), **other_pair(x, nm))   # needed`", stale or not
-            if x.utc_date >= stale_cut:                  # not stale: live, as before (365 item 3(b) splits the stale)
-                return entry(x, "live", served=served(nm))
+            if x.utc_date >= stale_cut:                  # not stale: live, as before (365 item 3(b) splits the stale);
+                note = served_diff(x, nm)[1] if nm is not None else {}   # its annotations named too (382 item 4(b)
+                return entry(x, "live", served=served(nm), **({"annotation": note} if note else {}))   # names none)
             if nm is None:                               # nothing to compare: never read as equal (law 4)
                 return entry(x, "live_resync", served=served(nm),
                              differs={"served": "unknown: the id answers and the adapter kept no game"})
@@ -552,6 +575,14 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             absent = [x for x in cc if st_of[x.id][0] == "absent"]
             plan.extend(live_entry(x, st_of[x.id][1]) for x in cc if st_of[x.id][0] == "found")
             if not absent:
+                continue
+            other = [x for x in found if st_of[x.id][1] is not None and served_diff(x, st_of[x.id][1]) is None]
+            if found and other:
+                # 382 item 4(c): a live id that serves ANOTHER pair is "the #902 class standing in plain sight": never a
+                # twin to merge into (the keeper would take an id that serves another game); the absent rows wait
+                why = (f"the live twin's id {[sid_of(x) for x in other]} serves another pair (382 item 4(c)): no merge "
+                       f"in candidate set {ids} — review")
+                plan.extend(entry(x, "refused", why=why) for x in absent)
                 continue
             if found:
                 if len(comp) == 2 and len(found) == 1 and len(absent) == 1:

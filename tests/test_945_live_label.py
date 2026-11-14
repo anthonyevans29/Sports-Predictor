@@ -274,3 +274,84 @@ def test_1001_console_counts_the_other_pair_always_and_names_annotations_only_un
     out = _console(monkeypatch, capsys, prov, 30)
     line = next(ln for ln in out if ln.startswith(f"  [live] id {ids['resync']} "))
     assert "'annotation': {'status_raw': 'NS -> XQ'}" in line
+
+
+def test_1001_review_a_live_twin_whose_id_serves_another_pair_is_never_merged_into(world):
+    """Review of #1001 (P1): the OR1 world's twin pair (twin_old absent, twin_new live). When twin_new's id now serves
+    two other teams, its row reads `live_other_pair` and twin_old is REFUSED, never merged into it: the keeper would take
+    an id that serves another game (382 item 4(c), the #902 class). --apply leaves both rows and both ids."""
+    from tests.test_dedupe_orphans import SRC
+    ids, prov = world
+    with session_scope() as s:
+        sid = s.get(Match, ids["twin_new"]).external_ids[SRC]
+    g = next(x for x in prov.games if x.source_id == sid)
+    prov.games = [x for x in prov.games if x.source_id != sid] + [_nm(14, 15, sid, g.utc_date)]
+    plan = {p["id"]: p for p in md.orphans(CODE, prov, now=NOW)["plan"]}
+    assert plan[ids["twin_new"]]["action"] == "live_other_pair"
+    assert plan[ids["twin_old"]]["action"] == "refused" and "serves another pair" in plan[ids["twin_old"]]["why"]
+    before = {k: _stored(ids[k]) for k in ("twin_old", "twin_new")}
+    md.orphans(CODE, prov, apply=True, now=NOW)
+    assert {k: _stored(ids[k]) for k in ("twin_old", "twin_new")} == before
+
+
+def test_1001_review_the_served_pair_names_our_team_ids_from_every_team_of_the_sport(world):
+    """Review of #1001: the served side is resolved against every team of the sport, not only the candidates' teams:
+    the OR1 world stores teams 14 and 15, so the line names their ids, never "not stored"."""
+    from src.db.schema import Team
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    prov.games = [x for x in prov.games if x.source_id != SID] + [_nm(14, 15, SID, PAST)]
+    with session_scope() as s:
+        t14, t15 = (next(t.id for t in s.query(Team).all() if (t.external_ids or {}).get("api_american_football")
+                         == f"{CODE}t{n}") for n in (14, 15))
+    p = _plan_row(prov, ids["resync"])
+    assert p["pair"].endswith(f"(our teams [{t14}] v [{t15}])"), p["pair"]
+
+
+def test_1001_review_a_row_with_one_team_on_both_sides_is_never_read_as_reversed(world):
+    """Review of #1001: score_orientation.orientation never calls a pair REVERSED when one team plays both sides; nor
+    does the planner (a stored 11 v 11 served 11 v 11 is the same pair: nothing to write)."""
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    with session_scope() as s:
+        m = s.get(Match, ids["resync"])
+        m.away_team_id = m.home_team_id
+    prov.games = [x for x in prov.games if x.source_id != SID] + [_nm(11, 11, SID, PAST)]
+    p = _plan_row(prov, ids["resync"])
+    assert p["action"] == "live" and "differs" not in p
+
+
+def test_1001_review_the_same_pair_served_under_another_season_is_flagged_with_the_season_alone(world):
+    """Review of #1001: the upsert updates a stored row of the listing's own season only (addendum 310 item 3(b)), so
+    an id served under another season writes another row. Not named by 365 or 382: kept flagged (never `live`), the
+    season named alone (no field of this row is what a resync writes); put to the architect in the PR."""
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    g = _nm(11, 10, SID, PAST + timedelta(days=360))
+    g.season = "2027"
+    prov.games = [x for x in prov.games if x.source_id != SID] + [g]
+    p = _plan_row(prov, ids["resync"])
+    assert p["action"] == "live_resync" and list(p["differs"]) == ["season"]
+    assert p["differs"]["season"].startswith("2026 -> 2027 (a resync writes another row")
+
+
+def test_1001_review_a_not_stale_live_row_names_its_annotations(world):
+    """382 item 4(b) names no staleness: a not-stale live row (a twin's live id) whose served code differs names it."""
+    ids, prov = world
+    from tests.test_dedupe_orphans import SRC
+    with session_scope() as s:
+        sid = s.get(Match, ids["twin_new"]).external_ids[SRC]
+    g = next(x for x in prov.games if x.source_id == sid)
+    g.status_raw = "XQ"
+    p = _plan_row(prov, ids["twin_new"])
+    assert p["action"] == "live" and p["stale"] is False and "status_raw" in p["annotation"]
+
+
+def test_1001_review_other_pair_rows_print_whole_even_under_sample_0(world, monkeypatch, capsys):
+    """382 item 4(c) "printed always": the [live_other_pair] rows are never cut to the sample (--sample 0 included)."""
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    prov.games = [x for x in prov.games if x.source_id != SID] + [_nm(14, 15, SID, PAST)]
+    out = _console(monkeypatch, capsys, prov, 0)
+    assert any(ln.startswith(f"  [live_other_pair] id {ids['resync']} ") for ln in out)
+    assert not any(ln.startswith("  [live_other_pair] …") for ln in out)

@@ -8,8 +8,15 @@
   - `live_entry` labels `live_other_pair` for another pair, stale or not (382 item 4(c) names no staleness). The stale split is otherwise unchanged.
   - `cli._dedupe_orphans`: the plan line gains "live, the id serves another pair N", and those rows print whole.
   - `scripts/ncaa_live_resync_rows.py`'s pointer names the three lines.
+- **The pre-push review's fixes:**
+  - **(P1)** a live twin whose id serves another pair is never merged into. The absent rows are `refused` ("the live twin's id … serves another pair (382 item 4(c))"), so `--apply` leaves both rows and both ids.
+  - The served pair's "our teams" is resolved against every team of the sport, never only the candidates'.
+  - The same/reversed reading mirrors `score_orientation.orientation`: SAME first, never REVERSED when one team plays both sides.
+  - A not-stale live row names its annotations too.
+  - The same pair served under ANOTHER season (the upsert writes another row, addendum 310 item 3(b)) is kept flagged with the season named alone. That case is put to the architect.
 - **Tests:**
   - `tests/test_945_live_label.py`: the #945 pins that 382 item 4 changes are amended (status_raw alone, a new status code, the reversed final, the foreign pair). New: a recorded reversal reads live; matchday and stage are annotations; a not-stale other pair; the console's count and annotation lines.
   - `tests/test_dedupe_orphans.py`: the OR1 world's `resync` row (served NS on a NULL code only) now reads `live`.
-  - All fail on 151aadae.
+  - Six review tests, five failing on beda7dde (the sixth pins the printed-always rule).
+  - All the new tests fail on 151aadae.
 - **The twenty (382 item 5):** listed on #945 with the provider's game id and the stored kickoff, the keys that hold on both machines.

@@ -122,8 +122,9 @@ class Refused(Exception):
 
 def _cgroup_limit(cgroup_root: Path = Path("/sys/fs/cgroup"), self_cgroup: Path = Path("/proc/self/cgroup")):
     """The smallest memory limit on this process's cgroup or any cgroup above it, (bytes, the file it came from), or
-    None when none is set or none can be read. cgroup v2: <root>/<path>/memory.max ("max" is no limit); v1: <root>/
-    memory/<path>/memory.limit_in_bytes (a value no smaller than the machine's memory is no limit)."""
+    None when none is set or none can be read. cgroup v2: <root>/<path>/memory.max (only "max" is no limit; any number
+    is a limit, Codex on #996); v1: <root>/memory/<path>/memory.limit_in_bytes (a value no smaller than the machine's
+    memory is v1's no-limit sentinel)."""
     try:
         lines = self_cgroup.read_text().splitlines()
     except OSError:
@@ -140,9 +141,9 @@ def _cgroup_limit(cgroup_root: Path = Path("/sys/fs/cgroup"), self_cgroup: Path 
             continue
         _, controllers, path = parts
         if controllers == "":
-            base, name = cgroup_root, "memory.max"
+            base, name, v1 = cgroup_root, "memory.max", False
         elif "memory" in controllers.split(","):
-            base, name = cgroup_root / "memory", "memory.limit_in_bytes"
+            base, name, v1 = cgroup_root / "memory", "memory.limit_in_bytes", True
         else:
             continue
         rel = Path(path.lstrip("/"))
@@ -155,7 +156,7 @@ def _cgroup_limit(cgroup_root: Path = Path("/sys/fs/cgroup"), self_cgroup: Path 
             if v == "max" or not v.isdigit():
                 continue
             n = int(v)
-            if total is not None and n >= total:
+            if v1 and total is not None and n >= total:
                 continue
             found.append((n, str(f)))
     return min(found) if found else None
@@ -501,7 +502,9 @@ class Killed(Exception):
 def _stale_stages(out: Path) -> tuple[list[str], dict[str, dict]]:
     """Staging directories a killed run left beside the graph (SIGKILL, MemoryMax: no finally runs). Removed by the
     next run, under the lock, and named on its receipt line, with the staged counts the killed run's load started at
-    where it had written them (378 item 4(d): a run that dies without its own line still names its size)."""
+    where it had written them (378 item 4(d): a run that dies without its own line still names its size). The size
+    stays in the staging directory through the commit point (Codex on #996); only the finally's cleanup removes it,
+    so one killed in the instant after its commit names its size too (its graph is then the one in place)."""
     gone, sizes = [], {}
     for p in sorted(out.parent.glob(f".{out.name}.build-*")):
         if p.is_dir():
@@ -604,7 +607,6 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
         if left:
             raise RuntimeError(f"the staging directory holds {left} beside the graph after its close")
         done = dict(ok=True, counts=got, sha256=sha256_file(graph), bytes=graph.stat().st_size)
-        (stage / STAGED).unlink()                    # kept to here: a run killed before the commit names its size
         os.replace(graph, out)                       # the commit point: nothing after it can fail the run
         receipt.update(done)
     except Refused as e:

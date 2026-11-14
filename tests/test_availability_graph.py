@@ -419,6 +419,44 @@ def test_378_d_a_run_killed_after_its_load_still_leaves_its_size(fresh_db, tmp_p
     assert seen["staged_at_counts"] is True
 
 
+def test_codex_996_r1_a_finite_v2_limit_is_kept_whatever_the_machine(tmp_path, monkeypatch):
+    """Codex on #996, round 1: under cgroup v2 only "max" is no limit; a finite memory.max as large as the machine's
+    memory is still the limit (only v1's huge sentinel is read against the machine's memory)."""
+    root = tmp_path / "cg"
+    unit = root / "u"
+    unit.mkdir(parents=True)
+    (unit / "memory.max").write_text("1073741824\n")
+    me = tmp_path / "self_cgroup"
+    me.write_text("0::/u\n")
+    monkeypatch.setattr(os, "sysconf", lambda k: {"SC_PAGE_SIZE": 4096, "SC_PHYS_PAGES": 262144}[k])   # a 1 GiB machine
+    assert g._cgroup_limit(root, me) == (1073741824, str(unit / "memory.max"))
+    v1 = root / "memory" / "u"
+    v1.mkdir(parents=True)
+    (v1 / "memory.limit_in_bytes").write_text("1073741824\n")
+    me.write_text("4:memory:/u\n")
+    assert g._cgroup_limit(root, me) is None                          # v1: no smaller than the machine is no limit
+
+
+def test_codex_996_r1_the_staged_size_is_never_removed_before_the_commit_point(fresh_db, tmp_path, monkeypatch):
+    """Codex on #996, round 1: the staged size stays in the staging directory through os.replace, so a run killed at
+    any point before its commit still names its size; the cleanup after the commit removes it."""
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    _fake_build(monkeypatch)
+    seen = {}
+    real = os.replace
+
+    def replace(src, dst):
+        seen["staged_at_commit"] = (Path(src).parent / g.STAGED).exists()
+        return real(src, dst)
+    monkeypatch.setattr(g.os, "replace", replace)
+    r = g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    assert r["ok"] is True and seen["staged_at_commit"] is True
+    assert sorted(p.name for p in out.iterdir()) == [LOCK, g.GRAPH_NAME, g.RECEIPTS]
+
+
 def test_review_a_sigterm_removes_the_staging_and_writes_its_line(fresh_db, tmp_path, monkeypatch):
     import signal
     _history_b()

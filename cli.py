@@ -10833,7 +10833,8 @@ def availability_nflverse_cmd(season, file_path):
     stored ETag, redirects followed, explicit timeouts) or reads --file, checks the twelve columns by name (the 2023-2024
     shape refused), and asserts its NEW rows (dt later than the newest source_stamp held for the source) as depth_rank
     facts, players unmapped (counted), teams mapped by the NFL competition's stored tla (unmapped: NULL with the text,
-    the observation `partial`). A 304 or a byte-identical file is `complete` with 0 rows; a raised call is `failed`
+    the observation `partial`). A 304 or a byte-identical file takes the status of the payload it is unchanged from
+    (`complete`, or `empty` after a header-only one; addendum 382 item 3) with 0 rows; a raised call is `failed`
     (exit 1). Writes the live DB only (no --db: a copy is never written), under the chains' DB lock; the raw file under
     logs/availability/nflverse_depth_charts/<date>/ when it changed, never under data/. Prints the receipt and "Depth
     charts: nflverse (CC BY 4.0)". A missing DB, an unmigrated store or a refused --file exits 2, nothing written.

@@ -145,6 +145,21 @@ def test_945_a_pair_neither_stored_nor_reversed_is_never_read_as_equal(world):
     assert p["differs"]["teams"].endswith("(neither the stored pair nor its reverse)")
 
 
+def test_945_a_stored_orientation_key_on_the_same_pair_is_resync_needed_with_the_key_named(world):
+    """#997 (Codex P2): the row carries provider_orientation from an earlier listing; the provider now serves the
+    stored pair with everything else equal. The upsert's SAME verdict removes the key, which the odds writers read,
+    so a resync would write: `live_resync`, the key named."""
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    with session_scope() as s:
+        m = s.get(Match, ids["resync"])
+        m.external_ids = {**(m.external_ids or {}), "provider_orientation": "reversed"}
+    _serve(prov)
+    p = _plan_row(prov, ids["resync"])
+    assert p["action"] == "live_resync"
+    assert p["differs"] == {"provider_orientation": "reversed -> (removed: the served pair is the stored one)"}
+
+
 def test_945_the_split_writes_nothing(world):
     ids, prov = world
     _store(ids["resync"], "NS")

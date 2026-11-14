@@ -2,7 +2,7 @@
 - **src/ingestion/match_dedupe.orphans, the planner's split of a stale live row:**
   - **`live`**, nothing to do: what the provider serves equals the stored row. A resync would write nothing.
   - **`live_resync`**, "live, resync needed": something differs, and the fields are named in `differs` as stored -> served. Checked as the upsert writes them: status and kickoff always, a status code only when one is served, a score side only when it is served.
-  - **Never read as equal (law 4)**, and so kept as `live_resync`: an answer with no game kept, and a served pair that is not the stored one. The second is named as `teams`, reversed or neither, because the upsert's orientation check writes on such a pair.
+  - **Never read as equal (law 4)**, and so kept as `live_resync`: an answer with no game kept, and a served pair that is not the stored one. The second is named as `teams`, reversed or neither, because the upsert's orientation check writes on such a pair. On the same pair that check removes a stored `provider_orientation` key, so a row that still carries one names it (Codex, #997).
   - **Non-stale live rows** read `live`, as before.
 - **cli.py `dedupe-matches`:**
   - `--sample` has no default (8 is used when it is not given).

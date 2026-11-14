@@ -455,7 +455,8 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             kept there is nothing to compare, so the row is not read as equal (law 4). Nor is a served pair that is not
             the stored one: the upsert's orientation check (IngestionService._scores_by_team) writes
             provider_orientation on a reversed or mismatched pair, so the row keeps the old label with `teams` named,
-            and no field is compared in the provider's orientation."""
+            and no field is compared in the provider's orientation. On the same pair that check removes a stored
+            provider_orientation key, so a row that still carries one names it."""
             if nm is None:
                 return {"served": "unknown: the id answers and the adapter kept no game"}
             hs, as_ = tsid.get(x.home_team_id) or set(), tsid.get(x.away_team_id) or set()
@@ -464,6 +465,12 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                 how = "reversed" if (h_ in as_ and a_ in hs) else "neither the stored pair nor its reverse"
                 return {"teams": f"stored {x.home_team_id} v {x.away_team_id} -> provider {h_} v {a_} ({how})"}
             d = {}
+            # the same pair: the upsert REMOVES a stored provider_orientation key (score_orientation.with_orientation_key,
+            # SAME), and the odds writers read that key, so a row still carrying one is not read as equal (#997, Codex)
+            from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY
+            held = (x.external_ids or {}).get(PROVIDER_ORIENTATION_KEY)
+            if held is not None:
+                d[PROVIDER_ORIENTATION_KEY] = f"{held} -> (removed: the served pair is the stored one)"
             if nm.status != x.status:
                 d["status"] = f"{x.status.name} -> {nm.status.name}"
             if nm.status_raw not in (None, "") and nm.status_raw != x.status_raw:

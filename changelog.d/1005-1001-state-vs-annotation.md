@@ -13,13 +13,13 @@
   - `cli._dedupe_orphans`: the plan line gains "live, the id serves another game N", and those rows print whole.
   - `scripts/ncaa_live_resync_rows.py`'s pointer names the three lines.
 - **The pre-push review's fixes:**
-  - **(P1)** a live twin whose id serves another pair is never merged into. The absent rows are `refused` ("the live twin's id … serves another pair (382 item 4(c))"), so `--apply` leaves both rows and both ids.
+  - **(P1)** a live twin whose id serves another pair is never merged into. The absent rows are `refused` ("the live twin's id … serves another pair (382 item 4(c))", now "… serves another game (another pair)" by 383 item 4(a)), so `--apply` leaves both rows and both ids.
   - The served pair's "our teams" is resolved against every team of the sport, never only the candidates'.
   - The same/reversed reading mirrors `score_orientation.orientation`: SAME first, never REVERSED when one team plays both sides.
   - A not-stale live row names its annotations too.
   - The same pair served under ANOTHER season (the upsert writes another row, addendum 310 item 3(b)) was kept flagged with the season named alone and put to the architect; ruled by 383 item 4(a) (above).
 - **Codex round 1 on #1005:**
-  - **(P1)** a live twin whose id serves the pair under ANOTHER season is never merged into, for the same reason as another pair: the absent rows are `refused` ("… serves the pair under another season").
+  - **(P1)** a live twin whose id serves the pair under ANOTHER season is never merged into, for the same reason as another pair: the absent rows are `refused` ("… serves the pair under another season", now "… serves another game (the same pair, season …)" by 383 item 4(a)).
   - The other-game rows print with no cap (they were cut at 10,000). So do `[refused]` and `[unresolved]`, the other classes printed whole, which were cut at 10,000 with no "… more" line (pre-push review).
   - A refusal names each flagged twin id with its own reason (pre-push review).
   - The sport's teams are read by one query on the sport, never an IN list of every team id.

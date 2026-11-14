@@ -974,12 +974,23 @@ ids ride along as columns, each from the latest assertion that carries one.
   status, home_team_id, away_team_id)` (the columns from our matches where the game maps; a source-keyed game carries its
   `match_id` when it maps), `Observation(...)` (every observation, missed and failed ones included), and one
   `Build(built_at, copy, copy_sha256, git_sha, engine, assertions, observations)`.
-- `FACT` (Player to Team), one per assertion: `assertion_id`, `observation_id`, `sport`, `kind`, `recorded_at`,
-  `source_stamp`, `game` (the game's key, where the assertion names one), `attrs` (JSON text), the recorded clock's
-  interval (`rec_interval` = its opening assertion, `rec_start`, `rec_end`, `rec_closed_by`, `rec_why`), the source
-  clock's (`src_*`, NULL where the row carries no source stamp), `backfilled`, `post_hoc`.
-- `ASSERTED` (Observation to Player), one per assertion; `IN_GAME` (Team to Game, the side's text from the latest assertion that gives one, #944), one per pair an
-  assertion names; `ABOUT` (Observation to Game), the games an observation's assertions name, else its own match.
+- **EACH ASSERTION IS A NODE** (ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 2, amending 252 item 4's "an edge per
+  assertion"): `Assertion`, one per assertion, keyed by `assertion_id`, carrying every property the FACT edge carried,
+  unchanged: `observation_id`, `sport`, `kind`, `recorded_at`, `source_stamp`, `game` (the game's key, where the
+  assertion names one), `attrs` (JSON text), the recorded clock's interval (`rec_interval` = its opening assertion,
+  `rec_start`, `rec_end`, `rec_closed_by`, `rec_why`), the source clock's (`src_*`, NULL where the row carries no source
+  stamp), `backfilled`, `post_hoc`. Why a node (379 item 2): under the edge shape every Player (and every Team) sat in
+  one node group of 2^17, so each FACT checkpoint rewrote every FACT edge in memory, unspilled, and the pool it needed
+  grew with the record (three times today's did not build inside 1536M, #995); and an inferred claim (375) must carry
+  edges of its own, which an edge cannot.
+- From each assertion, three property-less edges, stored forward only (so their node groups are the assertions', 2^17
+  each; a reader matches them by a directed pattern from either end, and the engine refuses an undirected pattern over
+  a forward-only table): `NAMES_PLAYER` (Assertion to Player), `NAMES_TEAM` (Assertion to
+  Team), `ASSERTED_IN` (Assertion to Observation). `IN_GAME` (Team to Game, the side's text from the latest assertion that
+  gives one, #944), one per pair an assertion names; `ABOUT` (Observation to Game), the games an observation's assertions
+  name, else its own match.
+- The line names the record's assertions (a COUNT on the copy) beside the graph's assertion nodes, and a build whose two
+  counts differ fails (379 item 2).
 - Timestamps are naive UTC (the engine drops an offset without converting it, so the rebuild converts first).
 
 **The copy (347 item 5(b)).** `--backup-dir DIR`: the newest daily `.backup` copy (`sports_YYYY-MM-DD[_HHMMSS].db`,
@@ -987,9 +998,20 @@ pull_backup's pattern) whose `.sha256` sidecar matches its bytes, refused when i
 or `--db PATH`. Either passes `mlb_pitchers_gate.check_db` (never under data/, never the configured DB) and is read
 through its mode=ro + immutable=1 session; the copy is byte-identical after a run (pinned).
 
-**The build.** Staged as CSV in a directory beside `--out` (100,000 rows a file: one COPY of a million edges overflows
-the 256 MB buffer pool the rebuild sets), loaded by COPY with `PARALLEL=FALSE` (the parallel CSV reader refuses a
-quoted newline, and the record keeps whatever text its source gave: one such name would fail every rebuild), closed, re-opened read-only and counted (a read-write open
+**The build.** The walk stages CSV in a directory beside `--out` (100,000 rows a file), in a forked child that exits
+before the load starts, so the walk's heap is never added to the engine's (addendum 379 item 2). The load runs COPY with
+`PARALLEL=FALSE` (the parallel CSV reader refuses a quoted newline, and the record keeps whatever text its source gave:
+one such name would fail every rebuild):
+- **The nodes:** one COPY per file. The database is closed and reopened every 10 COPYs and between tables, since a
+  checkpoint that rewrites a string segment leaves its de-duplication table on the heap until a close.
+- **Each relationship table:** ONE COPY of all its files into the empty table. A COPY into a non-empty one would build a
+  CSR index for every node group of the assertions, and an untouched group's checkpoint never frees it.
+- **The pool and its rule** (the pool is a sixth of the memory limit, the smaller of the cgroup's and the unit's
+  MemoryMax; auto_checkpoint on) are written in `graph.py` with the engine's source cited.
+- **Measured inside the unit's 1536M:** today's record, three times it, and ten times it build. The receipts are on the
+  node-shape PR.
+
+The graph is then closed, re-opened read-only and counted (a read-write open
 rewrites the file's bytes), moved onto `--out` by `os.replace` only when every count equals what was staged; the staging
 directory is removed whatever the outcome, a SIGTERM (the unit's stop or timeout) included; through that cleanup a SIGTERM is
 deferred, so a signal during it never turns a committed run into a failure (#944), and it is re-delivered once the
@@ -1014,7 +1036,14 @@ item 6(D)); on a fresh host T11 leaves it out until that block has installed the
 `src/availability/graph.py` imports the engine (an `import`, `from`, `__import__` or `import_module` of it), no module
 but `cli.py`'s command imports graph.py, and none but those two names the graph's path.
 
-**At scale, on this PR's container (a receipt, not the host):** a SYNTHETIC history of 931,335 depth assertions (32 teams,
+**At scale, the node shape (addendum 379 item 2; the node-shape PR's receipts, Dev 2's container, not the host):** the
+real command inside a 1536M cgroup on 2 CPUs, on SYNTHETIC records (no host row). Today's size (1,341,556 assertions):
+118.7 s, process peak RSS 436 MiB, a 155,680,768-byte graph, 611,952,853 bytes staged. Three times (4,024,664): 380.1 s,
+589 MiB, 470,409,216 bytes, 1,903,446,009 staged. Ten times (13,415,544, the same players' history ten times over):
+1577.2 s, 920 MiB, 1,809,555,456 bytes, 6,221,183,841 staged. The pool 256 MiB each time; the record's assertions equal
+the graph's assertion nodes each time.
+
+**At scale, the edge shape (#830's receipt, before addendum 379 item 2 retired that shape):** a SYNTHETIC history of 931,335 depth assertions (32 teams,
 590 daily full charts) on a 460 MB `.backup` copy, rebuilt by `cli.py availability-graph-rebuild` inside a mount and
 network namespace (no network, the root filesystem read-only, the graph's directory the one writable path, an empty
 environment): 81 s, peak RSS 614 MB, one 253 MB file and no sidecar, the copy's sha256 unchanged.

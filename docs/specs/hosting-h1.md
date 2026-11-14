@@ -1272,7 +1272,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     - **`sp-availability-graph` on the host (ARCHITECT 2026-11-14 08:23 ET, addendum 378).**
       - **The install, 2026-11-14 13:08Z** (378 item 1(a), verbatim in part): "Successfully installed ladybug-0.22.3",
         pip exit 0, by the recorded hash, wheel only. The two unit files were installed, "byte-identical to the
-        checkout's: yes", with the timer disabled.
+        checkout's: yes", with the timer disabled. The graph's directory was made: the console shows
+        "sp:sp 775 /opt/sports-predictor/logs/availability/graph" (ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 5).
       - **The first run by the unit was refused** (378 item 1(b), its line whole): "AVAILABILITY-GRAPH REFUSED: cannot
         read /opt/sports-predictor/data under data/ (Permission denied): the --db fence cannot check by identity what
         it cannot read (law 4); nothing read". The block did not enable the timer.

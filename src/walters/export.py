@@ -1664,14 +1664,15 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
     # in its own section, never a record line beside the live sports.
     try:
         from src.walters.nhl_shadow import grade as _nhl_grade, results_section
-        _nr = _nhl_grade(days=days)          # results_section's own call, made once: its figures go to the JSON
+        _nr = _nhl_grade(days=days, export_dir=exports_dir)   # graded once, for the file and the JSON; the caller's
+        # export set, never the default's (#881 item 2, Codex on #880: a non-default exports_dir mixed two sets)
         _add(results_section(days, graded=_nr), _nr)
     except Exception:
         _add("## NHL — REFERENCE MODEL, FAILED GATE (shadow)\n\nGrade unavailable.\n", None, True)
     # UNL SHADOW (ARCHITECT 2026-10-02): intl-elo-v2 in its confirmation window, live CLV only.
     try:
         from src.walters.intl_shadow import grade as _unl_grade, results_section as _unl_section
-        _ur = _unl_grade(days=days)          # as the NHL section: graded once
+        _ur = _unl_grade(days=days, export_dir=exports_dir)   # as the NHL section: graded once, the caller's set
         _add(_unl_section(days, graded=_ur), _ur)
     except Exception:
         _add("## UNL — SHADOW, CONFIRMATION WINDOW\n\nGrade unavailable.\n", None, True)
@@ -1785,7 +1786,9 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
     file's order, each with its title, its lines verbatim, the figures its computation returned (no new statistic;
     the per-row lists left out or counted, TALLY_ROW_KEYS / TALLY_COUNTED_KEYS) and `unavailable`; the console lines; the
     stamps. The repo's RESULTS.md is not written. Each file is published by a temporary name and a rename, so the
-    mirror never copies half of one; a refused database (ReadOnlyRefused) writes neither. Returns (md path, json path).
+    mirror never copies half of one, and the PAIR is published all-or-nothing (#881): a failed rename of the JSON puts
+    the previous RESULTS.md back (or removes the new one on a first export) and raises; a refused database
+    (ReadOnlyRefused) writes neither. Returns (md path, json path).
     The machine is the caller's to check (the command refuses off the host)."""
     import os
     from src.db.database import readonly_binding
@@ -1793,6 +1796,7 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
     # hidden temporary names (coverage_map.write_document's form): pull_exports.SAFE_NAME and the mirror skip them
     tmp_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{os.getpid()}.tmp")
     tmp_js = os.path.join(out_dir, f".{HOST_TALLY_JSON}.{os.getpid()}.tmp")
+    prev_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{os.getpid()}.prev.tmp")    # #881: the previous Markdown, held
     got: dict = {}
     try:
         with readonly_binding():
@@ -1822,10 +1826,29 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
             os.fsync(f.fileno())
         with open(tmp_md, "rb") as f:
             os.fsync(f.fileno())
+        # THE PAIR, ALL-OR-NOTHING (#881 item 1, Codex on #880): the previous RESULTS.md is held under a hidden name
+        # (a hard link: no copy, the same bytes) before the new one is renamed in; if the JSON's rename then fails, the
+        # previous Markdown is put back (or, on a first export, the new one removed), so the mirror, which sp_run runs
+        # even after a non-zero exit, never carries a new Markdown beside an old or missing JSON
+        if os.path.exists(md):
+            if os.path.lexists(prev_md):
+                os.unlink(prev_md)                 # a killed run's leftover of this pid's name
+            try:
+                os.link(md, prev_md)
+            except OSError:                        # a filesystem with no hard links: a copy holds the same bytes
+                import shutil
+                shutil.copy2(md, prev_md)
         os.replace(tmp_md, md)
-        os.replace(tmp_js, js)
+        try:
+            os.replace(tmp_js, js)
+        except BaseException:
+            if os.path.exists(prev_md):
+                os.replace(prev_md, md)
+            else:
+                os.unlink(md)
+            raise
     finally:
-        for t in (tmp_md, tmp_js):
+        for t in (tmp_md, tmp_js, prev_md):
             if os.path.exists(t):
                 os.unlink(t)
     return md, js

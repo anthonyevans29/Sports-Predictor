@@ -460,3 +460,97 @@ def test_an_empty_machine_still_writes_both_files_with_every_section(tmp_path):
     doc = json.loads((tmp_path / js).read_text())
     assert [s["title"].split(" ")[0] for s in doc["sections"]][:3] == ["MLB", "Soccer", "NFL"]
     assert not any(s["unavailable"] for s in doc["sections"])
+
+
+# ---- #881 (ARCHITECT 2026-11-14 13:38 ET, addendum 382 item 6(iv)): the tally pair all-or-nothing; the shadow
+# grades read the requested exports_dir -------------------------------------------------------------------------------
+
+def test_881_a_failed_json_rename_leaves_the_previous_pair_as_it_was(tmp_path, monkeypatch):
+    """#881 item 1 (Codex on #880, 4506565251): the Markdown is renamed into place, then the JSON; if the JSON's rename
+    fails, the new Markdown must not sit beside the old JSON (sp_run mirrors even after a non-zero exit). The pair is
+    published all-or-nothing: the previous RESULTS.md is put back, the error raised, no temporary file left. Fail-first:
+    on main the new RESULTS.md stayed beside the old results_tally.json."""
+    import os
+
+    from src.walters.export import host_results_tally
+    ex = _world(tmp_path)
+    host_results_tally(days=36500)
+    old_md, old_js = (ex / "RESULTS.md").read_bytes(), (ex / "results_tally.json").read_bytes()
+    real = os.replace
+
+    def json_fails(a, b):
+        if os.path.basename(b) == "results_tally.json":
+            raise OSError(28, "No space left on device")
+        return real(a, b)
+    monkeypatch.setattr(os, "replace", json_fails)
+    monkeypatch.setattr("src.walters.export.utc_now_naive", lambda: datetime(2031, 1, 1))   # a different stamp
+    with pytest.raises(OSError):
+        host_results_tally(days=36499)                                 # a different header: the new MD differs
+    assert (ex / "RESULTS.md").read_bytes() == old_md and (ex / "results_tally.json").read_bytes() == old_js
+    assert sorted(p.name for p in ex.iterdir() if p.name.startswith(".")) == []
+
+
+def test_881_a_failed_json_rename_on_a_first_export_leaves_neither_file(tmp_path, monkeypatch):
+    """The same failure with no previous pair: neither file is left (never a Markdown with no JSON)."""
+    import os
+
+    from src.walters.export import host_results_tally
+    ex = _world(tmp_path)
+    real = os.replace
+
+    def json_fails(a, b):
+        if os.path.basename(b) == "results_tally.json":
+            raise OSError(28, "No space left on device")
+        return real(a, b)
+    monkeypatch.setattr(os, "replace", json_fails)
+    with pytest.raises(OSError):
+        host_results_tally(days=36500)
+    assert not (ex / "RESULTS.md").exists() and not (ex / "results_tally.json").exists()
+    assert sorted(p.name for p in ex.iterdir() if p.name.startswith(".")) == []
+
+
+def test_881_the_nhl_and_unl_shadow_grades_read_the_requested_exports_dir(tmp_path, monkeypatch):
+    """#881 item 2 (Codex on #880, 4506565254): results_tally's NHL and UNL sections called grade() without
+    export_dir, so a non-default exports_dir mixed two export sets in one file. Both now pass the caller's directory.
+    Fail-first: on main both read "exports"."""
+    from src.walters import intl_shadow, nhl_shadow
+    from src.walters.export import results_tally
+    _world(tmp_path)
+    seen = {}
+
+    def spy(name, real):
+        def grade(days=30, export_dir="exports", now=None, progress=None):
+            seen[name] = export_dir
+            return real(days=days, export_dir=export_dir, now=now, progress=progress)
+        return grade
+    monkeypatch.setattr(nhl_shadow, "grade", spy("nhl", nhl_shadow.grade))
+    monkeypatch.setattr(intl_shadow, "grade", spy("unl", intl_shadow.grade))
+    other = tmp_path / "other_exports"
+    other.mkdir()
+    results_tally(days=36500, out_path=str(tmp_path / "R.md"), exports_dir=str(other))
+    assert seen == {"nhl": str(other), "unl": str(other)}, seen
+
+
+def test_881_with_no_hard_links_the_previous_markdown_is_held_by_a_copy(tmp_path, monkeypatch):
+    """A filesystem that refuses os.link (EPERM, some mounts) holds the previous RESULTS.md by a copy: the export never
+    fails where it succeeded before #881, and a failed JSON rename still puts the previous pair back."""
+    import os
+
+    from src.walters.export import host_results_tally
+    ex = _world(tmp_path)
+    host_results_tally(days=36500)
+    old_md = (ex / "RESULTS.md").read_bytes()
+
+    def no_link(a, b):
+        raise PermissionError(1, "Operation not permitted")
+    monkeypatch.setattr(os, "link", no_link)
+    md, js = host_results_tally(days=36499)                             # succeeds: the copy held the old Markdown
+    assert (tmp_path / md).read_bytes() != old_md and (tmp_path / js).is_file()
+    real = os.replace
+    monkeypatch.setattr(os, "replace", lambda a, b: (_ for _ in ()).throw(OSError(28, "No space left on device"))
+                        if os.path.basename(b) == "results_tally.json" else real(a, b))
+    newer = (ex / "RESULTS.md").read_bytes()
+    with pytest.raises(OSError):
+        host_results_tally(days=36498)
+    assert (ex / "RESULTS.md").read_bytes() == newer
+    assert sorted(p.name for p in ex.iterdir() if p.name.startswith(".")) == []

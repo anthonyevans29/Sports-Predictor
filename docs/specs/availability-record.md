@@ -997,9 +997,20 @@ pull_backup's pattern) whose `.sha256` sidecar matches its bytes, refused when i
 or `--db PATH`. Either passes `mlb_pitchers_gate.check_db` (never under data/, never the configured DB) and is read
 through its mode=ro + immutable=1 session; the copy is byte-identical after a run (pinned).
 
-**The build.** Staged as CSV in a directory beside `--out` (100,000 rows a file: one COPY of a million edges overflows
-the 256 MB buffer pool the rebuild sets), loaded by COPY with `PARALLEL=FALSE` (the parallel CSV reader refuses a
-quoted newline, and the record keeps whatever text its source gave: one such name would fail every rebuild), closed, re-opened read-only and counted (a read-write open
+**The build.** The walk stages CSV in a directory beside `--out` (100,000 rows a file), in a forked child that exits
+before the load starts, so the walk's heap is never added to the engine's (addendum 379 item 2). The load runs COPY with
+`PARALLEL=FALSE` (the parallel CSV reader refuses a quoted newline, and the record keeps whatever text its source gave:
+one such name would fail every rebuild):
+- **The nodes:** one COPY per file. The database is closed and reopened every 10 COPYs and between tables, since a
+  checkpoint that rewrites a string segment leaves its de-duplication table on the heap until a close.
+- **Each relationship table:** ONE COPY of all its files into the empty table. A COPY into a non-empty one would build a
+  CSR index for every node group of the assertions, and an untouched group's checkpoint never frees it.
+- **The pool and its rule** (the pool is a sixth of the memory limit, the smaller of the cgroup's and the unit's
+  MemoryMax; auto_checkpoint on) are written in `graph.py` with the engine's source cited.
+- **Measured inside the unit's 1536M:** today's record, three times it, and ten times it build. The receipts are on the
+  node-shape PR.
+
+The graph is then closed, re-opened read-only and counted (a read-write open
 rewrites the file's bytes), moved onto `--out` by `os.replace` only when every count equals what was staged; the staging
 directory is removed whatever the outcome, a SIGTERM (the unit's stop or timeout) included; through that cleanup a SIGTERM is
 deferred, so a signal during it never turns a committed run into a failure (#944), and it is re-delivered once the

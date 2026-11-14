@@ -87,7 +87,7 @@ MAX_AGE_HOURS = 26                             # the 09:30 UTC daily backup, rea
 #       counts, so a night that fails says at what.
 UNIT_MEMORY_MAX = 1536 * 1024 * 1024           # deploy/hosting/systemd/sp-availability-graph.service MemoryMax=1536M
 POOL_SHARE = 6                                 # the pool is limit // POOL_SHARE (rule (1): 256 MiB under the unit)
-CHUNK = 100_000                                # rows per COPY: one COPY of 1M edges overflows a 256 MB pool
+CHUNK = 100_000                                # rows per staged file, and per COPY of a node table (rule (2))
 _LBUG_ENV = ("LBUG_PYTHON_BACKEND", "LBUG_C_API_LIB_PATH")      # the package's own overrides: never honoured here
 
 SCHEMA = (

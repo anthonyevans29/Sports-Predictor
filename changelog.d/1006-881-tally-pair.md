@@ -7,6 +7,10 @@
   - **Markdown swapped, JSON not:** the previous Markdown is put back, whatever stopped the renames, including a KeyboardInterrupt delivered after a rename has completed.
   - **Both swapped:** the new pair stands.
   - **The rollback itself fails:** the previous Markdown's only copy is kept (its hidden name is given in the error) and the new Markdown is removed. The JSON's own error is the one raised.
+- **Codex round 1 on #1006:**
+  - **The names are the run's own:** each hidden name carries the pid and a random token. A later run under a reused pid never names, so never removes, an earlier run's kept previous Markdown, which is that run's only copy. The old "leftover of this pid" removal is gone.
+  - **A new Markdown that cannot be removed is said, never swallowed:** when the rollback fails and the new `RESULTS.md` cannot be removed either, the error says it stands beside the previous `results_tally.json` and that the mirror after the step can carry the mixed pair. On a first export, the error no longer names a kept copy that does not exist.
+  - **Open, put to the architect:** two renames leave a moment in which a reader that does not take the chain's lock (an independent `pull_exports.py` run) can list a new Markdown beside the old JSON. pull_exports is newest-wins per file, so its next run carries the JSON (whose mtime is newer). Closing the window takes an atomic indirection or a marker the readers honour. That is a change to the exports layout and to pull_exports and the mirror (deploy scripts), so it is not made in this PR. The same holds for a folder that refuses every write: a marker could not be written either.
 - **Tests (`tests/test_host_results_tally.py`), seven new:**
   - a failed JSON rename keeps the previous pair;
   - on a first export it leaves neither file;
@@ -16,3 +20,4 @@
   - an interrupt after the JSON rename;
   - a failed rollback.
   - The first four all fail on main; the fourth fails for item 1's reason. The last three fail on this branch's first commit (28771dc5).
+  - Three Codex round-1 tests, all failing on da364874.

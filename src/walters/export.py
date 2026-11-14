@@ -1791,12 +1791,16 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
     (ReadOnlyRefused) writes neither. Returns (md path, json path).
     The machine is the caller's to check (the command refuses off the host)."""
     import os
+    import secrets
     from src.db.database import readonly_binding
     md, js = os.path.join(out_dir, HOST_TALLY_MD), os.path.join(out_dir, HOST_TALLY_JSON)
-    # hidden temporary names (coverage_map.write_document's form): pull_exports.SAFE_NAME and the mirror skip them
-    tmp_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{os.getpid()}.tmp")
-    tmp_js = os.path.join(out_dir, f".{HOST_TALLY_JSON}.{os.getpid()}.tmp")
-    prev_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{os.getpid()}.prev.tmp")    # #881: the previous Markdown, held
+    # hidden temporary names (coverage_map.write_document's form): pull_exports.SAFE_NAME and the mirror skip them.
+    # Each name is THIS run's own (the pid and a random token, Codex on #1006): a reused pid never names, so never
+    # removes, an earlier run's file (a previous Markdown a failed rollback kept is that run's only copy)
+    run = f"{os.getpid()}.{secrets.token_hex(6)}"
+    tmp_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{run}.tmp")
+    tmp_js = os.path.join(out_dir, f".{HOST_TALLY_JSON}.{run}.tmp")
+    prev_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{run}.prev.tmp")    # #881: the previous Markdown, held
     got: dict = {}
     keep_prev = False
     try:
@@ -1835,8 +1839,6 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
         # Markdown beside an old or missing JSON; both swapped means the pair is complete and is left as it is
         held = False
         if os.path.exists(md):
-            if os.path.lexists(prev_md):
-                os.unlink(prev_md)                 # a killed run's leftover of this pid's name
             try:
                 os.link(md, prev_md)
             except OSError:                        # a filesystem with no hard links: a copy holds the same bytes
@@ -1855,12 +1857,17 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
                         os.unlink(md)
                 except OSError as rollback:
                     keep_prev = held                # the previous Markdown's only copy: kept, hidden, named below
+                    kept = (f"the previous {HOST_TALLY_MD} is kept as {os.path.basename(prev_md)}" if held
+                            else f"there was no previous {HOST_TALLY_MD}")
                     try:
                         os.unlink(md)               # never a new Markdown beside the old JSON
-                    except OSError:
-                        pass
+                        left = f"the new {HOST_TALLY_MD} is removed"
+                    except OSError as stuck:        # said, never swallowed (Codex on #1006)
+                        left = (f"the new {HOST_TALLY_MD} could NOT be removed ({type(stuck).__name__}: "
+                                f"{stuck.strerror}): it stands beside the previous {HOST_TALLY_JSON}, and the "
+                                f"exports mirror after this step can carry the mixed pair")
                     raise e from OSError(f"the rollback failed ({type(rollback).__name__}: {rollback.strerror}); "
-                                         f"the previous {HOST_TALLY_MD} is kept as {os.path.basename(prev_md)}")
+                                         f"{kept}; {left}")
             raise
     finally:
         for t in (tmp_md, tmp_js) + (() if keep_prev else (prev_md,)):

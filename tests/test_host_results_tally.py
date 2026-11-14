@@ -624,3 +624,72 @@ def test_881_review_a_failed_rollback_keeps_the_previous_markdown_and_no_new_one
     held = [p for p in ex.iterdir() if p.name.startswith(".RESULTS.md.") and ".prev." in p.name]
     assert len(held) == 1 and held[0].read_bytes() == old_md and held[0].name in str(e.value.__cause__)
     assert not (ex / "RESULTS.md").exists() and (ex / "results_tally.json").read_bytes() == old_js
+
+
+def test_1006_codex_a_reused_pid_never_removes_an_earlier_runs_kept_markdown(tmp_path, monkeypatch):
+    """Codex on #1006: the names carried the pid alone, so a later run under a reused pid removed an earlier run's kept
+    previous Markdown (a failed rollback's only copy) as "a leftover" and again in its cleanup. Each run's names are its
+    own now: an earlier run's file under this pid survives a whole run untouched."""
+    import os
+
+    from src.walters.export import host_results_tally
+    ex = _world(tmp_path)
+    host_results_tally(days=36500)
+    kept = ex / f".RESULTS.md.{os.getpid()}.prev.tmp"                   # the old naming's kept copy, this pid
+    kept.write_bytes(b"# an earlier run's previous Markdown")
+    host_results_tally(days=36499)
+    assert kept.read_bytes() == b"# an earlier run's previous Markdown"
+    assert sorted(p.name for p in ex.iterdir() if p.name.startswith(".")) == [kept.name]
+
+
+def test_1006_codex_a_new_markdown_that_cannot_be_removed_is_named_in_the_error(tmp_path, monkeypatch):
+    """Codex on #1006: when the JSON's rename fails, the rollback fails and the new Markdown cannot be removed either,
+    the mixed pair stands; the error says so (it was swallowed), naming the kept previous Markdown."""
+    import os
+
+    from src.walters.export import host_results_tally
+    ex = _world(tmp_path)
+    host_results_tally(days=36500)
+    real_replace, real_unlink = os.replace, os.unlink
+
+    def replace(a, b):
+        if os.path.basename(b) == "results_tally.json":
+            raise OSError(28, "No space left on device")
+        if ".prev." in os.path.basename(a):
+            raise OSError(5, "Input/output error")
+        return real_replace(a, b)
+
+    def unlink(p, *a, **k):
+        if os.path.basename(p) == "RESULTS.md":
+            raise OSError(30, "Read-only file system")
+        return real_unlink(p, *a, **k)
+    monkeypatch.setattr(os, "replace", replace)
+    monkeypatch.setattr(os, "unlink", unlink)
+    with pytest.raises(OSError) as e:
+        host_results_tally(days=36499)
+    why = str(e.value.__cause__)
+    assert e.value.errno == 28 and "the previous RESULTS.md is kept as .RESULTS.md." in why
+    assert "the new RESULTS.md could NOT be removed (OSError: Read-only file system): it stands beside" in why
+
+
+def test_1006_codex_a_failed_rollback_on_a_first_export_names_no_kept_copy(tmp_path, monkeypatch):
+    """Codex round 1 on #1006, found by its test: on a first export there is no previous Markdown, so the error never
+    names a kept copy that does not exist."""
+    import os
+
+    from src.walters.export import host_results_tally
+    ex = _world(tmp_path)
+    real_replace, real_unlink = os.replace, os.unlink
+    monkeypatch.setattr(os, "replace", lambda a, b: (_ for _ in ()).throw(OSError(28, "No space left on device"))
+                        if os.path.basename(b) == "results_tally.json" else real_replace(a, b))
+
+    def unlink(p, *a, **k):
+        if os.path.basename(p) == "RESULTS.md":
+            raise OSError(5, "Input/output error")
+        return real_unlink(p, *a, **k)
+    monkeypatch.setattr(os, "unlink", unlink)
+    with pytest.raises(OSError) as e:
+        host_results_tally(days=36499)
+    why = str(e.value.__cause__)
+    assert "there was no previous RESULTS.md" in why and "is kept as" not in why
+    assert not [p for p in ex.iterdir() if ".prev." in p.name]

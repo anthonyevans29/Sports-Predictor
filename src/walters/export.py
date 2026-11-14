@@ -1863,9 +1863,12 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
                         os.unlink(md)               # never a new Markdown beside the old JSON
                         left = f"the new {HOST_TALLY_MD} is removed"
                     except OSError as stuck:        # said, never swallowed (Codex on #1006)
+                        beside = (f"it stands beside the previous {HOST_TALLY_JSON}, and the exports mirror after "
+                                  f"this step can carry the mixed pair" if os.path.lexists(js) else
+                                  f"it stands with no {HOST_TALLY_JSON} beside it, and the exports mirror after "
+                                  f"this step can carry the Markdown without its JSON")     # what is on disk
                         left = (f"the new {HOST_TALLY_MD} could NOT be removed ({type(stuck).__name__}: "
-                                f"{stuck.strerror}): it stands beside the previous {HOST_TALLY_JSON}, and the "
-                                f"exports mirror after this step can carry the mixed pair")
+                                f"{stuck.strerror}): {beside}")
                     raise e from OSError(f"the rollback failed ({type(rollback).__name__}: {rollback.strerror}); "
                                          f"{kept}; {left}")
             raise

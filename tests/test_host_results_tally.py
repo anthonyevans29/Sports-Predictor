@@ -673,8 +673,8 @@ def test_1006_codex_a_new_markdown_that_cannot_be_removed_is_named_in_the_error(
 
 
 def test_1006_codex_a_failed_rollback_on_a_first_export_names_no_kept_copy(tmp_path, monkeypatch):
-    """Codex round 1 on #1006, found by its test: on a first export there is no previous Markdown, so the error never
-    names a kept copy that does not exist."""
+    """Codex round 1 on #1006, found by its test and the pre-push review: on a first export there is no previous
+    Markdown and no JSON, so the error names neither a kept copy nor a previous JSON that does not exist."""
     import os
 
     from src.walters.export import host_results_tally
@@ -692,4 +692,5 @@ def test_1006_codex_a_failed_rollback_on_a_first_export_names_no_kept_copy(tmp_p
         host_results_tally(days=36499)
     why = str(e.value.__cause__)
     assert "there was no previous RESULTS.md" in why and "is kept as" not in why
-    assert not [p for p in ex.iterdir() if ".prev." in p.name]
+    assert "it stands with no results_tally.json beside it" in why and "beside the previous" not in why
+    assert not [p for p in ex.iterdir() if ".prev." in p.name] and not (ex / "results_tally.json").exists()

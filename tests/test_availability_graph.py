@@ -301,7 +301,7 @@ def test_378_d_a_failed_line_names_the_staged_size_and_a_killed_runs_size_is_nam
         g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
     line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
     assert line["ok"] is False and "buffer pool is full" in line["error"]
-    assert set(line["staged"]) == {*g.NODE_TABLES, *g.REL_TABLES} and line["staged"]["FACT"] > 0
+    assert set(line["staged"]) == {*g.NODE_TABLES, *g.REL_TABLES} and line["staged"]["Assertion"] > 0
     assert seen["staged_file"] == {"staged": line["staged"], "memory_limit": line["memory_limit"],
                                    "buffer_pool": line["buffer_pool"]}   # written before the load began
     assert line["buffer_pool"] == seen["pool"] == g.buffer_pool(line["memory_limit"]) == line["memory_limit"] // 2
@@ -472,6 +472,41 @@ def test_codex_996_r1_the_staged_size_is_never_removed_before_the_commit_point(f
     r = g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
     assert r["ok"] is True and seen["staged_at_commit"] is True
     assert sorted(p.name for p in out.iterdir()) == [LOCK, g.GRAPH_NAME, g.RECEIPTS]
+
+
+def test_379_2_a_graph_whose_assertion_nodes_differ_from_the_record_fails_and_says_both(fresh_db, tmp_path,
+                                                                                        monkeypatch):
+    """ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 2: "the finished graph's count of assertion nodes equals the
+    record's assertions and the line says both". The record's count is its own table's (a COUNT on the copy), not the
+    walk's; a graph that differs is a failed build (exit 1, the previous graph untouched), and its line names both."""
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    (out / g.GRAPH_NAME).write_bytes(b"the previous graph")
+    _fake_build(monkeypatch)
+    real = g._record_assertions
+    monkeypatch.setattr(g, "_record_assertions", lambda s: real(s) + 1)
+    with pytest.raises(RuntimeError, match=r"assertion nodes; the record holds"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert line["ok"] is False and line["record_assertions"] == line["staged"]["Assertion"] + 1
+    assert (out / g.GRAPH_NAME).read_bytes() == b"the previous graph"
+
+
+def test_379_2_the_shape_each_assertion_a_node_with_forward_only_edges():
+    """379 item 2: the assertion is a node carrying every property the FACT edge carried, unchanged; its player, team
+    and observation are property-less forward-only edges from it; no table is named FOR (the parser's word)."""
+    ddl = " ".join(g.SCHEMA)
+    assert "CREATE REL TABLE FACT" not in ddl and "ASSERTED(" not in ddl
+    fact_props = ("assertion_id", "observation_id", "sport", "kind", "recorded_at", "source_stamp", "game", "attrs",
+                  "rec_interval", "rec_start", "rec_end", "rec_closed_by", "rec_why", "src_interval", "src_start",
+                  "src_end", "src_closed_by", "src_why", "backfilled", "post_hoc")
+    assert g.COLUMNS["Assertion"] == fact_props
+    for rel, to in (("NAMES_PLAYER", "Player"), ("NAMES_TEAM", "Team"), ("ASSERTED_IN", "Observation")):
+        assert f"CREATE REL TABLE {rel}(FROM Assertion TO {to}) WITH (storage_direction='fwd')" in g.SCHEMA
+        assert g.COLUMNS[rel] == ("from", "to")
+    assert "FOR" not in {*g.NODE_TABLES, *g.REL_TABLES}
 
 
 def test_review_a_sigterm_removes_the_staging_and_writes_its_line(fresh_db, tmp_path, monkeypatch):
@@ -712,21 +747,31 @@ def test_the_rebuild_projects_every_assertion_with_both_intervals(fresh_db, tmp_
         walked = list(rec.walk(s, "nfl"))
         n_obs = s.execute(__import__("sqlalchemy").text("SELECT COUNT(*) FROM availability_observations")).scalar()
     c = r["counts"]
-    assert c["FACT"] == c["ASSERTED"] == len(walked) and c["Observation"] == n_obs and c["Build"] == 1
+    # 379 item 2: each assertion a node; its player, team and observation edges one each; the line says both counts
+    assert c["Assertion"] == c["NAMES_PLAYER"] == c["NAMES_TEAM"] == c["ASSERTED_IN"] == len(walked)
+    assert r["record_assertions"] == len(walked) and c["Observation"] == n_obs and c["Build"] == 1
     graph = out / g.GRAPH_NAME
-    got = {row[0]: tuple(row[1:]) for row in _graph_rows(graph, "MATCH ()-[f:FACT]->() RETURN f.assertion_id, f.rec_interval, "
-                                                         "f.rec_start, f.rec_end, f.rec_why, f.src_interval, f.src_start, "
-                                                         "f.src_end, f.kind, f.recorded_at, f.source_stamp")}
+    got = {row[0]: tuple(row[1:]) for row in _graph_rows(graph, "MATCH (a:Assertion) RETURN a.assertion_id, "
+                                                         "a.rec_interval, a.rec_start, a.rec_end, a.rec_why, "
+                                                         "a.src_interval, a.src_start, a.src_end, a.kind, "
+                                                         "a.recorded_at, a.source_stamp")}
     for row, riv, siv in walked:
         want = (riv.first.id, riv.start, riv.end, riv.why_closed, siv.first.id if siv else None,
                 siv.start if siv else None, siv.end if siv else None, row.kind, row.recorded_at, row.source_stamp)
         assert got[row.id] == want, row.id
+    ends = {aid: (pk, tk, oid) for aid, pk, tk, oid in _graph_rows(
+        graph, "MATCH (p:Player)<-[:NAMES_PLAYER]-(a:Assertion)-[:NAMES_TEAM]->(t:Team), "
+               "(a)-[:ASSERTED_IN]->(o:Observation) RETURN a.assertion_id, p.key, t.key, o.id")}
+    for row, _, _ in walked:
+        assert ends[row.id] == (g._key("nfl", row.source, rec.player_key(row)), g._key("nfl", row.source,
+                                rec.team_key(row)), row.observation_id), row.id
     keys = {k for (k,) in _graph_rows(graph, "MATCH (p:Player) RETURN p.key")}
     assert {f"nfl|{r.source}|{rec.player_key(r)[0]}|{rec.player_key(r)[1]}" for r, _, _ in walked} == keys
     b = _graph_rows(graph, "MATCH (b:Build) RETURN b.copy, b.copy_sha256, b.engine, b.assertions")
     assert b == [[copy.name, g.sha256_file(copy), "ladybug 0.22.3", len(walked)]]
     line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
     assert line["ok"] is True and line["sha256"] == g.sha256_file(graph) and line["counts"] == c
+    assert line["record_assertions"] == c["Assertion"] and line["staged_bytes"] > 0
 
 
 @needs_engine
@@ -760,7 +805,8 @@ def test_the_cli_builds_and_prints_its_counts(fresh_db, tmp_path):
     r = CliRunner().invoke(cli.cli, ["availability-graph-rebuild", "--db", str(copy), "--out",
                                      str(tmp_path / "graph" / g.GRAPH_NAME)])
     assert r.exit_code == 0, r.output
-    assert "AVAILABILITY-GRAPH" in r.output and "mode=ro + immutable=1" in r.output and "FACT 21" in r.output
+    assert "AVAILABILITY-GRAPH" in r.output and "mode=ro + immutable=1" in r.output and "Assertion 21" in r.output
+    assert "the record's assertions 21" in r.output
 
 
 @needs_engine
@@ -783,7 +829,7 @@ def test_review_any_text_the_record_keeps_survives_the_copy(fresh_db, tmp_path):
     assert got == {f"p{i}": n for i, n in enumerate(names)}
     teams = {k for (k,) in _graph_rows(out / g.GRAPH_NAME, "MATCH (t:Team) RETURN t.source_team")}
     assert teams == {f"T\n{i}" for i in range(len(names))}
-    attrs = [json.loads(a)["status"] for (a,) in _graph_rows(out / g.GRAPH_NAME, "MATCH ()-[f:FACT]->() RETURN f.attrs")]
+    attrs = [json.loads(a)["status"] for (a,) in _graph_rows(out / g.GRAPH_NAME, "MATCH (a:Assertion) RETURN a.attrs")]
     assert sorted(attrs) == sorted(names)
 
 

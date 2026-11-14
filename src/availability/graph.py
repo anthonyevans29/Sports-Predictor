@@ -88,17 +88,24 @@ SCHEMA = (
     "status STRING, late BOOLEAN, rows_asserted INT64, payload_sha256 STRING, PRIMARY KEY(id))",
     "CREATE NODE TABLE Build(key STRING, built_at TIMESTAMP, copy STRING, copy_sha256 STRING, git_sha STRING, "
     "engine STRING, assertions INT64, observations INT64, PRIMARY KEY(key))",
-    "CREATE REL TABLE FACT(FROM Player TO Team, assertion_id INT64, observation_id INT64, sport STRING, kind STRING, "
+    # EACH ASSERTION IS A NODE (ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 2, amending 252 item 4's "an edge per
+    # assertion"): every property the FACT edge carried sits on the node unchanged (kind, both stamps, the derived
+    # interval under each clock); its player, team and observation are property-less edges FROM the assertion,
+    # stored forward only, so each edge table's node groups are the assertions' (2^17 a group), never one group
+    # holding the whole record (379 item 2(a)); a reader still matches them from either end
+    "CREATE NODE TABLE Assertion(assertion_id INT64, observation_id INT64, sport STRING, kind STRING, "
     "recorded_at TIMESTAMP, source_stamp TIMESTAMP, game STRING, attrs STRING, "
     "rec_interval INT64, rec_start TIMESTAMP, rec_end TIMESTAMP, rec_closed_by INT64, rec_why STRING, "
     "src_interval INT64, src_start TIMESTAMP, src_end TIMESTAMP, src_closed_by INT64, src_why STRING, "
-    "backfilled BOOLEAN, post_hoc BOOLEAN)",
-    "CREATE REL TABLE ASSERTED(FROM Observation TO Player, assertion_id INT64, kind STRING)",
+    "backfilled BOOLEAN, post_hoc BOOLEAN, PRIMARY KEY(assertion_id))",
+    "CREATE REL TABLE NAMES_PLAYER(FROM Assertion TO Player) WITH (storage_direction='fwd')",
+    "CREATE REL TABLE NAMES_TEAM(FROM Assertion TO Team) WITH (storage_direction='fwd')",
+    "CREATE REL TABLE ASSERTED_IN(FROM Assertion TO Observation) WITH (storage_direction='fwd')",
     "CREATE REL TABLE IN_GAME(FROM Team TO Game, side STRING)",
     "CREATE REL TABLE ABOUT(FROM Observation TO Game)",
 )
-NODE_TABLES = ("Player", "Team", "Game", "Observation", "Build")
-REL_TABLES = ("FACT", "ASSERTED", "IN_GAME", "ABOUT")
+NODE_TABLES = ("Player", "Team", "Game", "Observation", "Build", "Assertion")
+REL_TABLES = ("NAMES_PLAYER", "NAMES_TEAM", "ASSERTED_IN", "IN_GAME", "ABOUT")
 COLUMNS = {
     "Player": ("key", "source", "source_player_id", "name", "player_id"),
     "Team": ("key", "source", "source_team", "team_id", "name"),
@@ -107,10 +114,12 @@ COLUMNS = {
     "Observation": ("id", "sport", "source", "endpoint", "match_id", "kickoff_at", "poll_label", "scheduled_at",
                     "fetched_at", "http_status", "status", "late", "rows_asserted", "payload_sha256"),
     "Build": ("key", "built_at", "copy", "copy_sha256", "git_sha", "engine", "assertions", "observations"),
-    "FACT": ("from", "to", "assertion_id", "observation_id", "sport", "kind", "recorded_at", "source_stamp", "game",
-             "attrs", "rec_interval", "rec_start", "rec_end", "rec_closed_by", "rec_why", "src_interval",
-             "src_start", "src_end", "src_closed_by", "src_why", "backfilled", "post_hoc"),
-    "ASSERTED": ("from", "to", "assertion_id", "kind"),
+    "Assertion": ("assertion_id", "observation_id", "sport", "kind", "recorded_at", "source_stamp", "game", "attrs",
+                  "rec_interval", "rec_start", "rec_end", "rec_closed_by", "rec_why", "src_interval", "src_start",
+                  "src_end", "src_closed_by", "src_why", "backfilled", "post_hoc"),
+    "NAMES_PLAYER": ("from", "to"),
+    "NAMES_TEAM": ("from", "to"),
+    "ASSERTED_IN": ("from", "to"),
     "IN_GAME": ("from", "to", "side"),
     "ABOUT": ("from", "to"),
 }
@@ -393,14 +402,16 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
                 latest("side", (tk, gk), r.recorded_at, r.id, None if side is None else str(side))
                 about.add((r.observation_id, gk))
                 obs_named_game.add(r.observation_id)
-            t["FACT"].add([pk, tk, r.id, r.observation_id, sport, r.kind, _ts(r.recorded_at), _ts(r.source_stamp),
-                           _s(gk), json.dumps(r.attrs, sort_keys=True, default=str) if r.attrs is not None else "",
-                           riv.first.id, _ts(riv.start), _ts(riv.end),
-                           _i(riv.closed_by.id if riv.closed_by else None), _s(riv.why_closed),
-                           _i(siv.first.id if siv else None), _ts(siv.start if siv else None),
-                           _ts(siv.end if siv else None), _i(siv.closed_by.id if siv and siv.closed_by else None),
-                           _s(siv.why_closed if siv else None), _b(rec.backfilled(r)), _b(rec.post_hoc(r, riv))])
-            t["ASSERTED"].add([r.observation_id, pk, r.id, r.kind])
+            t["Assertion"].add([r.id, r.observation_id, sport, r.kind, _ts(r.recorded_at), _ts(r.source_stamp),
+                                _s(gk), json.dumps(r.attrs, sort_keys=True, default=str) if r.attrs is not None else "",
+                                riv.first.id, _ts(riv.start), _ts(riv.end),
+                                _i(riv.closed_by.id if riv.closed_by else None), _s(riv.why_closed),
+                                _i(siv.first.id if siv else None), _ts(siv.start if siv else None),
+                                _ts(siv.end if siv else None), _i(siv.closed_by.id if siv and siv.closed_by else None),
+                                _s(siv.why_closed if siv else None), _b(rec.backfilled(r)), _b(rec.post_hoc(r, riv))])
+            t["NAMES_PLAYER"].add([r.id, pk])
+            t["NAMES_TEAM"].add([r.id, tk])
+            t["ASSERTED_IN"].add([r.id, r.observation_id])
     observations = 0
     obs_cols = (O.id, O.sport, O.source, O.endpoint, O.match_id, O.kickoff_at, O.poll_label, O.scheduled_at,
                 O.fetched_at, O.http_status, O.status, O.late, O.rows_asserted, O.payload_sha256)
@@ -483,6 +494,15 @@ def _counts(lb, path: Path, pool: int) -> dict[str, int]:
     finally:
         con.close()
         db.close()
+
+
+def _record_assertions(s) -> int:
+    """The record's own count of its assertions (a COUNT on the copy's table, not the walk's), which the finished
+    graph's assertion nodes must equal (379 item 2)."""
+    from sqlalchemy import func, select
+
+    from src.db.schema import AvailabilityAssertion as A
+    return int(s.execute(select(func.count()).select_from(A)).scalar() or 0)
 
 
 def append_receipt(out: Path, rec: dict) -> str | None:
@@ -588,9 +608,14 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
             shutil.rmtree(stage, ignore_errors=True)
             stage.mkdir()
             tables = _stage(s, stage, copy, copy_sha, now)
+            record_assertions = _record_assertions(s)
         finally:
             ctx.__exit__(None, None, None)
         staged = {n: tables[n].n for n in (*NODE_TABLES, *REL_TABLES)}
+        # 379 item 2: "the finished graph's count of assertion nodes equals the record's assertions and the line says
+        # both"; and the staging's bytes on disk, the size the load reads
+        receipt["record_assertions"] = record_assertions
+        receipt["staged_bytes"] = sum(f.stat().st_size for x in tables.values() for f in x.files)
         # 378 item 4(d): the line names the size BEFORE the load starts, so a failed line says what it failed at; and
         # the staging directory keeps it too, for the next run to name if this one is killed (SIGKILL: no line)
         receipt["staged"] = staged
@@ -604,6 +629,9 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
         got = _counts(lb, graph, pool)
         if got != staged:
             raise RuntimeError(f"the finished graph's counts {got} differ from what was staged {staged}")
+        if got["Assertion"] != record_assertions:
+            raise RuntimeError(f"the finished graph holds {got['Assertion']} assertion nodes; the record holds "
+                               f"{record_assertions} assertions")
         left = sorted(p.name for p in stage.iterdir() if p.name not in (GRAPH_NAME, STAGED))
         if left:
             raise RuntimeError(f"the staging directory holds {left} beside the graph after its close")

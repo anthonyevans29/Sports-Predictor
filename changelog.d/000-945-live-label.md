@@ -1,0 +1,11 @@
+## 2026-11-14 (#000: 945-live-label — `dedupe-matches --orphans`: "live, resync needed" now means the provider serves something our row lacks (ARCHITECT, addendum 365 item 3(b), relayed in addendum 379 item 6).)
+- **src/ingestion/match_dedupe.orphans, the planner's split of a stale live row:**
+  - **`live`**, nothing to do: what the provider serves equals the stored row. A resync would write nothing.
+  - **`live_resync`**, "live, resync needed": something differs, and the fields are named in `differs` as stored -> served. Checked as the upsert writes them: status and kickoff always, a status code only when one is served, a score side only when it is served.
+  - **An answer with no game kept** stays `live_resync`; it is never read as equal (law 4).
+  - **Non-stale live rows** read `live`, as before.
+- **cli.py `dedupe-matches`:**
+  - `--sample` has no default (8 is used when it is not given).
+  - Under `--orphans`, `[live]` rows are listed only when `--sample` is given; every other class prints as before.
+- **The effect:** after this, the daily NCAA dry run is expected to read `live 20 · live, resync needed 0` (365 item 3(b)).
+- **Read-only:** the plan still writes nothing. 365 item 3(a) rules no resync and no write.

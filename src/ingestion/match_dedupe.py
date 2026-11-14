@@ -29,7 +29,7 @@ Dry-run by default; --apply needs a verified .backup (CLI).
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 WINDOW_H = 12
 FIELDS = ("status", "status_raw", "utc_date", "matchday", "stage", "home_score", "away_score",
@@ -302,8 +302,13 @@ def state(s, competition_code: str, source: str) -> dict:
 # STALE (kickoff more than STALE_H past) or have a TWIN (same home AND away,
 # kickoffs within TWIN_H, a different source id). Each candidate's id is
 # resolved at the provider (GET /games?id=):
-#   * found               -> live: untouched ("resync" when stale — the next
-#                            sync-matches brings the result);
+#   * found               -> live: untouched. A stale one is "live, resync
+#                            needed" only when the provider serves something
+#                            our row lacks (#945; ARCHITECT, addendum
+#                            365 item 3(b)): a status, a status code, a score or
+#                            a kickoff a resync would write (served_diff); one
+#                            whose served state equals the stored one is "live",
+#                            nothing to do;
 #   * lookup error        -> UNRESOLVED: untouched (never read as absent);
 #   * NOT FOUND + exactly one twin whose id IS found -> MERGE (keeper = the older
 #     row; when the stale row is the keeper it takes the twin's id and state,
@@ -441,6 +446,34 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             return {"status": nm.status.name, "status_raw": nm.status_raw, "score": score,
                     "utc": nm.utc_date.isoformat()}
 
+        def served_diff(x, nm):
+            """What a resync would write on a live row, field by field, as the upsert writes it
+            (IngestionService._apply_match_updates): status and kickoff always; a status code only when one is served
+            (an absent code never blanks a stored one); a score side only when it is served. {} when the provider
+            serves nothing our row lacks. ARCHITECT, addendum 365 item 3(b) (relayed in addendum 379 item 6),
+            verbatim: ""live, resync needed" must mean the provider serves something our row lacks." With no game
+            kept there is nothing to compare, so the row is not read as equal (law 4)."""
+            if nm is None:
+                return {"served": "unknown: the id answers and the adapter kept no game"}
+            d = {}
+            if nm.status != x.status:
+                d["status"] = f"{x.status.name} -> {nm.status.name}"
+            if nm.status_raw not in (None, "") and nm.status_raw != x.status_raw:
+                d["status_raw"] = f"{x.status_raw} -> {nm.status_raw}"
+            for side in ("home_score", "away_score"):
+                if getattr(nm, side) is not None and getattr(nm, side) != getattr(x, side):
+                    d[side] = f"{getattr(x, side)} -> {getattr(nm, side)}"
+            served_utc = nm.utc_date.astimezone(timezone.utc).replace(tzinfo=None) if nm.utc_date.tzinfo else nm.utc_date
+            if served_utc != x.utc_date:
+                d["kickoff"] = f"{x.utc_date.isoformat()} -> {served_utc.isoformat()}"
+            return d
+
+        def live_entry(x, nm):
+            if x.utc_date >= stale_cut:                  # not stale: live, as before (365 item 3(b) splits the stale)
+                return entry(x, "live", served=served(nm))
+            d = served_diff(x, nm)
+            return entry(x, "live_resync", served=served(nm), differs=d) if d else entry(x, "live", served=served(nm))
+
         def date_search(m):
             hs, as_ = tsid.get(m.home_team_id), tsid.get(m.away_team_id)
             found, swapped, err = [], [], None
@@ -474,8 +507,7 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                 continue
             found = [x for x in comp if st_of[x.id][0] == "found"]
             absent = [x for x in cc if st_of[x.id][0] == "absent"]
-            plan.extend(entry(x, "live_resync" if x.utc_date < stale_cut else "live", served=served(st_of[x.id][1]))
-                        for x in cc if st_of[x.id][0] == "found")
+            plan.extend(live_entry(x, st_of[x.id][1]) for x in cc if st_of[x.id][0] == "found")
             if not absent:
                 continue
             if found:

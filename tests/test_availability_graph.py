@@ -292,8 +292,9 @@ def test_378_d_a_failed_line_names_the_staged_size_and_a_killed_runs_size_is_nam
     (out / g.GRAPH_NAME).write_bytes(b"the previous graph")
     seen = {}
 
-    def boom(lb, path, tables):
+    def boom(lb, path, tables, pool):
         seen["staged_file"] = json.loads((path.parent / g.STAGED).read_text())
+        seen["pool"] = pool
         raise RuntimeError("synthetic: the buffer pool is full")
     monkeypatch.setattr(g, "_load", boom)
     with pytest.raises(RuntimeError, match="buffer pool is full"):
@@ -301,20 +302,56 @@ def test_378_d_a_failed_line_names_the_staged_size_and_a_killed_runs_size_is_nam
     line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
     assert line["ok"] is False and "buffer pool is full" in line["error"]
     assert set(line["staged"]) == {*g.NODE_TABLES, *g.REL_TABLES} and line["staged"]["FACT"] > 0
-    assert seen["staged_file"] == line["staged"]                      # written before the load began
+    assert seen["staged_file"] == {"staged": line["staged"], "memory_limit": line["memory_limit"],
+                                   "buffer_pool": line["buffer_pool"]}   # written before the load began
+    assert line["buffer_pool"] == seen["pool"] == g.buffer_pool(line["memory_limit"]) == line["memory_limit"] // 2
     assert (out / g.GRAPH_NAME).read_bytes() == b"the previous graph"
     assert sorted(p.name for p in out.iterdir()) == [LOCK, g.GRAPH_NAME, g.RECEIPTS]
     killed = out / f".{g.GRAPH_NAME}.build-99998"                     # a SIGKILLed run's, mid-load
     killed.mkdir()
-    (killed / g.STAGED).write_text(json.dumps(line["staged"]))
+    (killed / g.STAGED).write_text(json.dumps(seen["staged_file"]))
     early = out / f".{g.GRAPH_NAME}.build-99997"                      # one killed before its load began
     early.mkdir()
     with pytest.raises(RuntimeError):
         g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
     nxt = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
     assert nxt["removed_stale_staging"] == [early.name, killed.name]
-    assert nxt["stale_staged"] == {killed.name: line["staged"]}
+    assert nxt["stale_staged"] == {killed.name: seen["staged_file"]}
     assert not killed.exists() and not early.exists()
+
+
+def test_378_c_the_pool_is_half_the_limit_the_rebuild_runs_under(tmp_path, monkeypatch):
+    """Addendum 378 item 4(c): "the pool and the checkpoint behaviour stated as a rule tied to the unit's MemoryMax,
+    not a bare constant". The limit is read from the process's cgroup (v2 memory.max, v1 memory.limit_in_bytes, the
+    smallest on the path up), the unit's MemoryMax standing in where there is none; the pool is half of it; the WAL
+    threshold is stated, the engine's documented 16 MiB."""
+    u = (HOSTING / "systemd" / "sp-availability-graph.service").read_text()
+    assert re.findall(r"^MemoryMax=(.+)$", u, re.M) == ["1536M"] and g.UNIT_MEMORY_MAX == 1536 * 1024 * 1024
+    assert g.buffer_pool(g.UNIT_MEMORY_MAX) == 768 * 1024 * 1024
+    assert g.CHECKPOINT_THRESHOLD == 16 * 1024 * 1024
+    root = tmp_path / "cg"
+    # cgroup v2: the unit's own cgroup carries MemoryMax; its slice none ("max")
+    unit = root / "system.slice" / "sp-availability-graph.service"
+    unit.mkdir(parents=True)
+    (unit / "memory.max").write_text("1610612736\n")
+    (root / "system.slice" / "memory.max").write_text("max\n")
+    me = tmp_path / "self_cgroup"
+    me.write_text("0::/system.slice/sp-availability-graph.service\n")
+    assert g._cgroup_limit(root, me) == (1610612736, str(unit / "memory.max"))
+    # a smaller limit higher up binds
+    (root / "system.slice" / "memory.max").write_text("1073741824\n")
+    assert g._cgroup_limit(root, me)[0] == 1073741824
+    # cgroup v1: memory.limit_in_bytes, and "no limit" (the kernel's huge value) is none
+    v1 = root / "memory" / "a" / "b"
+    v1.mkdir(parents=True)
+    (v1 / "memory.limit_in_bytes").write_text("9223372036854771712\n")
+    me.write_text("4:memory:/a/b\n1:cpu:/a/b\n")
+    assert g._cgroup_limit(root, me) is None
+    (root / "memory" / "a" / "memory.limit_in_bytes").write_text("536870912\n")
+    assert g._cgroup_limit(root, me) == (536870912, str(root / "memory" / "a" / "memory.limit_in_bytes"))
+    assert g._cgroup_limit(root, tmp_path / "absent") is None
+    monkeypatch.setattr(g, "_cgroup_limit", lambda: None)
+    assert g.memory_limit() == (g.UNIT_MEMORY_MAX, "the unit's MemoryMax (no cgroup limit on this process)")
 
 
 def test_review_a_sigterm_removes_the_staging_and_writes_its_line(fresh_db, tmp_path, monkeypatch):
@@ -670,13 +707,13 @@ def test_codex_r1_the_copy_is_never_the_out_path(fresh_db, tmp_path):
 def _fake_build(monkeypatch):
     """_load writes a stand-in graph file and _counts returns what was staged: the run reaches its commit point
     without the engine."""
-    def load(lb, path, tables):
+    def load(lb, path, tables, pool):
         path.write_bytes(b"graph")
         for t in tables.values():
             for f in t.files:
                 f.unlink()
     monkeypatch.setattr(g, "_load", load)
-    monkeypatch.setattr(g, "_counts", lambda lb, path: {n: monkeypatch._staged[n] for n in monkeypatch._staged})
+    monkeypatch.setattr(g, "_counts", lambda lb, path, pool: {n: monkeypatch._staged[n] for n in monkeypatch._staged})
     real = g._stage
 
     def stage(*a, **k):

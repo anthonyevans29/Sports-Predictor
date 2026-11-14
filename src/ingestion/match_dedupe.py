@@ -495,7 +495,8 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             for side, v in served_sides.items():
                 if v is not None and v != getattr(x, side):
                     state[side] = f"{getattr(x, side)} -> {v}"
-            served_utc = nm.utc_date.astimezone(timezone.utc).replace(tzinfo=None) if nm.utc_date.tzinfo else nm.utc_date
+            served_utc = (nm.utc_date.astimezone(timezone.utc).replace(tzinfo=None) if nm.utc_date.tzinfo
+                          else nm.utc_date)
             if served_utc != x.utc_date:
                 state["kickoff"] = f"{x.utc_date.isoformat()} -> {served_utc.isoformat()}"
             for f in ("status_raw", "matchday", "stage"):
@@ -514,9 +515,10 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
 
             from src.db.schema import Team
             from src.ingestion.score_orientation import PROVIDER_ORIENTATION_KEY
-            if x.sport not in sport_sids:
-                sport_sids[x.sport] = _team_sids(s, source, [t for (t,) in s.execute(
-                    select(Team.id).where(Team.sport == x.sport))])
+            if x.sport not in sport_sids:            # one query by sport, never an IN of every team id (Codex)
+                from src.ingestion.team_merge import source_ids
+                sport_sids[x.sport] = {t.id: source_ids(t.external_ids, source) for t in s.execute(
+                    select(Team).where(Team.sport == x.sport)).scalars()}
             every = sport_sids[x.sport]
             ours = lambda sid: sorted(t for t, ss in every.items() if sid in ss) or "not stored"   # noqa: E731
             h_, a_ = str(nm.home_team_source_id), str(nm.away_team_source_id)
@@ -576,12 +578,19 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             plan.extend(live_entry(x, st_of[x.id][1]) for x in cc if st_of[x.id][0] == "found")
             if not absent:
                 continue
-            other = [x for x in found if st_of[x.id][1] is not None and served_diff(x, st_of[x.id][1]) is None]
+            def not_this_game(x):
+                """A live twin whose id serves ANOTHER pair (382 item 4(c), the #902 class) or the pair under ANOTHER
+                season (the upsert would write another row: Codex on #1005, P1): never a twin to merge into."""
+                nm = st_of[x.id][1]
+                if nm is None:
+                    return None
+                d = served_diff(x, nm)
+                return "serves another pair (382 item 4(c))" if d is None else (
+                    "serves the pair under another season" if "season" in d[0] else None)
+            other = [(x, why) for x in found for why in [not_this_game(x)] if why]
             if found and other:
-                # 382 item 4(c): a live id that serves ANOTHER pair is "the #902 class standing in plain sight": never a
-                # twin to merge into (the keeper would take an id that serves another game); the absent rows wait
-                why = (f"the live twin's id {[sid_of(x) for x in other]} serves another pair (382 item 4(c)): no merge "
-                       f"in candidate set {ids} — review")
+                why = (f"the live twin's id {[sid_of(x) for x, _w in other]} {other[0][1]}: no merge in candidate set "
+                       f"{ids} — review")
                 plan.extend(entry(x, "refused", why=why) for x in absent)
                 continue
             if found:

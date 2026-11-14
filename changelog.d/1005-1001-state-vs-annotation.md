@@ -14,9 +14,15 @@
   - The same/reversed reading mirrors `score_orientation.orientation`: SAME first, never REVERSED when one team plays both sides.
   - A not-stale live row names its annotations too.
   - The same pair served under ANOTHER season (the upsert writes another row, addendum 310 item 3(b)) is kept flagged with the season named alone. That case is put to the architect.
+- **Codex round 1 on #1005:**
+  - **(P1)** a live twin whose id serves the pair under ANOTHER season is never merged into, for the same reason as another pair: the absent rows are `refused` ("… serves the pair under another season").
+  - The `[live_other_pair]` rows print with no cap (they were cut at 10,000).
+  - The sport's teams are read by one query on the sport, never an IN list of every team id.
+  - **Open, put to the architect:** the production `get_game` parses the answer with season "", so the season check never fires on a production run today. It is kept for an answer that carries a season. No provider field is guessed: no recorded `/games?id=` answer with its league block is in the repo (law 1).
 - **Tests:**
   - `tests/test_945_live_label.py`: the #945 pins that 382 item 4 changes are amended (status_raw alone, a new status code, the reversed final, the foreign pair). New: a recorded reversal reads live; matchday and stage are annotations; a not-stale other pair; the console's count and annotation lines.
   - `tests/test_dedupe_orphans.py`: the OR1 world's `resync` row (served NS on a NULL code only) now reads `live`.
   - Six review tests, five failing on beda7dde (the sixth pins the printed-always rule).
   - All the new tests fail on 151aadae.
+  - Three Codex round-1 tests, all failing on 172480f5.
 - **The twenty (382 item 5):** listed on #945 with the provider's game id and the stored kickoff, the keys that hold on both machines.

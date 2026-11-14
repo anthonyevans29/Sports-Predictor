@@ -1019,7 +1019,7 @@ def _dedupe_orphans(competition_code, source, apply, sample):
     every = ("refused", "unresolved", "live_other_pair")       # printed whole: 382 item 4(c) "printed always"
     for act in order:
         rows = [p for p in r["plan"] if p["action"] == act]
-        for p in rows[: (10_000 if act in every else sample)]:
+        for p in (rows if act == "live_other_pair" else rows[: (10_000 if act in every else sample)]):   # whole
             extra = {k: v for k, v in p.items() if k not in ("action", "id", "sid", "utc", "home", "away", "stale")}
             click.echo(f"  [{act}] id {p['id']} sid {p['sid']} {p['utc']} home {p['home']} away {p['away']}"
                        f"{' STALE' if p['stale'] else ''} {extra or ''}")

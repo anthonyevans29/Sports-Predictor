@@ -355,3 +355,69 @@ def test_1001_review_other_pair_rows_print_whole_even_under_sample_0(world, monk
     out = _console(monkeypatch, capsys, prov, 0)
     assert any(ln.startswith(f"  [live_other_pair] id {ids['resync']} ") for ln in out)
     assert not any(ln.startswith("  [live_other_pair] …") for ln in out)
+
+
+def test_1005_codex_a_live_twin_served_under_another_season_is_never_merged_into(world):
+    """Codex on #1005 (P1): a live twin whose id serves the pair under ANOTHER season is not this game's row (the upsert
+    would write another row, addendum 310 item 3(b)), so the absent twin is REFUSED, never merged into it; --apply
+    leaves both rows and both ids. (The twin itself is not stale: its label is `live` as before, 365 item 3(b).)"""
+    from tests.test_dedupe_orphans import SRC
+    ids, prov = world
+    with session_scope() as s:
+        sid = s.get(Match, ids["twin_new"]).external_ids[SRC]
+    g = next(x for x in prov.games if x.source_id == sid)
+    g.season = "2027"
+    plan = {p["id"]: p for p in md.orphans(CODE, prov, now=NOW)["plan"]}
+    assert plan[ids["twin_new"]]["action"] == "live"
+    assert plan[ids["twin_old"]]["action"] == "refused", plan[ids["twin_old"]]
+    assert "serves the pair under another season" in plan[ids["twin_old"]]["why"]
+    before = {k: _stored(ids[k]) for k in ("twin_old", "twin_new")}
+    md.orphans(CODE, prov, apply=True, now=NOW)
+    assert {k: _stored(ids[k]) for k in ("twin_old", "twin_new")} == before
+
+
+def test_1005_codex_other_pair_rows_print_whole_past_ten_thousand(world, monkeypatch, capsys):
+    """Codex on #1005 (P2): "printed always" has no cap: 10,001 [live_other_pair] rows print 10,001 lines."""
+    import cli
+    import src.adapters.api_american_football as aaf
+    ids, prov = world
+    n = 10_001
+    real = md.orphans(CODE, prov, now=NOW)            # the world's own report, its plan padded to n other-pair rows
+    real["plan"] = [p for p in real["plan"] if p["action"] != "live_other_pair"] + [
+        {"action": "live_other_pair", "id": -i, "sid": str(i), "utc": "2026-11-01T00:00", "home": 1, "away": 2,
+         "stale": True, "pair": "p", "recorded": "r"} for i in range(1, n + 1)]
+    real["counts"]["live_other_pair"] = n
+    monkeypatch.setattr(md, "orphans", lambda *a, **k: real)
+    monkeypatch.setattr(aaf, "APIAmericanFootballAdapter", lambda: prov)
+    monkeypatch.setenv("SP_ODDS_FOOTBALL_RPM", "1000000")
+    cli._dedupe_orphans(CODE, "api_american_football", False, None)
+    out = capsys.readouterr().out.splitlines()
+    assert sum(ln.startswith("  [live_other_pair] id ") for ln in out) == n
+
+
+def test_1005_codex_the_sport_s_teams_are_read_by_sport_never_by_an_in_list_of_every_id(world):
+    """Codex on #1005 (P2): the served side is resolved against every team of the sport by ONE query on the sport, never
+    an IN list of every team id (SQLite's bound-variable limit on a large sport). The only IN on teams is the candidate
+    rows' own teams, so no teams statement binds as many ids as the sport holds."""
+    from sqlalchemy import event
+
+    from src.db.database import _engine
+    from src.db.schema import Team
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    prov.games = [x for x in prov.games if x.source_id != SID] + [_nm(14, 15, SID, PAST)]
+    with session_scope() as s:
+        sport = s.get(Match, ids["resync"]).sport
+        every = s.query(Team).filter(Team.sport == sport).count()
+    seen = []
+
+    def grab(conn, cursor, statement, params, context, executemany):
+        if "FROM teams" in statement and " IN (" in statement:
+            seen.append(len(params or ()))
+    event.listen(_engine, "before_cursor_execute", grab)
+    try:
+        p = _plan_row(prov, ids["resync"])
+    finally:
+        event.remove(_engine, "before_cursor_execute", grab)
+    assert p["action"] == "live_other_pair"
+    assert seen and max(seen) < every, (seen, every)

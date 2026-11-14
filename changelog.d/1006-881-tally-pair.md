@@ -1,0 +1,26 @@
+## 2026-11-14 (#1006: 881-tally-pair — the host's results-tally pair published all-or-nothing, and the NHL and UNL shadow grades read the requested exports_dir (#881; ARCHITECT, addendum 382 item 6(iv)).)
+- **#881 item 1, all-or-nothing (Codex on #880, 4506565251):** `host_results_tally` renamed `RESULTS.md` into place, then `results_tally.json`. If the second rename failed, the new Markdown sat beside an old or missing JSON, and sp_run mirrors even after a non-zero exit.
+  - Now the previous `RESULTS.md` is held under a hidden name before the new one is renamed in: a hard link, or a copy where the filesystem refuses links.
+  - If the JSON's rename fails, the previous Markdown is put back (on a first export, the new one is removed) and the error is raised. No temporary or held file is left.
+- **#881 item 2, the requested export set (Codex on #880, 4506565254):** `results_tally`'s NHL and UNL sections called `grade(days=...)` without `export_dir`, so a non-default `exports_dir` mixed two export sets in one file. Both now pass the caller's directory. Production passes the default, so its output is unchanged.
+- **The pre-push review's fixes:** the publish reads the filesystem, never the line that raised.
+  - **Markdown swapped, JSON not:** the previous Markdown is put back, whatever stopped the renames, including a KeyboardInterrupt delivered after a rename has completed.
+  - **Both swapped:** the new pair stands.
+  - **The rollback itself fails:** the previous Markdown's only copy is kept (its hidden name is given in the error) and the new Markdown is removed. The JSON's own error is the one raised.
+- **Codex round 1 on #1006:**
+  - **The names are the run's own:** each hidden name carries the pid and a random token. A later run under a reused pid never names, so never removes, an earlier run's kept previous Markdown, which is that run's only copy. The old "leftover of this pid" removal is gone.
+  - **A new Markdown that cannot be removed is said, never swallowed:** when the rollback fails and the new `RESULTS.md` cannot be removed either, the error says what stands on disk. Beside the previous `results_tally.json`, it says the mirror after the step can carry the mixed pair. On a first export, it says no JSON stands beside it, and it names no kept copy.
+  - **Open, put to the architect:** two renames leave a moment in which a reader that does not take the chain's lock (an independent `pull_exports.py` run) can list a new Markdown beside the old JSON.
+    - After a run that succeeds, pull_exports' next run carries the new JSON: it is newest-wins per file, and the JSON's mtime is newer.
+    - After a run that rolls back, it does not. The restored Markdown keeps its OLD mtime, so pull_exports keeps the laptop's newer copy (`kept_local_newer`), and the laptop holds the new Markdown beside the old JSON until the host's next successful export (found by the pre-push review, reproduced).
+    - Closing it takes an atomic indirection or a marker the readers honour: a change to the exports layout and to pull_exports and the mirror (deploy scripts), so not made in this PR. The same holds for a folder that refuses every write: a marker could not be written either.
+- **Tests (`tests/test_host_results_tally.py`), seven new:**
+  - a failed JSON rename keeps the previous pair;
+  - on a first export it leaves neither file;
+  - the two shadow grades read the requested directory;
+  - with no hard links the previous Markdown is held by a copy;
+  - an interrupt after the Markdown rename;
+  - an interrupt after the JSON rename;
+  - a failed rollback.
+  - The first four all fail on main; the fourth fails for item 1's reason. The last three fail on this branch's first commit (28771dc5).
+  - Three Codex round-1 tests, all failing on da364874.

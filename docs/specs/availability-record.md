@@ -984,7 +984,8 @@ ids ride along as columns, each from the latest assertion that carries one.
   grew with the record (three times today's did not build inside 1536M, #995); and an inferred claim (375) must carry
   edges of its own, which an edge cannot.
 - From each assertion, three property-less edges, stored forward only (so their node groups are the assertions', 2^17
-  each; a reader still matches them from either end): `NAMES_PLAYER` (Assertion to Player), `NAMES_TEAM` (Assertion to
+  each; a reader matches them by a directed pattern from either end, and the engine refuses an undirected pattern over
+  a forward-only table): `NAMES_PLAYER` (Assertion to Player), `NAMES_TEAM` (Assertion to
   Team), `ASSERTED_IN` (Assertion to Observation). `IN_GAME` (Team to Game, the side's text from the latest assertion that
   gives one, #944), one per pair an assertion names; `ABOUT` (Observation to Game), the games an observation's assertions
   name, else its own match.
@@ -1035,7 +1036,14 @@ item 6(D)); on a fresh host T11 leaves it out until that block has installed the
 `src/availability/graph.py` imports the engine (an `import`, `from`, `__import__` or `import_module` of it), no module
 but `cli.py`'s command imports graph.py, and none but those two names the graph's path.
 
-**At scale, on this PR's container (a receipt, not the host):** a SYNTHETIC history of 931,335 depth assertions (32 teams,
+**At scale, the node shape (addendum 379 item 2; the node-shape PR's receipts, Dev 2's container, not the host):** the
+real command inside a 1536M cgroup on 2 CPUs, on SYNTHETIC records (no host row). Today's size (1,341,556 assertions):
+118.7 s, process peak RSS 436 MiB, a 155,680,768-byte graph, 611,952,853 bytes staged. Three times (4,024,664): 380.1 s,
+589 MiB, 470,409,216 bytes, 1,903,446,009 staged. Ten times (13,415,544, the same players' history ten times over):
+1577.2 s, 920 MiB, 1,809,555,456 bytes, 6,221,183,841 staged. The pool 256 MiB each time; the record's assertions equal
+the graph's assertion nodes each time.
+
+**At scale, the edge shape (#830's receipt, before addendum 379 item 2 retired that shape):** a SYNTHETIC history of 931,335 depth assertions (32 teams,
 590 daily full charts) on a 460 MB `.backup` copy, rebuilt by `cli.py availability-graph-rebuild` inside a mount and
 network namespace (no network, the root filesystem read-only, the graph's directory the one writable path, an empty
 environment): 81 s, peak RSS 614 MB, one 253 MB file and no sidecar, the copy's sha256 unchanged.

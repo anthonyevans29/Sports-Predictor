@@ -553,6 +553,42 @@ def test_379_2_the_walk_stages_in_a_child_that_exits_before_the_load(fresh_db, t
     assert sorted(p.name for p in out.iterdir()) == [LOCK, g.RECEIPTS]
 
 
+def test_379_2_review_sigterm_is_blocked_across_the_fork_and_the_child_unblocks_it_under_the_default(fresh_db,
+                                                                                                      tmp_path,
+                                                                                                      monkeypatch):
+    """The pre-PR review: a SIGTERM landing just after os.fork, before the child set its default handler, raised the
+    parent's Killed IN THE CHILD, which then unwound through rebuild() as if it were the parent (a second line; the
+    parent's staging removed). SIGTERM is now blocked across Process.start(); the child sets SIG_DFL, then unblocks;
+    the parent unblocks inside the try whose finally stops the child."""
+    import multiprocessing.process as mpp
+    import signal
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    seen = {}
+    real_start = mpp.BaseProcess.start
+
+    def start(self):
+        seen["blocked_at_start"] = signal.SIGTERM in signal.pthread_sigmask(signal.SIG_BLOCK, [])
+        return real_start(self)
+    monkeypatch.setattr(mpp.BaseProcess, "start", start)
+    marks = tmp_path / "child"
+    real = g._stage
+
+    def stage(*a, **k):
+        marks.write_text(json.dumps({"blocked": signal.SIGTERM in signal.pthread_sigmask(signal.SIG_BLOCK, []),
+                                     "handler_default": signal.getsignal(signal.SIGTERM) == signal.SIG_DFL}))
+        return real(*a, **k)
+    monkeypatch.setattr(g, "_stage", stage)
+    monkeypatch.setattr(g, "_load", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("synthetic: stop")))
+    with pytest.raises(RuntimeError, match="synthetic: stop"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    assert seen["blocked_at_start"] is True
+    assert json.loads(marks.read_text()) == {"blocked": False, "handler_default": True}
+    assert signal.SIGTERM not in signal.pthread_sigmask(signal.SIG_BLOCK, [])     # the parent unblocked it again
+
+
 def test_379_2_the_load_reopens_the_database_every_ten_copies_and_between_tables(tmp_path):
     """Rule (2): a checkpoint that rewrites a string segment leaves its de-duplication table on the heap until the
     database closes, so the load closes and reopens it every REOPEN_EVERY COPYs and between tables."""

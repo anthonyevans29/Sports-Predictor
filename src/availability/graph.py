@@ -62,9 +62,11 @@ MAX_AGE_HOURS = 26                             # the 09:30 UTC daily backup, rea
 #       time (memory_limit()), and the unit's MemoryMax (under the unit both are 1536M, so 256 MiB); with no limit of
 #       its own, or a looser one (a laptop, a sandbox, a test), the unit's MemoryMax binds, so the pool is never larger
 #       than the unit's and a tighter limit still binds. The node shape's measured need: 64 MiB fails, 128 MiB builds
-#       three times today's record, 256 MiB builds ten times. The rest of the limit is the engine's memory OUTSIDE its
-#       pool while it copies (most of the peak; it goes at each close, (2)) and the page cache the limit also counts
-#       (the engine's own default, 80% of the limit, and the edge shape's half both left too little);
+#       three times today's record, 256 MiB builds ten times. The rest of the limit is, in turn, the staging child's
+#       walk (888 MiB at ten times today's history, gone before the load, (3)), then the engine's memory outside its
+#       pool while it copies (about 560 MiB at most, flat from three to ten times; it goes at each close, (2)), and
+#       the page cache the limit also counts (the engine's own default, 80% of the limit, and the edge shape's half
+#       both left too little);
 #   (2) auto_checkpoint stays ON, set here rather than inherited: every COPY of CHUNK rows ends in a checkpoint that
 #       merges its rows into the stored graph and frees them (off, COPY's rows pile up unmerged: the 256 MiB pool failed
 #       at the 5th COPY instead of the 10th). checkpoint_threshold has no effect on a COPY and is not set. AND the
@@ -81,9 +83,12 @@ MAX_AGE_HOURS = 26                             # the 09:30 UTC daily backup, rea
 #       and 560; the nodes stay in COPYs of CHUNK rows (one COPY of every assertion would build its key index whole);
 #   (3) the walk stages in a forked child that exits before the load starts (_stage_in_child), so the peak is the
 #       larger of the walk's heap (888 MiB at ten times today's history) and the load's, never their sum;
-#   (4) the shape bounds a checkpoint's work: each assertion is a node, so a checkpoint rewrites at most one node group
-#       of 2^17 assertions whatever the record's size (under the edge shape every Player sat in one group and the pool
-#       a checkpoint needed grew with the record, #995). The line names the limit, the pool, the staged size and both
+#   (4) the shape bounds each node group: each assertion is a node, so a group holds at most 2^17 assertions whatever
+#       the record's size, and a checkpoint works through bounded groups (under the edge shape every Player sat in one
+#       group, the whole record in it, and the pool a checkpoint needed grew with the record, #995). A node COPY of
+#       CHUNK rows can span two groups, and one relationship table's COPY checkpoints every group; the receipts at
+#       one, three and ten times today's are the evidence that the whole stays inside 1536M. The walk (3) still
+#       grows with the longest partition's history. The line names the limit, the pool, the staged size and both
 #       counts, so a night that fails says at what.
 UNIT_MEMORY_MAX = 1536 * 1024 * 1024           # deploy/hosting/systemd/sp-availability-graph.service MemoryMax=1536M
 POOL_SHARE = 6                                 # the pool is limit // POOL_SHARE (rule (1): 256 MiB under the unit)
@@ -106,7 +111,9 @@ SCHEMA = (
     # assertion"): every property the FACT edge carried sits on the node unchanged (kind, both stamps, the derived
     # interval under each clock); its player, team and observation are property-less edges FROM the assertion,
     # stored forward only, so each edge table's node groups are the assertions' (2^17 a group), never one group
-    # holding the whole record (379 item 2(a)); a reader still matches them from either end
+    # holding the whole record (379 item 2(a)); a reader matches them by a DIRECTED pattern from either end (an
+    # undirected pattern over a forward-only table is refused by the engine: "Undirected rel patterns are only
+    # supported if every matched rel table has storage type 'both'")
     "CREATE NODE TABLE Assertion(assertion_id INT64, observation_id INT64, sport STRING, kind STRING, "
     "recorded_at TIMESTAMP, source_stamp TIMESTAMP, game STRING, attrs STRING, "
     "rec_interval INT64, rec_start TIMESTAMP, rec_end TIMESTAMP, rec_closed_by INT64, rec_why STRING, "
@@ -198,7 +205,8 @@ def memory_limit() -> tuple[int, str]:
 
 
 def buffer_pool(limit: int) -> int:
-    """The engine's buffer pool for a memory limit (rule (1) above): half of it."""
+    """The engine's buffer pool for a memory limit (rule (1) above): a sixth of it (limit // POOL_SHARE; 256 MiB under
+    the unit's 1536M)."""
     return limit // POOL_SHARE
 
 
@@ -546,6 +554,7 @@ def _stage_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> 
 
     from src.walters import mlb_pitchers_gate as mp
     _signal.signal(_signal.SIGTERM, _signal.SIG_DFL)    # the unit's stop ends the child; the parent writes the line
+    _signal.pthread_sigmask(_signal.SIG_UNBLOCK, {_signal.SIGTERM})   # blocked across the fork (_stage_in_child)
     try:
         ctx = mp.readonly_session(copy)
         s = ctx.__enter__()
@@ -566,9 +575,20 @@ def _stage_in_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) 
     fails (its error, or no answer: a signal, MemoryMax) fails the run here, exit 1, the previous graph untouched; a
     parent stopped while it waits stops the child too."""
     import multiprocessing
+    import signal as _signal
     proc = multiprocessing.get_context("fork").Process(target=_stage_child, args=(stage, copy, copy_sha, built_at))
-    proc.start()
+    # SIGTERM is BLOCKED across the fork (the pre-PR review): delivered just after fork() and before the child set its
+    # default, the parent's handler raised Killed in the child, which unwound through rebuild() as if it were the
+    # parent (a second line, the parent's staging removed). Blocked, it waits: the child unblocks it under SIG_DFL,
+    # the parent inside the try whose finally stops the child.
+    old = _signal.pthread_sigmask(_signal.SIG_BLOCK, {_signal.SIGTERM})
     try:
+        proc.start()
+    except BaseException:
+        _signal.pthread_sigmask(_signal.SIG_SETMASK, old)
+        raise
+    try:
+        _signal.pthread_sigmask(_signal.SIG_SETMASK, old)
         proc.join()
     finally:
         if proc.is_alive():

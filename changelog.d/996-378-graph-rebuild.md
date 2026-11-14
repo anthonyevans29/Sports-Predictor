@@ -19,4 +19,11 @@
 - **Codex's review rounds on #996:**
   - **Round 1:** two P2s, fixed fail-first in c986d84f. A finite cgroup v2 limit is now kept even at or above the machine's RAM, and the staged size is now kept through the commit point.
   - **Round 2:** one P2, a finite cgroup v1 limit at or above RAM read as no limit. It is listed for the architect (378 item 5) and not changed here.
-- **Tests:** tests/test_availability_graph.py, 31 passed and 11 skipped without the engine; 41 passed and 1 skipped with ladybug 0.22.3.
+- **The third ruled line (addenda 379 item 3 and 380 item 2):** `/dev/shm:ro` joins `TemporaryFileSystem`.
+  - The host showed that PrivateDevices binds its own /dev/shm, writable, into the unit: a file written from inside was present in the host's /dev/shm (380 item 1).
+  - The header now names what makes each part of "the one writable path" true: ProtectSystem=strict, TemporaryFileSystem, PrivateIPC and ReadWritePaths.
+  - The test pins all four TemporaryFileSystem entries.
+  - The rebuild builds with /dev/shm read-only in Dev 2's container (135.7 s, RSS 776 MiB).
+- **cgroup v1 (379 item 4):** a finite v1 limit at or above the machine's memory is a limit. Only the kernel's own no-limit value, 9223372036854771712 on 4 KiB pages, reads as none.
+- **The spec's unit paragraph** says what the unit does with data/ and /dev/shm.
+- **Tests:** tests/test_availability_graph.py, 32 passed and 11 skipped without the engine; 42 passed and 1 skipped with ladybug 0.22.3.

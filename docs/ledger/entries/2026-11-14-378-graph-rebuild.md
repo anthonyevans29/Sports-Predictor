@@ -12,5 +12,8 @@
   - **(B) Assertions as nodes:** 3× builds at a 256 MiB pool in about 117 s, but it changes 252 item 4's ruled shape.
 
   The limit is not raised (item 4(b)).
-- **Question for the architect:** the pre-PR pass reports that systemd's PrivateDevices binds the host's /dev/shm writable into the unit. If so, the ruled condition "ProtectSystem=strict leaves no write path outside the graph's folder" is not quite true. A one-line fix is offered; not changed here.
+- **/dev/shm (addenda 379 item 3 and 380):** the pre-PR pass reported that systemd's PrivateDevices binds the host's /dev/shm, writable, into the unit.
+  - **The host's answer (380 item 1, quoted):** "a file written from inside is PRESENT in the host /dev/shm (the write crossed out of the sandbox)"; with /dev/shm:ro, "absent from the host /dev/shm".
+  - **The ruling (380 item 2):** #996 takes the third line, `/dev/shm:ro`. The header names what makes each part of "the one writable path" true. The architect recorded that 378 item 3's sentence was false as written.
+- **cgroup v1 (379 item 4):** Codex's round-two P2 does not block and is fixed in the same push. Only v1's own no-limit value reads as no limit.
 - **State:** the timer stays on THE HELD LIST. The fix rides the next tag. Then the architect's block installs the unit file, runs it once and enables it only on a build (item 5).

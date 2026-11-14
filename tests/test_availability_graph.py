@@ -590,6 +590,13 @@ def test_347_b_the_unit_is_its_own_sandbox():
     assert re.findall(r"^TemporaryFileSystem=(.+)$", body, re.M) == [
         "/tmp:ro /var/tmp:ro /opt/sports-predictor/data:ro /dev/shm:ro"]
     assert "no shared /dev/shm" not in u and "PrivateDevices does NOT make /dev/shm private" in u
+    # 380 item 2: the four entries, each pinned; the header names what makes each part of "the one writable path" true
+    assert _unit_values(body, "TemporaryFileSystem") == ["/tmp:ro", "/var/tmp:ro", "/opt/sports-predictor/data:ro",
+                                                         "/dev/shm:ro"]
+    for part in ("the root read-only by\n# ProtectSystem=strict", "/dev/mqueue the unit's own by PrivateIPC",
+                 "graph's folder writable by ReadWritePaths"):
+        assert part in u, part
+    assert "ProtectSystem=strict leaves no write path" not in u
     assert re.findall(r"^InaccessiblePaths=(.+)$", body, re.M) == ["/etc/sports-predictor"]
     assert "PrivateTmp" not in body                                               # one writable directory
     for k in ("SQLITE_TMPDIR", "TMPDIR"):

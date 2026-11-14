@@ -1454,3 +1454,122 @@ def test_274_3_an_older_seasons_identical_200_restores_its_lost_payload_past_the
     kept25 = [k for k in _kept_files(tmp_path) if k.endswith("depth_charts_2025.csv")]
     assert kept25 == [o["payload_path"]]
     assert [x["status"] for x in _obs()] == ["complete"] * 5
+
+
+# ---- #853 (ARCHITECT 2026-11-14 11:25 ET, addendum 381 item 3(iv)): the feed's two failure shapes, fail-first -----
+
+def _temp_copies() -> set:
+    import tempfile
+    return {p.name for p in Path(tempfile.gettempdir()).glob(".nflverse-file-*")}
+
+
+def _snapshot_fault(case: str, monkeypatch):
+    """F1's four probe cases (#853), each a fault inside snapshot_copy: the original unreadable on open (EACCES: the
+    suite runs as root, so the open itself is faked), the original removed after run()'s is_file() check, mkstemp
+    failing, and the copy failing for want of space (ENOSPC)."""
+    import builtins
+    import errno
+    import shutil
+    import tempfile
+    real_open = builtins.open
+    if case == "unreadable":
+        def fake_open(p, mode="r", *a, **kw):
+            if "rb" in mode and str(p).endswith("depth_charts_2026.csv"):
+                raise PermissionError(errno.EACCES, "Permission denied", str(p))
+            return real_open(p, mode, *a, **kw)
+        monkeypatch.setattr(nv, "open", fake_open, raising=False)
+    elif case == "removed":
+        def fake_open(p, mode="r", *a, **kw):
+            if "rb" in mode and str(p).endswith("depth_charts_2026.csv"):
+                Path(p).unlink()                    # gone between is_file() and the copy's open
+            return real_open(p, mode, *a, **kw)
+        monkeypatch.setattr(nv, "open", fake_open, raising=False)
+    elif case == "mkstemp":
+        def no_temp(*a, **kw):
+            raise OSError(errno.EMFILE, "Too many open files")
+        monkeypatch.setattr(tempfile, "mkstemp", no_temp)
+    else:
+        def no_space(inp, out, *a, **kw):
+            out.write(b"partial")
+            raise OSError(errno.ENOSPC, "No space left on device")
+        monkeypatch.setattr(shutil, "copyfileobj", no_space)
+
+
+@pytest.mark.parametrize("case, why", [("unreadable", "PermissionError: Permission denied"),
+                                       ("removed", "FileNotFoundError: No such file or directory"),
+                                       ("mkstemp", "OSError: Too many open files"),
+                                       ("enospc", "OSError: No space left on device")])
+def test_853_f1_a_file_that_cannot_be_copied_is_refused_exit_2_nothing_written(tmp_path, monkeypatch, case, why):
+    """#853 F1 (Codex thread 4498581405): a --file that turns unreadable or vanishes, or whose temporary copy fails,
+    is a refusal (exit 2, nothing copied, nothing written), its message scrubbed and naming no temporary path, never
+    a traceback through run() (exit 1 is the failed-observation code: a chain could not tell the two apart).
+    Fail-first: on fbc33b23 each case raised the raw OSError and the CLI exited 1 with no output."""
+    _teams("BAL")
+    d = tmp_path / "in"
+    d.mkdir()
+    rows = _chart(D1, "BAL", 3)
+    before = _temp_copies()
+    for via in ("run", "cli"):
+        path = _write(d / "depth_charts_2026.csv", rows)
+        with monkeypatch.context() as m:
+            _snapshot_fault(case, m)
+            if via == "run":
+                with pytest.raises(nv.Refused) as e:
+                    nv.run(file=str(path), now_fn=lambda: F1)
+                msg = str(e.value)
+            else:
+                r = CliRunner().invoke(_cli(), ["availability-nflverse", "--file", str(path)])
+                assert r.exit_code == 2 and "Traceback" not in r.output, (r.exit_code, r.exception, r.output)
+                msg = r.output
+        assert "could not be read into its temporary copy" in msg and why in msg, msg
+        assert "nothing copied, nothing written" in msg and ".nflverse-file-" not in msg, msg
+        assert _counts() == (0, 0) and _kept_files(tmp_path) == []
+        assert _temp_copies() == before                                          # no temporary copy left
+
+
+def test_853_f2_a_header_only_payload_is_the_previous_payload_its_etag_sent_and_never_kept_twice(tmp_path):
+    """#853 F2 (Codex thread 4498581392): a header-only 200 is an `empty` observation that KEPT a payload, so it is the
+    previous payload of its endpoint: the next call sends its ETag, a byte-identical 200 is not kept again and a 304
+    carries it. Fail-first: on fbc33b23 previous_payload read only complete and partial observations, so no ETag was
+    ever sent, each identical header-only file was kept again as another `empty` row, and the 304 was refused."""
+    _teams("BAL")
+    header = _body([])
+    http = FakeHTTP(FakeResp(200, header, '"h1"'), FakeResp(200, header, '"h1"'), FakeResp(304))
+    runs = [nv.run(2026, http_get=http, now_fn=lambda t=t: t) for t in (F1, F1 + timedelta(hours=1), F2)]
+    assert [kw["headers"].get("If-None-Match") for _, kw in http.calls] == [None, '"h1"', '"h1"']
+    assert [r.status for r in runs] == ["empty", "complete", "complete"]          # the table: identical, 304 complete
+    o = _obs()
+    sha = hashlib.sha256(header).hexdigest()
+    assert [x["http_status"] for x in o] == [200, 200, 304] and {x["payload_sha256"] for x in o} == {sha}
+    assert len({x["payload_path"] for x in o}) == 1 and [x["rows_asserted"] for x in o] == [0, 0, 0]
+    assert [k for k in _kept_files(tmp_path) if k.endswith(".csv")] == [o[0]["payload_path"]]   # kept once
+    assert "byte-identical (not kept again)" in runs[1].got.etag and "304 not modified" in runs[2].got.etag
+    assert _counts() == (3, 0)
+
+
+def test_853_f2_after_a_header_only_payload_the_newer_etag_is_sent_never_the_older_non_empty_one(tmp_path):
+    """The same reading after a complete payload: the header-only 200 that followed it is the newer kept payload, so
+    its ETag (never the older non-empty one) is the validator. Fail-first: on fbc33b23 the next call sent "e1"."""
+    _teams("BAL")
+    b1, header = _body(_chart(D1, "BAL", 3)), _body([])
+    http = FakeHTTP(FakeResp(200, b1, '"e1"'), FakeResp(200, header, '"h1"'), FakeResp(304))
+    runs = [nv.run(2026, http_get=http, now_fn=lambda t=t: t) for t in (F1, F1 + timedelta(hours=1), F2)]
+    assert [kw["headers"].get("If-None-Match") for _, kw in http.calls] == [None, '"e1"', '"h1"']
+    assert [r.status for r in runs] == ["complete", "empty", "complete"]
+    o = _obs()
+    assert o[2]["payload_sha256"] == hashlib.sha256(header).hexdigest() == o[1]["payload_sha256"]
+    assert o[2]["payload_path"] == o[1]["payload_path"] != o[0]["payload_path"]
+    assert [x["rows_asserted"] for x in o] == [3, 0, 0] and _counts() == (3, 3)  # the facts and watermark untouched
+
+
+def test_853_f2_a_header_only_file_carried_twice_is_kept_once(tmp_path):
+    """The --file analogue: the second hand-carried copy of the same header-only file is byte-identical to the last
+    kept payload, so it is recorded against it and never kept again. Fail-first: on fbc33b23 it was kept twice."""
+    _teams("BAL")
+    first = _ingest(tmp_path, [], F1)
+    second = _ingest(tmp_path, [], F2)
+    assert first.status == "empty" and second.status == "complete" and second.rows_asserted == 0
+    assert "byte-identical to the last kept payload" in second.got.etag
+    o = _obs()
+    assert o[0]["payload_path"] == o[1]["payload_path"] and o[0]["payload_sha256"] == o[1]["payload_sha256"]
+    assert [k for k in _kept_files(tmp_path) if k.endswith(".csv")] == [o[0]["payload_path"]]

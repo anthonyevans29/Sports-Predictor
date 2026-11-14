@@ -661,7 +661,8 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
   next unchanged day sends a validator the server matches instead of downloading the file again. No
   column of `availability_observations` holds a validator (`endpoint`, `http_status`, `payload_sha256`,
   `payload_path` and `error` each mean something else), and no column or table is added. "The last payload" is the
-  newest complete or partial observation of the same endpoint that kept one (`nflverse.previous_payload`); a missing
+  newest complete, partial or empty observation of the same endpoint that kept one (`nflverse.previous_payload`; an
+  `empty` one, a header and no row, kept its payload too: #853 F2, addendum 381 item 3(iv)); a missing
   sidecar sends no `If-None-Match` (an unconditional GET, said on the receipt).
 - **The answers:**
 
@@ -709,7 +710,9 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
   the parse, the row checks and the keep all read the copy, never the original again, and the keep hashes the bytes as
   it copies them (a mismatch is removed and refused). A file changed while the run reads it therefore cannot make the
   hash, the asserted rows and the kept bytes disagree (pinned by a test that rewrites the original after every read
-  step). The temporary copy is removed whatever the run's end.
+  step). The temporary copy is removed whatever the run's end. A file that cannot be read into its copy (unreadable,
+  gone since the run checked it, `mkstemp` failing, a full disk) is a refusal: exit 2, nothing copied, nothing
+  written, the error named by its type and text and never by the temporary path (#853 F1, addendum 381 item 3(iv)).
 - **The kept file (Codex on #841, round 1).** Its name carries the payload's sha256 prefix, so two different payloads
   kept in one second never share a path, and it is created exclusively (`O_EXCL`): a path that already holds the same
   bytes is reused, one that holds other bytes is refused (a fetch: a `failed` observation; a `--file`: exit 2), and the

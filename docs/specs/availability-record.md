@@ -668,12 +668,21 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
 
 | Answer | Observation | Payload |
 |---|---|---|
-| 304 | `complete`, rows_asserted 0, `http_status` 304 | the previous payload's sha256 and path |
-| 200, byte-identical to the last kept payload | `complete`, rows_asserted 0 | the streamed copy removed; the previous sha256 and path; the answer's ETag, where it differs, written beside that payload |
+| 304 | the status of the payload it carries: `complete` after a complete or partial payload, `empty` after a header-only one; rows_asserted 0, `http_status` 304 | the previous payload's sha256 and path |
+| 200, byte-identical to the last kept payload | the status of that payload, as for a 304 (`complete`, or `empty` after a header-only one); rows_asserted 0 | the streamed copy removed; the previous sha256 and path; the answer's ETag, where it differs, written beside that payload |
 | 200, changed | `complete` or `partial` (or `empty`: a header and no row) with its new rows | kept: `logs/availability/nflverse_depth_charts/<UTC date>/<HHMMSS>Z-<sha256, first 16 hex>-depth_charts_<season>.csv`, created exclusively, its ETag beside it |
 | 200, a file the adapter refuses | `failed`, the refusal as its error | kept (the raw answer is the evidence) |
 | any other status | `failed`, `HTTP <status> from the release asset (refused): <class>`, the class worded as requests words it (`503 Server Error`, `429 Client Error: Too Many Requests`, `404 Client Error`) | none |
 | a raised call or a broken stream | `failed`, the error redacted | none (a partial `.part` file is removed) |
+
+**An unchanged answer's status (ARCHITECT 2026-11-14 13:38 ET, addendum 382 item 3, verbatim):** "AN UNCHANGED ANSWER
+TAKES THE STATUS OF THE PAYLOAD IT IS UNCHANGED FROM. After a header-only payload a 304, a byte-identical 200 or a
+byte-identical --file is recorded `empty`, never `complete` with zero rows: the source is still serving a header and no
+row, and `complete` there would let a reader count a day of nothing as a day read whole (law 4). After a complete or
+partial payload it stays `complete` with rows_asserted 0, as the spec's table says today; the table's line is amended to
+say which. Nothing stored is rewritten; the rule holds from its merge." A restore (274 item 3(1)) is an unchanged answer
+too. `nflverse.previous_observation` reads the row `previous_payload` names, with its status; `unchanged_status` maps it
+(#1003).
 
   The error text has every URL's query string cut first (a release asset redirects to a signed URL), then
   `record.redact`, then 256 characters (`nflverse._scrub`, then the cut). EVERY refusal goes through the same scrub
@@ -713,6 +722,10 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
   step). The temporary copy is removed whatever the run's end. A file that cannot be read into its copy (unreadable,
   gone since the run checked it, `mkstemp` failing, a full disk) is a refusal: exit 2, nothing copied, nothing
   written, the error named by its type and text and never by the temporary path (#853 F1, addendum 381 item 3(iv)).
+  So is a `--file` whose KEEP fails (#1003, addendum 382 item 2): the payload directory, the kept file's exclusive
+  create, the copy into it, or the copy's source; the partial file and the folders the keep made and left empty are
+  removed, so the refusal leaves nothing on disk. On a fetch the same keep failure is a `failed` observation with
+  nothing kept and no `.part` left (fetch's own handler, pinned by the same probe).
 - **The kept file (Codex on #841, round 1).** Its name carries the payload's sha256 prefix, so two different payloads
   kept in one second never share a path, and it is created exclusively (`O_EXCL`): a path that already holds the same
   bytes is reused, one that holds other bytes is refused (a fetch: a `failed` observation; a `--file`: exit 2), and the

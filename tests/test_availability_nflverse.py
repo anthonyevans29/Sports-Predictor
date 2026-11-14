@@ -18,6 +18,7 @@ reason; [...] (h) nothing under data/ after any test."
 from __future__ import annotations
 
 import csv
+import os
 import hashlib
 import re
 import sys
@@ -1537,7 +1538,7 @@ def test_853_f2_a_header_only_payload_is_the_previous_payload_its_etag_sent_and_
     http = FakeHTTP(FakeResp(200, header, '"h1"'), FakeResp(200, header, '"h1"'), FakeResp(304))
     runs = [nv.run(2026, http_get=http, now_fn=lambda t=t: t) for t in (F1, F1 + timedelta(hours=1), F2)]
     assert [kw["headers"].get("If-None-Match") for _, kw in http.calls] == [None, '"h1"', '"h1"']
-    assert [r.status for r in runs] == ["empty", "complete", "complete"]          # the table: identical, 304 complete
+    assert [r.status for r in runs] == ["empty", "empty", "empty"]   # 382 item 3: unchanged takes its payload's status
     o = _obs()
     sha = hashlib.sha256(header).hexdigest()
     assert [x["http_status"] for x in o] == [200, 200, 304] and {x["payload_sha256"] for x in o} == {sha}
@@ -1555,7 +1556,7 @@ def test_853_f2_after_a_header_only_payload_the_newer_etag_is_sent_never_the_old
     http = FakeHTTP(FakeResp(200, b1, '"e1"'), FakeResp(200, header, '"h1"'), FakeResp(304))
     runs = [nv.run(2026, http_get=http, now_fn=lambda t=t: t) for t in (F1, F1 + timedelta(hours=1), F2)]
     assert [kw["headers"].get("If-None-Match") for _, kw in http.calls] == [None, '"e1"', '"h1"']
-    assert [r.status for r in runs] == ["complete", "empty", "complete"]
+    assert [r.status for r in runs] == ["complete", "empty", "empty"]   # 382 item 3: the 304 carries the empty one
     o = _obs()
     assert o[2]["payload_sha256"] == hashlib.sha256(header).hexdigest() == o[1]["payload_sha256"]
     assert o[2]["payload_path"] == o[1]["payload_path"] != o[0]["payload_path"]
@@ -1568,8 +1569,143 @@ def test_853_f2_a_header_only_file_carried_twice_is_kept_once(tmp_path):
     _teams("BAL")
     first = _ingest(tmp_path, [], F1)
     second = _ingest(tmp_path, [], F2)
-    assert first.status == "empty" and second.status == "complete" and second.rows_asserted == 0
+    assert first.status == second.status == "empty" and second.rows_asserted == 0      # 382 item 3
     assert "byte-identical to the last kept payload" in second.got.etag
     o = _obs()
     assert o[0]["payload_path"] == o[1]["payload_path"] and o[0]["payload_sha256"] == o[1]["payload_sha256"]
     assert [k for k in _kept_files(tmp_path) if k.endswith(".csv")] == [o[0]["payload_path"]]
+
+
+# ---- #1003 (ARCHITECT 2026-11-14 13:38 ET, addendum 382 items 2-3): the keep step probed; an unchanged answer's status --
+
+def _keep_fault(case: str, monkeypatch):
+    """A fault inside _retain, the keep step (from_file -> _kept -> _retain; fetch -> _retain): the payload directory
+    cannot be made (EROFS), the kept file cannot be created (EACCES), the copy into it fails for want of space
+    (ENOSPC), or the source of the copy is gone (the run's temporary copy, or the fetch's partial file)."""
+    import errno
+    real_mkdir, real_osopen, real_fdopen = Path.mkdir, os.open, os.fdopen
+    if case == "mkdir":
+        def no_dir(self, *a, **kw):
+            if "nflverse_depth_charts" in str(self):
+                raise OSError(errno.EROFS, "Read-only file system", str(self))
+            return real_mkdir(self, *a, **kw)
+        monkeypatch.setattr(Path, "mkdir", no_dir)
+    elif case == "create":
+        def no_create(path, flags, *a, **kw):
+            if flags & os.O_EXCL and str(path).endswith(".csv") and "nflverse_depth_charts" in str(path):
+                raise PermissionError(errno.EACCES, "Permission denied", str(path))
+            return real_osopen(path, flags, *a, **kw)
+        monkeypatch.setattr(os, "open", no_create)
+    elif case == "enospc":
+        class Full:
+            def __init__(self, f):
+                self.f = f
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *e):
+                self.f.close()
+
+            def write(self, b):
+                raise OSError(errno.ENOSPC, "No space left on device")
+
+        def full_fdopen(fd, mode="r", *a, **kw):
+            f = real_fdopen(fd, mode, *a, **kw)
+            name = os.readlink(f"/proc/self/fd/{fd}") if os.path.exists(f"/proc/self/fd/{fd}") else ""
+            kept = "nflverse_depth_charts" in name and name.endswith(".csv") and ".part" not in name
+            return Full(f) if "wb" in mode and kept else f                 # the kept file only
+        monkeypatch.setattr(os, "fdopen", full_fdopen)
+    else:                                                  # the copy's source gone
+        real_retain = nv._retain
+
+        def gone(src, final, sha):
+            Path(src).unlink()
+            return real_retain(src, final, sha)
+        monkeypatch.setattr(nv, "_retain", gone)
+
+
+KEEP_FAULTS = [("mkdir", "OSError: Read-only file system"), ("create", "PermissionError: Permission denied"),
+               ("enospc", "OSError: No space left on device"), ("gone", "FileNotFoundError: No such file or directory")]
+
+
+def _no_payload_files(tmp_path):
+    return [k for k in _kept_files(tmp_path) if not k.endswith("/")
+            and (tmp_path / k).is_file()]
+
+
+@pytest.mark.parametrize("case, why", KEEP_FAULTS)
+def test_1003_a_file_that_cannot_be_kept_is_refused_exit_2_nothing_written_and_nothing_left(tmp_path, monkeypatch,
+                                                                                          case, why):
+    """#1003 (382 item 2): a --file whose keep fails (the payload directory, the kept file's creation, the copy, the
+    copy's source) is a refusal: exit 2, nothing written, no kept file and no folder left, the message naming the error
+    by its type and text and never a path. Fail-first: on c7dc2680 each case escaped run() as the raw OSError and the
+    command exited 1 (the failed-observation code) with no output."""
+    _teams("BAL")
+    d = tmp_path / "in"
+    d.mkdir()
+    for via in ("run", "cli"):
+        path = _write(d / "depth_charts_2026.csv", _chart(D1, "BAL", 3))
+        with monkeypatch.context() as m:
+            _keep_fault(case, m)
+            if via == "run":
+                with pytest.raises(nv.Refused) as e:
+                    nv.run(file=str(path), now_fn=lambda: F1)
+                msg = str(e.value)
+            else:
+                r = CliRunner().invoke(_cli(), ["availability-nflverse", "--file", str(path)])
+                assert r.exit_code == 2 and "Traceback" not in r.output, (r.exit_code, r.exception, r.output)
+                msg = r.output
+        assert "could not be kept" in msg and why in msg and "nothing kept, nothing written" in msg, msg
+        assert str(tmp_path) not in msg and ".nflverse-file-" not in msg, msg
+        assert _counts() == (0, 0) and _kept_files(tmp_path) == []          # no file and no empty folder left
+
+
+@pytest.mark.parametrize("case, why", KEEP_FAULTS)
+def test_1003_a_fetch_that_cannot_keep_its_payload_is_a_failed_observation_with_nothing_kept(tmp_path, monkeypatch,
+                                                                                            case, why):
+    """#1003, the fetch side of the same keep: a failed observation (exit 1, written, nothing asserted), no kept file
+    and no partial file left, the error naming the fault. This pins what fetch's broad handler already does on
+    c7dc2680 (these pass there): the probe's other half, so the keep is probed on both paths."""
+    _teams("BAL")
+    with monkeypatch.context() as m:
+        _keep_fault(case, m)
+        ing = nv.run(2026, http_get=FakeHTTP(FakeResp(200, _body(_chart(D1, "BAL", 3)), '"e1"')), now_fn=lambda: F1)
+    (o,) = _obs()
+    assert ing.status == o["status"] == "failed" and o["rows_asserted"] == 0 and _counts() == (1, 0)
+    assert o["payload_path"] is None and o["payload_sha256"] is None
+    assert why.split(":")[0] in o["error"], o["error"]
+    assert [k for k in _kept_files(tmp_path) if (tmp_path / k).is_file()] == []   # nothing kept, no .part left
+
+
+def test_1003_after_a_header_only_payload_an_unchanged_answer_is_empty_never_complete(tmp_path):
+    """382 item 3, verbatim: "AN UNCHANGED ANSWER TAKES THE STATUS OF THE PAYLOAD IT IS UNCHANGED FROM. After a
+    header-only payload a 304, a byte-identical 200 or a byte-identical --file is recorded `empty`, never `complete`
+    with zero rows". Fail-first: on c7dc2680 the identical 200 and the 304 read `complete`."""
+    _teams("BAL")
+    header = _body([])
+    http = FakeHTTP(FakeResp(200, header, '"h1"'), FakeResp(200, header, '"h1"'), FakeResp(304))
+    runs = [nv.run(2026, http_get=http, now_fn=lambda t=t: t) for t in (F1, F1 + timedelta(hours=1), F2)]
+    assert [r.status for r in runs] == ["empty", "empty", "empty"]
+    assert [x["status"] for x in _obs()] == ["empty", "empty", "empty"] and _counts() == (3, 0)
+
+
+def test_1003_after_a_complete_payload_an_unchanged_answer_stays_complete(tmp_path):
+    """382 item 3: "After a complete or partial payload it stays `complete` with rows_asserted 0"; and a header-only
+    payload after a complete one, then a 304 on it, reads `empty` (the payload it is unchanged from)."""
+    _teams("BAL")
+    b1, header = _body(_chart(D1, "BAL", 3)), _body([])
+    http = FakeHTTP(FakeResp(200, b1, '"e1"'), FakeResp(304), FakeResp(200, header, '"h1"'), FakeResp(304))
+    times = (F1, F1 + timedelta(hours=1), F2, F2 + timedelta(hours=1))
+    runs = [nv.run(2026, http_get=http, now_fn=lambda t=t: t) for t in times]
+    assert [r.status for r in runs] == ["complete", "complete", "empty", "empty"]
+    assert [x["rows_asserted"] for x in _obs()] == [3, 0, 0, 0]
+
+
+def test_1003_a_header_only_file_carried_twice_reads_empty_both_times(tmp_path):
+    """The --file analogue of 382 item 3: the second byte-identical header-only copy is recorded `empty`, not kept
+    again. Fail-first: on c7dc2680 it read `complete`."""
+    _teams("BAL")
+    first, second = _ingest(tmp_path, [], F1), _ingest(tmp_path, [], F2)
+    assert first.status == second.status == "empty" and second.rows_asserted == 0
+    assert [x["status"] for x in _obs()] == ["empty", "empty"]

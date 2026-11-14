@@ -355,20 +355,36 @@ def stored_complete_groups(s) -> dict:
     return last
 
 
+def previous_observation(s, endpoint: str) -> tuple[str, str, str] | None:
+    """(sha256, payload_path, status) of the newest complete, partial or empty observation of this endpoint that kept a
+    payload: previous_payload's row, with its status, which an unchanged answer takes (#1003, ARCHITECT 2026-11-14,
+    addendum 382 item 3: "AN UNCHANGED ANSWER TAKES THE STATUS OF THE PAYLOAD IT IS UNCHANGED FROM")."""
+    from sqlalchemy import select
+
+    from src.db.schema import AvailabilityObservation as O
+    got = s.execute(select(O.payload_sha256, O.payload_path, O.status)
+                    .where(O.source == SOURCE, O.endpoint == endpoint, O.status.in_((*rec.ASSERTING, "empty")),
+                           O.payload_sha256.is_not(None), O.payload_path.is_not(None))
+                    .order_by(O.id.desc()).limit(1)).first()
+    return (got[0], got[1], got[2]) if got else None
+
+
+def unchanged_status(prev_status: str | None) -> str:
+    """The status of an unchanged answer (a 304, a byte-identical 200 or --file, a restore), verbatim from addendum 382
+    item 3: "After a header-only payload a 304, a byte-identical 200 or a byte-identical --file is recorded `empty`,
+    never `complete` with zero rows [...] After a complete or partial payload it stays `complete` with rows_asserted
+    0". Nothing stored is rewritten; the rule holds from its merge."""
+    return "empty" if prev_status == "empty" else "complete"
+
+
 def previous_payload(s, endpoint: str) -> tuple[str, str] | None:
     """(sha256, payload_path) of the newest complete, partial or empty observation of this endpoint that kept a
     payload. An `empty` one (a header and no row) kept its payload too, so its ETag is the validator and a byte-
     identical answer is not kept again (#853 F2, ARCHITECT, addendum 381 item 3(iv)): before, each identical
     header-only file was downloaded and kept again as another `empty` row, or the older non-empty ETag was sent.
-    record.ASSERTING is unchanged: an `empty` observation still asserts nothing."""
-    from sqlalchemy import select
-
-    from src.db.schema import AvailabilityObservation as O
-    got = s.execute(select(O.payload_sha256, O.payload_path)
-                    .where(O.source == SOURCE, O.endpoint == endpoint, O.status.in_((*rec.ASSERTING, "empty")),
-                           O.payload_sha256.is_not(None), O.payload_path.is_not(None))
-                    .order_by(O.id.desc()).limit(1)).first()
-    return (got[0], got[1]) if got else None
+    record.ASSERTING is unchanged: an `empty` observation still asserts nothing. previous_observation's row."""
+    got = previous_observation(s, endpoint)
+    return got[:2] if got else None
 
 
 def lost_refusal(prev: tuple[str, str]) -> str | None:
@@ -447,6 +463,15 @@ def _kept(now: datetime, name: str, sha: str) -> tuple[str, Path]:
         raise Refused(f"REFUSED: the kept payload's file name would be {len(final.encode('utf-8'))} bytes, longer than "
                       f"{NAME_MAX}; nothing kept, nothing written")
     return rel, abs_dir / final
+
+
+def _remove_empty_payload_dirs(final: Path) -> None:
+    """The kept file's date and source folders, each only when it is left empty (a refused keep leaves no folder)."""
+    for d in (final.parent, final.parent.parent):
+        try:
+            d.rmdir()
+        except OSError:
+            break
 
 
 def _retain(src: Path, final: Path, sha: str) -> bool:
@@ -634,7 +659,16 @@ def from_file(copy: Path, name: str, sha: str, prev: tuple[str, str] | None, now
     if prev and sha == prev[0]:
         return Got(ep, now, None, prev[0], prev[1], etag="n/a (--file); byte-identical to the last kept payload")
     rel, final = _kept(now, name, sha)
-    created = _retain(copy, final, sha)
+    try:
+        created = _retain(copy, final, sha)
+    except OSError as e:
+        # #1003 (ARCHITECT, addendum 382 item 2): the keep's own I/O (the payload directory, the kept file's exclusive
+        # create, the copy, the copy's source) failing is a refusal (exit 2), never a traceback (exit 1 is a failed
+        # observation's code). _retain has removed its partial file; the folders it made and left empty go too, so a
+        # refusal leaves nothing on disk. Named by the error's type and strerror, never str(e), which names a path.
+        _remove_empty_payload_dirs(final)
+        raise Refused(f"REFUSED: --file {name!r} could not be kept ({type(e).__name__}: "
+                      f"{e.strerror or 'no error text'}); nothing kept, nothing written") from None
     return Got(ep, now, None, sha, rel, changed=True, created=created, restored=restoring,
                etag="n/a (--file)" + (f"; the last kept payload {lost}: kept again"
                                       + (" (restored: byte-identical to it)" if restoring else "") if lost else ""))
@@ -872,7 +906,8 @@ def _run(season: int, local, endpoint: str, *, http_get, now_fn) -> Ingest:
             if not rec.migrated(s):
                 raise Refused("REFUSED: migrate_availability_record.py has not run (the tables and their marker); "
                               "nothing fetched, nothing written")
-            prev = previous_payload(s, endpoint)
+            prev_obs = previous_observation(s, endpoint)
+            prev = prev_obs[:2] if prev_obs else None
             wm = watermark(s)
             tmap, ambiguous = team_map(s)
             last_complete = stored_complete_groups(s)
@@ -896,6 +931,8 @@ def _run(season: int, local, endpoint: str, *, http_get, now_fn) -> Ingest:
             got = fetch(season, prev, http_get=http_get, now_fn=now_fn)
         ing = Ingest(got=got, watermark=wm)
         rows: list = []
+        if not got.error and (not got.changed or got.restored):
+            ing.status = unchanged_status(prev_obs[2] if prev_obs else None)    # #1003, 382 item 3
         if got.error:
             ing.status = "failed"
         elif got.changed and not got.restored:   # a restore is recorded as a byte-identical answer (274 item 3(1))
@@ -942,5 +979,6 @@ def _run(season: int, local, endpoint: str, *, http_get, now_fn) -> Ingest:
 __all__ = ["SOURCE", "KIND", "COLUMNS", "ATTR_COLUMNS", "FIRST_SEASON", "RELEASE_URL", "TIMEOUT", "ATTRIBUTION",
            "Refused", "Parsed", "Got", "Ingest", "current_season", "release_url", "season_refusal", "header_refusal",
            "read_file", "future_refusal", "older_refusal", "status_error", "FUTURE_SKEW", "team_map", "watermark",
-           "stored_complete_groups", "previous_payload", "lost_refusal", "stored_etag", "fetch", "snapshot_copy",
+           "stored_complete_groups", "previous_payload", "previous_observation",
+           "unchanged_status", "lost_refusal", "stored_etag", "fetch", "snapshot_copy",
            "from_file", "writer_refusal", "run"]

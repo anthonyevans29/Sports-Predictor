@@ -1,0 +1,4 @@
+**2026-11-14 — #853: THE NFLVERSE FEED'S TWO FAILURE SHAPES, FIXED FAIL-FIRST (ARCHITECT, addendum 381 item 3(iv)).** The order: "That feed runs daily on the host and is 1,341,335 of the record's 1,341,567 assertions, so its failure paths are worth more than their size label. Fail-first."
+- **F1:** a `--file` that cannot be read into its temporary copy now exits 2 with nothing written. Before, it escaped as a traceback with exit 1, so a chain could not tell it from a failed fetch.
+- **F2:** a header-only (`empty`) observation's kept payload is now the endpoint's previous payload. Its ETag is sent, and an identical file is not downloaded and kept again each day.
+- **The same class of gap at the keep step, unprobed, is not built:** `from_file` → `_retain`. #853 says it "needs its own decision".

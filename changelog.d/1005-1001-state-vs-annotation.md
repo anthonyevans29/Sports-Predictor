@@ -1,4 +1,4 @@
-## 2026-11-14 (#000: 1001-state-vs-annotation — `dedupe-matches --orphans`: "live, resync needed" is for a change of state; annotations are named, never counted; an id that serves another pair has its own label (ARCHITECT, addendum 382 item 4).)
+## 2026-11-14 (#1005: 1001-state-vs-annotation — `dedupe-matches --orphans`: "live, resync needed" is for a change of state; annotations are named, never counted; an id that serves another pair has its own label (ARCHITECT, addendum 382 item 4).)
 - **The rule (382 item 4, verbatim in part):** "THE LABEL "live, resync needed" IS FOR A CHANGE OF STATE THE PROVIDER SERVES AND OUR ROW LACKS."
   - (a) **State, each named when it differs:** the status, a score, the kickoff, and a stored provider_orientation key the upsert would remove on the same pair.
   - (b) **Annotations:** status_raw, matchday and stage "do NOT count, alone or together". A row that differs only in them reads `live`, and they are named on its line (`annotation`), printed under `--sample`.

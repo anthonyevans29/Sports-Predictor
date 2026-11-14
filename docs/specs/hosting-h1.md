@@ -1246,7 +1246,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     |---|---|---|
     | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the architect's block (288 item 5). Its other condition, the tag that carries the map, is met: the map (#900, tennis-E) is in every tag from v1.6.6 on, and production is v1.6.8 (addendum 374 item 3) |
     | `sp-ncaamb-daily.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 (entered when #957 merged, 2026-11-12 20:46Z) | the architect's enabling block after the host's NCAAMB load and stored certification |
-    | `sp-availability-graph.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 | the architect's install-and-enable block (the tag that carries #943, v1.6.8, is deployed: 2026-11-13 21:14Z, addendum 374 items 2-3) |
+    | `sp-availability-graph.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 | the architect's block that enables it only on a build, after the next tag carries the unit's fix (addendum 378 item 5). On v1.6.8 the engine was installed 2026-11-14 13:08Z and both unit files installed, the timer disabled; the first run was refused by the fence (378 items 1 and 3) |
 
     - **The rule that joins THE HELD LIST and `TIMERS_BY_BLOCK` (ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2,
       verbatim in part):** "THE HELD LIST AND `TIMERS_BY_BLOCK` STAY TWO LISTS. They say different things.
@@ -1264,6 +1264,26 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       block) passes the `HELD:` line as "no unit file", as that line already reads it. On v1.6.8 both read not-found on
       the host: their unit files are in the checkout, none is in /etc/systemd/system, and install.sh runs only in the
       architect's enabling blocks (addendum 374 item 2). sp-tennis-daily.timer is installed and reads disabled.
+      Since 2026-11-14 13:08Z `sp-availability-graph`'s two unit files are installed and its timer reads disabled
+      (addendum 378 item 1(a)), so it passes the `HELD:` line as disabled; `sp-ncaamb-daily.timer` still reads not-found.
+    - **`sp-availability-graph` on the host (ARCHITECT 2026-11-14 08:23 ET, addendum 378).**
+      - **The install, 2026-11-14 13:08Z** (378 item 1(a), verbatim in part): "Successfully installed ladybug-0.22.3",
+        pip exit 0, by the recorded hash, wheel only. The two unit files were installed, "byte-identical to the
+        checkout's: yes", with the timer disabled.
+      - **The first run by the unit was refused** (378 item 1(b), its line whole): "AVAILABILITY-GRAPH REFUSED: cannot
+        read /opt/sports-predictor/data under data/ (Permission denied): the --db fence cannot check by identity what
+        it cannot read (law 4); nothing read". The block did not enable the timer.
+        - The cause is fault one of 378 item 3: the fence (`check_db`) against the unit's own `InaccessiblePaths`.
+        - A probe of the unit got past the fence, then failed on fault two, the engine's buffer pool at the
+          post-commit checkpoint (378 items 1(c) and 4).
+        - Both faults are fixed in one model-track PR (378 item 5). The unit changes; the fence does not.
+      - **What stands until then** (378 item 5, verbatim): "It rides the NEXT tag; no patch tag is cut for it. After
+        that tag my block installs the unit file again, runs the first run, and enables only on a build.
+        sp-availability-graph.timer stays on the HELD LIST. Until then the engine stays installed in the host's venv
+        (nothing imports it outside the unit) and the two unit files stay installed and disabled."
+      - **Named now for the next tag's step 1** (378 item 6, verbatim): "the one failing receipt row this leaves is
+        NAMED NOW: the failure page of 2026-11-14 13:08Z for sp-availability-graph.service, my block's first run,
+        refused by the fence. The probe ran without OnFailure and leaves no receipt row."
 
     - **Lifted: `sp-ncaa-market.timer`** (held by addendum 310 item 2 on 2026-11-09, incident #902). The hold's lifting
       condition (ARCHITECT 2026-11-10, addendum 324 item 3(e), verbatim): "`systemctl enable --now

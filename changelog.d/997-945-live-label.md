@@ -1,4 +1,4 @@
-## 2026-11-14 (#000: 945-live-label — `dedupe-matches --orphans`: "live, resync needed" now means the provider serves something our row lacks (ARCHITECT, addendum 365 item 3(b), relayed in addendum 379 item 6).)
+## 2026-11-14 (#997: 945-live-label — `dedupe-matches --orphans`: "live, resync needed" now means the provider serves something our row lacks (ARCHITECT, addendum 365 item 3(b), relayed in addendum 379 item 6).)
 - **src/ingestion/match_dedupe.orphans, the planner's split of a stale live row:**
   - **`live`**, nothing to do: what the provider serves equals the stored row. A resync would write nothing.
   - **`live_resync`**, "live, resync needed": something differs, and the fields are named in `differs` as stored -> served. Checked as the upsert writes them: status and kickoff always, a status code only when one is served, a score side only when it is served.

@@ -492,6 +492,12 @@ part that rules it, with a one-line quote. An item the ten do not cover is marke
     moved line from a null due has no real `was`, and "not needed" is not a real `now`.
 
   One ruling is needed for both: the shape of a step with `due: null`, and how a "not needed" step is recorded.
+
+  **RESOLVED (ARCHITECT 2026-11-14 06:39 ET, addendum 377 item 2):** "Record both done on this item in your next
+  records PR, the 11-21 one as not applicable, nothing built." The two steps keep their dates, 11-14 and 11-21, and
+  are marked `done` on 377 item 2 (#994): the first as the written no, with no adapter specified; the second as not
+  applicable, with nothing built. No date moved, so neither step has a moved line. The form of 254 item 2(8)
+  (`due: null` and a "not needed" moved line) was never written.
 - **(l) `--team` and `--db`.** `--team` takes our id (digits) or the source's text. `--db` is a copy behind the
   standing fence. **`--db` RULED, 254 item 2(9):** "`--db` STAYS (198 item 6(ii))." `--team`'s two forms: not among
   the ten (the PR body asked about `--db` only); as built.
@@ -655,7 +661,8 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
   next unchanged day sends a validator the server matches instead of downloading the file again. No
   column of `availability_observations` holds a validator (`endpoint`, `http_status`, `payload_sha256`,
   `payload_path` and `error` each mean something else), and no column or table is added. "The last payload" is the
-  newest complete or partial observation of the same endpoint that kept one (`nflverse.previous_payload`); a missing
+  newest complete, partial or empty observation of the same endpoint that kept one (`nflverse.previous_payload`; an
+  `empty` one, a header and no row, kept its payload too: #853 F2, addendum 381 item 3(iv)); a missing
   sidecar sends no `If-None-Match` (an unconditional GET, said on the receipt).
 - **The answers:**
 
@@ -703,7 +710,9 @@ logs/availability/nflverse_depth_charts/<date>/ only when it changed."
   the parse, the row checks and the keep all read the copy, never the original again, and the keep hashes the bytes as
   it copies them (a mismatch is removed and refused). A file changed while the run reads it therefore cannot make the
   hash, the asserted rows and the kept bytes disagree (pinned by a test that rewrites the original after every read
-  step). The temporary copy is removed whatever the run's end.
+  step). The temporary copy is removed whatever the run's end. A file that cannot be read into its copy (unreadable,
+  gone since the run checked it, `mkstemp` failing, a full disk) is a refusal: exit 2, nothing copied, nothing
+  written, the error named by its type and text and never by the temporary path (#853 F1, addendum 381 item 3(iv)).
 - **The kept file (Codex on #841, round 1).** Its name carries the payload's sha256 prefix, so two different payloads
   kept in one second never share a path, and it is created exclusively (`O_EXCL`): a path that already holds the same
   bytes is reused, one that holds other bytes is refused (a fetch: a `failed` observation; a `--file`: exit 2), and the

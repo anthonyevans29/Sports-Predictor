@@ -45,6 +45,10 @@ mirror receipts keep): any other suffix (a `.json` above all, so no JSON is ever
 `.PNG` too), a symlink anywhere (file or folder, the subtree's own root included: never followed, in or out of the
 subtree), anything that is not a regular file, a `.git` path component (git cannot carry it), a folder that cannot be
 read, a file the push cannot read when it copies it (no read permission, or gone since the plan: `unreadable: <error>`),
+a file swapped since the plan for a symlink (the file or a folder above it) or for a FIFO or anything else that is not
+a regular file (#851 R2-2, addendum 381 item 3(v): the push reads each bulletin with every folder from `exports/` down
+opened by dir fd and `O_NOFOLLOW`, the file with `O_NOFOLLOW|O_NONBLOCK`, and `fstat` requiring a regular file:
+`symlink: not followed` or `not a regular file`, never read through a link, never blocked on a FIFO),
 and a path git itself refuses (`git refused the path`; git decides, by `add --force --ignore-errors` over the bulletins the push
 carries, not a list kept in the mirror: under core.protectNTFS, git's default, `.git`'s other spellings `GIT~1`, `.git.`, `.git `).
 The destination is never followed either (Codex on #847): the mirror's own tree may already track a symlink, so before a
@@ -55,7 +59,9 @@ is not a folder (`destination path has a non-folder`), or a file that is not a r
 file`); what the mirror tracks there is left as it is (never unlinked, never written through), missing folders are made
 only below real ones, and git's own check never walks a `<role>/` or `<role>/bulletins/` that is not a real folder. A
 component the index holds as a submodule (a gitlink: git checks one out as an empty real folder, so an lstat never sees
-it) is refused the same way (`destination path has a submodule`), git's own check never takes a `<role>/` or
+it) is refused the same way (`destination path has a submodule`), matched by its text and by its checkout folder's
+`(st_dev, st_ino)` (#851 R2-3: on a case-insensitive clone, the macOS laptop's, `bulletins/nfl` IS a gitlink
+`bulletins/NFL`'s folder; a gitlink with no folder is matched by its text), git's own check never takes a `<role>/` or
 `<role>/bulletins/` submodule as its pathspec (git's add exits 128 there), and it removes only the folders a refused
 file's unlink emptied.
 One bad bulletin is local to that file: a copy git refused is removed from the working clone (it is the push's own

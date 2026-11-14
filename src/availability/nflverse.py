@@ -101,7 +101,8 @@ How it reads and writes (law 1: every column by its name, as 259 item 1 read the
   hash, parse and keep that same copy"): the file is copied ONCE to a private temporary file (tempfile.mkstemp, outside
   the checkout), and that copy is hashed, parsed and kept (copied into place from the copy, the copy's hash checked
   again on the way); the original is never read again, so a file changed while the run reads it cannot make the hash,
-  the rows and the kept bytes disagree. The temporary copy is removed whatever the run's end.
+  the rows and the kept bytes disagree. The temporary copy is removed whatever the run's end. A file that cannot be
+  read into its copy (unreadable, gone since is_file(), mkstemp or the copy failing) is refused, exit 2 (#853 F1).
 - CHECKED BEFORE ANY FILE (Codex on #841, round 1): the endpoint by the writer's own rule (record.endpoint_refusal)
   before any call, copy or file, and the kept path (record.payload_path_refusal, the name's 255 bytes) before any
   directory or file is made: a refused name (a credential-like one, "api_token=secret.csv"; one too long to keep)
@@ -355,12 +356,16 @@ def stored_complete_groups(s) -> dict:
 
 
 def previous_payload(s, endpoint: str) -> tuple[str, str] | None:
-    """(sha256, payload_path) of the newest complete or partial observation of this endpoint that kept a payload."""
+    """(sha256, payload_path) of the newest complete, partial or empty observation of this endpoint that kept a
+    payload. An `empty` one (a header and no row) kept its payload too, so its ETag is the validator and a byte-
+    identical answer is not kept again (#853 F2, ARCHITECT, addendum 381 item 3(iv)): before, each identical
+    header-only file was downloaded and kept again as another `empty` row, or the older non-empty ETag was sent.
+    record.ASSERTING is unchanged: an `empty` observation still asserts nothing."""
     from sqlalchemy import select
 
     from src.db.schema import AvailabilityObservation as O
     got = s.execute(select(O.payload_sha256, O.payload_path)
-                    .where(O.source == SOURCE, O.endpoint == endpoint, O.status.in_(rec.ASSERTING),
+                    .where(O.source == SOURCE, O.endpoint == endpoint, O.status.in_((*rec.ASSERTING, "empty")),
                            O.payload_sha256.is_not(None), O.payload_path.is_not(None))
                     .order_by(O.id.desc()).limit(1)).first()
     return (got[0], got[1]) if got else None
@@ -842,7 +847,15 @@ def _run_args(season, file, *, http_get, now_fn) -> Ingest:
         raise Refused(why)
     if src_file is None:
         return _run(season, None, endpoint, http_get=http_get, now_fn=now_fn)
-    copy, sha = snapshot_copy(src_file)             # 262 item 6: the original's one read
+    try:
+        copy, sha = snapshot_copy(src_file)         # 262 item 6: the original's one read
+    except OSError as e:
+        # #853 F1 (ARCHITECT, addendum 381 item 3(iv)): the original unreadable or gone since is_file(), or its copy
+        # failing (mkstemp, a full disk), is a refusal (exit 2), never a traceback (exit 1 is a failed observation's
+        # code). Named by the error's type and strerror, never str(e), which names the temporary path; snapshot_copy
+        # has removed its partial copy. run() scrubs the text.
+        raise Refused(f"REFUSED: --file {src_file.name!r} could not be read into its temporary copy "
+                      f"({type(e).__name__}: {e.strerror or 'no error text'}); nothing copied, nothing written") from None
     try:
         return _run(season, (src_file.name, copy, sha), endpoint, http_get=http_get, now_fn=now_fn)
     finally:

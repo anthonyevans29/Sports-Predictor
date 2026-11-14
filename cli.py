@@ -815,7 +815,9 @@ def _schema_refusal(e):
 @click.option("--backup", "backup_path", default=None,
               help="Required with --apply: a .backup file taken just before (integrity checked; "
                    "its matches count must equal the live DB's).")
-@click.option("--sample", default=8, show_default=True)
+@click.option("--sample", type=int, default=None,
+              help="Sample lines per class (default 8). Under --orphans the `live` rows (nothing to do) are listed "
+                   "only when --sample is given (#945; addendum 365 item 3(b)).")
 @click.option("--orphans", is_flag=True,
               help="ARCHITECT 2026-10-03: resolve stale/twinned SCHEDULED rows' ids at the provider — NOT FOUND + a "
                    "live twin within 48h -> merge; NOT FOUND + no twin -> relink to the provider's live id for the "
@@ -852,7 +854,7 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
                        f"`init-db` creates them): {sorted(md.SKIPPED_ABSENT)}")
         return out
     try:
-        r = md.run(competition_code, source=source, apply=apply, sample=sample)
+        r = md.run(competition_code, source=source, apply=apply, sample=8 if sample is None else sample)
     except ValueError as e:
         raise click.ClickException(str(e))
     except _OpErr as e:
@@ -983,6 +985,12 @@ def _dedupe_record_line(r):
 
 
 def _dedupe_orphans(competition_code, source, apply, sample):
+    """ARCHITECT, addendum 365 item 3(b) (relayed in addendum 379 item 6), verbatim: "a live row whose served
+    status, status_raw, score and kickoff equal the stored ones is counted `live` (nothing to do) and printed only under
+    --sample; `live, resync needed` is kept for a served score, status or kickoff that differs, with the differing
+    fields named." The
+    `[live_resync]` lines carry `differs` (stored -> served, md.orphans' served_diff); `[live]` lines print only when
+    --sample is given (sample not None), every other class at sample or 8."""
     import os as _os
     import time as _time
 
@@ -999,7 +1007,9 @@ def _dedupe_orphans(competition_code, source, apply, sample):
     click.echo(f"  plan: merge {c.get('merge', 0)} · relink {c.get('relink', 0)} · stale_orphan {c.get('orphan', 0)} · "
                f"live {c.get('live', 0)} · live, resync needed {c.get('live_resync', 0)} · refused {c.get('refused', 0)} · "
                f"unresolved {c.get('unresolved', 0)} · provider lookups {r['provider_lookups']}")
-    order = ("merge", "relink", "orphan", "refused", "unresolved", "live_resync")
+    listed = sample is not None
+    sample = 8 if sample is None else sample
+    order = ("merge", "relink", "orphan", "refused", "unresolved", "live_resync") + (("live",) if listed else ())
     for act in order:
         rows = [p for p in r["plan"] if p["action"] == act]
         for p in rows[: (10_000 if act in ("refused", "unresolved") else sample)]:

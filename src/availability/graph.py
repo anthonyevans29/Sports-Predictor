@@ -56,23 +56,30 @@ MAX_AGE_HOURS = 26                             # the 09:30 UTC daily backup, rea
 # 6a3e04a8; quoted in the PR): every COPY FROM forces a checkpoint at its commit while auto_checkpoint is on, whatever
 # the WAL size (src/main/client_context.cpp: "We force checkpoint for COPY_FROM statement unless the user has disabled
 # automatic checkpointing"); a rel table's node group is 2^17 bound nodes; a checkpoint's buffers are never spilled.
-# The rule:
-#   (1) the pool is HALF the memory limit this process runs under: the smaller of its cgroup's limit, read at run time
-#       (memory_limit()), and the unit's MemoryMax (under the unit both are 1536M, so 768 MiB); with no limit of its own,
-#       or a looser one (a laptop, a sandbox, a test), the unit's MemoryMax binds, so the pool is never larger than the
-#       unit's and a tighter limit still binds. The other half is the staging walk's Python heap, the
-#       engine's memory outside its pool and the page cache the limit also counts (the engine's own default, 80% of the
-#       limit, would leave the walk too little);
-#   (2) auto_checkpoint stays ON, set here rather than inherited: then every COPY of CHUNK rows ends in a checkpoint
-#       that merges its rows into the stored graph and frees them. Off, COPY's rows pile up in memory unmerged
-#       (measured: the 256 MiB pool failed at the 5th FACT COPY instead of the 10th). checkpoint_threshold has no
-#       effect on a COPY and is not set;
-#   (3) the pool is a ceiling the record grows into, not a fix for growth: every Player (and every Team) is in one
-#       node group, so each FACT checkpoint rewrites every FACT edge in memory, and the pool it needs grows with the
-#       record's assertions (the PR's receipts give the measured ceiling). The line names the limit, the pool and the
-#       staged size, so the night it is reached says so.
+# The rule, restated on the node shape's measured need (ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 2; the
+# receipts on its PR, synthetic records inside the unit's 1536M):
+#   (1) the pool is a SIXTH of the memory limit this process runs under: the smaller of its cgroup's limit, read at run
+#       time (memory_limit()), and the unit's MemoryMax (under the unit both are 1536M, so 256 MiB); with no limit of
+#       its own, or a looser one (a laptop, a sandbox, a test), the unit's MemoryMax binds, so the pool is never larger
+#       than the unit's and a tighter limit still binds. The node shape's measured need: 64 MiB fails, 128 MiB builds
+#       three times today's record, 256 MiB builds ten times. The rest of the limit is the engine's memory OUTSIDE its
+#       pool while it copies (most of the peak; it goes at each close, (2)) and the page cache the limit also counts
+#       (the engine's own default, 80% of the limit, and the edge shape's half both left too little);
+#   (2) auto_checkpoint stays ON, set here rather than inherited: every COPY of CHUNK rows ends in a checkpoint that
+#       merges its rows into the stored graph and frees them (off, COPY's rows pile up unmerged: the 256 MiB pool failed
+#       at the 5th COPY instead of the 10th). checkpoint_threshold has no effect on a COPY and is not set. AND the
+#       database is closed and reopened every REOPEN_EVERY COPYs and between tables: a checkpoint that rewrites a string
+#       segment leaves that segment's de-duplication table on the heap, outside the pool, until the database closes
+#       (v0.22.3 src/include/storage/table/dictionary_chunk.h, a std::vector of slots; dictionary_chunk.cpp, "flush"
+#       never clears it; a reopened dictionary starts empty). Without it ten times today's was killed by MemoryMax;
+#   (3) the walk stages in a forked child that exits before the load starts (_stage_in_child), so the peak is the
+#       larger of the walk's heap (888 MiB at ten times today's history) and the load's, never their sum;
+#   (4) the shape bounds a checkpoint's work: each assertion is a node, so a checkpoint rewrites at most one node group
+#       of 2^17 assertions whatever the record's size (under the edge shape every Player sat in one group and the pool
+#       a checkpoint needed grew with the record, #995). The line names the limit, the pool, the staged size and both
+#       counts, so a night that fails says at what.
 UNIT_MEMORY_MAX = 1536 * 1024 * 1024           # deploy/hosting/systemd/sp-availability-graph.service MemoryMax=1536M
-POOL_SHARE = 2                                 # the pool is limit // POOL_SHARE
+POOL_SHARE = 6                                 # the pool is limit // POOL_SHARE (rule (1): 256 MiB under the unit)
 CHUNK = 100_000                                # rows per COPY: one COPY of 1M edges overflows a 256 MB pool
 _LBUG_ENV = ("LBUG_PYTHON_BACKEND", "LBUG_C_API_LIB_PATH")      # the package's own overrides: never honoured here
 
@@ -463,9 +470,16 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
     return t
 
 
+REOPEN_EVERY = 10                              # COPYs between closes of the database (rule (2) above)
+
+
 def _load(lb, path: Path, tables: dict[str, _Table], pool: int) -> None:
-    db = lb.Database(str(path), backend="pybind", buffer_pool_size=pool, auto_checkpoint=True)   # rule (2)
-    con = lb.Connection(db)
+    def open_():
+        d = lb.Database(str(path), backend="pybind", buffer_pool_size=pool, auto_checkpoint=True)   # rule (2)
+        return d, lb.Connection(d)
+
+    db, con = open_()
+    copies = 0
     try:
         for ddl in SCHEMA:
             con.execute(ddl)
@@ -475,6 +489,14 @@ def _load(lb, path: Path, tables: dict[str, _Table], pool: int) -> None:
                 # its source gave (a name with a newline would fail every rebuild for good: append-only)
                 con.execute(f"COPY {name} FROM '{f}' (HEADER=true, QUOTE='\"', ESCAPE='\"', PARALLEL=FALSE)")
                 f.unlink()
+                copies += 1
+                if copies % REOPEN_EVERY == 0:          # rule (2): what a checkpoint leaves on the heap goes at close
+                    con.close()
+                    db.close()
+                    db, con = open_()
+            con.close()                                 # and between tables
+            db.close()
+            db, con = open_()
     finally:
         con.close()
         db.close()
@@ -494,6 +516,62 @@ def _counts(lb, path: Path, pool: int) -> dict[str, int]:
     finally:
         con.close()
         db.close()
+
+
+STAGE_RESULT = "stage.result.json"            # the staging child's answer to its parent (379 item 2's memory rule (3))
+
+
+def _stage_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> None:
+    """The staging child: the walk and the record's count, through the copy's own mode=ro + immutable=1 session, its
+    answer written beside the CSVs. It runs in a forked process that exits when it is done, so the walk's heap (a
+    partition of the record at a time: 888 MiB at ten times today's history) is the operating system's again before
+    the engine's load starts, never added to it (rule (3) above)."""
+    import signal as _signal
+
+    from src.walters import mlb_pitchers_gate as mp
+    _signal.signal(_signal.SIGTERM, _signal.SIG_DFL)    # the unit's stop ends the child; the parent writes the line
+    try:
+        ctx = mp.readonly_session(copy)
+        s = ctx.__enter__()
+        try:
+            tables = _stage(s, stage, copy, copy_sha, built_at)
+            n = _record_assertions(s)
+        finally:
+            ctx.__exit__(None, None, None)
+        out = {"files": {k: [str(f) for f in x.files] for k, x in tables.items()},
+               "n": {k: x.n for k, x in tables.items()}, "record_assertions": n}
+    except BaseException as e:  # noqa: BLE001 - the parent raises it, with the run's line
+        out = {"error": f"{type(e).__name__}: {e}"[:500]}
+    (stage / STAGE_RESULT).write_text(json.dumps(out))
+
+
+def _stage_in_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> tuple[dict[str, "_Table"], int]:
+    """Stage in a forked child and wait for it (rule (3) above): the parent's memory never holds the walk. A child that
+    fails (its error, or no answer: a signal, MemoryMax) fails the run here, exit 1, the previous graph untouched; a
+    parent stopped while it waits stops the child too."""
+    import multiprocessing
+    proc = multiprocessing.get_context("fork").Process(target=_stage_child, args=(stage, copy, copy_sha, built_at))
+    proc.start()
+    try:
+        proc.join()
+    finally:
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(10)
+    result = stage / STAGE_RESULT
+    try:
+        out = json.loads(result.read_text())
+    except (OSError, ValueError):
+        raise RuntimeError(f"the staging child gave no answer (exit {proc.exitcode})") from None
+    result.unlink()
+    if "error" in out:
+        raise RuntimeError(f"the staging child failed: {out['error']}")
+    tables = {}
+    for k, files in out["files"].items():
+        x = _Table(stage, k)
+        x.files, x.n = [Path(f) for f in files], out["n"][k]
+        tables[k] = x
+    return tables, out["record_assertions"]
 
 
 def _record_assertions(s) -> int:
@@ -605,12 +683,11 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
             if not rec.migrated(s):
                 raise Refused(f"{copy}: migrate_availability_record.py has not run on this copy (the record's tables "
                               "and their marker); nothing built")
-            shutil.rmtree(stage, ignore_errors=True)
-            stage.mkdir()
-            tables = _stage(s, stage, copy, copy_sha, now)
-            record_assertions = _record_assertions(s)
         finally:
             ctx.__exit__(None, None, None)
+        shutil.rmtree(stage, ignore_errors=True)
+        stage.mkdir()
+        tables, record_assertions = _stage_in_child(stage, copy, copy_sha, now)
         staged = {n: tables[n].n for n in (*NODE_TABLES, *REL_TABLES)}
         # 379 item 2: "the finished graph's count of assertion nodes equals the record's assertions and the line says
         # both"; and the staging's bytes on disk, the size the load reads

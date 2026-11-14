@@ -304,7 +304,7 @@ def test_378_d_a_failed_line_names_the_staged_size_and_a_killed_runs_size_is_nam
     assert set(line["staged"]) == {*g.NODE_TABLES, *g.REL_TABLES} and line["staged"]["Assertion"] > 0
     assert seen["staged_file"] == {"staged": line["staged"], "memory_limit": line["memory_limit"],
                                    "buffer_pool": line["buffer_pool"]}   # written before the load began
-    assert line["buffer_pool"] == seen["pool"] == g.buffer_pool(line["memory_limit"]) == line["memory_limit"] // 2
+    assert line["buffer_pool"] == seen["pool"] == g.buffer_pool(line["memory_limit"]) == line["memory_limit"] // 6
     assert (out / g.GRAPH_NAME).read_bytes() == b"the previous graph"
     assert sorted(p.name for p in out.iterdir()) == [LOCK, g.GRAPH_NAME, g.RECEIPTS]
     killed = out / f".{g.GRAPH_NAME}.build-99998"                     # a SIGKILLed run's, mid-load
@@ -327,7 +327,7 @@ def test_378_c_the_pool_is_half_the_limit_the_rebuild_runs_under(tmp_path, monke
     load opens the engine with auto_checkpoint ON, so every COPY ends in a checkpoint (rule (2))."""
     u = (HOSTING / "systemd" / "sp-availability-graph.service").read_text()
     assert re.findall(r"^MemoryMax=(.+)$", u, re.M) == ["1536M"] and g.UNIT_MEMORY_MAX == 1536 * 1024 * 1024
-    assert g.buffer_pool(g.UNIT_MEMORY_MAX) == 768 * 1024 * 1024
+    assert g.buffer_pool(g.UNIT_MEMORY_MAX) == 256 * 1024 * 1024           # 379 item 2: a sixth, on B's measured need
     root = tmp_path / "cg"
     # cgroup v2: the unit's own cgroup carries MemoryMax; its slice none ("max")
     unit = root / "system.slice" / "sp-availability-graph.service"
@@ -389,7 +389,7 @@ def test_378_c_a_looser_limit_never_inflates_the_pool(monkeypatch):
     monkeypatch.setattr(g, "_cgroup_limit", lambda: (14 << 30, "/sys/fs/cgroup/loose/memory.max"))
     lim, where = g.memory_limit()
     assert lim == g.UNIT_MEMORY_MAX and "the unit's MemoryMax" in where and "loose" in where
-    assert g.buffer_pool(lim) == 768 * 1024 * 1024
+    assert g.buffer_pool(lim) == 256 * 1024 * 1024
     monkeypatch.setattr(g, "_cgroup_limit", lambda: (1 << 30, "/sys/fs/cgroup/tight/memory.max"))
     assert g.memory_limit() == (1 << 30, "/sys/fs/cgroup/tight/memory.max")
 
@@ -507,6 +507,87 @@ def test_379_2_the_shape_each_assertion_a_node_with_forward_only_edges():
         assert f"CREATE REL TABLE {rel}(FROM Assertion TO {to}) WITH (storage_direction='fwd')" in g.SCHEMA
         assert g.COLUMNS[rel] == ("from", "to")
     assert "FOR" not in {*g.NODE_TABLES, *g.REL_TABLES}
+
+
+def test_379_2_the_walk_stages_in_a_child_that_exits_before_the_load(fresh_db, tmp_path, monkeypatch):
+    """379 item 2, rule (3): the walk runs in a forked child, so its heap is the system's again before the engine's
+    load starts; the parent receives the staged files, their counts and the record's count. A child that fails, or
+    gives no answer, fails the run (exit 1) with its line written."""
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    marks = tmp_path / "pids"
+    real = g._stage
+
+    def stage(*a, **k):
+        marks.write_text(str(os.getpid()))
+        return real(*a, **k)
+    monkeypatch.setattr(g, "_stage", stage)
+    seen = {}
+
+    def load(lb, path, tables, pool):
+        seen["files"] = sum(len(x.files) for x in tables.values())
+        seen["n"] = {k: x.n for k, x in tables.items()}
+        raise RuntimeError("synthetic: stop after the handover")
+    monkeypatch.setattr(g, "_load", load)
+    with pytest.raises(RuntimeError, match="after the handover"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    assert int(marks.read_text()) != os.getpid()                    # the walk ran in another process
+    line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert seen["n"] == line["staged"] and seen["files"] > 0 and line["record_assertions"] == line["staged"]["Assertion"]
+
+    def boom(*a, **k):
+        raise ValueError("synthetic walk failure")
+    monkeypatch.setattr(g, "_stage", boom)
+    with pytest.raises(RuntimeError, match="the staging child failed: ValueError: synthetic walk failure"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+
+    def dies(*a, **k):
+        os._exit(9)                                                  # no answer (a signal, MemoryMax)
+    monkeypatch.setattr(g, "_stage", dies)
+    with pytest.raises(RuntimeError, match=r"the staging child gave no answer \(exit 9\)"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    last = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert last["ok"] is False and "no answer" in last["error"]
+    assert sorted(p.name for p in out.iterdir()) == [LOCK, g.RECEIPTS]
+
+
+def test_379_2_the_load_reopens_the_database_every_ten_copies_and_between_tables(tmp_path):
+    """Rule (2): a checkpoint that rewrites a string segment leaves its de-duplication table on the heap until the
+    database closes, so the load closes and reopens it every REOPEN_EVERY COPYs and between tables."""
+    events = []
+
+    class Con:
+        def __init__(self, db):
+            pass
+
+        def execute(self, q):
+            events.append("copy" if q.startswith("COPY") else "ddl")
+
+        def close(self):
+            events.append("close")
+
+    class Db:
+        def __init__(self, path, **kw):
+            events.append("open")
+
+        def close(self):
+            pass
+
+    class LB:
+        Database, Connection = Db, Con
+    tables = {n: g._Table(tmp_path, n) for n in (*g.NODE_TABLES, *g.REL_TABLES)}
+    for i in range(23):
+        f = tmp_path / f"Assertion.{i:04d}.csv"
+        f.write_text("x")
+        tables["Assertion"].files.append(f)
+    g._load(LB, tmp_path / "x.lbug", tables, 1 << 28)
+    assert g.REOPEN_EVERY == 10 and events.count("copy") == 23
+    # one open at the start, one at each tenth COPY (2), one after each table (11)
+    assert events.count("open") == 1 + 2 + len(g.NODE_TABLES) + len(g.REL_TABLES)
+    assert events.count("close") == events.count("open")
+    assert not any(f.exists() for f in tables["Assertion"].files)
 
 
 def test_review_a_sigterm_removes_the_staging_and_writes_its_line(fresh_db, tmp_path, monkeypatch):
@@ -889,14 +970,8 @@ def _fake_build(monkeypatch):
             for f in t.files:
                 f.unlink()
     monkeypatch.setattr(g, "_load", load)
-    monkeypatch.setattr(g, "_counts", lambda lb, path, pool: {n: monkeypatch._staged[n] for n in monkeypatch._staged})
-    real = g._stage
-
-    def stage(*a, **k):
-        t = real(*a, **k)
-        monkeypatch._staged = {n: t[n].n for n in t}
-        return t
-    monkeypatch.setattr(g, "_stage", stage)
+    # the staging runs in a forked child (379 item 2, rule (3)), so what was staged is read where the run writes it
+    monkeypatch.setattr(g, "_counts", lambda lb, path, pool: json.loads((path.parent / g.STAGED).read_text())["staged"])
 
 
 def test_codex_r1_after_the_commit_point_the_run_is_a_success(fresh_db, tmp_path, monkeypatch):

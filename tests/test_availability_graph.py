@@ -585,8 +585,11 @@ def test_347_b_the_unit_is_its_own_sandbox():
     assert re.findall(r"^ReadWritePaths=(.+)$", body, re.M) == ["/opt/sports-predictor/logs/availability/graph"]
     masks = re.findall(r"^BindReadOnlyPaths=(.+)$", body, re.M)
     assert masks == ["/dev/null:/opt/sports-predictor/.env"]          # host.env: its whole directory inaccessible
-    # addendum 378 item 3: data/ an EMPTY read-only folder, never inaccessible (the fence refuses a data/ it cannot read)
-    assert re.findall(r"^TemporaryFileSystem=(.+)$", body, re.M) == ["/tmp:ro /var/tmp:ro /opt/sports-predictor/data:ro"]
+    # addendum 378 item 3: data/ an EMPTY read-only folder, never inaccessible (the fence refuses a data/ it cannot read);
+    # addendum 379 item 3: /dev/shm too (PrivateDevices binds the host's /dev/shm, writable, into its private /dev)
+    assert re.findall(r"^TemporaryFileSystem=(.+)$", body, re.M) == [
+        "/tmp:ro /var/tmp:ro /opt/sports-predictor/data:ro /dev/shm:ro"]
+    assert "no shared /dev/shm" not in u and "PrivateDevices does NOT make /dev/shm private" in u
     assert re.findall(r"^InaccessiblePaths=(.+)$", body, re.M) == ["/etc/sports-predictor"]
     assert "PrivateTmp" not in body                                               # one writable directory
     for k in ("SQLITE_TMPDIR", "TMPDIR"):

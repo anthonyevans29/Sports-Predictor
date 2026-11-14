@@ -13,17 +13,21 @@
 # view is out of reach too: PrivateUsers=yes puts the unit in its own user namespace, so /proc/<pid>/environ and
 # /proc/<pid>/root of sp-web or a chain (the same uid, their own mounts: .env and data/ unmasked) are refused, and
 # ProtectProc=invisible / ProcSubset=pid hide them. No socket at all (RestrictAddressFamilies=none: PrivateNetwork
-# leaves filesystem AF_UNIX sockets reachable). The one writable directory is the graph's: /tmp and /var/tmp are
-# empty and read-only, /dev and IPC are private (PrivateDevices, PrivateIPC: no shared /dev/shm or queue), and
-# SQLite's and Python's temporary files go to the graph's directory (SQLITE_TMPDIR, TMPDIR). The copy is read from
-# the backup folder (read-only under ProtectSystem=strict).
+# leaves filesystem AF_UNIX sockets reachable). The one writable directory is the graph's: /tmp, /var/tmp and /dev/shm
+# are empty and read-only (TemporaryFileSystem); /dev is private (PrivateDevices) and the IPC namespace and its
+# message queues are (PrivateIPC). PrivateDevices does NOT make /dev/shm private: it binds the HOST's /dev/shm,
+# writable, into its private /dev (systemd v255 src/core/namespace.c, mount_private_dev), so /dev/shm is its own
+# empty read-only folder here (ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 3). SQLite's and Python's temporary
+# files go to the graph's directory (SQLITE_TMPDIR, TMPDIR). The copy is read from the backup folder (read-only under
+# ProtectSystem=strict).
 # data/ (ARCHITECT 2026-11-14 08:23 ET, addendum 378 item 3): the --db fence (check_db) walks every data/ by device and
 # inode and REFUSES a folder it cannot read (347 item 3; #947), so an InaccessiblePaths data/ refused every run (the
 # host's first run, 2026-11-14: "cannot read /opt/sports-predictor/data under data/ (Permission denied)"). Ruled: the
 # unit changes, the fence does not. data/ is an empty read-only folder here, so inside this unit the fence walks an
 # empty folder. That is accepted HERE AND ONLY HERE, because the live file is not in the unit's view at all, the copy
 # is taken only with a matching sha256 sidecar that sp_backup wrote, the open is mode=ro with immutable=1, and
-# ProtectSystem=strict leaves no write path outside the graph's folder. Not one line of check_db loosens for it.
+# ProtectSystem=strict, with /tmp, /var/tmp and /dev/shm empty read-only folders (TemporaryFileSystem; 379 item 3),
+# leaves no write path outside the graph's folder. Not one line of check_db loosens for it.
 # Exit 2 a refusal (the engine absent or not the pinned version, no fresh verified copy, the store not migrated);
 # exit 1 a failed build; both fail the unit and OnFailure pages through sp-notify@availability-graph (its own unit,
 # with its own environment). Every run is one line of logs/availability/graph/rebuild.jsonl.
@@ -52,7 +56,7 @@ ReadWritePaths=/opt/sports-predictor/logs/availability/graph
 InaccessiblePaths=/etc/sports-predictor
 BindReadOnlyPaths=/dev/null:/opt/sports-predictor/.env
 ProtectHome=yes
-TemporaryFileSystem=/tmp:ro /var/tmp:ro /opt/sports-predictor/data:ro
+TemporaryFileSystem=/tmp:ro /var/tmp:ro /opt/sports-predictor/data:ro /dev/shm:ro
 PrivateDevices=yes
 PrivateIPC=yes
 PrivateUsers=yes

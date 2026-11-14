@@ -1,4 +1,4 @@
-## 2026-11-14 (#000: 851-mirror-publish — the bulletin mirror's two round-two findings from #851, fixed fail-first (ARCHITECT, addendum 381 item 3(v)).)
+## 2026-11-14 (#1000: 851-mirror-publish — the bulletin mirror's two round-two findings from #851, fixed fail-first (ARCHITECT, addendum 381 item 3(v)).)
 - **R2-2: a planned bulletin swapped after the plan.** The swap is to a symlink (the file or a folder above it) or to a FIFO. Such a bulletin is now skipped and receipted (`symlink: not followed` or `not a regular file`). It is never read through the link and never blocked on.
   - The fix is the one quoted on the thread. `_read_planned` opens every folder from `exports/` down by dir fd with `O_NOFOLLOW`, opens the file with `O_NOFOLLOW|O_NONBLOCK`, and requires `fstat` to say a regular file.
   - Before, the link's target was published as the bulletin, and a FIFO blocked the push.

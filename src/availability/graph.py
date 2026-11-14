@@ -42,6 +42,7 @@ REQUIREMENTS = "requirements-graph.txt"
 GRAPH_NAME = "availability.lbug"
 DEFAULT_OUT = Path("logs") / "availability" / "graph" / GRAPH_NAME
 RECEIPTS = "rebuild.jsonl"                     # beside the graph: the unit's one writable directory (347 item 5(b))
+STAGED = "staged.json"                         # in the staging directory: the size a load starts at (378 item 4(d))
 DAILY = re.compile(r"^sports_\d{4}-\d{2}-\d{2}(_\d{6})?\.db$")   # pull_backup.DAILY: a daily .backup copy's name
 MAX_AGE_HOURS = 26                             # the 09:30 UTC daily backup, read at 10:20, with a day's slack
 BUFFER_POOL = 256 * 1024 * 1024                # the engine's default is ~80% of the machine's memory
@@ -413,15 +414,20 @@ class Killed(Exception):
     """SIGTERM (systemd's stop, TimeoutStartSec): raised in the run so its staging is removed and its line written."""
 
 
-def _stale_stages(out: Path) -> list[str]:
+def _stale_stages(out: Path) -> tuple[list[str], dict[str, dict]]:
     """Staging directories a killed run left beside the graph (SIGKILL, MemoryMax: no finally runs). Removed by the
-    next run, under the lock, and named on its receipt line."""
-    gone = []
+    next run, under the lock, and named on its receipt line, with the staged counts the killed run's load started at
+    where it had written them (378 item 4(d): a run that dies without its own line still names its size)."""
+    gone, sizes = [], {}
     for p in sorted(out.parent.glob(f".{out.name}.build-*")):
         if p.is_dir():
+            try:
+                sizes[p.name] = json.loads((p / STAGED).read_text())
+            except (OSError, ValueError):
+                pass                                  # killed before its load began: no size to name
             shutil.rmtree(p, ignore_errors=True)
             gone.append(p.name)
-    return gone
+    return gone, sizes
 
 
 def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None, lb=None,
@@ -462,9 +468,11 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             raise Refused(f"another rebuild holds {out.parent / ('.' + out.name + '.lock')}; nothing read") from None
-        left_by_killed = _stale_stages(out)
+        left_by_killed, killed_sizes = _stale_stages(out)
         if left_by_killed:
             receipt["removed_stale_staging"] = left_by_killed
+        if killed_sizes:
+            receipt["stale_staged"] = killed_sizes
         if (copy is None) == (backup_dir is None):
             raise Refused("one of --db (a .backup copy) or --backup-dir (the newest verified daily copy in it)")
         if copy is None:
@@ -495,8 +503,13 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
         finally:
             ctx.__exit__(None, None, None)
         staged = {n: tables[n].n for n in (*NODE_TABLES, *REL_TABLES)}
+        # 378 item 4(d): the line names the size BEFORE the load starts, so a failed line says what it failed at; and
+        # the staging directory keeps it too, for the next run to name if this one is killed (SIGKILL: no line)
+        receipt["staged"] = staged
+        (stage / STAGED).write_text(json.dumps(staged, sort_keys=True))
         graph = stage / GRAPH_NAME
         _load(lb, graph, tables)
+        (stage / STAGED).unlink()
         got = _counts(lb, graph)
         if got != staged:
             raise RuntimeError(f"the finished graph's counts {got} differ from what was staged {staged}")

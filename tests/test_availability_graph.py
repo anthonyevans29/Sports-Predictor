@@ -279,6 +279,44 @@ def test_review_one_run_at_a_time_and_a_killed_runs_staging_is_removed(fresh_db,
     assert line["removed_stale_staging"] == [left.name] and "synthetic" in line["error"]
 
 
+def test_378_d_a_failed_line_names_the_staged_size_and_a_killed_runs_size_is_named_next(fresh_db, tmp_path,
+                                                                                       monkeypatch):
+    """ARCHITECT 2026-11-14 08:23 ET, addendum 378 item 4(d): "the run's receipt line carries the STAGED counts before
+    the load starts, so a failed line names the size it failed at (today's failed line names none)"; (e) "a failed
+    build still exits 1 with the previous graph untouched and its line written". A SIGKILLed run (MemoryMax) writes no
+    line: the size it staged stays in its staging directory and the next run names it."""
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    (out / g.GRAPH_NAME).write_bytes(b"the previous graph")
+    seen = {}
+
+    def boom(lb, path, tables):
+        seen["staged_file"] = json.loads((path.parent / g.STAGED).read_text())
+        raise RuntimeError("synthetic: the buffer pool is full")
+    monkeypatch.setattr(g, "_load", boom)
+    with pytest.raises(RuntimeError, match="buffer pool is full"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert line["ok"] is False and "buffer pool is full" in line["error"]
+    assert set(line["staged"]) == {*g.NODE_TABLES, *g.REL_TABLES} and line["staged"]["FACT"] > 0
+    assert seen["staged_file"] == line["staged"]                      # written before the load began
+    assert (out / g.GRAPH_NAME).read_bytes() == b"the previous graph"
+    assert sorted(p.name for p in out.iterdir()) == [LOCK, g.GRAPH_NAME, g.RECEIPTS]
+    killed = out / f".{g.GRAPH_NAME}.build-99998"                     # a SIGKILLed run's, mid-load
+    killed.mkdir()
+    (killed / g.STAGED).write_text(json.dumps(line["staged"]))
+    early = out / f".{g.GRAPH_NAME}.build-99997"                      # one killed before its load began
+    early.mkdir()
+    with pytest.raises(RuntimeError):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    nxt = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert nxt["removed_stale_staging"] == [early.name, killed.name]
+    assert nxt["stale_staged"] == {killed.name: line["staged"]}
+    assert not killed.exists() and not early.exists()
+
+
 def test_review_a_sigterm_removes_the_staging_and_writes_its_line(fresh_db, tmp_path, monkeypatch):
     import signal
     _history_b()
@@ -381,7 +419,7 @@ def test_347_b_the_unit_is_its_own_sandbox():
     body = "\n".join(x for x in u.splitlines() if not x.startswith("#"))
     assert "EnvironmentFile" not in body                                           # never host.env
     for line in ("PrivateNetwork=yes", "NoNewPrivileges=yes", "ProtectSystem=strict", "User=sp", "Type=oneshot",
-                 "InaccessiblePaths=/opt/sports-predictor/data /etc/sports-predictor", "ProtectHome=yes",
+                 "InaccessiblePaths=/etc/sports-predictor", "ProtectHome=yes",
                  "CapabilityBoundingSet=", "OnFailure=sp-notify@availability-graph.service",
                  # the pre-PR review: another sp process's /proc view, filesystem sockets, the shared /dev/shm
                  "PrivateUsers=yes", "ProtectProc=invisible", "ProcSubset=pid", "RestrictAddressFamilies=none",
@@ -390,7 +428,9 @@ def test_347_b_the_unit_is_its_own_sandbox():
     assert re.findall(r"^ReadWritePaths=(.+)$", body, re.M) == ["/opt/sports-predictor/logs/availability/graph"]
     masks = re.findall(r"^BindReadOnlyPaths=(.+)$", body, re.M)
     assert masks == ["/dev/null:/opt/sports-predictor/.env"]          # host.env: its whole directory inaccessible
-    assert re.findall(r"^TemporaryFileSystem=(.+)$", body, re.M) == ["/tmp:ro /var/tmp:ro"]
+    # addendum 378 item 3: data/ an EMPTY read-only folder, never inaccessible (the fence refuses a data/ it cannot read)
+    assert re.findall(r"^TemporaryFileSystem=(.+)$", body, re.M) == ["/tmp:ro /var/tmp:ro /opt/sports-predictor/data:ro"]
+    assert re.findall(r"^InaccessiblePaths=(.+)$", body, re.M) == ["/etc/sports-predictor"]
     assert "PrivateTmp" not in body                                               # one writable directory
     for k in ("SQLITE_TMPDIR", "TMPDIR"):
         assert re.search(rf"^Environment={k}=/opt/sports-predictor/logs/availability/graph$", body, re.M), k
@@ -400,6 +440,63 @@ def test_347_b_the_unit_is_its_own_sandbox():
                  "/opt/sports-predictor/logs/availability/graph/availability.lbug"]
     assert "Wants=" not in body and "network-online" not in body
     assert re.findall(r"^After=(.+)$", body, re.M) == ["sp-backup.service"]  # Codex #943 r1: catch-up after the backup
+
+
+def _unit_values(body: str, key: str) -> list[str]:
+    return [v for line in re.findall(rf"^{key}=(.+)$", body, re.M) for v in line.split()]
+
+
+def test_378_no_unit_that_runs_a_db_command_makes_a_fenced_data_dir_inaccessible(monkeypatch):
+    """ARCHITECT 2026-11-14 08:23 ET, addendum 378 item 3: "the test that pins the unit's lines pins these two and
+    asserts that no data/ the fence keys on is ever on InaccessiblePaths of a unit that runs a --db command". The fence
+    (check_db) walks every data/ it keys on and REFUSES one it cannot read; an inaccessible data/ refused every run of the
+    graph unit on the host. Every unit that runs the app's cli.py (directly, or a chain or a step through it) can run a
+    --db command, so none may hold the host checkout's data/ (the fence's data/ there, by its own _data_dirs() with the
+    checkout at /opt/sports-predictor), or anything above it, on InaccessiblePaths. The graph unit's data/ is an empty
+    read-only TemporaryFileSystem instead."""
+    from src.walters import mlb_pitchers_gate as mp
+    host = Path("/opt/sports-predictor")
+    monkeypatch.setattr(mp, "_data_dir", lambda: host / "data")
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: None)
+    fenced = mp._data_dirs()
+    assert fenced == [host / "data"]
+    runs_app = []
+    for unit in sorted((HOSTING / "systemd").glob("*.service")):
+        body = "\n".join(x for x in unit.read_text().splitlines() if not x.startswith("#"))
+        execs = " ".join(re.findall(r"^Exec\w*=(.+)$", body, re.M))
+        if "/opt/sports-predictor" not in execs and "cli.py" not in execs:
+            continue
+        runs_app.append(unit.name)
+        for v in _unit_values(body, "InaccessiblePaths"):
+            p = Path(v.lstrip("-+"))
+            for d in fenced:
+                assert not (p == d or p in d.parents), (unit.name, v)
+    assert "sp-availability-graph.service" in runs_app and len(runs_app) > 1
+    g_body = (HOSTING / "systemd" / "sp-availability-graph.service").read_text()
+    assert "/opt/sports-predictor/data:ro" in _unit_values(g_body, "TemporaryFileSystem")
+    assert "HERE AND ONLY HERE" in g_body and "Not one line of check_db loosens for it" in g_body
+
+
+def test_378_the_fence_still_refuses_an_unreadable_data_dir(tmp_path, monkeypatch):
+    """Item 3: "the unit changes, the fence does not": a data/ the walk cannot read still refuses (#947), and an empty
+    data/ (what the unit now shows the fence) holds nothing, so the copy outside it passes."""
+    from src.walters import mlb_pitchers_gate as mp
+    data = tmp_path / "fenced"                  # the fence's data/ by monkeypatch (never a folder named data/ here)
+    data.mkdir()
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data])
+    monkeypatch.setattr(mp, "_app_db", lambda: None)
+    copy = tmp_path / "b" / "sports_2026-11-14.db"
+    copy.parent.mkdir()
+    copy.write_bytes(b"x")
+    assert mp.check_db(copy) == copy.resolve()                        # an empty data/: nothing to match
+    if os.geteuid() == 0:
+        pytest.skip("root reads a 0000 folder; the refusal itself is pinned by #947's tests")
+    data.chmod(0)
+    try:
+        with pytest.raises(mp.GateRefused, match=r"cannot read .* under data/"):
+            mp.check_db(copy)
+    finally:
+        data.chmod(0o755)
 
 
 def test_the_timer_follows_the_backup_and_ships_disabled():

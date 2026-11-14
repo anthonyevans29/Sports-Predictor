@@ -991,10 +991,12 @@ def _dedupe_orphans(competition_code, source, apply, sample):
     fields named." ARCHITECT 2026-11-14 13:38 ET, addendum 382 item 4, reads its second clause as the binding one: the
     label is "FOR A CHANGE OF STATE THE PROVIDER SERVES AND OUR ROW LACKS" (the status, a score, the kickoff, the
     provider_orientation key); status_raw, matchday and stage are annotations, named on the line ("annotation") and
-    never counted; an id that serves another pair is "live, the id serves another pair", "printed always and not only
-    under --sample". The `[live_resync]` lines carry `differs` (stored -> served, md.orphans' served_diff);
-    `[live_other_pair]` lines all print, with both pairs by team id; `[live]` lines print only when --sample is given
-    (sample not None), every other class at sample or 8."""
+    never counted; an id that serves another pair is "printed always and not only under --sample". ARCHITECT
+    2026-11-14 16:29 ET, addendum 383 item 4(a) renames that label so it covers the same pair served under another
+    season too: "live, the id serves another game", one count on the plan line, printed always, each line saying which
+    it is ("another pair: ..." with both pairs by team id, or "the same pair, season 2026 -> 2027"). The
+    `[live_resync]` lines carry `differs` (stored -> served, md.orphans' served_diff); `[live_other_game]` lines all
+    print; `[live]` lines print only when --sample is given (sample not None), every other class at sample or 8."""
     import os as _os
     import time as _time
 
@@ -1010,13 +1012,13 @@ def _dedupe_orphans(competition_code, source, apply, sample):
                f"(SCHEDULED, no score; kickoff >{md.STALE_H}h past or a twin within {md.TWIN_H}h)")
     click.echo(f"  plan: merge {c.get('merge', 0)} · relink {c.get('relink', 0)} · stale_orphan {c.get('orphan', 0)} · "
                f"live {c.get('live', 0)} · live, resync needed {c.get('live_resync', 0)} · "
-               f"live, the id serves another pair {c.get('live_other_pair', 0)} · refused {c.get('refused', 0)} · "
+               f"live, the id serves another game {c.get('live_other_game', 0)} · refused {c.get('refused', 0)} · "
                f"unresolved {c.get('unresolved', 0)} · provider lookups {r['provider_lookups']}")
     listed = sample is not None
     sample = 8 if sample is None else sample
-    order = (("merge", "relink", "orphan", "refused", "unresolved", "live_other_pair", "live_resync")
+    order = (("merge", "relink", "orphan", "refused", "unresolved", "live_other_game", "live_resync")
              + (("live",) if listed else ()))
-    every = ("refused", "unresolved", "live_other_pair")       # printed whole: 382 item 4(c) "printed always"
+    every = ("refused", "unresolved", "live_other_game")       # printed whole: 382 item 4(c), 383 item 4(a)
     for act in order:
         rows = [p for p in r["plan"] if p["action"] == act]
         for p in (rows if act in every else rows[:sample]):          # the classes of `every` print whole, uncapped

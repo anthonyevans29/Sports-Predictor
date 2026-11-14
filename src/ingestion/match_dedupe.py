@@ -311,9 +311,11 @@ def state(s, competition_code: str, source: str) -> dict:
 #                            status_raw, matchday and stage are annotations
 #                            (named, never counted); one whose served state
 #                            equals the stored one is "live", nothing to do.
-#                            An id that serves ANOTHER pair (neither the stored
-#                            one nor its reverse), stale or not, is "live, the
-#                            id serves another pair" (382 item 4(c));
+#                            An id that serves ANOTHER GAME, stale or not, is
+#                            "live, the id serves another game" (382 item 4(c),
+#                            renamed by 383 item 4(a)): another pair (neither
+#                            the stored one nor its reverse), or the same pair
+#                            under another season (a resync writes another row);
 #   * lookup error        -> UNRESOLVED: untouched (never read as absent);
 #   * NOT FOUND + exactly one twin whose id IS found -> MERGE (keeper = the older
 #     row; when the stale row is the keeper it takes the twin's id and state,
@@ -479,10 +481,8 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             if source not in SPORT_WIDE_SOURCES and sy is not None and ny is not None and sy != ny:
                 # the upsert updates a stored row of the listing's OWN season only (_match_by_source, addendum 310
                 # item 3(b)): an id served under another season writes a new row and leaves this one as it is, so no
-                # field of this row is what a resync writes. Not named by 365 item 3(b) or 382 item 4: kept flagged
-                # (never `live`), the season named alone, and put to the architect (#1001's PR)
-                return {"season": f"{x.season} -> {nm.season} (a resync writes another row; this row is left as "
-                                  f"it is)"}, note
+                # field of this row is what a resync writes; the id serves another game (383 item 4(a): other_game)
+                return {"season": f"{x.season} -> {nm.season}"}, note
             held = (x.external_ids or {}).get(PROVIDER_ORIENTATION_KEY)
             if same and held is not None:          # the upsert REMOVES it (SAME); the odds writers read it (#997)
                 state[PROVIDER_ORIENTATION_KEY] = f"{held} -> (removed: the served pair is the stored one)"
@@ -527,9 +527,25 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                             f"(our teams {ours(h_)} v {ours(a_)})",
                     "recorded": f"{PROVIDER_ORIENTATION_KEY} = {held}" if held else "the mismatch is not recorded"}
 
+        def other_game(x, nm):
+            """ARCHITECT 2026-11-14 16:29 ET, addendum 383 item 4(a): "live, the id serves another game", one label for
+            the #902 class (the provider's id answering for a different game), each line saying which it is: "another
+            pair: ..." with both pairs by team id, or "the same pair, season 2026 -> 2027" (a resync writes another row
+            and leaves this one, so `live, resync needed` would be false). None when the id serves this row's game."""
+            if nm is None:
+                return None
+            d = served_diff(x, nm)
+            if d is None:
+                op = other_pair(x, nm)
+                return {"game": f"another pair: {op['pair']}", "recorded": op["recorded"]}
+            if "season" in d[0]:
+                return {"game": f"the same pair, season {x.season} -> {nm.season}"}
+            return None
+
         def live_entry(x, nm):
-            if nm is not None and served_diff(x, nm) is None:     # 382 item 4(c): "neither `live` nor `live, resync
-                return entry(x, "live_other_pair", served=served(nm), **other_pair(x, nm))   # needed`", stale or not
+            g = other_game(x, nm)
+            if g:                                        # stale or not (382 item 4(c) and 383 item 4(a) name none)
+                return entry(x, "live_other_game", served=served(nm), **g)
             if x.utc_date >= stale_cut:                  # not stale: live, as before (365 item 3(b) splits the stale);
                 note = served_diff(x, nm)[1] if nm is not None else {}   # its annotations named too (382 item 4(b)
                 return entry(x, "live", served=served(nm), **({"annotation": note} if note else {}))   # names none)
@@ -579,14 +595,10 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             if not absent:
                 continue
             def not_this_game(x):
-                """A live twin whose id serves ANOTHER pair (382 item 4(c), the #902 class) or the pair under ANOTHER
-                season (the upsert would write another row: Codex on #1005, P1): never a twin to merge into."""
-                nm = st_of[x.id][1]
-                if nm is None:
-                    return None
-                d = served_diff(x, nm)
-                return "serves another pair (382 item 4(c))" if d is None else (
-                    "serves the pair under another season" if "season" in d[0] else None)
+                """A live twin whose id serves ANOTHER GAME (383 item 4(a), the #902 class): another pair, or the pair
+                under another season (Codex on #1005, P1): never a twin to merge into."""
+                g = other_game(x, st_of[x.id][1])
+                return f"serves another game ({g['game'].split(':')[0]})" if g else None
             other = [(x, why) for x in found for why in [not_this_game(x)] if why]
             if found and other:
                 why = (f"the live twin's id {'; '.join(f'{sid_of(x)} {w}' for x, w in other)}: no merge in "

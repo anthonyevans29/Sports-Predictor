@@ -1,4 +1,4 @@
-## 2026-11-14 (#000: 881-tally-pair — the host's results-tally pair published all-or-nothing, and the NHL and UNL shadow grades read the requested exports_dir (#881; ARCHITECT, addendum 382 item 6(iv)).)
+## 2026-11-14 (#1006: 881-tally-pair — the host's results-tally pair published all-or-nothing, and the NHL and UNL shadow grades read the requested exports_dir (#881; ARCHITECT, addendum 382 item 6(iv)).)
 - **#881 item 1, all-or-nothing (Codex on #880, 4506565251):** `host_results_tally` renamed `RESULTS.md` into place, then `results_tally.json`. If the second rename failed, the new Markdown sat beside an old or missing JSON, and sp_run mirrors even after a non-zero exit.
   - Now the previous `RESULTS.md` is held under a hidden name before the new one is renamed in: a hard link, or a copy where the filesystem refuses links.
   - If the JSON's rename fails, the previous Markdown is put back (on a first export, the new one is removed) and the error is raised. No temporary or held file is left.

@@ -589,8 +589,8 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                     "serves the pair under another season" if "season" in d[0] else None)
             other = [(x, why) for x in found for why in [not_this_game(x)] if why]
             if found and other:
-                why = (f"the live twin's id {[sid_of(x) for x, _w in other]} {other[0][1]}: no merge in candidate set "
-                       f"{ids} — review")
+                why = (f"the live twin's id {'; '.join(f'{sid_of(x)} {w}' for x, w in other)}: no merge in "
+                       f"candidate set {ids} — review")              # each id with its own reason
                 plan.extend(entry(x, "refused", why=why) for x in absent)
                 continue
             if found:

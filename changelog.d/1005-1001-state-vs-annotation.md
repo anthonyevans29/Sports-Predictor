@@ -16,7 +16,8 @@
   - The same pair served under ANOTHER season (the upsert writes another row, addendum 310 item 3(b)) is kept flagged with the season named alone. That case is put to the architect.
 - **Codex round 1 on #1005:**
   - **(P1)** a live twin whose id serves the pair under ANOTHER season is never merged into, for the same reason as another pair: the absent rows are `refused` ("… serves the pair under another season").
-  - The `[live_other_pair]` rows print with no cap (they were cut at 10,000).
+  - The `[live_other_pair]` rows print with no cap (they were cut at 10,000). So do `[refused]` and `[unresolved]`, the other classes printed whole, which were cut at 10,000 with no "… more" line (pre-push review).
+  - A refusal names each flagged twin id with its own reason (pre-push review).
   - The sport's teams are read by one query on the sport, never an IN list of every team id.
   - **Open, put to the architect:** the production `get_game` parses the answer with season "", so the season check never fires on a production run today. It is kept for an answer that carries a season. No provider field is guessed: no recorded `/games?id=` answer with its league block is in the repo (law 1).
 - **Tests:**

@@ -288,7 +288,8 @@ def test_1001_review_a_live_twin_whose_id_serves_another_pair_is_never_merged_in
     prov.games = [x for x in prov.games if x.source_id != sid] + [_nm(14, 15, sid, g.utc_date)]
     plan = {p["id"]: p for p in md.orphans(CODE, prov, now=NOW)["plan"]}
     assert plan[ids["twin_new"]]["action"] == "live_other_pair"
-    assert plan[ids["twin_old"]]["action"] == "refused" and "serves another pair" in plan[ids["twin_old"]]["why"]
+    assert plan[ids["twin_old"]]["action"] == "refused"
+    assert f"the live twin's id {sid} serves another pair (382 item 4(c)): no merge" in plan[ids["twin_old"]]["why"]
     before = {k: _stored(ids[k]) for k in ("twin_old", "twin_new")}
     md.orphans(CODE, prov, apply=True, now=NOW)
     assert {k: _stored(ids[k]) for k in ("twin_old", "twin_new")} == before
@@ -370,29 +371,32 @@ def test_1005_codex_a_live_twin_served_under_another_season_is_never_merged_into
     plan = {p["id"]: p for p in md.orphans(CODE, prov, now=NOW)["plan"]}
     assert plan[ids["twin_new"]]["action"] == "live"
     assert plan[ids["twin_old"]]["action"] == "refused", plan[ids["twin_old"]]
-    assert "serves the pair under another season" in plan[ids["twin_old"]]["why"]
+    assert f"the live twin's id {sid} serves the pair under another season: no merge" in plan[ids["twin_old"]]["why"]
     before = {k: _stored(ids[k]) for k in ("twin_old", "twin_new")}
     md.orphans(CODE, prov, apply=True, now=NOW)
     assert {k: _stored(ids[k]) for k in ("twin_old", "twin_new")} == before
 
 
 def test_1005_codex_other_pair_rows_print_whole_past_ten_thousand(world, monkeypatch, capsys):
-    """Codex on #1005 (P2): "printed always" has no cap: 10,001 [live_other_pair] rows print 10,001 lines."""
+    """Codex on #1005 (P2): "printed always" has no cap: 10,001 [live_other_pair] rows print 10,001 lines; and so do
+    the other classes printed whole (refused, unresolved), which were cut at 10,000 with no "… more" line (pre-push
+    review)."""
     import cli
     import src.adapters.api_american_football as aaf
     ids, prov = world
     n = 10_001
     real = md.orphans(CODE, prov, now=NOW)            # the world's own report, its plan padded to n other-pair rows
-    real["plan"] = [p for p in real["plan"] if p["action"] != "live_other_pair"] + [
-        {"action": "live_other_pair", "id": -i, "sid": str(i), "utc": "2026-11-01T00:00", "home": 1, "away": 2,
-         "stale": True, "pair": "p", "recorded": "r"} for i in range(1, n + 1)]
-    real["counts"]["live_other_pair"] = n
+    every = ("live_other_pair", "refused", "unresolved")
+    real["plan"] = [p for p in real["plan"] if p["action"] not in every] + [
+        {"action": a, "id": -i, "sid": str(i), "utc": "2026-11-01T00:00", "home": 1, "away": 2,
+         "stale": True, "why": "w"} for a in every for i in range(1, n + 1)]
+    real["counts"].update({a: n for a in every})
     monkeypatch.setattr(md, "orphans", lambda *a, **k: real)
     monkeypatch.setattr(aaf, "APIAmericanFootballAdapter", lambda: prov)
     monkeypatch.setenv("SP_ODDS_FOOTBALL_RPM", "1000000")
     cli._dedupe_orphans(CODE, "api_american_football", False, None)
     out = capsys.readouterr().out.splitlines()
-    assert sum(ln.startswith("  [live_other_pair] id ") for ln in out) == n
+    assert all(sum(ln.startswith(f"  [{a}] id ") for ln in out) == n for a in every)
 
 
 def test_1005_codex_the_sport_s_teams_are_read_by_sport_never_by_an_in_list_of_every_id(world):

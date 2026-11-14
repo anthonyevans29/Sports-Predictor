@@ -7,8 +7,9 @@ Each kept shape below is a stale SCHEDULED row with no score whose id the provid
 served forms (status_raw NS, no status word, PST), then a final score, a moved kickoff, a new status code, and an
 answer with no game kept. "Differs" is what a resync would write, as the upsert writes it
 (IngestionService._apply_match_updates): status and kickoff always; a status code only when one is served; a score
-side only when served. On the code before this change every stale live row read `live_resync`, so the four `live`
-shapes fail there."""
+side only when served. On the code before this change every stale live row read `live_resync`, so the three stale
+`live` shapes fail there, and so do the resync and console shapes (each names `differs`). The not-stale shape and the
+no-write check pass on both: they pin what did not change."""
 from datetime import timedelta
 
 from src.db.database import session_scope
@@ -111,6 +112,37 @@ def test_945_an_answer_with_no_game_kept_is_never_read_as_equal(world):
     p = _plan_row(prov, ids["resync"])
     assert p["action"] == "live_resync"
     assert p["differs"] == {"served": "unknown: the id answers and the adapter kept no game"}
+
+
+def test_945_a_stored_code_absent_and_one_served_is_resync_needed_with_the_code_named(world):
+    """Stored status_raw NULL (never recorded), served NS, all else equal: a resync writes NS over NULL (the upsert's
+    rule), so the row reads `live_resync` with status_raw named. Whether a status_raw-only difference should instead
+    read `live` is not settled by 365 item 3(b)'s two sentences; this pins the reading the PR asks the architect on."""
+    ids, prov = world
+    _serve(prov)                                     # the world stores no status_raw on the resync row
+    p = _plan_row(prov, ids["resync"])
+    assert p["action"] == "live_resync" and p["differs"] == {"status_raw": "None -> NS"}
+
+
+def test_945_a_reversed_pair_is_resync_needed_with_teams_named_and_no_side_read_in_its_orientation(world):
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    g = _nm(10, 11, SID, PAST, status=MatchStatus.FINISHED)          # the stored 11 v 10, served 10 v 11
+    g.status_raw, g.home_score, g.away_score = "FT", 31, 24
+    prov.games = [x for x in prov.games if x.source_id != SID] + [g]
+    p = _plan_row(prov, ids["resync"])
+    assert p["action"] == "live_resync" and list(p["differs"]) == ["teams"]
+    assert p["differs"]["teams"].endswith("(reversed)") and "home_score" not in p["differs"]
+
+
+def test_945_a_pair_neither_stored_nor_reversed_is_never_read_as_equal(world):
+    """The id served for two other teams, at the stored kickoff, SCHEDULED/NS: kept as `live_resync` (law 4)."""
+    ids, prov = world
+    _store(ids["resync"], "NS")
+    prov.games = [x for x in prov.games if x.source_id != SID] + [_nm(14, 15, SID, PAST)]
+    p = _plan_row(prov, ids["resync"])
+    assert p["action"] == "live_resync"
+    assert p["differs"]["teams"].endswith("(neither the stored pair nor its reverse)")
 
 
 def test_945_the_split_writes_nothing(world):

@@ -14,7 +14,8 @@ SCHEDULED, has no score and carries a provider id (api_american_football), with 
 --now. A twin-only candidate (a kickoff not yet STALE_H past) is not listed: "live, resync needed" needs the kickoff
 past. Which of these the provider still serves (live) is the dry run's by-id read, not this file's: this listing names
 the rows; `dedupe-matches --competition NCAA --orphans --sample 30` prints, for each live one, what the provider serves
-(its status, status_raw, score and kickoff, #945).
+(its status, status_raw, score and kickoff, #945): on a `[live]` line when it serves nothing the row lacks (printed only
+under --sample), on a `[live_resync]` line with the differing fields named otherwise (addendum 365 item 3(b)).
 
 PER ROW: the match id, the provider id, our season, the stored kickoff, our status_raw as stored, and the row's CFBD
 side-table label if any: its CFBD season, season type, score in our orientation, fetched_at, and whether it is CURRENT
@@ -114,7 +115,8 @@ def report(rows: list[dict], db_text: str, now: datetime, echo=print) -> dict:
          f"not walked) {dict(sorted(level.items()))}: each candidate's D2 stream walks the rest of its own seasons, with "
          f"CFBD's score · stale labels {dict(sorted(stale.items()))} · no label (never walked) {none}")
     echo("  which of these the provider still serves, and what it serves: `dedupe-matches --competition NCAA "
-         "--orphans --sample 30` (its [live_resync] lines, #945); this listing calls no provider")
+         "--orphans --sample 30` (its [live] and [live_resync] lines; [live] prints only under --sample, #945, "
+         "addendum 365 item 3(b)); this listing calls no provider")
     tail = {"rows": len(rows), "by_kickoff_year": dict(sorted(by_year.items())),
             "current_labels_by_season": dict(sorted(current.items())),
             "current_level_by_season": dict(sorted(level.items())),

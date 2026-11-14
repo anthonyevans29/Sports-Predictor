@@ -452,9 +452,17 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             (an absent code never blanks a stored one); a score side only when it is served. {} when the provider
             serves nothing our row lacks. ARCHITECT, addendum 365 item 3(b) (relayed in addendum 379 item 6),
             verbatim: ""live, resync needed" must mean the provider serves something our row lacks." With no game
-            kept there is nothing to compare, so the row is not read as equal (law 4)."""
+            kept there is nothing to compare, so the row is not read as equal (law 4). Nor is a served pair that is not
+            the stored one: the upsert's orientation check (IngestionService._scores_by_team) writes
+            provider_orientation on a reversed or mismatched pair, so the row keeps the old label with `teams` named,
+            and no field is compared in the provider's orientation."""
             if nm is None:
                 return {"served": "unknown: the id answers and the adapter kept no game"}
+            hs, as_ = tsid.get(x.home_team_id) or set(), tsid.get(x.away_team_id) or set()
+            h_, a_ = str(nm.home_team_source_id), str(nm.away_team_source_id)
+            if not (h_ in hs and a_ in as_):
+                how = "reversed" if (h_ in as_ and a_ in hs) else "neither the stored pair nor its reverse"
+                return {"teams": f"stored {x.home_team_id} v {x.away_team_id} -> provider {h_} v {a_} ({how})"}
             d = {}
             if nm.status != x.status:
                 d["status"] = f"{x.status.name} -> {nm.status.name}"

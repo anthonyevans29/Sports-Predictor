@@ -554,3 +554,73 @@ def test_881_with_no_hard_links_the_previous_markdown_is_held_by_a_copy(tmp_path
         host_results_tally(days=36498)
     assert (ex / "RESULTS.md").read_bytes() == newer
     assert sorted(p.name for p in ex.iterdir() if p.name.startswith(".")) == []
+
+
+def _interrupt_after(target: str, monkeypatch):
+    """os.replace does the real rename, then a KeyboardInterrupt (as CPython delivers SIGINT once the call returns)."""
+    import os
+    real = os.replace
+
+    def replace(a, b):
+        real(a, b)
+        if os.path.basename(b) == target:
+            raise KeyboardInterrupt
+    monkeypatch.setattr(os, "replace", replace)
+
+
+def test_881_review_an_interrupt_after_the_markdown_rename_puts_the_previous_pair_back(tmp_path, monkeypatch):
+    """Review of #881: an interrupt arriving after the Markdown's rename (outside the old guard) left the new RESULTS.md
+    beside the old JSON. The state is read from the filesystem: the Markdown swapped, the JSON not, so it is put back."""
+    from src.walters.export import host_results_tally
+    ex = _world(tmp_path)
+    host_results_tally(days=36500)
+    old = (ex / "RESULTS.md").read_bytes(), (ex / "results_tally.json").read_bytes()
+    _interrupt_after("RESULTS.md", monkeypatch)
+    with pytest.raises(KeyboardInterrupt):
+        host_results_tally(days=36499)
+    assert ((ex / "RESULTS.md").read_bytes(), (ex / "results_tally.json").read_bytes()) == old
+    assert sorted(p.name for p in ex.iterdir() if p.name.startswith(".")) == []
+
+
+def test_881_review_an_interrupt_after_the_json_rename_leaves_the_new_pair_complete(tmp_path, monkeypatch):
+    """Review of #881: an interrupt after the JSON's rename means both are in place: the pair is new and whole, and the
+    previous Markdown must NOT be put back beside the new JSON."""
+    import json as _json
+
+    from src.walters.export import host_results_tally
+    ex = _world(tmp_path)
+    host_results_tally(days=36500)
+    _interrupt_after("results_tally.json", monkeypatch)
+    with pytest.raises(KeyboardInterrupt):
+        host_results_tally(days=36499)
+    assert (ex / "RESULTS.md").read_text().startswith("# Results — rolling 36499 days")
+    assert _json.loads((ex / "results_tally.json").read_text())["days"] == 36499
+    assert sorted(p.name for p in ex.iterdir() if p.name.startswith(".")) == []
+
+
+def test_881_review_a_failed_rollback_keeps_the_previous_markdown_and_no_new_one_beside_the_old_json(tmp_path,
+                                                                                                    monkeypatch):
+    """Review of #881: when the rollback rename itself fails, the previous Markdown's only copy is KEPT (its hidden
+    name, given in the error) and the new Markdown is removed: never a new Markdown beside the old JSON, never the
+    previous Markdown destroyed. The JSON's own error is the one raised."""
+    import os
+
+    from src.walters.export import host_results_tally
+    ex = _world(tmp_path)
+    host_results_tally(days=36500)
+    old_md, old_js = (ex / "RESULTS.md").read_bytes(), (ex / "results_tally.json").read_bytes()
+    real = os.replace
+
+    def replace(a, b):
+        if os.path.basename(b) == "results_tally.json":
+            raise OSError(28, "No space left on device")
+        if ".prev." in os.path.basename(a):
+            raise OSError(5, "Input/output error")
+        return real(a, b)
+    monkeypatch.setattr(os, "replace", replace)
+    with pytest.raises(OSError) as e:
+        host_results_tally(days=36499)
+    assert e.value.errno == 28 and "the rollback failed" in str(e.value.__cause__)
+    held = [p for p in ex.iterdir() if p.name.startswith(".RESULTS.md.") and ".prev." in p.name]
+    assert len(held) == 1 and held[0].read_bytes() == old_md and held[0].name in str(e.value.__cause__)
+    assert not (ex / "RESULTS.md").exists() and (ex / "results_tally.json").read_bytes() == old_js

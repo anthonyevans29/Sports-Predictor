@@ -3,9 +3,16 @@
   - Now the previous `RESULTS.md` is held under a hidden name before the new one is renamed in: a hard link, or a copy where the filesystem refuses links.
   - If the JSON's rename fails, the previous Markdown is put back (on a first export, the new one is removed) and the error is raised. No temporary or held file is left.
 - **#881 item 2, the requested export set (Codex on #880, 4506565254):** `results_tally`'s NHL and UNL sections called `grade(days=...)` without `export_dir`, so a non-default `exports_dir` mixed two export sets in one file. Both now pass the caller's directory. Production passes the default, so its output is unchanged.
-- **Tests (`tests/test_host_results_tally.py`), four new:**
+- **The pre-push review's fixes:** the publish reads the filesystem, never the line that raised.
+  - **Markdown swapped, JSON not:** the previous Markdown is put back, whatever stopped the renames, including a KeyboardInterrupt delivered after a rename has completed.
+  - **Both swapped:** the new pair stands.
+  - **The rollback itself fails:** the previous Markdown's only copy is kept (its hidden name is given in the error) and the new Markdown is removed. The JSON's own error is the one raised.
+- **Tests (`tests/test_host_results_tally.py`), seven new:**
   - a failed JSON rename keeps the previous pair;
   - on a first export it leaves neither file;
   - the two shadow grades read the requested directory;
-  - with no hard links the previous Markdown is held by a copy.
-  - The first three fail on main.
+  - with no hard links the previous Markdown is held by a copy;
+  - an interrupt after the Markdown rename;
+  - an interrupt after the JSON rename;
+  - a failed rollback.
+  - The first four all fail on main; the fourth fails for item 1's reason. The last three fail on this branch's first commit (28771dc5).

@@ -1798,6 +1798,7 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
     tmp_js = os.path.join(out_dir, f".{HOST_TALLY_JSON}.{os.getpid()}.tmp")
     prev_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{os.getpid()}.prev.tmp")    # #881: the previous Markdown, held
     got: dict = {}
+    keep_prev = False
     try:
         with readonly_binding():
             # the folder is made only once the read-only binding has accepted the database: a refused database
@@ -1827,9 +1828,12 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
         with open(tmp_md, "rb") as f:
             os.fsync(f.fileno())
         # THE PAIR, ALL-OR-NOTHING (#881 item 1, Codex on #880): the previous RESULTS.md is held under a hidden name
-        # (a hard link: no copy, the same bytes) before the new one is renamed in; if the JSON's rename then fails, the
-        # previous Markdown is put back (or, on a first export, the new one removed), so the mirror, which sp_run runs
-        # even after a non-zero exit, never carries a new Markdown beside an old or missing JSON
+        # (a hard link, else a copy) before the new one is renamed in. Whatever stops the two renames (an OSError, a
+        # KeyboardInterrupt delivered after a rename has completed), the state is read from the FILESYSTEM, never from
+        # which line raised: the Markdown swapped and the JSON not means the previous Markdown is put back (on a first
+        # export the new one removed), so the mirror, which sp_run runs even after a non-zero exit, never carries a new
+        # Markdown beside an old or missing JSON; both swapped means the pair is complete and is left as it is
+        held = False
         if os.path.exists(md):
             if os.path.lexists(prev_md):
                 os.unlink(prev_md)                 # a killed run's leftover of this pid's name
@@ -1838,17 +1842,28 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
             except OSError:                        # a filesystem with no hard links: a copy holds the same bytes
                 import shutil
                 shutil.copy2(md, prev_md)
-        os.replace(tmp_md, md)
+            held = True
         try:
+            os.replace(tmp_md, md)
             os.replace(tmp_js, js)
-        except BaseException:
-            if os.path.exists(prev_md):
-                os.replace(prev_md, md)
-            else:
-                os.unlink(md)
+        except BaseException as e:
+            if not os.path.lexists(tmp_md) and os.path.lexists(tmp_js):    # the Markdown swapped, the JSON not
+                try:
+                    if held:
+                        os.replace(prev_md, md)
+                    else:
+                        os.unlink(md)
+                except OSError as rollback:
+                    keep_prev = held                # the previous Markdown's only copy: kept, hidden, named below
+                    try:
+                        os.unlink(md)               # never a new Markdown beside the old JSON
+                    except OSError:
+                        pass
+                    raise e from OSError(f"the rollback failed ({type(rollback).__name__}: {rollback.strerror}); "
+                                         f"the previous {HOST_TALLY_MD} is kept as {os.path.basename(prev_md)}")
             raise
     finally:
-        for t in (tmp_md, tmp_js, prev_md):
+        for t in (tmp_md, tmp_js) + (() if keep_prev else (prev_md,)):
             if os.path.exists(t):
                 os.unlink(t)
     return md, js

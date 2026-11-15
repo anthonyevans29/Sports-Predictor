@@ -108,6 +108,17 @@ IN_PLAY = "in play (our kickoff has passed)"
 WIDE_SPREAD = "spread wider than the guard"
 TWO_CLAIMS = "two markets claim one side of one game"
 BEHIND = "behind an event of the same two names out of step"
+# THE NAME TABLES (ARCHITECT 2026-11-15, addendum 387 item 3, (B); src/ingestion/kalshi_table.py). A series with a table
+# file is DECLARED: its events are placed by the table alone, a tabled name fitting its one team; these four refuse.
+TABLE_UNREAD = "the series declares a name table this run did not read"
+TABLE_UNREADABLE = "the series' name table cannot be read"
+TABLE_LINE_UNRESOLVED = "a name table line names no one stored team of the competition"
+NOT_IN_TABLE = "not in {series}'s name table: {names}"       # 387 item 3(a): "a new counted reason that names the name"
+
+
+def not_in_table(series: str, names) -> str:
+    """The counted reason of an event of a declared series whose name (or names) the table does not hold."""
+    return NOT_IN_TABLE.format(series=series, names=" and ".join(names))
 
 
 # Addendum 57 item 6: an event's name, whole as the module takes it (the market's yes_sub_title, stripped), -> the
@@ -408,11 +419,22 @@ def _names(mks, first, is_tie) -> list[str]:
     return _pair(mks, first, is_tie)[0]
 
 
-def _best_fits(names, day, games) -> list:
+def _best_fits(names, day, games, team_of: dict | None = None) -> list:
     """Names before time: [(game, which name is home)] of the best fit among the competition's games on the event's
-    day (the ticker's date, a day either side, US Eastern; rows that are not games left out). [] when none fits."""
+    day (the ticker's date, a day either side, US Eastern; rows that are not games left out). [] when none fits.
+
+    `team_of` ({name: our team id}, both of the event's names; a declared series, addendum 387 item 3): the table
+    alone decides. A game fits when its two teams are the two names' teams, one each, and the side is the team's own;
+    no word is read, so no other game fits and no line can loosen a fit ((c)). Two names on one team fit no game."""
     on_day = [g for g in games if g.utc_date and g.home_team and g.away_team and is_game(g)
               and abs((et_day(g.utc_date) - day).days) <= 1]
+    if team_of is not None:
+        a, b = names[0], names[1]
+        ta, tb = team_of[a], team_of[b]
+        if ta == tb:
+            return []
+        return [(g, a if g.home_team_id == ta else b) for g in on_day
+                if (g.home_team_id, g.away_team_id) in ((ta, tb), (tb, ta))]
     # the pins (addendum 57 item 6, addendum 59 item 2): each name read whole by the scoring, a pinned one against its
     # own team only
     fits = []
@@ -432,14 +454,19 @@ def _game_number(ev, market):
 
 
 def behind_out_of_step(by_event: dict, games: list, *, now: datetime, is_tie, implied_prob, spread=None,
-                       max_spread=None) -> dict:
+                       max_spread=None, team_of_event=None) -> dict:
     """Addendum 54 item 6: {event: its console line} for every clock-series event behind an event of the same two
     names out of step; place() refuses its markets as behind only where they would otherwise take their place on a
     game (addendum 55 item 3). Out of step (an event with no game number): no game of its two teams on its date (the
     pair place() would choose, the best fit on the event's day; no fit at all is no game), or its date before the
     day of the run (US Eastern). Every market of an event is read, priced or not. The names are the group: an event
-    out of step may fit no stored game."""
+    out of step may fit no stored game.
+
+    `team_of_event(ev, names)` (place()'s, addendum 387 item 3): None where the event's series declares no table (the
+    scorer, as before), the names' teams where it does and both are tabled and resolved, False where the event is
+    refused for its table: it is left out here, as it can be neither out of step nor behind."""
     run_day = et_day(now)
+    team_of_event = team_of_event or (lambda ev, names: None)
     heads, out = [], {}
     for ev, mks in by_event.items():
         live = _live(mks, implied_prob, spread, max_spread)
@@ -448,12 +475,15 @@ def behind_out_of_step(by_event: dict, games: list, *, now: datetime, is_tie, im
         day, clock = ticker_stamp(first)
         if len(names) != 2 or day is None or clock is None:      # a date-only series is outside the rule
             continue
+        team_of = team_of_event(ev, names)
+        if team_of is False:
+            continue                                            # refused for its table (387 item 3)
         key = frozenset(n.lower() for n in names)
         heads.append((key, day, ev))
         if _game_number(ev, first):
             continue                                            # a numbered event is never out of step itself
         why = []
-        if not any(et_day(g.utc_date) == day for g, _ in _best_fits(names, day, games)):
+        if not any(et_day(g.utc_date) == day for g, _ in _best_fits(names, day, games, team_of)):
             why.append(f"no game of its two teams on its date {day}")
         if day < run_day:
             why.append(f"its date {day} is before the day of the run {run_day}")
@@ -509,12 +539,23 @@ def _date_rows_what(own, ev: str | None, ticker: str | None) -> str:
 
 
 def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: datetime,
-          is_tie=None, implied_prob=None, spread=None, max_spread: float | None = None) -> Result:
+          is_tie=None, implied_prob=None, spread=None, max_spread: float | None = None,
+          tables: dict | None = None) -> Result:
     """Place the markets on the games. `games`: the stored games of the series' own competition (any window: the day
     rule picks the event's day; the run's window [lo, hi] is applied only inside the one pair). `is_tie(market)`
     marks a draw leg (soccer: placed as DRAW on the event's game). `implied_prob(market)` -> price or None (no price:
-    refused). `spread(market)` with `max_spread`: the soccer spread guard."""
+    refused). `spread(market)` with `max_spread`: the soccer spread guard.
+
+    `tables` (kalshi_table.tables_for: {series: Resolved or TableError}; ARCHITECT 2026-11-15, addendum 387 item 3,
+    (B)): an event whose series declares a table (kalshi_table.declared: a file of its own; read here, so a caller
+    cannot leave a declared series to the scorer) is placed by the table alone. Its series not in `tables`: refused
+    TABLE_UNREAD. Its table a TableError: refused TABLE_UNREADABLE, the error on a line. A name the table does not
+    hold: refused not_in_table(series, the names), the reason naming them ((a)). A tabled name whose line no one
+    stored team answers to: refused TABLE_LINE_UNRESOLVED, a line saying which and why ((b)). Both names tabled and
+    resolved: _best_fits(team_of=...) and everything after it as for every series. A series with no table: as
+    before, to the last character ((a))."""
     from src.adapters.kalshi import KalshiAdapter
+    from src.ingestion import kalshi_table as kt
     is_tie = is_tie or (lambda m: False)
     implied_prob = implied_prob or KalshiAdapter.implied_prob
     res = Result()
@@ -522,8 +563,39 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
     for mk in markets:
         by_event.setdefault(event_of(mk), []).append(mk)
     claims: dict[tuple[int, str], list[dict]] = {}
+    decl = kt.declared()
+    tables = tables or {}
+
+    def table_state(ev, names):
+        """(reason, line, team_of) of the event under its series' table: (None, None, None) where the series declares
+        none; (None, None, {name: team}) where both names are tabled and resolved; (reason, line or None, None) where
+        the event is refused for its table. `names` None: the series' own state only."""
+        s = kt.series_of(ev)
+        if s not in decl:
+            return None, None, None
+        t = tables.get(s)
+        if t is None:
+            return TABLE_UNREAD, (f"  ✗ {s}: the series declares a name table ({decl[s].name}) and this run did not "
+                                  "read it: every event of it refused"), None
+        if isinstance(t, kt.TableError):
+            return TABLE_UNREADABLE, f"  ✗ {s}: its name table cannot be read ({t}): every event of it refused", None
+        if names is None:
+            return None, None, {}
+        missing = [n for n in names if n not in t.table.lines]
+        if missing:
+            return not_in_table(s, missing), None, None
+        bad = [n for n in names if n in t.unresolved]
+        if bad:
+            return TABLE_LINE_UNRESOLVED, "; ".join(f"  ✗ {ev}: {s}'s line for {n!r}: {t.unresolved[n]}: refused"
+                                                    for n in bad), None
+        return None, None, {n: t.team_of[n] for n in names}
+
+    def team_of_event(ev, names):
+        reason, _, team_of = table_state(ev, names)
+        return False if reason else team_of
+
     behind = behind_out_of_step(by_event, games, now=now, is_tie=is_tie, implied_prob=implied_prob, spread=spread,
-                                max_spread=max_spread)
+                                max_spread=max_spread, team_of_event=team_of_event)
 
     def refuse(mks, reason, n=None):
         res.refused[reason] += len(mks) if n is None else n
@@ -541,6 +613,12 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
                 live.append(mk)
         if not live:
             continue
+        reason, line, _ = table_state(ev, None)             # the series' own table state (387 item 3)
+        if reason:
+            refuse(live, reason)
+            if line not in res.lines:
+                res.lines.append(line)
+            continue
         names, unformed = _pair(mks, live[0], is_tie)
         if unformed:
             refuse(live, unformed)
@@ -556,11 +634,17 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
                     res.lines.append(f"  ✗ {ev}: the title reads {' vs '.join(title)}; the "
                                      f"markets name {', '.join(names)}: refused ({TITLE_CONFLICT})")
             continue
+        reason, line, team_of = table_state(ev, names)     # a declared series: its names in its table (387 item 3)
+        if reason:
+            refuse(live, reason)
+            if line:
+                res.lines.append(line)
+            continue
         day, clock = ticker_stamp(live[0])
         if day is None:
             refuse(live, NO_DATE)
             continue
-        top = _best_fits(names, day, games)
+        top = _best_fits(names, day, games, team_of)
         if not top:
             refuse(live, NO_FIT)
             continue

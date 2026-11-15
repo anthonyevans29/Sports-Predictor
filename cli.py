@@ -9213,6 +9213,102 @@ def kalshi_replay_cmd(only, from_file):
     kr.replay(payload, progress=click.echo)
 
 
+@cli.command("kalshi-table-propose")
+@click.option("--series", required=True, help="One Kalshi game series (e.g. KXNCAAMBGAME), as the syncs read it.")
+@click.option("--from-file", "from_file", required=True,
+              help="A kept markets file (logs/kalshi_replay_<stamp>.json, kalshi-replay's) holding that series.")
+@click.option("--key", required=True,
+              help="The provider's key in Team.external_ids each line names (e.g. api_basketball).")
+@click.option("--db", "db_path", required=True, metavar="PATH",
+              help="A fresh .backup copy (mode=ro + immutable=1; never under data/, never the configured DB, no "
+                   "sidecar beside it).")
+def kalshi_table_propose_cmd(series, from_file, key, db_path):
+    """THE NAME TABLE'S PROPOSER (ARCHITECT 2026-11-15, addendum 387 item 3(d)-(e); src/ingestion/kalshi_table.py).
+    READ-ONLY: from a kept markets file, each name of the series' events (where its pair forms) with its proposed team
+    (its one whole read), the provider's key and id, and its marks; the stored teams of the series' competition read
+    on a copy through the --db fence. A marked name is never proposed: it is read by hand, first. Nothing is placed,
+    nothing written, no table made: every line is read by the architect before it is data (387 item 3(e)). Exit 0, or
+    2 on a refusal."""
+    import hashlib
+    import json as _json
+    import sqlite3
+    from types import SimpleNamespace
+
+    from sqlalchemy import select
+    from sqlalchemy.exc import DBAPIError
+
+    from src.adapters.kalshi import KalshiAdapter
+    from src.db.schema import Competition
+    from src.ingestion import kalshi_table as kt
+    from src.ingestion.kalshi_history import competition_for
+    from src.walters import mlb_pitchers_gate as mp
+    from src.walters.nfl_v2_gate import SIDECARS
+
+    def refuse(why):
+        click.echo(f"KALSHI-TABLE-PROPOSE REFUSED: {why}")
+        raise SystemExit(2)
+    series = series.strip()
+    comp_code, soccer = competition_for(series, KalshiAdapter)
+    if comp_code is None:
+        refuse(f"{series} is not a series the syncs read (venue.KALSHI_SERIES_BY_COMPETITION, "
+               "KalshiAdapter.SOCCER_GAME_SERIES); nothing read")
+    try:
+        payload = _json.loads(open(from_file, encoding="utf-8").read())
+    except (OSError, ValueError) as e:
+        refuse(f"--from-file {from_file} cannot be read as a kept markets file ({type(e).__name__}: {e}); nothing read")
+    entry = (payload.get("series") or {}).get(series) if isinstance(payload, dict) else None
+    if not isinstance(entry, dict) or entry.get("error") or not isinstance(entry.get("markets"), list):
+        refuse(f"--from-file {from_file} holds no markets of {series}"
+               + (f" (its fetch failed: {entry['error']})" if isinstance(entry, dict) and entry.get("error") else "")
+               + "; nothing read")
+    mks = [m for m in entry["markets"] if kt.series_of(str(m.get("event_ticker") or m.get("ticker") or "")) == series]
+    try:
+        path = mp.check_db(db_path)
+        for sfx in SIDECARS:
+            if path.with_name(path.name + sfx).exists():
+                raise mp.GateRefused(f"--db {db_path} has a {sfx} sidecar ({path.name + sfx}): not a fresh .backup "
+                                     "copy; immutable=1 would ignore it and read stale pages; nothing read")
+        with mp.readonly_session(path) as s:
+            comp = s.execute(select(Competition).where(Competition.code == comp_code)).scalar_one_or_none()
+            if comp is None:
+                raise mp.GateRefused(f"the copy holds no competition {comp_code}; nothing read")
+            teams = [SimpleNamespace(id=t.id, name=t.name, external_ids=dict(t.external_ids or {}))
+                     for t in kt.competition_teams(s, [comp.id])]       # read inside the session, kept after it
+    except mp.GateRefused as e:
+        refuse(str(e))
+    except (DBAPIError, sqlite3.DatabaseError) as e:
+        cause = getattr(e, "orig", None) or e
+        refuse(f"--db {db_path} cannot be read as SQLite ({type(cause).__name__}: {cause}); nothing read")
+    names = kt.names_of(mks, KalshiAdapter.is_tie_market if soccer else None)
+    props = kt.propose(names, teams, key)
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    decl = kt.declared()
+    hand = [p for p in props if p.marks]
+    machine = [p for p in props if not p.marks]
+    click.echo(f"KALSHI-TABLE-PROPOSE · {series} (competition {comp_code}) · markets kept at "
+               f"{entry.get('fetched_at') or payload.get('fetched_at')} ({from_file}) · copy {path} (sha256 "
+               f"{h.hexdigest()[:12]}, mode=ro + immutable=1) · key {key} · read-only: nothing placed, nothing "
+               "written, no table made")
+    click.echo(f"  {len(names)} names in {len(mks)} markets · {len(teams)} stored teams of {comp_code} · proposed "
+               f"{len(machine)} · marked for hand reading {len(hand)} · the series' table: "
+               + (f"declared ({decl[series].name})" if series in decl else "none (the series is matched by the scorer)"))
+    click.echo("  a whole read: a stored team whose name has the same words as the name under kalshi_match.norm_tokens, "
+               "no more and no fewer · every line is read by the architect before it is data (387 item 3(e))")
+    click.echo(f"--- MARKED FOR HAND READING ({len(hand)}), read first: name | events | marks | whole reads | top score: "
+               "teams")
+    for p in hand:
+        whole = " ; ".join(f"{tn} (team {tid}, {key} {pid or '-'})" for tid, tn, pid, _ in p.whole) or "-"
+        click.echo(f"  {p.name} | {p.events} | {' · '.join(p.marks)} | {whole} | {p.top:g}: "
+                   + (" ; ".join(p.top_teams) or "-"))
+    click.echo(f"--- PROPOSED ({len(machine)}): name | events | team | our team id | {key} id")
+    for p in machine:
+        tid, tn, pid, _ = p.whole[0]
+        click.echo(f"  {p.name} | {p.events} | {tn} | {tid} | {pid}")
+
+
 @cli.group("kalshi-history", invoke_without_command=True)
 @click.option("--series", default=None, help="One Kalshi game series per run (e.g. KXMLBGAME), as the syncs read it.")
 @click.option("--since", default=None, help="Keep the markets whose game day is on or after this date (YYYY-MM-DD).")

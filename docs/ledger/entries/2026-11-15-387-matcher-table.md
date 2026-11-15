@@ -1,0 +1,13 @@
+**2026-11-15 — The Kalshi matcher's name tables, (B): PR one, the machinery and no data (addendum 387 item 3; #955; #1017).**
+- **Ruling (387 item 3, verbatim in part):** "THE MATCHER: RULED, (B), THE REVIEWED NAME TABLE, as your proposal and its correction have it. One matcher, no competition branch, no change to team_aliases.norm_tokens ... (a) a series DECLARES a table by having one; a declared series' name that is not in its table REFUSES its event under a new counted reason that names the name; a series with no table is matched as today, to the last character. (b) A line maps one Kalshi name to one team by the provider's key and id through Team.external_ids ... (c) A tabled name fits exactly one team; no line can loosen a fit, and the existing pins stand as they are."
+- **What landed:**
+  - the loader and resolver (kalshi_table.py);
+  - place() by the table alone for a declared series: the generalised pin, a pin by provider id and total for its series;
+  - the four refusals;
+  - every caller passing the tables, and the history paths refusing a declared series;
+  - the read-only proposer, `kalshi-table-propose`.
+- **The data:** no table is in the repo. KXNCAAFGAME is untouched ((f)).
+- **The proposer on the operator's 2026-11-13 names file (scratch read, not committed):**
+  - KXNCAAMBGAME: 254 proposed and 62 by hand, of 316 names. The correction of 11-13 counted 256/60. The differences are St. Bonaventure (it opens with "St."; 11-13's regex missed "St." before a space) and Penn (pinned; a mark beyond (d)).
+  - KXNCAAFGAME: 238 proposed and 27 by hand, as counted then. St. Thomas is now marked for its opening, and Hawai'i is now proposed: the tokens keep its apostrophe.
+- **Next:** the architect runs the proposer on the laptop by his block and reads its lines. PR two is KXNCAAMBGAME's table as data. The roadmap's 12-05 step waits for the tag that carries both.

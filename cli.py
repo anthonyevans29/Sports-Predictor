@@ -8877,12 +8877,80 @@ def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit, list_ours):
 
 
 @cli.command("nhl-goalie-coverage")
-def nhl_goalie_coverage_cmd():
+@click.option("--db", "db_path", default=None, metavar="PATH",
+              help="A .backup copy (mode=ro + immutable=1; never under data/, never the configured DB): prints "
+                   "addendum 386 item 2's counts-only season receipt instead.")
+def nhl_goalie_coverage_cmd(db_path):
     """NHL-GOALIE (a) receipt: of our finished NHL games, how many have both
-    starters identified — by season. Read-only."""
+    starters identified — by season. Read-only.
+
+    --db COPY (ARCHITECT 2026-11-15, addendum 386 item 2): the counts-only
+    season receipt (a)-(e) on a copy, through the shared --db fence
+    (mlb_pitchers_gate.check_db; mode=ro + immutable=1), with no init_db().
+    Without --db the command is unchanged."""
+    if db_path is not None:
+        _nhl_goalie_season_receipt(db_path)
+        return
     from src.db.database import init_db
     init_db()
     _nhl_goalie_coverage_lines()
+
+
+def _nhl_goalie_season_receipt(db_path):
+    """Addendum 386 item 2: counts only, by season; no goalie's name and no model figure. A refusal exits 2."""
+    import hashlib
+    import sqlite3
+
+    from sqlalchemy.exc import DBAPIError
+
+    from src.ingestion import nhl_goalies as ngs
+    from src.walters import mlb_pitchers_gate as mp
+    from src.walters.nfl_v2_gate import SIDECARS
+    try:
+        path = mp.check_db(db_path)
+        # immutable=1 ignores a -wal / -shm / -journal beside the file: committed pages still in a WAL would be missed
+        # without a word, so a copy with one is not a fresh .backup copy (nfl_v2_gate.check_db's rule; #1012 review).
+        for sfx in SIDECARS:
+            if path.with_name(path.name + sfx).exists():
+                raise mp.GateRefused(f"--db {db_path} has a {sfx} sidecar ({path.name + sfx}): not a fresh .backup "
+                                     "copy; immutable=1 would ignore it and read stale pages; take a fresh .backup "
+                                     "copy; nothing read")
+        with mp.readonly_session(path) as s:
+            r = ngs.season_receipt(s)
+    except (mp.GateRefused, ngs.SeasonReceiptRefused) as e:
+        click.echo(f"NHL-GOALIE COVERAGE REFUSED: {e}")
+        raise SystemExit(2)
+    except (DBAPIError, sqlite3.DatabaseError) as e:      # not a database, truncated, corrupt (law 4: never a traceback)
+        cause = getattr(e, "orig", None) or e
+        click.echo(f"NHL-GOALIE COVERAGE REFUSED: --db {db_path} cannot be read as SQLite "
+                   f"({type(cause).__name__}: {cause}); nothing read")
+        raise SystemExit(2)
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    click.echo(f"NHL-GOALIE SEASON RECEIPT (addendum 386 item 2) · counts only · copy {path} (sha256 "
+               f"{h.hexdigest()[:12]}, mode=ro + immutable=1) · {r['rows']} appearance rows · {r['games']} games")
+    click.echo("  a game = one nhl_game_id with stored appearances (stored only once its boxscore was fetched, 6h or "
+               "more after its start) · season = its stored start, UTC, 1 July to 30 June · regular season = game "
+               "type 2 as the rows say it, never inferred")
+    for season, b in r["by_season"].items():
+        pct = f"{b['relief'] / b['both'] * 100:.1f}%" if b["both"] else "n/a"
+        click.echo(f"  {season}: (a) finished regular-season games {b['regular']} · game type not stated: "
+                   f"{b['type_not_stated_rows']} rows · games where no row states it {b['type_not_stated_games']}"
+                   + (f" · games whose rows disagree {b['type_conflicting_games']}" if b["type_conflicting_games"] else ""))
+        click.echo(f"           (b) both starters flagged {b['both']} · exactly one {b['one']} · none {b['none']} · "
+                   f"sides with more than one flagged {b['multi_flagged_sides']}")
+        click.echo(f"           (c) appearances with no linked match {b['unlinked_rows']} · the distinct games they stand "
+                   f"for {b['unlinked_games']}")
+        click.echo(f"           (d) relief (a goalie other than the flagged starter with TOI > 0): {b['relief']} of "
+                   f"{b['both']} both-flagged games = {pct} · TOI not stored {b['relief_toi_not_stored']}")
+        if season == ngs.SEASON_RECEIPT_LATEST:
+            any_d = f"{b['latest_any']:%Y-%m-%d}" if b["latest_any"] else "none stored"
+            reg_d = f"{b['latest_regular']:%Y-%m-%d}" if b["latest_regular"] else "none stored"
+            click.echo(f"           (e) latest game date an appearance is stored for: {any_d} (UTC; any game type) "
+                       f"· the latest regular-season game: {reg_d}")
+    click.echo(f"  games with no stored start (season unknown): {r['no_start_games']}")
 
 
 @cli.command("nhl-shot-sync")
@@ -10942,7 +11010,8 @@ def availability_nflverse_cmd(season, file_path):
     stored ETag, redirects followed, explicit timeouts) or reads --file, checks the twelve columns by name (the 2023-2024
     shape refused), and asserts its NEW rows (dt later than the newest source_stamp held for the source) as depth_rank
     facts, players unmapped (counted), teams mapped by the NFL competition's stored tla (unmapped: NULL with the text,
-    the observation `partial`). A 304 or a byte-identical file is `complete` with 0 rows; a raised call is `failed`
+    the observation `partial`). A 304 or a byte-identical file takes the status of the payload it is unchanged from
+    (`complete`, or `empty` after a header-only one; addendum 382 item 3) with 0 rows; a raised call is `failed`
     (exit 1). Writes the live DB only (no --db: a copy is never written), under the chains' DB lock; the raw file under
     logs/availability/nflverse_depth_charts/<date>/ when it changed, never under data/. Prints the receipt and "Depth
     charts: nflverse (CC BY 4.0)". A missing DB, an unmigrated store or a refused --file exits 2, nothing written.

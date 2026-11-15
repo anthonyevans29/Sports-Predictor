@@ -303,7 +303,10 @@
           "what": "the ceiling readiness read (item 4(a))",
           "owner": "code",
           "due": "2026-11-19",
-          "done": null
+          "done": {
+            "date": "2026-11-13",
+            "receipt": "#105 issuecomment-6865754939 (DEV 2, 2026-11-13T21:48Z, the read addendum 375 item 4(a) asked for, six days early); READ by the architect: ARCHITECT 2026-11-14 16:29 ET, addendum 383 item 2, verbatim: \"THE CEILING READINESS READ IS DONE: your comment of 2026-11-13 21:48Z on #105 is the read 375 item 4(a) asked for, six days early\"; done-marked by ARCHITECT 2026-11-15 08:01 ET, addendum 385 item 3(a)"
+          }
         },
         {
           "what": "the true-starter ceiling test declared with its threshold, or my written no",
@@ -822,7 +825,10 @@
           "what": "the graph's node shape (each assertion a node; addendum 379 item 2), its PR carrying #995",
           "owner": "code",
           "due": "2026-11-23",
-          "done": null
+          "done": {
+            "date": "2026-11-15",
+            "receipt": "#1007 merged 2026-11-15T12:34Z at 455a3f07 (merge 1b26edb4); READ AND MERGE-READY by ARCHITECT 2026-11-14 16:29 ET, addendum 383 item 1; done-marked by ARCHITECT 2026-11-15 08:01 ET, addendum 385 item 3(b), verbatim: \"lane availability-record, \\\"the graph's node shape\\\", due 11-23, DONE 2026-11-15 by #1007 at 455a3f07\""
+          }
         },
         {
           "what": "the NBA injury-report probe (ARCHITECT 2026-11-05, addendum 261 item 1(e), verbatim: \"THE AVAILABILITY RECORD'S NBA FEED (lane availability-record, after the NHL landing feed): the league's OFFICIAL injury report, published on a fixed daily schedule and stamped by the league — the one pregame availability source in any sport we cover that carries the publisher's own time. Its probe (read-only, by 11-24) reads the publication schedule, the document form (a PDF needs a reader dependency; the probe says which) and the fields; the feed PR follows my ruling on the probe. Kind `injury_status` with the league's own status words in attrs, verbatim.\"), in TWO PHASES (ARCHITECT 2026-11-12, addendum 357 item 3(a)): the terms phase by default (the terms page and the host's robots.txt, quoted), the report phase only after the architect's ruling on the terms console, and ON THE HOST ONLY, never the laptop (ARCHITECT 2026-11-13, addendum 368 item 4: the reader host-only; the report console structure only; its rows in a mode-0600 receipt under logs/availability/, never mirrored); scripts/nba_injury_report_probe.py. The step is DONE on the architect's block's consoles on #839 (the terms console; the report console from the host if the terms allow it), not on the merge (addendum 357 item 4)",
@@ -973,7 +979,10 @@
           "what": "the design proposal to the architect (item 4(b))",
           "owner": "code",
           "due": "2026-11-25",
-          "done": null
+          "done": {
+            "date": "2026-11-14",
+            "receipt": "#992 issuecomment-6877950027 (DEV 2, 2026-11-14T13:25Z: \"THE HOST-ONLY STORE AND THE INFERRED LAYER, ONE DESIGN\"); done-marked by ARCHITECT 2026-11-15 08:01 ET, addendum 385 item 3(c), verbatim: \"lane inferred-layer, \\\"the design proposal to the architect\\\", due 11-25, DONE 2026-11-14 by Dev 2's comment on #992 (my ruling on it stays due 12-03)\""
+          }
         },
         {
           "what": "the design PR, nothing built behind it",

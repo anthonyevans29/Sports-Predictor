@@ -32,6 +32,7 @@ import html
 
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -122,6 +123,22 @@ class RateLimited(RuntimeError):
     def __init__(self, path: str, retry_after: float):
         super().__init__(f"rate limited on {path}; retry after {retry_after:.0f}s")
         self.retry_after = retry_after
+
+
+_SEASON_STR = re.compile(r"[0-9]{4}")          # ASCII digits only: \d would take fullwidth or Arabic-Indic digits
+
+
+def served_season(data: dict) -> str:
+    """THE SEASON A ONE-GAME ANSWER SERVES (ARCHITECT 2026-11-15 08:01 ET, addendum 385 item 2; #1009). The recorded
+    answer of GET /games?id= (the laptop, 2026-11-15 12:59Z, two ids) carries it at response[0].league.season, "A
+    STRING OF THE YEAR" ('2025' for id 20141, '2023' for id 10948). That string, as served, when it is four ASCII digits
+    and nothing else; otherwise "" (no league block, no season, a season that is not a year, or not a string): today's
+    behaviour, never guessed (law 4)."""
+    resp = data.get("response") if isinstance(data, dict) else None
+    first = resp[0] if isinstance(resp, list) and resp else None
+    league = first.get("league") if isinstance(first, dict) else None
+    season = league.get("season") if isinstance(league, dict) else None
+    return season if isinstance(season, str) and _SEASON_STR.fullmatch(season) else ""
 
 
 class APIAmericanFootballAdapter(DataAdapter):
@@ -259,7 +276,7 @@ class APIAmericanFootballAdapter(DataAdapter):
         data = self._get("games", params={"id": source_id})
         if not (data.get("response") or []):
             return False, None
-        got = self._parse_games(data, competition_code, "")
+        got = self._parse_games(data, competition_code, served_season(data))
         return True, (got[0] if got else None)
 
     def _parse_games(self, data: dict, competition_code: str, season: str) -> list[NormalizedMatch]:

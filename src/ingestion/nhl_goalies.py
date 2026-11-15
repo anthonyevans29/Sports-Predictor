@@ -387,6 +387,124 @@ def coverage() -> dict:
 
 
 # --------------------------------------------------------------------------
+# THE SEASON RECEIPT (ARCHITECT 2026-11-15, addendum 386 item 2): counts only,
+# by season, from the stored appearances alone (2023-24 sits outside matches,
+# so the appearance table is the only place every season is held). Read on a
+# session the caller opens (the --db fence's mode=ro + immutable=1 session);
+# no goalie's name, no goalie id, no model figure.
+#   * a game   = one nhl_game_id; a row exists only for a game whose boxscore
+#                the sync fetched 6h or more after its start (sync()), so a
+#                stored game is a finished one; the table carries no status.
+#   * season   = the game's stored start (UTC), 1 July to 30 June, labelled
+#                "2023-24"; a game with no stored start is counted apart.
+#   * regular  = game type 2 as the rows say it: some row says 2 and none says
+#                another type. A game where no row states a type is named in
+#                (a) and kept out of (b)-(d) (law 4: never inferred, not from
+#                the id either); a game whose rows disagree is counted apart.
+#   * flagged  = a side with exactly one row whose is_starter is True.
+#   * relief   = on a both-flagged game, a row other than its side's flagged
+#                starter with TOI > 0 (a backup listed at TOI 0 did not play);
+#                a non-starter whose TOI was not stored, on a game with no
+#                known relief, is "TOI not stored", never guessed.
+# --------------------------------------------------------------------------
+
+SEASON_RECEIPT_TABLE = "nhl_goalie_appearances"
+SEASON_RECEIPT_COLUMNS = ("nhl_game_id", "match_id", "game_start", "game_type", "side", "goalie_id",
+                          "is_starter", "toi_seconds")
+SEASON_RECEIPT_SEASONS = ("2023-24", "2024-25", "2025-26", "2026-27")
+SEASON_RECEIPT_LATEST = "2026-27"
+REGULAR = 2
+
+
+def season_label(start: datetime | None) -> str | None:
+    """'2023-24' for a start from 1 July 2023 to 30 June 2024 (UTC); None for no start."""
+    if start is None:
+        return None
+    y = start.year if start.month >= 7 else start.year - 1
+    return f"{y}-{(y + 1) % 100:02d}"
+
+
+class SeasonReceiptRefused(RuntimeError):
+    """The copy cannot carry the receipt (law 1: a table or column it lacks); nothing read."""
+
+
+def season_receipt(s) -> dict:
+    """Addendum 386 item 2's counts, by season, on the session `s` (read-only; one SELECT)."""
+    from sqlalchemy import text
+
+    have = {r[0] for r in s.execute(text("SELECT name FROM sqlite_master WHERE type = 'table'"))}
+    if SEASON_RECEIPT_TABLE not in have:
+        raise SeasonReceiptRefused(f"the copy has no {SEASON_RECEIPT_TABLE} table (law 1); nothing read")
+    cols = {r[1] for r in s.execute(text(f"PRAGMA table_info({SEASON_RECEIPT_TABLE})"))}
+    missing = [c for c in SEASON_RECEIPT_COLUMNS if c not in cols]
+    if missing:
+        raise SeasonReceiptRefused(f"the copy's {SEASON_RECEIPT_TABLE} lacks {', '.join(missing)} (law 1); "
+                                   "nothing read")
+    rows = s.execute(text(f"SELECT {', '.join(SEASON_RECEIPT_COLUMNS)} FROM {SEASON_RECEIPT_TABLE}")).all()
+    games: dict[int, list] = {}
+    for r in rows:
+        games.setdefault(r.nhl_game_id, []).append(r)
+
+    def _start(rs):
+        ts = [_as_dt(r.game_start) for r in rs if r.game_start is not None]
+        return min(ts) if ts else None
+
+    blank = dict(regular=0, type_not_stated_rows=0, type_not_stated_games=0, type_conflicting_games=0,
+                 both=0, one=0, none=0, multi_flagged_sides=0, unlinked_rows=0, unlinked_games=0,
+                 relief=0, relief_toi_not_stored=0, latest_any=None, latest_regular=None)
+    by = {k: dict(blank) for k in SEASON_RECEIPT_SEASONS}
+    no_start = 0
+    for rs in games.values():
+        start = _start(rs)
+        label = season_label(start)
+        if label is None:
+            no_start += 1
+            continue
+        b = by.setdefault(label, dict(blank))
+        latest = max(_as_dt(r.game_start) for r in rs if r.game_start is not None)
+        b["latest_any"] = max(filter(None, (b["latest_any"], latest)))
+        b["type_not_stated_rows"] += sum(r.game_type is None for r in rs)
+        stated = {r.game_type for r in rs if r.game_type is not None}
+        if not stated:
+            b["type_not_stated_games"] += 1
+            continue
+        if stated != {REGULAR}:
+            b["type_conflicting_games"] += REGULAR in stated
+            continue
+        b["regular"] += 1
+        b["latest_regular"] = max(filter(None, (b["latest_regular"], latest)))
+        unlinked = [r for r in rs if r.match_id is None]
+        b["unlinked_rows"] += len(unlinked)
+        b["unlinked_games"] += bool(unlinked)
+        starters = {}
+        for side in ("home", "away"):
+            flagged = [r for r in rs if r.side == side and _true(r.is_starter)]
+            b["multi_flagged_sides"] += len(flagged) > 1
+            if len(flagged) == 1:
+                starters[side] = flagged[0]
+        n = len(starters)
+        b["both" if n == 2 else "one" if n == 1 else "none"] += 1
+        if n != 2:
+            continue
+        others = [r for r in rs if r.side in starters and r.goalie_id != starters[r.side].goalie_id]
+        if any(r.toi_seconds is not None and r.toi_seconds > 0 for r in others):
+            b["relief"] += 1
+        elif any(r.toi_seconds is None for r in others):
+            b["relief_toi_not_stored"] += 1
+    return {"rows": len(rows), "games": len(games), "no_start_games": no_start,
+            "by_season": dict(sorted(by.items()))}
+
+
+def _true(v) -> bool:
+    return v is True or v == 1
+
+
+def _as_dt(v) -> datetime:
+    """A stored DateTime read through text(): SQLite hands back the ISO string."""
+    return v if isinstance(v, datetime) else datetime.fromisoformat(str(v))
+
+
+# --------------------------------------------------------------------------
 # Unlinked-games AUDIT (architect 2026-09-30): "audit the ~290 unlinked
 # regular-season games (UTC-boundary suspects) so coverage nears 100%".
 # Read-only: re-walks the schedule, reads our matches + the stored links,

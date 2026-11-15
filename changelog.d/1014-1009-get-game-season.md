@@ -1,0 +1,20 @@
+## 2026-11-15 (#1014: 1009-get-game-season — `get_game` reads the season the one-game answer serves, so `dedupe-matches --orphans`' season check fires in production (#1009; ARCHITECT, addendum 385 item 2).)
+- **The recorded answer (385 item 2):** GET /games?id= on the laptop, 2026-11-15 12:59Z, two ids, key names and types only. "the single-game answer carries its season at response[0].league.season, A STRING OF THE YEAR" ('2025' for id 20141, '2023' for id 10948).
+- **As built** (`src/adapters/api_american_football.py`): `served_season(data)` reads `response[0].league.season` when it is a string of four ASCII digits and nothing else. `get_game` hands it to `_parse_games` in place of `""`.
+  - An answer with no league block, no season, a season that is not a year, or a season that is not a string (an int was never recorded) keeps today's `""`. Never guessed, never coerced (law 4).
+  - `list_matches` is unchanged: its rows keep the `--season` it read.
+- **What it changes:** `dedupe-matches --orphans`' season check (#1001, #1005), which was inert in production because every by-id answer had season `""`.
+  - The same pair served under another season now reads "live, the id serves another game" with "the same pair, season 2026 -> 2025" (383 item 4(a)). A twin whose id serves another season is refused, never merged into.
+  - Nothing else reads the served season: `refresh-by-id`'s writes never read `nm.season`, and dedupe's relink searches the listing, not `get_game`.
+- **385 item 2's question, settled from the code: how the served string compares with the stored NCAA season.**
+  - Stored: `list_matches` gives its rows the `--season` it sent as `str(int(...))`, the int-style year ("2026", CLAUDE.md's NCAA season string). A listing with no `--season` carries no year and the upsert refuses it (`provider_id_season_unknown`, addendum 312 item 1).
+  - Compared: `served_diff` compares `season_year` on both sides, the upsert's own key (addendum 312 item 1), and only when both read a year. '2025' and a stored '2025' read one year; '2025' and '2026' read two. A stored row whose season has no leading year, or an answer with none, leaves the check silent, as before.
+  - So the check fires on a different year and on nothing else.
+  - Not read here (no DB in this container): that each stored row's year equals the provider's `league.season` for its own id. A row the listing of `--season 2025` wrote is a game the provider served under season 2025, so the two should agree. The first laptop dry run after the merge shows it: any `the same pair, season …` line names the rows where they differ.
+- **Tests:** `tests/test_1009_get_game_season.py`, 21 tests, synthetic answers in the recorded shape (no network):
+  - the two recorded ids' seasons are read;
+  - sixteen seasons that are not a string of an ASCII year keep `""` (fullwidth and Arabic-Indic digits among them), as does an answer with no league block;
+  - a malformed answer never raises, and of two games the first one's season is read;
+  - the comparison is year to year;
+  - end to end through `dedupe-matches --orphans`: served '2025' against a stored '2026' is "the same pair, season 2026 -> 2025"; served '2026' reads `live`; no league block reads `live`.
+  - Against main's `get_game` (with a stub reader returning `""`), the three tests that expect a season fail; the other eighteen pin today's behaviour and pass on both.

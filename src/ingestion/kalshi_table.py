@@ -165,22 +165,42 @@ def competition_teams(sess, comp_ids) -> list:
                              .order_by(Team.id)).scalars())
 
 
+def series_comp_ids(sess, series: str, comp_ids) -> list:
+    """The run's competition ids that are THE SERIES' OWN (387 item 3(b): "the stored teams of the series'
+    competition"): the one the shared map names (kalshi_sync.series_competition), where it is among the run's; a
+    series the map does not name (a soccer series resolved by the adapter) on a run of one competition: that one;
+    else none, so every line of it is unresolved, never read against another competition's teams."""
+    from sqlalchemy import select
+
+    from src.db.schema import Competition
+    from src.ingestion.kalshi_sync import series_competition
+
+    comp_ids = list(comp_ids)
+    code = series_competition(series)
+    if code is None:
+        return comp_ids if len(comp_ids) == 1 else []
+    own = sess.execute(select(Competition.id).where(Competition.code == code)).scalar_one_or_none()
+    return [own] if own is not None and own in comp_ids else []
+
+
 def tables_for(sess, markets, comp_ids, table_dir: Path | None = None) -> dict:
-    """{series: Resolved or TableError} for every declared series among `markets` (kalshi_match.place's `tables`). No
-    declared series among them: {} with no read of the database."""
+    """{series: Resolved or TableError} for every declared series among `markets` (kalshi_match.place's `tables`), each
+    read against the stored teams of its own competition (series_comp_ids). No declared series among them: {} with
+    no read of the database."""
     from src.ingestion.kalshi_match import event_of
 
     decl = declared(table_dir)
     present = sorted({series_of(event_of(mk)) for mk in markets} & set(decl))
     if not present:
         return {}
-    teams = competition_teams(sess, comp_ids)
     out = {}
     for s in present:
         try:
-            out[s] = resolve(load(decl[s]), teams)
+            table = load(decl[s])
         except TableError as e:
             out[s] = e
+            continue
+        out[s] = resolve(table, competition_teams(sess, series_comp_ids(sess, s, comp_ids)))
     return out
 
 

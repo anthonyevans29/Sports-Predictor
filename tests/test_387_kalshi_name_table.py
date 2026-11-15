@@ -533,3 +533,34 @@ def test_the_proposer_refuses_and_reads_nothing(tmp_path, case):
         args[3] = str(tmp_path / "nowhere.json")
     r = CliRunner().invoke(cli.cli, ["kalshi-table-propose", *args])
     assert r.exit_code == 2 and "KALSHI-TABLE-PROPOSE REFUSED" in r.output and want[case] in r.output, r.output
+
+
+def test_a_table_is_read_against_its_own_competitions_teams_only(ncaamb_db, tables_dir):
+    """387 item 3(b): "a line whose id is not among the stored teams of the series' competition refuses". On a run that
+    reads two competitions (comp_ids of both), a line whose id only a team of the OTHER competition holds is unresolved,
+    never read against that team."""
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, MatchStatus, Sport, Team
+    with session_scope() as s:
+        comp = _store(s, [("Alabama State", "San Jose State", Z("2026-11-16T05:00"))],
+                      {"Alabama State": "9003", "San Jose State": "9004"})
+        other = Competition(sport=Sport.BASKETBALL, code="NBA", name="NBA", area="USA", type="LEAGUE")
+        s.add(other)
+        s.flush()
+        a, b = (Team(sport=Sport.BASKETBALL, name=n, external_ids={KEY: p}) for n, p in (("Elsewhere", "9002"),
+                                                                                        ("Nowhere", "9099")))
+        s.add_all([a, b])
+        s.flush()
+        s.add(Match(sport=Sport.BASKETBALL, competition_id=other.id, season="2026", utc_date=Z("2026-11-16T05:00"),
+                    status=MatchStatus.SCHEDULED, home_team_id=a.id, away_team_id=b.id, status_raw="NS"))
+        s.flush()
+        write_table(tables_dir)
+        got = kt.tables_for(s, event("26NOV15ALSTSJSU", SJSU), [comp.id, other.id])["KXNCAAMBGAME"]
+        assert set(got.team_of) == {"Alabama St.", "San Jose St."}
+        assert got.unresolved["Alabama A&M"] == ("api_basketball 9002 is not among the stored teams of the series' "
+                                                 "competition")
+        assert kt.series_comp_ids(s, "KXNCAAMBGAME", [other.id]) == []
+        assert kt.series_comp_ids(s, "KXNOTMAPPED", [other.id]) == [other.id]
+        assert kt.series_comp_ids(s, "KXNOTMAPPED", [comp.id, other.id]) == []
+        s.query(Match).filter(Match.competition_id == other.id).delete(synchronize_session=False)
+        s.query(Competition).filter(Competition.id == other.id).delete(synchronize_session=False)

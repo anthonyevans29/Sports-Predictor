@@ -103,7 +103,60 @@ def test_a_failed_boxscore_exits_1_last_after_counts_and_coverage_and_what_parse
     cov = next(i for i, x in enumerate(out) if x.startswith("NHL-GOALIE COVERAGE · "))
     assert counts < cov < len(out) - 1                                          # counts, then coverage, then the line
     assert "boxscore_http_503 1" in out[counts] and "boxscore_http_200 1" in out[counts]
+    assert "refused_unsided" not in out[counts] and "REFUSED game" not in r.output   # a failure is not a refusal (3(e))
     assert _stored(38901, 38902) == [38901]                                     # the parsed game is written (upsert)
+
+
+class _Answer:
+    """urlopen's answer, cut short: a 200 whose read() raises http.client.IncompleteRead (not an OSError)."""
+    status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        import http.client
+        raise http.client.IncompleteRead(b'{"playerByGameStats": ', 4096)
+
+
+def test_sync_fetch_counts_an_answer_cut_short_as_no_usable_answer(monkeypatch):
+    import http.client
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Answer())
+    with pytest.raises(http.client.IncompleteRead):
+        ngs.http_json("https://api-web.nhle.com/v1/gamecenter/1/boxscore")     # http_json as it is (#1018)
+    assert ngs.sync_fetch("https://api-web.nhle.com/v1/gamecenter/1/boxscore") == (0, None)
+    assert ngs.sync.__defaults__[0] is ngs.sync_fetch                           # the goalie sync's own default
+    from src.ingestion import nhl_shots
+    assert nhl_shots.sync.__defaults__[0] is ngs.http_json                      # the shot sync is untouched (#1018)
+
+
+def test_an_answer_cut_short_still_prints_counts_and_coverage_and_the_window_goes_on(monkeypatch):
+    """Through the command's own default fetch: the first boxscore is cut short (IncompleteRead), the second is read
+    and written, and the run exits 1 with its counts, coverage and failure lines, no traceback."""
+    import http.client
+    init_db()
+    ok = box([goalie(38991, "G", True, 20, 22)], [goalie(38992, "H", True, 25, 26)])
+    week = _week(38981, 38982)
+
+    def http_json(url, timeout=20):
+        if "/schedule/" in url:
+            return 200, week
+        if "/gamecenter/38981/" in url:
+            raise http.client.IncompleteRead(b"", 100)
+        return 200, ok
+    monkeypatch.setattr(ngs, "http_json", http_json)
+    import cli
+    r = CliRunner().invoke(cli.cli, ["nhl-goalie-sync", "--start", "2025-01-09", "--end", "2025-01-10", "--sleep", "0"])
+    assert r.exit_code == 1 and isinstance(r.exception, SystemExit), r.output    # exit 1, not a traceback
+    out = r.output.splitlines()
+    assert any(x.startswith("  counts: ") and "boxscore_http_0 1" in x for x in out)
+    assert any(x.startswith("NHL-GOALIE COVERAGE · ") for x in out)
+    assert out[-1].startswith("✗ NHL-GOALIE-SYNC: 1 of 3 request(s) answered other than 200 (boxscore_http_0 1);")
+    assert _stored(38981, 38982) == [38982]                                     # the game after it was still asked
 
 
 def test_a_failed_schedule_read_exits_1_even_with_nothing_else_asked(monkeypatch):
@@ -171,6 +224,7 @@ def test_the_step_is_unmetered_beside_the_shot_sync(sandbox, monkeypatch):
     monkeypatch.setenv("SP_PARALLEL_MODE", "designated")
     monkeypatch.setenv("SP_DESIGNATED_DAYS", "Fri")
     assert not sp_run.metered_skip("nhl-goalie-sync", DAY)                      # a Monday not designated: still runs
+    assert sp_run.metered_skip("sync-matches", DAY)                             # control: a metered step is skipped
 
 
 def test_go_on_names_it_with_its_own_reason():

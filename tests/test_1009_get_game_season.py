@@ -53,10 +53,11 @@ def test_1009_get_game_reads_the_season_the_answer_serves():
 
 
 @pytest.mark.parametrize("season", [None, "", "2025/26", "2025-26", "25", "20251", " 2025", "2025 ", "abcd",
+                                    "\uff12\uff10\uff12\uff15", "\u0662\u0660\u0662\u0665",
                                     2025, 2025.0, True, ["2025"], {"y": "2025"}])
 def test_1009_a_season_that_is_not_a_year_keeps_today_s_behaviour(season):
-    """Law 4: only a string of four digits, as recorded, is read; anything else is today's "" (never guessed, never
-    coerced: an int was never recorded)."""
+    """Law 4: only a string of four ASCII digits, as recorded, is read; anything else is today's "" (never guessed,
+    never coerced: an int was never recorded, nor fullwidth or Arabic-Indic digits)."""
     exists, nm = _adapter({SID: _answer(season=season)}).get_game(SID, "NCAA")
     assert exists and nm is not None and nm.season == ""
 
@@ -71,6 +72,9 @@ def test_1009_an_answer_with_no_league_block_keeps_today_s_behaviour():
 
 def test_1009_served_season_reads_the_first_game_only_and_never_raises_on_a_malformed_answer():
     assert served_season(_answer(season="2024")) == "2024"
+    two = _answer(season="2024")
+    two["response"].append(_answer(season="2025")["response"][0])
+    assert served_season(two) == "2024"                 # the first game's season, never a later one's
     for bad in ({}, {"response": None}, {"response": []}, {"response": [None]}, {"response": ["x"]},
                 {"response": [{"league": "NCAA"}]}, {"response": {"league": {"season": "2025"}}}, None, []):
         assert served_season(bad) == ""

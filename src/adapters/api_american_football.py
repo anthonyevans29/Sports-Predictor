@@ -125,14 +125,14 @@ class RateLimited(RuntimeError):
         self.retry_after = retry_after
 
 
-_SEASON_STR = re.compile(r"\d{4}")
+_SEASON_STR = re.compile(r"[0-9]{4}")          # ASCII digits only: \d would take fullwidth or Arabic-Indic digits
 
 
 def served_season(data: dict) -> str:
     """THE SEASON A ONE-GAME ANSWER SERVES (ARCHITECT 2026-11-15 08:01 ET, addendum 385 item 2; #1009). The recorded
     answer of GET /games?id= (the laptop, 2026-11-15 12:59Z, two ids) carries it at response[0].league.season, "A
-    STRING OF THE YEAR" ('2025' for id 20141, '2023' for id 10948). That string, as served, when it is four digits and
-    nothing else; otherwise "" (no league block, no season, a season that is not a year, or not a string): today's
+    STRING OF THE YEAR" ('2025' for id 20141, '2023' for id 10948). That string, as served, when it is four ASCII digits
+    and nothing else; otherwise "" (no league block, no season, a season that is not a year, or not a string): today's
     behaviour, never guessed (law 4)."""
     resp = data.get("response") if isinstance(data, dict) else None
     first = resp[0] if isinstance(resp, list) and resp else None

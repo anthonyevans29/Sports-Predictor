@@ -136,6 +136,7 @@ def replay(payload: dict, progress=print) -> dict:
     from src.adapters.kalshi import KalshiAdapter
     from src.db.schema import Competition, Match
     from src.ingestion import kalshi_match as km
+    from src.ingestion import kalshi_table as kt
     from src.ingestion.kalshi_sync import stored_games
     from src.walters.venue_quote_age import readonly_session
 
@@ -161,7 +162,8 @@ def replay(payload: dict, progress=print) -> dict:
             res = km.place(mks, games, now=now, lo=lo, hi=hi, implied_prob=KalshiAdapter.implied_prob,
                            is_tie=KalshiAdapter.is_tie_market if soccer else None,
                            spread=KalshiAdapter.spread_dollars if soccer else None,
-                           max_spread=SOCCER_MAX_SPREAD if soccer else None)
+                           max_spread=SOCCER_MAX_SPREAD if soccer else None,
+                           tables=kt.tables_for(s, mks, [comp.id]))     # addendum 387 item 3: the name tables
             main = _main_legs(s, comp.id, "1X2" if soccer else "ML", before=now)
             new = {mk.get("ticker"): key for key, mk in res.placed.items()}
             names = {g.id: f"{g.away_team.name} @ {g.home_team.name}" for g in games if g.home_team and g.away_team}

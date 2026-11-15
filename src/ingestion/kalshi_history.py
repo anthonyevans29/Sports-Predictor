@@ -349,13 +349,31 @@ TENNIS_HELD = ("REFUSED: {series} is a tennis tour series (lane tennis-market-on
                "without tennis's player check (269 item 3(a)): nothing is listed, placed or written")
 
 
+TABLE_HELD = ("REFUSED: {series} declares a name table ({file}; ARCHITECT 2026-11-15, addendum 387 item 3, (B)), and "
+              "the history paths fit its names with the scorer (kalshi_match.fit and _best_fits, outside place()): a "
+              "declared series is placed by its table alone, so nothing is listed, placed or written here until a "
+              "ruling opens these paths to the table")
+
+
 def refuse_held_series(series: str) -> None:
     """Raise ValueError (the paths' own refusal) for a series whose history pull no ruling opens: the two tennis tour
-    series (kalshi_tennis.SERIES; addendum 270 item 5). Every other series passes unchanged. Read by run_history, the
-    ruled re-place (_ruled_target, place-held) and the anchored chain (_plan_chain, place-chain), before any call."""
+    series (kalshi_tennis.SERIES; addendum 270 item 5), and a series that declares a name table (kalshi_table.declared;
+    addendum 387 item 3: these paths fit names with the scorer outside place(), so a declared series would be read
+    by the words its table replaces; refuse_declared_series). Every other series passes unchanged. Read by
+    run_history, the ruled re-place (_ruled_target, place-held) and the anchored chain (_plan_chain, place-chain),
+    before any call; the chain's listing (list_chains) reads refuse_declared_series alone."""
     from src.adapters.kalshi_tennis import SERIES as _TENNIS
     if (series or "").strip() in _TENNIS.values():
         raise ValueError(TENNIS_HELD.format(series=series.strip()))
+    refuse_declared_series(series)
+
+
+def refuse_declared_series(series: str) -> None:
+    """Raise ValueError (TABLE_HELD) for a series that declares a name table (addendum 387 item 3); else nothing."""
+    from src.ingestion import kalshi_table as kt
+    decl = kt.declared()
+    if (series or "").strip() in decl:
+        raise ValueError(TABLE_HELD.format(series=series.strip(), file=decl[series.strip()].name))
 
 
 def competition_for(series: str, adapter) -> tuple[str | None, bool]:
@@ -1804,6 +1822,7 @@ def list_chains(series: str, *, adapter=None, echo=print) -> dict:
     from src.walters.venue_quote_age import readonly_session
 
     series = (series or "").strip()
+    refuse_declared_series(series)                  # addendum 387 item 3: the listing fits names with _best_fits
     adapter = adapter or KalshiAdapter()
     comp_code, soccer = competition_for(series, adapter)
     if comp_code is None:

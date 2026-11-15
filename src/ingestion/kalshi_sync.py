@@ -20,6 +20,7 @@ from src.adapters.kalshi import KalshiAdapter
 from src.db.database import session_scope, write_kalshi_tickers
 from src.db.schema import Competition, Match, OddsSnapshot
 from src.ingestion import kalshi_match as km
+from src.ingestion import kalshi_table as kt
 from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
@@ -158,7 +159,8 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
         comp_ids = list(comps.values())
         games = stored_games(sess, comp_ids, all_markets)
         report(f"  {len(games)} stored {'/'.join(sorted(comp_codes))} games on the events' days")
-        res = km.place(all_markets, games, now=now, lo=lo, hi=hi, implied_prob=adapter.implied_prob)
+        res = km.place(all_markets, games, now=now, lo=lo, hi=hi, implied_prob=adapter.implied_prob,
+                       tables=kt.tables_for(sess, all_markets, comp_ids))      # addendum 387 item 3: the name tables
         for ln in km.console_lines(res):
             report(ln)
         stored = _store(sess, res, now=now, market="ML", implied_prob=adapter.implied_prob, yes_quotes=adapter.yes_quotes)
@@ -222,7 +224,8 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
         games = stored_games(sess, [comp.id], all_markets)
         report(f"  {len(games)} stored {competition_code} games on the events' days")
         res = km.place(all_markets, games, now=now, lo=lo, hi=hi, implied_prob=KalshiAdapter.implied_prob,
-                       is_tie=adapter.is_tie_market, spread=adapter.spread_dollars, max_spread=max_spread)
+                       is_tie=adapter.is_tie_market, spread=adapter.spread_dollars, max_spread=max_spread,
+                       tables=kt.tables_for(sess, all_markets, [comp.id]))     # addendum 387 item 3
         for ln in km.console_lines(res):
             report(ln)
         stored = _store(sess, res, now=now, market="1X2", implied_prob=KalshiAdapter.implied_prob,

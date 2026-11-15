@@ -57,6 +57,7 @@ from src.db.database import session_scope
 from src.db.schema import Competition
 from src.ingestion import kalshi_match as km
 from src.ingestion import kalshi_sync as ks
+from src.ingestion import kalshi_table as ktab
 from src.timeutil import utc_now_naive
 
 PLAYER_NEITHER = "the market's yes_sub_title names neither player of the row"
@@ -247,7 +248,8 @@ def sync_kalshi_tennis(competition_code: str, date_from=None, date_to=None, prog
             return {"ok": False, "series": series, "reason": f"competition {code} not in DB"}
         games = ks.stored_games(sess, [comp.id], markets)
         report(f"  {len(games)} stored {code} rows on the events' days")
-        res = km.place(markets, games, now=now, lo=lo, hi=hi, implied_prob=KalshiAdapter.implied_prob)
+        res = km.place(markets, games, now=now, lo=lo, hi=hi, implied_prob=KalshiAdapter.implied_prob,
+                       tables=ktab.tables_for(sess, markets, [comp.id]))    # addendum 387 item 3: the name tables
         res = player_check(res, games)
         res = kickoff_check(res, games)           # addendum 288 item 1: a START_UNREAD row is never captured
         res = served_kickoff_check(res, games, markets)   # 288 item 1, read again on the markets in hand

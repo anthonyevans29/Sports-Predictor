@@ -377,8 +377,12 @@ def test_the_command_writes_both_files_on_the_host(tmp_path, monkeypatch):
     assert "close capture age" in r.output                             # the console lines, as the bare command's
 
 
-def test_the_laptops_tally_is_byte_for_byte_what_it_was_and_the_hosts_differs_only_by_its_header_line(tmp_path):
+def test_the_laptops_tally_is_byte_for_byte_what_it_was_and_the_hosts_differs_only_by_its_header_line(tmp_path,
+                                                                                                     monkeypatch):
+    from src.walters import export
     from src.walters.export import host_results_tally, results_tally
+    now = export.utc_now_naive()                        # #1013: one clock for the three renderings (the Source
+    monkeypatch.setattr(export, "utc_now_naive", lambda: now)   # line's cutoff prints to the minute)
     _world(tmp_path)
     a, b = tmp_path / "A.md", tmp_path / "B.md"
     results_tally(days=36500, out_path=str(a))

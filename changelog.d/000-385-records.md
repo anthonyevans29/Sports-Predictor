@@ -1,0 +1,15 @@
+## 2026-11-15 (#000: 385-records — the records of addenda 382, 383 and 385; three roadmap done-marks (ARCHITECT, addendum 385 item 3).)
+- **docs/roadmap.json, three done-marks (385 item 3):**
+  - lane `nhl`, "the ceiling readiness read (item 4(a))", due 11-19: DONE 2026-11-13 (#105 issuecomment-6865754939; read by 383 item 2).
+  - lane `availability-record`, "the graph's node shape", due 11-23: DONE 2026-11-15 by #1007 at 455a3f07.
+  - lane `inferred-layer`, "the design proposal to the architect (item 4(b))", due 11-25: DONE 2026-11-14 by Dev 2's comment on #992 (issuecomment-6877950027). The architect's ruling stays due 12-03.
+  - Each receipt quotes its addendum. No date moves and no moved line is written.
+- **docs/ledger/entries/2026-11-15-385-records.md:** the records 382 item 6 asked to ride the next records PR, and those of 383 and 385:
+  - #1003 opened twelve seconds after #853 closed (382 item 2, said as it happened);
+  - the twenty on #945;
+  - this morning's dry run reading 382 item 4(d)'s line word for word (385 item 1);
+  - #1006's written no and limitation #1008 (383 item 3);
+  - #1004 after #1007 (383 item 5);
+  - the tennis five lines on #838 (383 item 6);
+  - the recorded answer for #1009 and its PR #1014 (385 item 2);
+  - the Kalshi ATP refusals the architect is watching (385 item 4).

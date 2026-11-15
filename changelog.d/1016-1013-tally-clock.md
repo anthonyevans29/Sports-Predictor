@@ -1,7 +1,0 @@
-## 2026-11-15 (#1016: 1013-tally-clock — two results-tally tests read the wall clock once per rendering and raced a minute boundary; they now freeze it (#1013; ARCHITECT, addendum 387 items 4 and 6).)
-- **The finding (Dev 2, #1013):** `tests/test_exec_cohorts.py::test_results_tally_leaves_the_mlb_pl_and_nfl_sections_as_they_were` failed once in CI (smoke-py310 job 132825126980). It renders `results_tally` twice and compares the renderings. The MLB and Soccer (PL) "Source" line prints the window's cutoff, `utc_now_naive() - timedelta(days=days)`, to the minute (`src/walters/export.py`). Two renderings on either side of a minute boundary differ ("13:26Z" against "13:25Z"). No product code is wrong.
-- **The fix (Dev 2's proposal, test-only):** the test reads `export.utc_now_naive()` once and patches `src.walters.export.utc_now_naive` to that instant for both renderings. Relative data in the test's world keeps its meaning.
-- **The sweep #1013 asked for:** the thirteen test files that render `results_tally` were run with a probe clock, scratch only and not committed. Every module-level `utc_now_naive` in `src.*` stepped 61 seconds per read.
-  - Exactly two tests failed, both on the Source line: #1013's own and `tests/test_host_results_tally.py::test_the_laptops_tally_is_byte_for_byte_what_it_was_and_the_hosts_differs_only_by_its_header_line`, which renders it three times. The second gets the same freeze.
-  - With the freeze, all 241 tests of the thirteen files pass under the stepping clock.
-- **Not touched:** no product code, threshold, verdict or output.

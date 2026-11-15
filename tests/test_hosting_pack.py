@@ -94,6 +94,16 @@ def test_unmetered_allowlist_holds_against_command_bodies():
         assert not net.search(body), f"{name} reaches the network; not UNMETERED"
 
 
+def test_the_nhl_api_syncs_are_unmetered():
+    """ARCHITECT 2026-11-15, addendum 389 item 3(b): "UNMETERED gains "nhl-goalie-sync", beside nhl-shot-sync, with the
+    same reason (api-web.nhle.com, the NHL's free API, never api-sports)." Both read api-web.nhle.com only."""
+    assert {"nhl-goalie-sync", "nhl-shot-sync"} <= chains.UNMETERED
+    import inspect as _i
+    from src.ingestion import nhl_goalies, nhl_shots
+    assert nhl_goalies.BASE == "https://api-web.nhle.com" and nhl_shots.BASE == nhl_goalies.BASE
+    assert "IngestionService" not in _i.getsource(nhl_goalies) + _i.getsource(nhl_shots)
+
+
 # -------------------------------------------------------- systemd pack ----
 
 def _timers():

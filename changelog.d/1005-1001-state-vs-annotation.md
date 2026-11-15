@@ -1,0 +1,34 @@
+## 2026-11-14 (#1005: 1001-state-vs-annotation — `dedupe-matches --orphans`: "live, resync needed" is for a change of state; annotations are named, never counted; an id that serves another game has its own label (ARCHITECT, addendum 382 item 4; renamed by addendum 383 item 4(a)).)
+- **The rule (382 item 4, verbatim in part):** "THE LABEL "live, resync needed" IS FOR A CHANGE OF STATE THE PROVIDER SERVES AND OUR ROW LACKS."
+  - (a) **State, each named when it differs:** the status, a score, the kickoff, and a stored provider_orientation key the upsert would remove on the same pair.
+  - (b) **Annotations:** status_raw, matchday and stage "do NOT count, alone or together". A row that differs only in them reads `live`, and they are named on its line (`annotation`), printed under `--sample`.
+  - (c) **"live, the id serves another pair"** (renamed by 383 item 4(a), below): an id that serves neither the stored pair nor its reverse gets its own label and count on the plan line. It is printed always, with both pairs by team id and whether the row records the mismatch. A reversed pair is the same game: a reversal not yet recorded names the key a resync would write (`live, resync needed`), and one already recorded reads `live`.
+- **THE RENAME (ARCHITECT 2026-11-14 16:29 ET, addendum 383 item 4(a), verbatim in part):** "THE SAME PAIR SERVED UNDER ANOTHER SEASON IS NOT "live, resync needed": a resync writes another row and leaves this one, so the label would be false, and it is the #902 class again". It joins 382 item 4(c)'s label, renamed to cover both: **"live, the id serves another game"**, one count on the plan line, printed always, each line saying which it is.
+  - `[live_other_game]` lines carry `game`: `another pair: stored teams H v A -> served provider teams h v a (our teams [..] v [..])` with `recorded`, or `the same pair, season 2026 -> 2027`. Stale or not.
+  - The refusal of a twin whose id serves another game stands ("its refusal [...] stands, and is right"): its reason reads `serves another game (another pair)` or `serves another game (the same pair, season 2026 -> 2027)`.
+  - 383 item 4(b): the season check that never fires in production (`get_game` parses with season "") is finding #1009, with its own small PR after the architect relays one recorded `/games?id=` answer's structure.
+- **As built** (`src/ingestion/match_dedupe.py`):
+  - `served_diff` returns (state, annotation), or None for another pair. A reversed pair's served scores are compared in the stored orientation.
+  - `live_entry` labels `live_other_game` (`other_game`) for another pair or the same pair under another season, stale or not (382 item 4(c) and 383 item 4(a) name no staleness). The stale split is otherwise unchanged.
+  - `cli._dedupe_orphans`: the plan line gains "live, the id serves another game N", and those rows print whole.
+  - `scripts/ncaa_live_resync_rows.py`'s pointer names the three lines.
+- **The pre-push review's fixes:**
+  - **(P1)** a live twin whose id serves another pair is never merged into. The absent rows are `refused` ("the live twin's id … serves another pair (382 item 4(c))", now "… serves another game (another pair)" by 383 item 4(a)), so `--apply` leaves both rows and both ids.
+  - The served pair's "our teams" is resolved against every team of the sport, never only the candidates'.
+  - The same/reversed reading mirrors `score_orientation.orientation`: SAME first, never REVERSED when one team plays both sides.
+  - A not-stale live row names its annotations too.
+  - The same pair served under ANOTHER season (the upsert writes another row, addendum 310 item 3(b)) was kept flagged with the season named alone and put to the architect; ruled by 383 item 4(a) (above).
+- **Codex round 1 on #1005:**
+  - **(P1)** a live twin whose id serves the pair under ANOTHER season is never merged into, for the same reason as another pair: the absent rows are `refused` ("… serves the pair under another season", now "… serves another game (the same pair, season …)" by 383 item 4(a)).
+  - The other-game rows print with no cap (they were cut at 10,000). So do `[refused]` and `[unresolved]`, the other classes printed whole, which were cut at 10,000 with no "… more" line (pre-push review).
+  - A refusal names each flagged twin id with its own reason (pre-push review).
+  - The sport's teams are read by one query on the sport, never an IN list of every team id.
+  - **Put to the architect, ruled by 383 item 4(b):** the production `get_game` parses the answer with season "", so the season check never fires on a production run today. No provider field is guessed (law 1); finding #1009 holds it.
+- **Tests:**
+  - `tests/test_945_live_label.py`: the #945 pins that 382 item 4 changes are amended (status_raw alone, a new status code, the reversed final, the foreign pair). New: a recorded reversal reads live; matchday and stage are annotations; a not-stale other pair; the console's count and annotation lines.
+  - `tests/test_dedupe_orphans.py`: the OR1 world's `resync` row (served NS on a NULL code only) now reads `live`.
+  - Six review tests, five failing on beda7dde (the sixth pins the printed-always rule).
+  - All the new tests fail on 151aadae.
+  - Three Codex round-1 tests, all failing on 172480f5.
+  - 383 item 4(a): the label tests renamed, the season case now `live_other_game`, and a console test (both kinds under one count, each line naming its kind). Eleven fail on 909d4da3.
+- **The twenty (382 item 5):** listed on #945 with the provider's game id and the stored kickoff, the keys that hold on both machines.

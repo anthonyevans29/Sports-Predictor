@@ -56,24 +56,43 @@ MAX_AGE_HOURS = 26                             # the 09:30 UTC daily backup, rea
 # 6a3e04a8; quoted in the PR): every COPY FROM forces a checkpoint at its commit while auto_checkpoint is on, whatever
 # the WAL size (src/main/client_context.cpp: "We force checkpoint for COPY_FROM statement unless the user has disabled
 # automatic checkpointing"); a rel table's node group is 2^17 bound nodes; a checkpoint's buffers are never spilled.
-# The rule:
-#   (1) the pool is HALF the memory limit this process runs under: the smaller of its cgroup's limit, read at run time
-#       (memory_limit()), and the unit's MemoryMax (under the unit both are 1536M, so 768 MiB); with no limit of its own,
-#       or a looser one (a laptop, a sandbox, a test), the unit's MemoryMax binds, so the pool is never larger than the
-#       unit's and a tighter limit still binds. The other half is the staging walk's Python heap, the
-#       engine's memory outside its pool and the page cache the limit also counts (the engine's own default, 80% of the
-#       limit, would leave the walk too little);
-#   (2) auto_checkpoint stays ON, set here rather than inherited: then every COPY of CHUNK rows ends in a checkpoint
-#       that merges its rows into the stored graph and frees them. Off, COPY's rows pile up in memory unmerged
-#       (measured: the 256 MiB pool failed at the 5th FACT COPY instead of the 10th). checkpoint_threshold has no
-#       effect on a COPY and is not set;
-#   (3) the pool is a ceiling the record grows into, not a fix for growth: every Player (and every Team) is in one
-#       node group, so each FACT checkpoint rewrites every FACT edge in memory, and the pool it needs grows with the
-#       record's assertions (the PR's receipts give the measured ceiling). The line names the limit, the pool and the
-#       staged size, so the night it is reached says so.
+# The rule, restated on the node shape's measured need (ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 2; the
+# receipts on its PR, synthetic records inside the unit's 1536M):
+#   (1) the pool is a SIXTH of the memory limit this process runs under: the smaller of its cgroup's limit, read at run
+#       time (memory_limit()), and the unit's MemoryMax (under the unit both are 1536M, so 256 MiB); with no limit of
+#       its own, or a looser one (a laptop, a sandbox, a test), the unit's MemoryMax binds, so the pool is never larger
+#       than the unit's and a tighter limit still binds. The node shape's measured need: 64 MiB fails, 128 MiB builds
+#       three times today's record, 256 MiB builds ten times. The rest of the limit is, in turn, the staging child's
+#       walk (888 MiB at ten times today's history, gone before the load, (3)), then the engine's memory outside its
+#       pool while it copies (about 560 MiB at most, flat from three to ten times; it goes at each close, (2)), and
+#       the page cache the limit also counts (the engine's own default, 80% of the limit, and the edge shape's half
+#       both left too little);
+#   (2) auto_checkpoint stays ON, set here rather than inherited: every COPY of CHUNK rows ends in a checkpoint that
+#       merges its rows into the stored graph and frees them (off, COPY's rows pile up unmerged: the 256 MiB pool failed
+#       at the 5th COPY instead of the 10th). checkpoint_threshold has no effect on a COPY and is not set. AND the
+#       database is closed and reopened every REOPEN_EVERY COPYs and between tables: a checkpoint that rewrites a string
+#       segment leaves that segment's de-duplication table on the heap, outside the pool, until the database closes
+#       (v0.22.3 src/include/storage/table/dictionary_chunk.h, a std::vector of slots; dictionary_chunk.cpp, "flush"
+#       never clears it; a reopened dictionary starts empty). Without it ten times today's was killed by MemoryMax.
+#       AND each relationship table is ONE COPY into the empty table: a COPY into a non-empty one builds, for EVERY
+#       node group of the assertions (not only the one it writes), a CSR index on the heap (csr_node_group.cpp,
+#       appendChunkedCSRGroup / getCSRIndexForAppend: std::array<NodeCSRIndex, 2^17>), which an untouched group's
+#       checkpoint never frees; ~8 MiB a group, so it grew with the record. One COPY sends every group down the flush
+#       path; its partitioner's buffers are the pool's and spill to a .tmp beside the graph (the docs' "spill some of
+#       this data to a .tmp file"). Measured at three times today's: each edge table 4 s and 150 MiB against 15 s
+#       and 560; the nodes stay in COPYs of CHUNK rows (one COPY of every assertion would build its key index whole);
+#   (3) the walk stages in a forked child that exits before the load starts (_stage_in_child), so the peak is the
+#       larger of the walk's heap (888 MiB at ten times today's history) and the load's, never their sum;
+#   (4) the shape bounds each node group: each assertion is a node, so a group holds at most 2^17 assertions whatever
+#       the record's size, and a checkpoint works through bounded groups (under the edge shape every Player sat in one
+#       group, the whole record in it, and the pool a checkpoint needed grew with the record, #995). A node COPY of
+#       CHUNK rows can span two groups, and one relationship table's COPY checkpoints every group; the receipts at
+#       one, three and ten times today's are the evidence that the whole stays inside 1536M. The walk (3) still
+#       grows with the longest partition's history. The line names the limit, the pool, the staged size and both
+#       counts, so a night that fails says at what.
 UNIT_MEMORY_MAX = 1536 * 1024 * 1024           # deploy/hosting/systemd/sp-availability-graph.service MemoryMax=1536M
-POOL_SHARE = 2                                 # the pool is limit // POOL_SHARE
-CHUNK = 100_000                                # rows per COPY: one COPY of 1M edges overflows a 256 MB pool
+POOL_SHARE = 6                                 # the pool is limit // POOL_SHARE (rule (1): 256 MiB under the unit)
+CHUNK = 100_000                                # rows per staged file, and per COPY of a node table (rule (2))
 _LBUG_ENV = ("LBUG_PYTHON_BACKEND", "LBUG_C_API_LIB_PATH")      # the package's own overrides: never honoured here
 
 SCHEMA = (
@@ -88,17 +107,26 @@ SCHEMA = (
     "status STRING, late BOOLEAN, rows_asserted INT64, payload_sha256 STRING, PRIMARY KEY(id))",
     "CREATE NODE TABLE Build(key STRING, built_at TIMESTAMP, copy STRING, copy_sha256 STRING, git_sha STRING, "
     "engine STRING, assertions INT64, observations INT64, PRIMARY KEY(key))",
-    "CREATE REL TABLE FACT(FROM Player TO Team, assertion_id INT64, observation_id INT64, sport STRING, kind STRING, "
+    # EACH ASSERTION IS A NODE (ARCHITECT 2026-11-14 10:34 ET, addendum 379 item 2, amending 252 item 4's "an edge per
+    # assertion"): every property the FACT edge carried sits on the node unchanged (kind, both stamps, the derived
+    # interval under each clock); its player, team and observation are property-less edges FROM the assertion,
+    # stored forward only, so each edge table's node groups are the assertions' (2^17 a group), never one group
+    # holding the whole record (379 item 2(a)); a reader matches them by a DIRECTED pattern from either end (an
+    # undirected pattern over a forward-only table is refused by the engine: "Undirected rel patterns are only
+    # supported if every matched rel table has storage type 'both'")
+    "CREATE NODE TABLE Assertion(assertion_id INT64, observation_id INT64, sport STRING, kind STRING, "
     "recorded_at TIMESTAMP, source_stamp TIMESTAMP, game STRING, attrs STRING, "
     "rec_interval INT64, rec_start TIMESTAMP, rec_end TIMESTAMP, rec_closed_by INT64, rec_why STRING, "
     "src_interval INT64, src_start TIMESTAMP, src_end TIMESTAMP, src_closed_by INT64, src_why STRING, "
-    "backfilled BOOLEAN, post_hoc BOOLEAN)",
-    "CREATE REL TABLE ASSERTED(FROM Observation TO Player, assertion_id INT64, kind STRING)",
+    "backfilled BOOLEAN, post_hoc BOOLEAN, PRIMARY KEY(assertion_id))",
+    "CREATE REL TABLE NAMES_PLAYER(FROM Assertion TO Player) WITH (storage_direction='fwd')",
+    "CREATE REL TABLE NAMES_TEAM(FROM Assertion TO Team) WITH (storage_direction='fwd')",
+    "CREATE REL TABLE ASSERTED_IN(FROM Assertion TO Observation) WITH (storage_direction='fwd')",
     "CREATE REL TABLE IN_GAME(FROM Team TO Game, side STRING)",
     "CREATE REL TABLE ABOUT(FROM Observation TO Game)",
 )
-NODE_TABLES = ("Player", "Team", "Game", "Observation", "Build")
-REL_TABLES = ("FACT", "ASSERTED", "IN_GAME", "ABOUT")
+NODE_TABLES = ("Player", "Team", "Game", "Observation", "Build", "Assertion")
+REL_TABLES = ("NAMES_PLAYER", "NAMES_TEAM", "ASSERTED_IN", "IN_GAME", "ABOUT")
 COLUMNS = {
     "Player": ("key", "source", "source_player_id", "name", "player_id"),
     "Team": ("key", "source", "source_team", "team_id", "name"),
@@ -107,10 +135,12 @@ COLUMNS = {
     "Observation": ("id", "sport", "source", "endpoint", "match_id", "kickoff_at", "poll_label", "scheduled_at",
                     "fetched_at", "http_status", "status", "late", "rows_asserted", "payload_sha256"),
     "Build": ("key", "built_at", "copy", "copy_sha256", "git_sha", "engine", "assertions", "observations"),
-    "FACT": ("from", "to", "assertion_id", "observation_id", "sport", "kind", "recorded_at", "source_stamp", "game",
-             "attrs", "rec_interval", "rec_start", "rec_end", "rec_closed_by", "rec_why", "src_interval",
-             "src_start", "src_end", "src_closed_by", "src_why", "backfilled", "post_hoc"),
-    "ASSERTED": ("from", "to", "assertion_id", "kind"),
+    "Assertion": ("assertion_id", "observation_id", "sport", "kind", "recorded_at", "source_stamp", "game", "attrs",
+                  "rec_interval", "rec_start", "rec_end", "rec_closed_by", "rec_why", "src_interval", "src_start",
+                  "src_end", "src_closed_by", "src_why", "backfilled", "post_hoc"),
+    "NAMES_PLAYER": ("from", "to"),
+    "NAMES_TEAM": ("from", "to"),
+    "ASSERTED_IN": ("from", "to"),
     "IN_GAME": ("from", "to", "side"),
     "ABOUT": ("from", "to"),
 }
@@ -175,7 +205,8 @@ def memory_limit() -> tuple[int, str]:
 
 
 def buffer_pool(limit: int) -> int:
-    """The engine's buffer pool for a memory limit (rule (1) above): half of it."""
+    """The engine's buffer pool for a memory limit (rule (1) above): a sixth of it (limit // POOL_SHARE; 256 MiB under
+    the unit's 1536M)."""
     return limit // POOL_SHARE
 
 
@@ -393,14 +424,16 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
                 latest("side", (tk, gk), r.recorded_at, r.id, None if side is None else str(side))
                 about.add((r.observation_id, gk))
                 obs_named_game.add(r.observation_id)
-            t["FACT"].add([pk, tk, r.id, r.observation_id, sport, r.kind, _ts(r.recorded_at), _ts(r.source_stamp),
-                           _s(gk), json.dumps(r.attrs, sort_keys=True, default=str) if r.attrs is not None else "",
-                           riv.first.id, _ts(riv.start), _ts(riv.end),
-                           _i(riv.closed_by.id if riv.closed_by else None), _s(riv.why_closed),
-                           _i(siv.first.id if siv else None), _ts(siv.start if siv else None),
-                           _ts(siv.end if siv else None), _i(siv.closed_by.id if siv and siv.closed_by else None),
-                           _s(siv.why_closed if siv else None), _b(rec.backfilled(r)), _b(rec.post_hoc(r, riv))])
-            t["ASSERTED"].add([r.observation_id, pk, r.id, r.kind])
+            t["Assertion"].add([r.id, r.observation_id, sport, r.kind, _ts(r.recorded_at), _ts(r.source_stamp),
+                                _s(gk), json.dumps(r.attrs, sort_keys=True, default=str) if r.attrs is not None else "",
+                                riv.first.id, _ts(riv.start), _ts(riv.end),
+                                _i(riv.closed_by.id if riv.closed_by else None), _s(riv.why_closed),
+                                _i(siv.first.id if siv else None), _ts(siv.start if siv else None),
+                                _ts(siv.end if siv else None), _i(siv.closed_by.id if siv and siv.closed_by else None),
+                                _s(siv.why_closed if siv else None), _b(rec.backfilled(r)), _b(rec.post_hoc(r, riv))])
+            t["NAMES_PLAYER"].add([r.id, pk])
+            t["NAMES_TEAM"].add([r.id, tk])
+            t["ASSERTED_IN"].add([r.id, r.observation_id])
     observations = 0
     obs_cols = (O.id, O.sport, O.source, O.endpoint, O.match_id, O.kickoff_at, O.poll_label, O.scheduled_at,
                 O.fetched_at, O.http_status, O.status, O.late, O.rows_asserted, O.payload_sha256)
@@ -452,18 +485,42 @@ def _stage(s, stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dic
     return t
 
 
+REOPEN_EVERY = 10                              # COPYs between closes of the database (rule (2) above)
+
+
 def _load(lb, path: Path, tables: dict[str, _Table], pool: int) -> None:
-    db = lb.Database(str(path), backend="pybind", buffer_pool_size=pool, auto_checkpoint=True)   # rule (2)
-    con = lb.Connection(db)
+    def open_():
+        d = lb.Database(str(path), backend="pybind", buffer_pool_size=pool, auto_checkpoint=True)   # rule (2)
+        return d, lb.Connection(d)
+
+    db, con = open_()
+    copies = 0
     try:
         for ddl in SCHEMA:
             con.execute(ddl)
         for name in (*NODE_TABLES, *REL_TABLES):
-            for f in tables[name].files:
+            files = tables[name].files
+            if name in REL_TABLES and files:
+                # rule (2): a relationship table in ONE COPY into the empty table, every file at once, so every node
+                # group takes the flush path and none builds the per-group CSR index a later COPY leaves on the heap
+                listed = ", ".join(f"'{f}'" for f in files)
+                con.execute(f"COPY {name} FROM [{listed}] (HEADER=true, QUOTE='\"', ESCAPE='\"', PARALLEL=FALSE)")
+                for f in files:
+                    f.unlink()
+                files = []
+            for f in files:
                 # PARALLEL=FALSE: the parallel CSV reader refuses a quoted newline, and the record keeps any text
                 # its source gave (a name with a newline would fail every rebuild for good: append-only)
                 con.execute(f"COPY {name} FROM '{f}' (HEADER=true, QUOTE='\"', ESCAPE='\"', PARALLEL=FALSE)")
                 f.unlink()
+                copies += 1
+                if copies % REOPEN_EVERY == 0:          # rule (2): what a checkpoint leaves on the heap goes at close
+                    con.close()
+                    db.close()
+                    db, con = open_()
+            con.close()                                 # and between tables
+            db.close()
+            db, con = open_()
     finally:
         con.close()
         db.close()
@@ -483,6 +540,83 @@ def _counts(lb, path: Path, pool: int) -> dict[str, int]:
     finally:
         con.close()
         db.close()
+
+
+STAGE_RESULT = "stage.result.json"            # the staging child's answer to its parent (379 item 2's memory rule (3))
+
+
+def _stage_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> None:
+    """The staging child: the walk and the record's count, through the copy's own mode=ro + immutable=1 session, its
+    answer written beside the CSVs. It runs in a forked process that exits when it is done, so the walk's heap (a
+    partition of the record at a time: 888 MiB at ten times today's history) is the operating system's again before
+    the engine's load starts, never added to it (rule (3) above)."""
+    import signal as _signal
+
+    from src.walters import mlb_pitchers_gate as mp
+    _signal.signal(_signal.SIGTERM, _signal.SIG_DFL)    # the unit's stop ends the child; the parent writes the line
+    _signal.pthread_sigmask(_signal.SIG_UNBLOCK, {_signal.SIGTERM})   # blocked across the fork (_stage_in_child)
+    try:
+        ctx = mp.readonly_session(copy)
+        s = ctx.__enter__()
+        try:
+            tables = _stage(s, stage, copy, copy_sha, built_at)
+            n = _record_assertions(s)
+        finally:
+            ctx.__exit__(None, None, None)
+        out = {"files": {k: [str(f) for f in x.files] for k, x in tables.items()},
+               "n": {k: x.n for k, x in tables.items()}, "record_assertions": n}
+    except BaseException as e:  # noqa: BLE001 - the parent raises it, with the run's line
+        out = {"error": f"{type(e).__name__}: {e}"[:500]}
+    (stage / STAGE_RESULT).write_text(json.dumps(out))
+
+
+def _stage_in_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> tuple[dict[str, "_Table"], int]:
+    """Stage in a forked child and wait for it (rule (3) above): the parent's memory never holds the walk. A child that
+    fails (its error, or no answer: a signal, MemoryMax) fails the run here, exit 1, the previous graph untouched; a
+    parent stopped while it waits stops the child too."""
+    import multiprocessing
+    import signal as _signal
+    proc = multiprocessing.get_context("fork").Process(target=_stage_child, args=(stage, copy, copy_sha, built_at))
+    # SIGTERM is BLOCKED across the fork (the pre-PR review): delivered just after fork() and before the child set its
+    # default, the parent's handler raised Killed in the child, which unwound through rebuild() as if it were the
+    # parent (a second line, the parent's staging removed). Blocked, it waits: the child unblocks it under SIG_DFL,
+    # the parent inside the try whose finally stops the child.
+    old = _signal.pthread_sigmask(_signal.SIG_BLOCK, {_signal.SIGTERM})
+    try:
+        proc.start()
+    except BaseException:
+        _signal.pthread_sigmask(_signal.SIG_SETMASK, old)
+        raise
+    try:
+        _signal.pthread_sigmask(_signal.SIG_SETMASK, old)
+        proc.join()
+    finally:
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(10)
+    result = stage / STAGE_RESULT
+    try:
+        out = json.loads(result.read_text())
+    except (OSError, ValueError):
+        raise RuntimeError(f"the staging child gave no answer (exit {proc.exitcode})") from None
+    result.unlink()
+    if "error" in out:
+        raise RuntimeError(f"the staging child failed: {out['error']}")
+    tables = {}
+    for k, files in out["files"].items():
+        x = _Table(stage, k)
+        x.files, x.n = [Path(f) for f in files], out["n"][k]
+        tables[k] = x
+    return tables, out["record_assertions"]
+
+
+def _record_assertions(s) -> int:
+    """The record's own count of its assertions (a COUNT on the copy's table, not the walk's), which the finished
+    graph's assertion nodes must equal (379 item 2)."""
+    from sqlalchemy import func, select
+
+    from src.db.schema import AvailabilityAssertion as A
+    return int(s.execute(select(func.count()).select_from(A)).scalar() or 0)
 
 
 def append_receipt(out: Path, rec: dict) -> str | None:
@@ -585,12 +719,16 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
             if not rec.migrated(s):
                 raise Refused(f"{copy}: migrate_availability_record.py has not run on this copy (the record's tables "
                               "and their marker); nothing built")
-            shutil.rmtree(stage, ignore_errors=True)
-            stage.mkdir()
-            tables = _stage(s, stage, copy, copy_sha, now)
         finally:
             ctx.__exit__(None, None, None)
+        shutil.rmtree(stage, ignore_errors=True)
+        stage.mkdir()
+        tables, record_assertions = _stage_in_child(stage, copy, copy_sha, now)
         staged = {n: tables[n].n for n in (*NODE_TABLES, *REL_TABLES)}
+        # 379 item 2: "the finished graph's count of assertion nodes equals the record's assertions and the line says
+        # both"; and the staging's bytes on disk, the size the load reads
+        receipt["record_assertions"] = record_assertions
+        receipt["staged_bytes"] = sum(f.stat().st_size for x in tables.values() for f in x.files)
         # 378 item 4(d): the line names the size BEFORE the load starts, so a failed line says what it failed at; and
         # the staging directory keeps it too, for the next run to name if this one is killed (SIGKILL: no line)
         receipt["staged"] = staged
@@ -604,6 +742,9 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
         got = _counts(lb, graph, pool)
         if got != staged:
             raise RuntimeError(f"the finished graph's counts {got} differ from what was staged {staged}")
+        if got["Assertion"] != record_assertions:
+            raise RuntimeError(f"the finished graph holds {got['Assertion']} assertion nodes; the record holds "
+                               f"{record_assertions} assertions")
         left = sorted(p.name for p in stage.iterdir() if p.name not in (GRAPH_NAME, STAGED))
         if left:
             raise RuntimeError(f"the staging directory holds {left} beside the graph after its close")

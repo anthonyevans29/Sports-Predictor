@@ -8,8 +8,9 @@ the table alone (`src/ingestion/kalshi_match.py`, `place(tables=...)`; `src/inge
 
 A series with no file here is matched by the scorer as before, to the last character.
 
-**The tables here:** `KXNCAAMBGAME.json`, its first table (ARCHITECT 2026-11-15, addendum 392 item 2: the 253 proposed
-lines as the architect read them; the 60 marked names are not in it and refuse by name until each is its own ruling).
+**The tables here:** `KXNCAAMBGAME.json`, 313 lines: the 253 proposed lines as the architect read them (ARCHITECT
+2026-11-15, addendum 392 item 2), then the 60 marked names, each ruled by hand on its stored game against the event's
+other name (addenda 393 item 2 and 394 item 1).
 PR one of 387 item 3 was the machinery and no data; each table arrives as data in a PR of its own, from the
 architect's read of the proposer's console (`python cli.py kalshi-table-propose`). Every line is read by the architect
 before it is data (387 item 3(e)).

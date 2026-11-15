@@ -1,0 +1,13 @@
+## 2026-11-15 (#1023: 396-kxncaambgame-hand-lines — KXNCAAMBGAME's name table gains the 60 hand-ruled lines (ARCHITECT 2026-11-15, addendum 396 item 3; addenda 393 item 2 and 394 item 1; #955))
+- **src/ingestion/kalshi_tables/KXNCAAMBGAME.json:** the 60 lines of the architect's v2 file (name | key | id, exactly as written), after the 253 and in that file's order.
+  - The 253 are untouched. 313 lines.
+  - `ruled` names both rulings.
+  - The strict loader accepts it.
+  - No code changes.
+- **tests/test_392_kxncaambgame_table.py re-pinned:**
+  - 313 lines and the new sha256;
+  - the 253 shown untouched (#1019's file to the byte);
+  - the lines the reading turned up;
+  - "UTSA" placing by its line;
+  - a name of no line refused by name.
+- **The folder's README** names the 313.

@@ -1664,14 +1664,15 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
     # in its own section, never a record line beside the live sports.
     try:
         from src.walters.nhl_shadow import grade as _nhl_grade, results_section
-        _nr = _nhl_grade(days=days)          # results_section's own call, made once: its figures go to the JSON
+        _nr = _nhl_grade(days=days, export_dir=exports_dir)   # graded once, for the file and the JSON; the caller's
+        # export set, never the default's (#881 item 2, Codex on #880: a non-default exports_dir mixed two sets)
         _add(results_section(days, graded=_nr), _nr)
     except Exception:
         _add("## NHL — REFERENCE MODEL, FAILED GATE (shadow)\n\nGrade unavailable.\n", None, True)
     # UNL SHADOW (ARCHITECT 2026-10-02): intl-elo-v2 in its confirmation window, live CLV only.
     try:
         from src.walters.intl_shadow import grade as _unl_grade, results_section as _unl_section
-        _ur = _unl_grade(days=days)          # as the NHL section: graded once
+        _ur = _unl_grade(days=days, export_dir=exports_dir)   # as the NHL section: graded once, the caller's set
         _add(_unl_section(days, graded=_ur), _ur)
     except Exception:
         _add("## UNL — SHADOW, CONFIRMATION WINDOW\n\nGrade unavailable.\n", None, True)
@@ -1785,15 +1786,23 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
     file's order, each with its title, its lines verbatim, the figures its computation returned (no new statistic;
     the per-row lists left out or counted, TALLY_ROW_KEYS / TALLY_COUNTED_KEYS) and `unavailable`; the console lines; the
     stamps. The repo's RESULTS.md is not written. Each file is published by a temporary name and a rename, so the
-    mirror never copies half of one; a refused database (ReadOnlyRefused) writes neither. Returns (md path, json path).
+    mirror never copies half of one, and the PAIR is published all-or-nothing (#881): a failed rename of the JSON puts
+    the previous RESULTS.md back (or removes the new one on a first export) and raises; a refused database
+    (ReadOnlyRefused) writes neither. Returns (md path, json path).
     The machine is the caller's to check (the command refuses off the host)."""
     import os
+    import secrets
     from src.db.database import readonly_binding
     md, js = os.path.join(out_dir, HOST_TALLY_MD), os.path.join(out_dir, HOST_TALLY_JSON)
-    # hidden temporary names (coverage_map.write_document's form): pull_exports.SAFE_NAME and the mirror skip them
-    tmp_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{os.getpid()}.tmp")
-    tmp_js = os.path.join(out_dir, f".{HOST_TALLY_JSON}.{os.getpid()}.tmp")
+    # hidden temporary names (coverage_map.write_document's form): pull_exports.SAFE_NAME and the mirror skip them.
+    # Each name is THIS run's own (the pid and a random token, Codex on #1006): a reused pid never names, so never
+    # removes, an earlier run's file (a previous Markdown a failed rollback kept is that run's only copy)
+    run = f"{os.getpid()}.{secrets.token_hex(6)}"
+    tmp_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{run}.tmp")
+    tmp_js = os.path.join(out_dir, f".{HOST_TALLY_JSON}.{run}.tmp")
+    prev_md = os.path.join(out_dir, f".{HOST_TALLY_MD}.{run}.prev.tmp")    # #881: the previous Markdown, held
     got: dict = {}
+    keep_prev = False
     try:
         with readonly_binding():
             # the folder is made only once the read-only binding has accepted the database: a refused database
@@ -1822,10 +1831,49 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
             os.fsync(f.fileno())
         with open(tmp_md, "rb") as f:
             os.fsync(f.fileno())
-        os.replace(tmp_md, md)
-        os.replace(tmp_js, js)
+        # THE PAIR, ALL-OR-NOTHING (#881 item 1, Codex on #880): the previous RESULTS.md is held under a hidden name
+        # (a hard link, else a copy) before the new one is renamed in. Whatever stops the two renames (an OSError, a
+        # KeyboardInterrupt delivered after a rename has completed), the state is read from the FILESYSTEM, never from
+        # which line raised: the Markdown swapped and the JSON not means the previous Markdown is put back (on a first
+        # export the new one removed), so the mirror, which sp_run runs even after a non-zero exit, never carries a new
+        # Markdown beside an old or missing JSON; both swapped means the pair is complete and is left as it is
+        held = False
+        if os.path.exists(md):
+            try:
+                os.link(md, prev_md)
+            except OSError:                        # a filesystem with no hard links: a copy holds the same bytes
+                import shutil
+                shutil.copy2(md, prev_md)
+            held = True
+        try:
+            os.replace(tmp_md, md)
+            os.replace(tmp_js, js)
+        except BaseException as e:
+            if not os.path.lexists(tmp_md) and os.path.lexists(tmp_js):    # the Markdown swapped, the JSON not
+                try:
+                    if held:
+                        os.replace(prev_md, md)
+                    else:
+                        os.unlink(md)
+                except OSError as rollback:
+                    keep_prev = held                # the previous Markdown's only copy: kept, hidden, named below
+                    kept = (f"the previous {HOST_TALLY_MD} is kept as {os.path.basename(prev_md)}" if held
+                            else f"there was no previous {HOST_TALLY_MD}")
+                    try:
+                        os.unlink(md)               # never a new Markdown beside the old JSON
+                        left = f"the new {HOST_TALLY_MD} is removed"
+                    except OSError as stuck:        # said, never swallowed (Codex on #1006)
+                        beside = (f"it stands beside the previous {HOST_TALLY_JSON}, and the exports mirror after "
+                                  f"this step can carry the mixed pair" if os.path.lexists(js) else
+                                  f"it stands with no {HOST_TALLY_JSON} beside it, and the exports mirror after "
+                                  f"this step can carry the Markdown without its JSON")     # what is on disk
+                        left = (f"the new {HOST_TALLY_MD} could NOT be removed ({type(stuck).__name__}: "
+                                f"{stuck.strerror}): {beside}")
+                    raise e from OSError(f"the rollback failed ({type(rollback).__name__}: {rollback.strerror}); "
+                                         f"{kept}; {left}")
+            raise
     finally:
-        for t in (tmp_md, tmp_js):
+        for t in (tmp_md, tmp_js) + (() if keep_prev else (prev_md,)):
             if os.path.exists(t):
                 os.unlink(t)
     return md, js

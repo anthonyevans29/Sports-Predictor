@@ -53,7 +53,10 @@ Action glob never sees a bulletin and the compare is untouched (no new kind, no 
   any other suffix (a .json above all: no JSON is ever written under the subtree by the mirror), a symlink (file
   or folder, the subtree's own root included: never followed, in or out of the subtree), anything that is not a
   regular file, a path with a `.git` component (git cannot carry it), a folder that cannot be read, a file that
-  cannot be read when the push copies it (no read permission, or gone since the plan: `unreadable: <error>`), and a
+  cannot be read when the push copies it (no read permission, or gone since the plan: `unreadable: <error>`), a
+  source swapped since the plan for a symlink, file or folder above it, or for a FIFO or anything else that is not a
+  regular file (#851 R2-2: read with every folder opened by dir fd and the file with O_NOFOLLOW|O_NONBLOCK, fstat
+  requiring a regular file: `symlink: not followed` / `not a regular file`, never read through, never blocked on), and a
   path git itself refuses (`git refused the path`: git decides, by `add --force --ignore-errors`, not a list kept here;
   with core.protectNTFS, its default, that is `.git`'s other spellings GIT~1, `.git.`, `.git `). The DESTINATION is
   never followed either (Codex on #847): the mirror's own tree may already track a symlink, so before a bulletin is
@@ -63,8 +66,9 @@ Action glob never sees a bulletin and the compare is untouched (no new kind, no 
   (`destination not a regular file`) skips that bulletin, receipted; what the mirror tracks there is left as it is
   (never unlinked, never written through), the missing folders are made only below real ones, and git's own check
   never walks a <role>/ or <role>/bulletins/ that is not a real folder. A submodule the index holds on the path
-  (a gitlink checks out as an empty real folder) is refused too (`destination path has a submodule`), and git's
-  check never walks into one. One bad bulletin
+  (a gitlink checks out as an empty real folder) is refused too (`destination path has a submodule`), by its text
+  and by its checkout folder's (st_dev, st_ino) (#851 R2-3: on a case-insensitive clone, the macOS laptop's,
+  `bulletins/nfl` IS a gitlink `bulletins/NFL`'s folder), and git's check never walks into one. One bad bulletin
   is local to that file: a copy git refused is removed from the working clone (it is the push's own planned copy),
   so it never jams a later push, and the top-level files and the other bulletins still go.
   Absent exports/bulletins/: nothing happens.
@@ -123,6 +127,7 @@ the mirror holds it; the other tool, the top-level copies and the bulletins stil
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import re
 import shutil
@@ -213,6 +218,49 @@ def plan(files: list[tuple[str, float]], role: str, today: date) -> dict:
             newest[k] = (name, mt)
     latest = {f"{role}/latest/{k}{Path(n).suffix}": n for k, (n, _) in newest.items()}
     return {"dated": dated, "latest": latest}
+
+
+def _read_planned(exports: Path, src: Path) -> tuple[bytes | None, str | None]:
+    """A planned bulletin's bytes, or (None, why). #851 R2-2 (ARCHITECT, addendum 381 item 3(v); the fix quoted on
+    the thread: "`os.open` with `O_NOFOLLOW|O_NONBLOCK`, `fstat` requiring a regular file, and the parent folders
+    walked by dir fd"): the plan lstat'ed each path, but a source swapped AFTER the plan for a symlink (the file or a
+    folder above it) or a FIFO is never read through the link and never blocked on. Each folder from exports/ down is
+    opened by name relative to its parent's fd with O_NOFOLLOW (a link there: "symlink: not followed", the plan's own
+    reason), the file the same way with O_NONBLOCK (a FIFO opens at once), and fstat must say a regular file ("not a
+    regular file"). Any other failure: "unreadable: <the error's class>", as before."""
+    parts = src.relative_to(exports).parts
+    flags_dir = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fds: list[int] = []
+    try:
+        fds.append(os.open(exports, os.O_RDONLY | os.O_DIRECTORY))
+        for part in parts[:-1]:
+            try:
+                fds.append(os.open(part, flags_dir, dir_fd=fds[-1]))
+            except OSError as e:                          # Linux: ENOTDIR for a link under O_DIRECTORY|O_NOFOLLOW
+                if e.errno in (errno.ENOTDIR, errno.ELOOP) and st.S_ISLNK(
+                        os.stat(part, dir_fd=fds[-1], follow_symlinks=False).st_mode):
+                    return None, "symlink: not followed"
+                raise
+        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fds[-1])
+        fds.append(fd)
+        if not st.S_ISREG(os.fstat(fd).st_mode):
+            return None, "not a regular file"
+        chunks = []
+        while True:
+            b = os.read(fd, 1 << 20)
+            if not b:
+                break
+            chunks.append(b)
+        return b"".join(chunks), None
+    except OSError as e:
+        if e.errno == errno.ELOOP:
+            return None, "symlink: not followed"
+        if e.errno == errno.ENXIO:                        # a socket (or a FIFO with no reader on some systems)
+            return None, "not a regular file"
+        return None, f"unreadable: {e.__class__.__name__}"
+    finally:
+        for f in reversed(fds):
+            os.close(f)
 
 
 def _shown(rel: str) -> str:
@@ -350,13 +398,41 @@ def _unpushed(clone: Path) -> int:
     return int(_git(clone, "rev-list", "--count", f"origin/{BRANCH}..HEAD").stdout.strip() or 0)
 
 
+class _Gitlinks(frozenset):
+    """The submodule entries as NFC paths (a frozenset, as before) plus `inodes`: the (st_dev, st_ino) of each one's
+    checkout folder that exists as a real folder (#851 R2-3, ARCHITECT, addendum 381 item 3(v): "match submodules by
+    `(st_dev, st_ino)` of their checkout folder, keeping the text check for a gitlink with no folder"). On a
+    case-insensitive clone (the macOS laptop) `bulletins/nfl` IS a gitlink `bulletins/NFL`'s folder, which the text
+    check alone never sees."""
+
+    def __new__(cls, paths=(), inodes=frozenset()):
+        self = super().__new__(cls, paths)
+        self.inodes = frozenset(inodes)
+        return self
+
+
+def _is_gitlink_folder(gitlinks: frozenset[str], mode_st) -> bool:
+    """True when an lstat result is a real folder that is a submodule's checkout folder, by its (st_dev, st_ino)."""
+    return st.S_ISDIR(mode_st.st_mode) and (mode_st.st_dev, mode_st.st_ino) in getattr(gitlinks, "inodes", ())
+
+
 def _gitlinks(clone: Path, role: str | None = None) -> frozenset[str]:
     """The submodule entries (gitlinks, mode 160000) the clone's index holds at or under <role>/ (no role: anywhere in
     the index), as NFC paths: git checks one out as an empty REAL folder, so an lstat never sees it (review of #847's
-    round-1 fix)."""
+    round-1 fix). With each one's checkout folder by (st_dev, st_ino) on `.inodes` (#851 R2-3): lstat'ed, never
+    followed, and only when it is a real folder (a gitlink with no folder is matched by its text alone)."""
     out = _git(clone, "ls-files", "-s", "-z", *(("--", role) if role else ()), text=False).stdout
-    return frozenset(unicodedata.normalize("NFC", os.fsdecode(e.split(b"\t", 1)[1]))
-                     for e in out.split(b"\0") if e.startswith(b"160000 ") and b"\t" in e)
+    paths = [unicodedata.normalize("NFC", os.fsdecode(e.split(b"\t", 1)[1]))
+             for e in out.split(b"\0") if e.startswith(b"160000 ") and b"\t" in e]
+    inodes = set()
+    for rel in paths:
+        try:
+            got = (clone / rel).lstat()
+        except OSError:
+            continue
+        if st.S_ISDIR(got.st_mode):
+            inodes.add((got.st_dev, got.st_ino))
+    return _Gitlinks(paths, inodes)
 
 
 def _dest_refusal(clone: Path, dest: str, gitlinks: frozenset[str] = frozenset(), folder: bool = False) -> str | None:
@@ -375,11 +451,14 @@ def _dest_refusal(clone: Path, dest: str, gitlinks: frozenset[str] = frozenset()
         if unicodedata.normalize("NFC", "/".join(parts[:i + 1])) in gitlinks:
             return "destination path has a submodule"
         try:
-            mode = p.lstat().st_mode
+            got = p.lstat()
         except FileNotFoundError:
             return None
         except OSError as e:
             return f"destination unreadable: {e.__class__.__name__}"
+        mode = got.st_mode
+        if _is_gitlink_folder(gitlinks, got):           # #851 R2-3: the same folder under another casing
+            return "destination path has a submodule"
         if st.S_ISLNK(mode):
             return "destination path has a symlink"
         if (i < len(parts) - 1 or folder) and not st.S_ISDIR(mode):
@@ -405,9 +484,12 @@ def _real_path(clone: Path, rel: str, gitlinks: frozenset[str], last_is_dir: boo
         if _nfc("/".join(parts[:i + 1])) in gitlinks:
             return False
         try:
-            mode = p.lstat().st_mode
+            got = p.lstat()
         except OSError:
             return False
+        if _is_gitlink_folder(gitlinks, got):           # #851 R2-3: never a pathspec inside a case-folded submodule
+            return False
+        mode = got.st_mode
         if (i < len(parts) - 1 or last_is_dir) and not st.S_ISDIR(mode):
             return False
         if i == len(parts) - 1 and not last_is_dir and st.S_ISDIR(mode):
@@ -541,10 +623,9 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
             if why:
                 late.append((dest[len(role) + 1:], why))
                 continue
-            try:
-                data = src.read_bytes()                           # read whole first: never a half-written copy
-            except OSError as e:                                  # no read permission, or gone since the plan
-                late.append((dest[len(role) + 1:], f"unreadable: {e.__class__.__name__}"))
+            data, why = _read_planned(exports, src)               # read whole first: never a half-written copy
+            if why:                                               # #851 R2-2: swapped, unreadable or gone since
+                late.append((dest[len(role) + 1:], why))          # the plan
                 continue
             carried.append(dest)
             if dst.is_file() and dst.read_bytes() == data:

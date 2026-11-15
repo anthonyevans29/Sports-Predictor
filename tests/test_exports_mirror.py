@@ -741,6 +741,13 @@ def test_an_unreadable_or_vanished_bulletin_is_skipped_and_the_top_level_still_p
                 raise PermissionError(13, "Permission denied", os.fsdecode(file))
             return f(file, *a, **k)
         return opener
+    real_os_open = os.open
+
+    def os_refusing(path, flags, *a, dir_fd=None, **k):                       # #851: the bulletin read is os.open's,
+        if os.fsdecode(path) == locked.name and dir_fd is not None:           # the leaf by name under its folder's fd
+            raise PermissionError(13, "Permission denied", os.fsdecode(path))
+        return real_os_open(path, flags, *a, dir_fd=dir_fd, **k)
+    monkeypatch.setattr(os, "open", os_refusing)
     monkeypatch.setattr(builtins, "open", refusing(real_open))                # shutil.copyfile reads through it
     monkeypatch.setattr(io, "open", refusing(real_io_open))                   # Path.read_bytes reads through it
     import pathlib
@@ -1465,3 +1472,125 @@ def test_a_tracked_submodule_or_file_on_a_tool_path_is_skipped_kept_and_receipte
     assert (TOOL_YML if skipped == TOOL_PY else TOOL_PY) in tree
     again = em.push("host", ex, "t", remote, clone, today=TODAY)
     assert again["why"] == "nothing changed" and again["tools_skipped"] == r["tools_skipped"], again
+
+
+# ---- #851 (ARCHITECT 2026-11-14 11:25 ET, addendum 381 item 3(v)): the bulletin mirror's two round-two findings -----
+
+def _swap_after_plan(monkeypatch, swap):
+    """Runs `swap()` once, after bulletin_plan has planned the bulletins and before the push reads them."""
+    real_plan = em.bulletin_plan
+    done = []
+
+    def plan_then_swap(exports, role):
+        pl = real_plan(exports, role)
+        if not done:
+            swap()
+            done.append(1)
+        return pl
+    monkeypatch.setattr(em, "bulletin_plan", plan_then_swap)
+
+
+class _Blocked(Exception):
+    pass
+
+
+@pytest.mark.parametrize("how", ["leaf symlink", "parent symlink", "leaf fifo"])
+def test_851_r2_2_a_source_swapped_after_the_plan_is_never_followed_or_blocked_on(tmp_path, monkeypatch, how):
+    """#851 R2-2 (Codex on #847, thread 4495810245): a planned bulletin swapped, between the plan and the read, for a
+    symlink (the leaf, or a parent folder) or a FIFO. The read opens each parent folder by dir fd and the leaf with
+    O_NOFOLLOW|O_NONBLOCK, and fstat must say a regular file: the bulletin is skipped and receipted, never read through
+    the link and never blocked on; the other bulletins and the top level still go. Fail-first: on fbc33b23 the link's
+    target was published as the bulletin, and the FIFO blocked the read (here: until the test's alarm)."""
+    import signal
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    mine, other = "bulletins/NFL/2026-10-03/900001_x.md", "bulletins/SOCCER/2026-10-03/900002_y.md"
+    _bulletins(ex, {mine: b"# the planned bulletin\n", other: b"# another bulletin\n"})
+    out, _ = _outside(tmp_path)
+    (out / "NFL" / "2026-10-03").mkdir(parents=True)
+    (out / "NFL" / "2026-10-03" / "900001_x.md").write_bytes(b"outside, never the mirror's\n")
+
+    def swap():
+        leaf = ex / mine
+        if how == "leaf symlink":
+            leaf.unlink()
+            os.symlink(out / "target.md", leaf)
+        elif how == "parent symlink":
+            shutil.rmtree(ex / "bulletins" / "NFL")
+            os.symlink(out / "NFL", ex / "bulletins" / "NFL")
+        else:
+            leaf.unlink()
+            os.mkfifo(leaf)
+    _swap_after_plan(monkeypatch, swap)
+
+    def blocked(*_):
+        raise _Blocked("the read blocked on the FIFO")
+    old = signal.signal(signal.SIGALRM, blocked)
+    signal.alarm(30)
+    try:
+        r = em.push("host", ex, "t", remote := _remote(tmp_path), tmp_path / "clone", today=TODAY)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+    why = "not a regular file" if how == "leaf fifo" else "symlink: not followed"
+    assert r["pushed"] and r["skipped"] == [(mine, why)], r
+    co, tree = _tree(remote, tmp_path)
+    assert f"host/{mine}" not in tree and (co / "host" / other).read_bytes() == b"# another bulletin\n"
+    assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+    assert not any(b"outside" in (co / f).read_bytes() for f in tree if f.startswith("host/"))   # nothing via a link
+
+
+def _case_folded_lstat(monkeypatch, clone: Path):
+    """A case-insensitive clone (the macOS laptop's default), simulated on this case-sensitive disk: under `clone`, an
+    lstat of a path that does not exist resolves each missing component by a case-insensitive name match, as APFS
+    does. Nothing else changes: git (a subprocess) and every write see the real disk."""
+    import pathlib
+    real = pathlib.Path.lstat
+
+    def folded(self):
+        try:
+            return real(self)
+        except FileNotFoundError:
+            try:
+                rel = Path(self).relative_to(clone)
+            except ValueError:
+                raise
+            p = clone
+            for part in rel.parts:
+                if not os.path.lexists(p / part):
+                    hit = [n for n in (os.listdir(p) if p.is_dir() else []) if n.lower() == part.lower()]
+                    if not hit:
+                        raise
+                    part = hit[0]
+                p = p / part
+            return real(p)
+    monkeypatch.setattr(pathlib.Path, "lstat", folded)
+
+
+def test_851_r2_3_a_case_folded_submodule_is_matched_by_its_folder_and_the_bulletin_skipped(tmp_path, monkeypatch):
+    """#851 R2-3 (Codex on #847, thread 4495810257): the mirror tracks a gitlink at host/bulletins/NFL and the family
+    folder the bulletin goes to is `nfl`. On a case-insensitive clone `nfl` IS the submodule's (empty, real) checkout
+    folder, so the text check misses it and the bulletin is written where git never carries it, counted copied with
+    no receipt. Submodules are now matched by (st_dev, st_ino) of their checkout folder too (the text check kept for a
+    gitlink with no folder): the bulletin is skipped "destination path has a submodule", the gitlink kept, the other
+    bulletins and the top level still go. Fail-first: on fbc33b23 the bulletin was not skipped."""
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    mine, other = "bulletins/nfl/2026-10-03/900001_x.md", "bulletins/SOCCER/2026-10-03/900002_y.md"
+    _bulletins(ex, {mine: b"# a bulletin in the folded family\n", other: b"# another bulletin\n"})
+    remote, clone = _seeded_remote(tmp_path, {"host/bulletins/NFL": ("gitlink", GITLINK_SHA)}), tmp_path / "clone"
+    _case_folded_lstat(monkeypatch, clone)
+    r = em.push("host", ex, "t", remote, clone, today=TODAY)
+    assert r["pushed"] and r["skipped"] == [(mine, "destination path has a submodule")], r
+    assert _gitlinks(remote) == ["host/bulletins/NFL"]
+    assert not (clone / "host/bulletins/nfl").exists() and not any((clone / "host/bulletins/NFL").iterdir())
+    co, tree = _tree(remote, tmp_path)
+    assert (co / "host" / other).read_bytes() == b"# another bulletin\n" and f"host/{mine}" not in tree
+    assert {"host/2026-10-03/fixtures_NHL_2026-10-03.json", "host/latest/fixtures_NHL.json"} <= set(tree)
+
+
+def test_851_r2_3_a_gitlink_with_no_folder_is_still_matched_by_its_text(tmp_path):
+    """The text check stays for a gitlink whose checkout folder is absent (positive control for the inode match)."""
+    clone = tmp_path / "c"
+    (clone / "host" / "bulletins").mkdir(parents=True)                         # real folders; no NFL folder
+    gl = em._Gitlinks({"host/bulletins/NFL"}, frozenset())
+    assert em._dest_refusal(clone, "host/bulletins/NFL/2026-10-03/x.md", gl) == "destination path has a submodule"
+    assert em._dest_refusal(clone, "host/bulletins/SOCCER/2026-10-03/x.md", gl) is None

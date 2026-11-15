@@ -1,0 +1,14 @@
+## 2026-11-14 (#1000: 851-mirror-publish — the bulletin mirror's two round-two findings from #851, fixed fail-first (ARCHITECT, addendum 381 item 3(v)).)
+- **R2-2: a planned bulletin swapped after the plan.** The swap is to a symlink (the file or a folder above it) or to a FIFO. Such a bulletin is now skipped and receipted (`symlink: not followed` or `not a regular file`). It is never read through the link and never blocked on.
+  - The fix is the one quoted on the thread. `_read_planned` opens every folder from `exports/` down by dir fd with `O_NOFOLLOW`, opens the file with `O_NOFOLLOW|O_NONBLOCK`, and requires `fstat` to say a regular file.
+  - Before, the link's target was published as the bulletin, and a FIFO blocked the push.
+  - The other bulletins and the top level still go.
+- **R2-3: a case-folded submodule on the laptop's case-insensitive clone.** `_gitlinks` now also carries each submodule's checkout folder by `(st_dev, st_ino)`. `_dest_refusal` and `_real_path` refuse that folder under any spelling (`destination path has a submodule`), and the text check stays for a gitlink with no folder.
+  - Before, a bulletin bound for `bulletins/nfl` was written into a gitlink `bulletins/NFL`'s folder: counted as copied, never carried, with no receipt.
+- **Text:** `deploy/hosting/exports_mirror.py`'s docstring and `docs/specs/exports-mirror.md` carry both rules.
+- **Tests (`tests/test_exports_mirror.py`):**
+  - R2-2's three swaps: the file, a parent folder, a FIFO.
+  - R2-3 on a simulated case fold.
+  - A text-match control.
+  - The existing unreadable-bulletin stand-in also refuses through `os.open`.
+- #881 (`src/walters/export.py`) touches another module, so it is not in this PR (381 item 3(v): "#851 with #881 if they touch the same module, else #851 alone").

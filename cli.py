@@ -10788,8 +10788,9 @@ def availability_cmd(sport, as_of_s, clock, match_id, team, kind, show_history, 
 def availability_graph_rebuild_cmd(out_path, backup_dir, db_path, max_age_hours):
     """THE AVAILABILITY RECORD'S GRAPH PROJECTION (ARCHITECT 2026-11-04 13:05 ET, addendum 252 item 4; 2026-11-11
     19:50 ET, addendum 347 item 5, the pick: LadybugDB 0.22.3, host-only). Rebuilds the graph whole from a .backup
-    copy opened mode=ro + immutable=1 (never the live file): nodes Player, Team, Game, Observation; an edge per
-    assertion carrying its kind, both stamps and its derived interval under each clock (src/availability/graph.py;
+    copy opened mode=ro + immutable=1 (never the live file): nodes Player, Team, Game, Observation and, since addendum
+    379 item 2, EACH ASSERTION A NODE carrying its kind, both stamps and its derived interval under each clock, with
+    property-less edges to its player, team and observation (src/availability/graph.py;
     the read is record.walk, the record's own derivation). The file is written beside --out and moved onto it whole;
     nothing reads it for a call, a price or a page (347 item 5(c)). One line of rebuild.jsonl beside the graph per
     run (a refused --out writes nothing at all). Exit 0 built; 2 refused (no engine, no fresh verified copy, the
@@ -10813,6 +10814,9 @@ def availability_graph_rebuild_cmd(out_path, backup_dir, db_path, max_age_hours)
                f"immutable=1) · {r['engine']} · {r['seconds']} s")
     click.echo("  nodes: " + " · ".join(f"{n} {c[n]}" for n in g.NODE_TABLES)
                + " | edges: " + " · ".join(f"{n} {c[n]}" for n in g.REL_TABLES))
+    click.echo(f"  the record's assertions {r['record_assertions']} · the graph's assertion nodes {c['Assertion']} "
+               f"(addendum 379 item 2) · staged {r['staged_bytes']} bytes · pool {r['buffer_pool']} bytes of the "
+               f"limit {r['memory_limit']}")
     click.echo(f"  graph sha256 {r['sha256'][:12]} · {r['bytes']} bytes · read by nothing (addendum 347 item 5(c))")
     if r.get("removed_stale_staging"):
         click.echo(f"  removed a killed run's staging: {', '.join(r['removed_stale_staging'])}")

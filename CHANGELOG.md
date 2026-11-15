@@ -4,6 +4,364 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-11-15 (#1022: 395-396-records — addenda 395 to 397 recorded: #1019 merged and its first table's replay read, the second data PR's word given, the day's compare CLEAN for v1.6.9's step 1, #1018 seen, #1021 merge-ready, the cup exam's correction read declared)
+- **Records only, no code:** docs/ledger/entries/2026-11-15-395-397-records.md holds addenda 395 to 397 verbatim and what DEV 1 did with 395 items 3-4, 396 item 6 and 397.
+
+## 2026-11-15 (#1021: 389-nhl-goalie-daily — the daily goalie step on nhl-daily, and a failure that reads as one (ARCHITECT 2026-11-15, addendum 389 item 3))
+- **cli.py `nhl-goalie-sync`, the exit (3(d), (e)):**
+  - It exits 1 when any schedule or boxscore request of the run answered other than 200 (`schedule_http_<code>`, `boxscore_http_<code>`; 0 = no usable answer).
+  - It still prints its counts line and its coverage lines first. Its last line reads `✗ NHL-GOALIE-SYNC: N of M request(s) answered other than 200 (...)`.
+  - What was parsed is still written; the upsert is unchanged.
+  - A hand run, `--dry-run` and the chain alike, with no flag.
+  - REFUSED games and games not in our DB stay counted, printed and exit 0. No tolerance changes and no code is allow-listed.
+- **src/ingestion/nhl_goalies.py:** `failed_requests`, `failure_line` and `PROVIDER_FAILURE_EXIT = 1`, the exit sync-matches' strict read, availability-nflverse and availability-nhl-observe use for a failed provider read.
+- **src/ingestion/nhl_goalies.py, `sync_fetch` (the goalie sync's own default fetch):** an answer `http_json` lets through as an exception (`http.client.HTTPException`: IncompleteRead, a 200 cut short on read; BadStatusLine; LineTooLong; none an OSError) counts as code 0. So the run still prints its counts and coverage lines and goes on with the window, instead of ending in a traceback. `http_json` itself, nhl-shot-sync, the audit and the probes are unchanged (#1018).
+- **A failed boxscore is not a refusal (3(e)):** a request that answered other than 200 is counted under `boxscore_http_<code>` only. It is no longer also counted as `refused_unsided` or printed as `REFUSED game`.
+- **deploy/hosting/chains.py, nhl-daily (3(a)-(c)):**
+  - `NHL_GOALIE_STEP` (`nhl-goalie-sync --start {yesterday} --end {today}`) runs after `export-fixtures` and before `nhl-shot-sync`.
+  - It is in `UNMETERED` beside `nhl-shot-sync` (api-web.nhle.com, never api-sports).
+  - `go_on` names it with `NHL_GOALIE_GO_ON`: a failed run is receipted (`continued`), pages through the chain's exit, and stops nothing after it.
+  - No new placeholder and no wider window (3(g)).
+- **docs/CLI.md's row.**
+- **Tests:** tests/test_389_nhl_goalie_daily.py, 15 tests. On main, 9 of the first 13 fail first. The 4 controls pass on both: a refusal is exit 0, all-200 is exit 0, without go_on the failure stops the chain, and a failed export-fixtures still stops it. The two added after the pre-push review (`sync_fetch` on an answer cut short; the command through its own default fetch) fail without `sync_fetch`. tests/test_hosting_pack.py gains `test_the_nhl_api_syncs_are_unmetered` (3(b)).
+- **Item 5:** the shot sync's silent exit is a finding, #1018. No fix here.
+
+## 2026-11-15 (#1019: 392-kxncaambgame-table — KXNCAAMBGAME's first name table, as data (ARCHITECT 2026-11-15, addendum 392 items 2 and 4; #955))
+- **src/ingestion/kalshi_tables/KXNCAAMBGAME.json:** the 253 lines of the architect's file (name | key | id, exactly as printed, in its order), ruled "ARCHITECT 2026-11-15, addendum 392 item 2". KXNCAAMBGAME is now placed by its table alone (387 item 3).
+- **The 60 marked names are not in it:** their events refuse under the reason naming them. All 60 are ruled as lines for the series' second data PR (393 item 2; 394 item 1). The three watched lines are confirmed (393 item 1). No code changes.
+- **tests/test_392_kxncaambgame_table.py:**
+  - every shipped table loads under the strict loader;
+  - this one's count (253) and sha256;
+  - the series placed by it.
+- **The two test files that pinned the no-table state now follow the shipped folder:**
+  - tests/test_ncaamb_kalshi_wiring.py's scorer tests read an empty table folder;
+  - test_387's repo-state test follows the shipped folder.
+
+  The folder's README names the table.
+
+## 2026-11-15 (#1017: 387-matcher-table — the Kalshi matcher's name tables, (B): the machinery and no data (ARCHITECT 2026-11-15, addendum 387 item 3; #955))
+- **The rule:** a series DECLARES a name table by a file of its own, `src/ingestion/kalshi_tables/<SERIES>.json`. The folder holds none yet; its README says how one is declared.
+- **How a declared series' events are placed (kalshi_match.place(tables=...); kalshi_table.py), by the table alone:**
+  - a tabled name fits its one team, found by the provider's key and id through Team.external_ids (team_merge.source_ids), among the stored teams of the series' own competition;
+  - no word is read, so no line can loosen a fit;
+  - home and away come from the teams' own ids;
+  - everything after the fit is as for every series (the day rule, the time gate, the window, in play, claims, behind).
+- **New counted refusals:**
+  - a name the table does not hold: `not in <SERIES>'s name table: <name>` (387 item 3(a));
+  - a line no one stored team of the competition answers to: TABLE_LINE_UNRESOLVED, with a line saying which and why ((b));
+  - an unreadable table: TABLE_UNREADABLE, every event of the series refused;
+  - a caller that did not read a declared table: TABLE_UNREAD (place() reads the folder itself).
+
+  Never the scorer.
+- **A series with no table is matched as today.** PINS is unchanged ((c)).
+- **The callers:** the shared and soccer syncs, kalshi-replay and the tennis sync pass `kalshi_table.tables_for`. The kalshi-history paths (run, place-held, place-chain and its listing) fit names with the scorer outside place(), so they refuse a declared series.
+- **`kalshi-table-propose` (read-only; 387 item 3(d)-(e)):**
+  - from a kept markets file and a .backup copy (`--db` fence, mode=ro + immutable=1, no sidecar), it prints each name with its proposed team, the provider's key and id, and its marks;
+  - the hand lines are printed first;
+  - a marked name is never proposed.
+- **Tests:** tests/test_387_kalshi_name_table.py (47); docs/CLI.md's row.
+
+## 2026-11-15 (#1016: 1013-tally-clock — two results-tally tests read the wall clock once per rendering and raced a minute boundary; they now freeze it (#1013; ARCHITECT, addendum 387 items 4 and 6).)
+- **The finding (Dev 2, #1013):** `tests/test_exec_cohorts.py::test_results_tally_leaves_the_mlb_pl_and_nfl_sections_as_they_were` failed once in CI (smoke-py310 job 132825126980). It renders `results_tally` twice and compares the renderings. The MLB and Soccer (PL) "Source" line prints the window's cutoff, `utc_now_naive() - timedelta(days=days)`, to the minute (`src/walters/export.py`). Two renderings on either side of a minute boundary differ ("13:26Z" against "13:25Z"). No product code is wrong.
+- **The fix (Dev 2's proposal, test-only):** the test reads `export.utc_now_naive()` once and patches `src.walters.export.utc_now_naive` to that instant for both renderings. Relative data in the test's world keeps its meaning.
+- **The sweep #1013 asked for:** the thirteen test files that render `results_tally` were run with a probe clock, scratch only and not committed. Every module-level `utc_now_naive` in `src.*` stepped 61 seconds per read.
+  - Exactly two tests failed, both on the Source line: #1013's own and `tests/test_host_results_tally.py::test_the_laptops_tally_is_byte_for_byte_what_it_was_and_the_hosts_differs_only_by_its_header_line`, which renders it three times. The second gets the same freeze.
+  - With the freeze, all 241 tests of the thirteen files pass under the stepping clock.
+- **Not touched:** no product code, threshold, verdict or output.
+
+## 2026-11-15 (#1015: 385-records — the records of addenda 382, 383 and 385; three roadmap done-marks (ARCHITECT, addendum 385 item 3).)
+- **docs/roadmap.json, three done-marks (385 item 3):**
+  - lane `nhl`, "the ceiling readiness read (item 4(a))", due 11-19: DONE 2026-11-13 (#105 issuecomment-6865754939; read by 383 item 2).
+  - lane `availability-record`, "the graph's node shape", due 11-23: DONE 2026-11-15 by #1007 at 455a3f07.
+  - lane `inferred-layer`, "the design proposal to the architect (item 4(b))", due 11-25: DONE 2026-11-14 by Dev 2's comment on #992 (issuecomment-6877950027). The architect's ruling stays due 12-03.
+  - Each receipt quotes its addendum. No date moves and no moved line is written.
+- **docs/ledger/entries/2026-11-15-385-records.md:** the records 382 item 6 asked to ride the next records PR, and those of 383 and 385:
+  - #1003 opened twelve seconds after #853 closed (382 item 2, said as it happened);
+  - the twenty on #945;
+  - this morning's dry run reading 382 item 4(d)'s line word for word (385 item 1);
+  - #1006's written no and limitation #1008 (383 item 3);
+  - #1004 after #1007 (383 item 5);
+  - the tennis five lines on #838 (383 item 6);
+  - the recorded answer for #1009 and its PR #1014 (385 item 2);
+  - the Kalshi ATP refusals the architect is watching (385 item 4).
+
+## 2026-11-15 (#1014: 1009-get-game-season — `get_game` reads the season the one-game answer serves, so `dedupe-matches --orphans`' season check fires in production (#1009; ARCHITECT, addendum 385 item 2).)
+- **The recorded answer (385 item 2):** GET /games?id= on the laptop, 2026-11-15 12:59Z, two ids, key names and types only. "the single-game answer carries its season at response[0].league.season, A STRING OF THE YEAR" ('2025' for id 20141, '2023' for id 10948).
+- **As built** (`src/adapters/api_american_football.py`): `served_season(data)` reads `response[0].league.season` when it is a string of four ASCII digits and nothing else. `get_game` hands it to `_parse_games` in place of `""`.
+  - An answer with no league block, no season, a season that is not a year, or a season that is not a string (an int was never recorded) keeps today's `""`. Never guessed, never coerced (law 4).
+  - `list_matches` is unchanged: its rows keep the `--season` it read.
+- **What it changes:** `dedupe-matches --orphans`' season check (#1001, #1005), which was inert in production because every by-id answer had season `""`.
+  - The same pair served under another season now reads "live, the id serves another game" with "the same pair, season 2026 -> 2025" (383 item 4(a)). A twin whose id serves another season is refused, never merged into.
+  - Nothing else reads the served season: `refresh-by-id`'s writes never read `nm.season`, and dedupe's relink searches the listing, not `get_game`.
+- **385 item 2's question, settled from the code: how the served string compares with the stored NCAA season.**
+  - Stored: `list_matches` gives its rows the `--season` it sent as `str(int(...))`, the int-style year ("2026", CLAUDE.md's NCAA season string). A listing with no `--season` carries no year and the upsert refuses it (`provider_id_season_unknown`, addendum 312 item 1).
+  - Compared: `served_diff` compares `season_year` on both sides, the upsert's own key (addendum 312 item 1), and only when both read a year. '2025' and a stored '2025' read one year; '2025' and '2026' read two. A stored row whose season has no leading year, or an answer with none, leaves the check silent, as before.
+  - So the check fires on a different year and on nothing else.
+  - Not read here (no DB in this container): that each stored row's year equals the provider's `league.season` for its own id. A row the listing of `--season 2025` wrote is a game the provider served under season 2025, so the two should agree. The first laptop dry run after the merge shows it: any `the same pair, season …` line names the rows where they differ.
+- **Tests:** `tests/test_1009_get_game_season.py`, 21 tests, synthetic answers in the recorded shape (no network):
+  - the two recorded ids' seasons are read;
+  - sixteen seasons that are not a string of an ASCII year keep `""` (fullwidth and Arabic-Indic digits among them), as does an answer with no league block;
+  - a malformed answer never raises, and of two games the first one's season is read;
+  - the comparison is year to year;
+  - end to end through `dedupe-matches --orphans`: served '2025' against a stored '2026' is "the same pair, season 2026 -> 2025"; served '2026' reads `live`; no league block reads `live`.
+  - Against main's `get_game` (with a stub reader returning `""`), the three tests that expect a season fail; the other eighteen pin today's behaviour and pass on both.
+
+## 2026-11-15 (#1012: 386-nhl-season-receipt — `nhl-goalie-coverage --db COPY`, the counts-only NHL season receipt (ARCHITECT 2026-11-15, addendum 386 item 2))
+- **cli.py `nhl-goalie-coverage --db PATH`:**
+  - It goes through the shared `--db` fence (`mlb_pitchers_gate.check_db` + `readonly_session`, mode=ro + immutable=1), with no `init_db()` on that path. A refusal exits 2.
+  - Without `--db` the command is unchanged.
+- **src/ingestion/nhl_goalies.py, `season_receipt`:** counts only, by season from the stored start, 2023-24 to 2026-27:
+  - (a) the finished regular-season games (game type 2 as the rows say it, and the rows that do not say);
+  - (b) both, exactly one, or no starter flagged;
+  - (c) the unlinked appearances and the games they stand for;
+  - (d) the relief share (TOI > 0; TOI not stored counted apart);
+  - (e) 2026-27's latest stored game date.
+
+  No goalie's name, no goalie id, no model figure.
+- **docs/CLI.md's row.**
+- **Tests:** tests/test_386_nhl_season_receipt.py, 3 tests on a synthetic copy. Each failed first on main.
+- **Review round 1 (Codex, two P2s, both fixed):**
+  - A copy with a `-wal`, `-shm` or `-journal` sidecar refuses before any read, since immutable=1 would ignore it (nfl_v2_gate.check_db's rule).
+  - A file SQLite cannot read refuses with exit 2, not a traceback.
+  - Both tests failed first.
+
+## 2026-11-15 (#1011: 386-graph-size-before-walk — the graph rebuild's line names the record's size before the walk starts (ARCHITECT 2026-11-15, addendum 386 item 1; #1010(a)))
+- **src/availability/graph.py:** the parent counts the copy's assertions (`_record_assertions`, a COUNT in its own mode=ro + immutable=1 session) before the staging child is forked, and writes `record_assertions` on the run's line then.
+  - A night that dies in the walk, with the child taken by MemoryMax ("the staging child gave no answer (exit -9)"), now names the size it died at, where before its line named none.
+  - 379 item 2's check reads the same count; the child no longer counts.
+- **docs/specs/availability-record.md section 11** says so.
+- **Tests:** a new test kills the child outright, as MemoryMax would, and reads the line: `record_assertions` present, `staged` absent. It fails first on e3f55ee2. tests/test_availability_graph.py: 38 passed and 11 skipped without the engine; 48 passed and 1 skipped with ladybug 0.22.3.
+- **#1010 stays open:** it records a limitation (the walk's heap grows with the record), not this line.
+
+## 2026-11-14 (#1007: 379-graph-node-shape — the availability graph's node shape: each assertion a node; ten times today's record builds inside the unit's 1536M (ARCHITECT 2026-11-14, addendum 379 item 2; #995))
+- **The shape (379 item 2, amending 252 item 4's "an edge per assertion"):**
+  - `Assertion` is a node carrying every property the FACT edge carried, unchanged: kind, both stamps, the derived interval under each clock, attrs, game, backfilled and post_hoc.
+  - Its player, team and observation are property-less, forward-only edges: `NAMES_PLAYER`, `NAMES_TEAM` and `ASSERTED_IN`. A directed pattern reads them from either end; the engine refuses an undirected one over a forward-only table.
+  - FACT and ASSERTED go. IN_GAME and ABOUT are unchanged.
+- **Both counts on the line (379 item 2):** the line names the record's assertions (a COUNT on the copy) beside the graph's assertion nodes, and a build whose two counts differ fails. The line also carries the staging's bytes on disk, and the CLI prints both counts, the staged bytes and the pool.
+- **The load, restated on the shape's measured need (379 item 2; the engine's v0.22.3 source cited in graph.py):**
+  - **The walk:** the record's own read stays the only read. It stages in a forked child that exits before the load; SIGTERM is blocked across the fork.
+  - **The nodes:** COPYs of 100,000 rows, with the database closed and reopened every 10 and between tables. A checkpoint leaves string de-duplication tables on the heap until a close.
+  - **Each relationship table:** ONE COPY into the empty table. A later COPY would build a per-group CSR index for every node group of the assertions.
+  - **The pool:** a sixth of the limit, 256 MiB under the unit. 64 MiB fails; 128 and 256 MiB build.
+- **Receipts:** synthetic records, the real command inside a 1536M cgroup on 2 CPUs.
+
+  | Size | Seconds | Process peak RSS | Graph |
+  |---|---|---|---|
+  | Today's (1,341,556 assertions) | 118.7 | 436 MiB | 156 MB |
+  | Three times | 380.1 | 589 MiB | 470 MB |
+  | Ten times (13,415,544) | 1577.2 | 920 MiB | 1.81 GB |
+
+  - **What still grows:** the walk's own partition, 888 MiB at ten times today's.
+  - **Before the fixes:** ten times today's was killed by MemoryMax under the node shape's first load.
+- **Docs:** the spec's section 11, the candidates page's "after the pick" note and docs/CLI.md's row are brought to the shape.
+- **Tests:** tests/test_availability_graph.py, 37 passed and 11 skipped without the engine; 47 passed and 1 skipped with ladybug 0.22.3. The full suite passed: 7984 passed, 24 skipped, 5 xfailed. Every new test failed first.
+
+## 2026-11-14 (#1006: 881-tally-pair — the host's results-tally pair published all-or-nothing, and the NHL and UNL shadow grades read the requested exports_dir (#881; ARCHITECT, addendum 382 item 6(iv)).)
+- **#881 item 1, all-or-nothing (Codex on #880, 4506565251):** `host_results_tally` renamed `RESULTS.md` into place, then `results_tally.json`. If the second rename failed, the new Markdown sat beside an old or missing JSON, and sp_run mirrors even after a non-zero exit.
+  - Now the previous `RESULTS.md` is held under a hidden name before the new one is renamed in: a hard link, or a copy where the filesystem refuses links.
+  - If the JSON's rename fails, the previous Markdown is put back (on a first export, the new one is removed) and the error is raised. No temporary or held file is left.
+- **#881 item 2, the requested export set (Codex on #880, 4506565254):** `results_tally`'s NHL and UNL sections called `grade(days=...)` without `export_dir`, so a non-default `exports_dir` mixed two export sets in one file. Both now pass the caller's directory. Production passes the default, so its output is unchanged.
+- **The pre-push review's fixes:** the publish reads the filesystem, never the line that raised.
+  - **Markdown swapped, JSON not:** the previous Markdown is put back, whatever stopped the renames, including a KeyboardInterrupt delivered after a rename has completed.
+  - **Both swapped:** the new pair stands.
+  - **The rollback itself fails:** the previous Markdown's only copy is kept (its hidden name is given in the error) and the new Markdown is removed. The JSON's own error is the one raised.
+- **Codex round 1 on #1006:**
+  - **The names are the run's own:** each hidden name carries the pid and a random token. A later run under a reused pid never names, so never removes, an earlier run's kept previous Markdown, which is that run's only copy. The old "leftover of this pid" removal is gone.
+  - **A new Markdown that cannot be removed is said, never swallowed:** when the rollback fails and the new `RESULTS.md` cannot be removed either, the error says what stands on disk. Beside the previous `results_tally.json`, it says the mirror after the step can carry the mixed pair. On a first export, it says no JSON stands beside it, and it names no kept copy.
+  - **Open, put to the architect:** two renames leave a moment in which a reader that does not take the chain's lock (an independent `pull_exports.py` run) can list a new Markdown beside the old JSON.
+    - After a run that succeeds, pull_exports' next run carries the new JSON: it is newest-wins per file, and the JSON's mtime is newer.
+    - After a run that rolls back, it does not. The restored Markdown keeps its OLD mtime, so pull_exports keeps the laptop's newer copy (`kept_local_newer`), and the laptop holds the new Markdown beside the old JSON until the host's next successful export (found by the pre-push review, reproduced).
+    - Closing it takes an atomic indirection or a marker the readers honour: a change to the exports layout and to pull_exports and the mirror (deploy scripts), so not made in this PR. The same holds for a folder that refuses every write: a marker could not be written either.
+- **Tests (`tests/test_host_results_tally.py`), seven new:**
+  - a failed JSON rename keeps the previous pair;
+  - on a first export it leaves neither file;
+  - the two shadow grades read the requested directory;
+  - with no hard links the previous Markdown is held by a copy;
+  - an interrupt after the Markdown rename;
+  - an interrupt after the JSON rename;
+  - a failed rollback.
+  - The first four all fail on main; the fourth fails for item 1's reason. The last three fail on this branch's first commit (28771dc5).
+  - Three Codex round-1 tests, all failing on da364874.
+
+## 2026-11-14 (#1005: 1001-state-vs-annotation — `dedupe-matches --orphans`: "live, resync needed" is for a change of state; annotations are named, never counted; an id that serves another game has its own label (ARCHITECT, addendum 382 item 4; renamed by addendum 383 item 4(a)).)
+- **The rule (382 item 4, verbatim in part):** "THE LABEL "live, resync needed" IS FOR A CHANGE OF STATE THE PROVIDER SERVES AND OUR ROW LACKS."
+  - (a) **State, each named when it differs:** the status, a score, the kickoff, and a stored provider_orientation key the upsert would remove on the same pair.
+  - (b) **Annotations:** status_raw, matchday and stage "do NOT count, alone or together". A row that differs only in them reads `live`, and they are named on its line (`annotation`), printed under `--sample`.
+  - (c) **"live, the id serves another pair"** (renamed by 383 item 4(a), below): an id that serves neither the stored pair nor its reverse gets its own label and count on the plan line. It is printed always, with both pairs by team id and whether the row records the mismatch. A reversed pair is the same game: a reversal not yet recorded names the key a resync would write (`live, resync needed`), and one already recorded reads `live`.
+- **THE RENAME (ARCHITECT 2026-11-14 16:29 ET, addendum 383 item 4(a), verbatim in part):** "THE SAME PAIR SERVED UNDER ANOTHER SEASON IS NOT "live, resync needed": a resync writes another row and leaves this one, so the label would be false, and it is the #902 class again". It joins 382 item 4(c)'s label, renamed to cover both: **"live, the id serves another game"**, one count on the plan line, printed always, each line saying which it is.
+  - `[live_other_game]` lines carry `game`: `another pair: stored teams H v A -> served provider teams h v a (our teams [..] v [..])` with `recorded`, or `the same pair, season 2026 -> 2027`. Stale or not.
+  - The refusal of a twin whose id serves another game stands ("its refusal [...] stands, and is right"): its reason reads `serves another game (another pair)` or `serves another game (the same pair, season 2026 -> 2027)`.
+  - 383 item 4(b): the season check that never fires in production (`get_game` parses with season "") is finding #1009, with its own small PR after the architect relays one recorded `/games?id=` answer's structure.
+- **As built** (`src/ingestion/match_dedupe.py`):
+  - `served_diff` returns (state, annotation), or None for another pair. A reversed pair's served scores are compared in the stored orientation.
+  - `live_entry` labels `live_other_game` (`other_game`) for another pair or the same pair under another season, stale or not (382 item 4(c) and 383 item 4(a) name no staleness). The stale split is otherwise unchanged.
+  - `cli._dedupe_orphans`: the plan line gains "live, the id serves another game N", and those rows print whole.
+  - `scripts/ncaa_live_resync_rows.py`'s pointer names the three lines.
+- **The pre-push review's fixes:**
+  - **(P1)** a live twin whose id serves another pair is never merged into. The absent rows are `refused` ("the live twin's id … serves another pair (382 item 4(c))", now "… serves another game (another pair)" by 383 item 4(a)), so `--apply` leaves both rows and both ids.
+  - The served pair's "our teams" is resolved against every team of the sport, never only the candidates'.
+  - The same/reversed reading mirrors `score_orientation.orientation`: SAME first, never REVERSED when one team plays both sides.
+  - A not-stale live row names its annotations too.
+  - The same pair served under ANOTHER season (the upsert writes another row, addendum 310 item 3(b)) was kept flagged with the season named alone and put to the architect; ruled by 383 item 4(a) (above).
+- **Codex round 1 on #1005:**
+  - **(P1)** a live twin whose id serves the pair under ANOTHER season is never merged into, for the same reason as another pair: the absent rows are `refused` ("… serves the pair under another season", now "… serves another game (the same pair, season …)" by 383 item 4(a)).
+  - The other-game rows print with no cap (they were cut at 10,000). So do `[refused]` and `[unresolved]`, the other classes printed whole, which were cut at 10,000 with no "… more" line (pre-push review).
+  - A refusal names each flagged twin id with its own reason (pre-push review).
+  - The sport's teams are read by one query on the sport, never an IN list of every team id.
+  - **Put to the architect, ruled by 383 item 4(b):** the production `get_game` parses the answer with season "", so the season check never fires on a production run today. No provider field is guessed (law 1); finding #1009 holds it.
+- **Tests:**
+  - `tests/test_945_live_label.py`: the #945 pins that 382 item 4 changes are amended (status_raw alone, a new status code, the reversed final, the foreign pair). New: a recorded reversal reads live; matchday and stage are annotations; a not-stale other pair; the console's count and annotation lines.
+  - `tests/test_dedupe_orphans.py`: the OR1 world's `resync` row (served NS on a NULL code only) now reads `live`.
+  - Six review tests, five failing on beda7dde (the sixth pins the printed-always rule).
+  - All the new tests fail on 151aadae.
+  - Three Codex round-1 tests, all failing on 172480f5.
+  - 383 item 4(a): the label tests renamed, the season case now `live_other_game`, and a console test (both kinds under one count, each line naming its kind). Eleven fail on 909d4da3.
+- **The twenty (382 item 5):** listed on #945 with the provider's game id and the stored kickoff, the keys that hold on both machines.
+
+## 2026-11-14 (#1004: 1003-keep-step — the nflverse keep step probed, and an unchanged answer takes the status of its payload (ARCHITECT, addendum 382 items 2-3).)
+- **The keep step (382 item 2, #1003), probed fail-first on both paths.** The four faults: the payload directory cannot be made, the kept file's exclusive create fails, the copy into it fails for want of space, or the copy's source is gone.
+  - **On a `--file`:** each fault now exits 2, with nothing kept and nothing written. The partial file and exactly the folders this keep made are removed (`_missing_dirs`, read before the keep, then `_remove_dirs_made`), never one that existed before. So is the keep's own refusal (a hash mismatch). The message names the error by its type and text, never by a path Before, each escaped `run()` as the raw `OSError`, its message carrying the full path, and the command exited 1, the failed-observation code.
+  - **On a fetch:** the same faults were already a `failed` observation with nothing kept and no `.part` left, through fetch's own handler. The probe pins that.
+- **Codex round 1:** the probe of the folders a keep would make never raises (each is lstat'ed; an unreadable folder is not this keep's to remove), and it runs inside the guard, so an unsearchable payload folder is the refusal (exit 2), never a traceback.
+- **The unchanged answer (382 item 3, verbatim: "AN UNCHANGED ANSWER TAKES THE STATUS OF THE PAYLOAD IT IS UNCHANGED FROM").** A 304, a byte-identical 200, a byte-identical `--file` or a restore now takes the status of the payload it is unchanged from: `empty` after a header-only payload, `complete` with rows_asserted 0 after a complete or partial one. It comes from `previous_observation` (the row `previous_payload` names, with the PAYLOAD's status: `empty` when any observation of the source recorded those bytes `empty`, so a pre-merge `complete` row after a header-only payload never carries `complete` forward) and `unchanged_status`. Nothing stored is rewritten; the rule holds from this merge.
+- **The text amended to the rule:** the command's help, the module docstring and the `Got.restored` comment.
+- **docs/specs/availability-record.md:** the answers table's 304 and byte-identical lines say which status, and 382 item 3 is quoted beside the table; the `--file` paragraph carries the keep refusal.
+- **Tests (`tests/test_availability_nflverse.py`):**
+  - 19 new: the four keep faults on each path; the status after a header-only, a complete and a pre-merge `complete` row; a restore after a header-only payload; a hash-mismatch refusal; a date folder failing after its source folder is made. The `--file`, status, restore, hash and folder tests fail on c7dc2680; the four fetch tests pin what already held.
+  - #853's three header-only tests now assert `empty` where they asserted `complete`, as 382 item 3 rules.
+
+## 2026-11-14 (#1002: 381-ledger-sweep — the ledger sweep, read-only: one page, every open Issue in a table (ARCHITECT, addendum 381 item 3(ii)).)
+- **docs/ledger/2026-11-14-ledger-sweep.md:** one row for each of the 197 open Issues: the 196 open when the sweep began, plus #1001, filed later the same day. Each row gives the Issue's class, the condition that would close it in its own words, whether that condition is met today (yes, partly, no or unknown), and the evidence (a merged PR by number, a ruling with its addendum number, or what is on main at fbc33b23).
+  - The seven the architect named come first: #932, #915, #882, #480, #382, #338 and #308.
+  - The last section lists the Issues whose title no longer says what they are (34).
+- **The verdicts:** yes 28 · partly 36 · no 125 · unknown 8.
+- **How each was checked:** an adversarial verifier re-checked every yes and partly verdict, every flagged title and the seven named Issues. It corrected 4 verdicts, marked "(verifier corrected)" on their rows. It also found 7 flagged titles still accurate; those are listed with its reasons under the last section.
+- **The class column** is each Issue's own `class:` label (Codex on #1002).
+- **Read-only:** no Issue is closed and no label moves. The architect rules the closures from the table.
+
+## 2026-11-14 (#1000: 851-mirror-publish — the bulletin mirror's two round-two findings from #851, fixed fail-first (ARCHITECT, addendum 381 item 3(v)).)
+- **R2-2: a planned bulletin swapped after the plan.** The swap is to a symlink (the file or a folder above it) or to a FIFO. Such a bulletin is now skipped and receipted (`symlink: not followed` or `not a regular file`). It is never read through the link and never blocked on.
+  - The fix is the one quoted on the thread. `_read_planned` opens every folder from `exports/` down by dir fd with `O_NOFOLLOW`, opens the file with `O_NOFOLLOW|O_NONBLOCK`, and requires `fstat` to say a regular file.
+  - Before, the link's target was published as the bulletin, and a FIFO blocked the push.
+  - The other bulletins and the top level still go.
+- **R2-3: a case-folded submodule on the laptop's case-insensitive clone.** `_gitlinks` now also carries each submodule's checkout folder by `(st_dev, st_ino)`. `_dest_refusal` and `_real_path` refuse that folder under any spelling (`destination path has a submodule`), and the text check stays for a gitlink with no folder.
+  - Before, a bulletin bound for `bulletins/nfl` was written into a gitlink `bulletins/NFL`'s folder: counted as copied, never carried, with no receipt.
+- **Text:** `deploy/hosting/exports_mirror.py`'s docstring and `docs/specs/exports-mirror.md` carry both rules.
+- **Tests (`tests/test_exports_mirror.py`):**
+  - R2-2's three swaps: the file, a parent folder, a FIFO.
+  - R2-3 on a simulated case fold.
+  - A text-match control.
+  - The existing unreadable-bulletin stand-in also refuses through `os.open`.
+- #881 (`src/walters/export.py`) touches another module, so it is not in this PR (381 item 3(v): "#851 with #881 if they touch the same module, else #851 alone").
+
+## 2026-11-14 (#999: 853-nflverse-shapes — the nflverse feed's two failure shapes from #853, fixed fail-first (ARCHITECT, addendum 381 item 3(iv)).)
+- **F1: a `--file` that cannot be read into its temporary copy is a refusal.** This covers four cases: the original is unreadable, the original is gone since the run checked it, `mkstemp` fails, or the copy hits a full disk. The run exits 2 with nothing copied and nothing written. Before, the raw `OSError` escaped `run()` as a traceback and the command exited 1, the failed-observation code, with no output. The message names the error's type and text, never the temporary path (`src/availability/nflverse.py`, `_run_args`).
+- **F2: a header-only payload is the previous payload of its endpoint.** `nflverse.previous_payload` now reads `empty` observations beside complete and partial ones. So the next call sends the header-only file's ETag, never the older non-empty one; a byte-identical 200 is not kept again; and a 304 carries it. `record.ASSERTING` is unchanged: an `empty` observation still asserts nothing.
+- **docs/specs/availability-record.md (section 9):** "the last payload" and the `--file` read carry both rules.
+- **Tests (`tests/test_availability_nflverse.py`, seven, each failing on fbc33b23):**
+  - F1's four cases, each through `run()` and the command;
+  - F2 by fetch: two header-only 200s then a 304;
+  - F2 after a complete payload;
+  - the `--file` analogue.
+- No date moved, and no bar moved.
+
+## 2026-11-14 (#998: 379-records — the graph's node-shape step on the roadmap, and the graph directory's console line (ARCHITECT, addendum 379 items 5 and 7); the first host NBA PAPER page's step done (addendum 381 item 2).)
+- **docs/roadmap.json, lane `availability-record` (379 item 7):** a new step, "the graph's node shape (each assertion a node; addendum 379 item 2), its PR carrying #995", code, due 2026-11-23. It sits before the 11-24 step; the 11-25 step is not touched. It is now the lane's next step.
+- **The graph's directory is recorded as made (379 item 5):** the console line "sp:sp 775 /opt/sports-predictor/logs/availability/graph". It goes on the graph rebuild step's account of the 13:08Z block and on section O's install bullet in docs/specs/hosting-h1.md.
+- **Lane `basketball-market-only` (381 item 2):** "the first host NBA PAPER page" (operator, due 2026-11-21) is done 2026-11-10. Its receipt is the private mirror's host/2026-11-10/coverage_2026-11-10.json (NBA's paper block, 6 games, a stored Kalshi quote on each), and every day since has one. No quote figure is recorded. The due date stays as the record.
+- Records only: no code, no date moved, and no bar moves.
+
+## 2026-11-14 (#997: 945-live-label — `dedupe-matches --orphans`: "live, resync needed" now means the provider serves something our row lacks (ARCHITECT, addendum 365 item 3(b), relayed in addendum 379 item 6).)
+- **src/ingestion/match_dedupe.orphans, the planner's split of a stale live row:**
+  - **`live`**, nothing to do: what the provider serves equals the stored row. A resync would write nothing.
+  - **`live_resync`**, "live, resync needed": something differs, and the fields are named in `differs` as stored -> served. Checked as the upsert writes them: status and kickoff always, a status code only when one is served, a score side only when it is served.
+  - **Never read as equal (law 4)**, and so kept as `live_resync`: an answer with no game kept, and a served pair that is not the stored one. The second is named as `teams`, reversed or neither, because the upsert's orientation check writes on such a pair. On the same pair that check removes a stored `provider_orientation` key, so a row that still carries one names it (Codex, #997).
+  - **Non-stale live rows** read `live`, as before.
+- **cli.py `dedupe-matches`:**
+  - `--sample` has no default (8 is used when it is not given).
+  - Under `--orphans`, `[live]` rows are listed only when `--sample` is given; every other class prints as before.
+- **The effect:** the daily NCAA dry run reads `live 20 · live, resync needed 0` (365 item 3(b)) if the twenty rows store the codes the provider serves (NS on 13, PST on 1; the 6 served no code read `live` whatever they store). A row storing no code while the provider serves NS or PST reads `live_resync`, naming `status_raw` (a resync would write it). The architect is asked to rule on that case (the PR body).
+- **Read-only:** the plan still writes nothing. 365 item 3(a) rules no resync and no write.
+
+## 2026-11-14 (#996: 378-graph-rebuild — the graph rebuild's two host faults: data/ an empty read-only folder in its unit; the engine's pool half the limit it runs under; the staged size on its line (ARCHITECT 2026-11-14, addendum 378 items 3 and 4))
+- **The fence against the unit's own line (item 3):** `deploy/hosting/systemd/sp-availability-graph.service` changes exactly the two lines the probe ran:
+  - `InaccessiblePaths=/etc/sports-predictor`;
+  - data/ joins `TemporaryFileSystem` as `/opt/sports-predictor/data:ro`.
+
+  The header says the empty-folder walk is accepted HERE AND ONLY HERE. `check_db` is unchanged. A test pins both lines, and asserts that no unit running the app puts a fenced data/ (or a folder above it, or one below it) on InaccessiblePaths.
+- **The pool as a rule tied to MemoryMax (item 4(c)):** `src/availability/graph.py` drops the bare 256 MiB `BUFFER_POOL`.
+  - The pool is half the smaller of the process's cgroup memory limit, read at run time (v2 or v1), and `UNIT_MEMORY_MAX`, the unit's 1536M, which a test pins against the unit. That gives 768 MiB under the unit.
+  - `auto_checkpoint` is set ON. The engine's docstring, docs and v0.22.3 source were read first and are quoted. Every COPY forces a checkpoint, every Player sits in one 2^17-node group, and a checkpoint's buffers never spill, so the pool a FACT checkpoint needs grows with the record.
+- **The line (items 4(d) and 4(e)):**
+  - It carries the staged counts, the limit, where the limit was read and the pool, before the load starts.
+  - The staging directory keeps the staged size until the commit point, so a killed run's size is named by the next run (`stale_staged`).
+  - A failed build still exits 1 with the previous graph untouched and its line written.
+- **Receipts:** synthetic records only, run inside a 1536M cgroup on 2 CPUs.
+  - **1×:** main fails as the host did (113.9 s). The head builds in 153.0 s (RSS 743 MiB, a 202 MB graph).
+  - **3× does NOT build inside 1536M** at any pool from 256 to 1024 MiB. The last COPY that built reached about 3.2–3.5M FACT edges at the rule's 768 MiB.
+  - **The choice, for the architect:** a larger MemoryMax (2560M builds 3× in 565.6 s, RSS 1813 MiB), or assertions as nodes (3× builds at 256 MiB). See #995 (`needs-ruling`).
+- **The pre-PR adversarial pass:** three P2s fixed fail-first. One question goes to the architect: whether the host's /dev/shm is writable inside the unit under PrivateDevices.
+- **Codex's review rounds on #996:**
+  - **Round 1:** two P2s, fixed fail-first in c986d84f. A finite cgroup v2 limit is now kept even at or above the machine's RAM, and the staged size is now kept through the commit point.
+  - **Round 2:** one P2, a finite cgroup v1 limit at or above RAM read as no limit. It is listed for the architect (378 item 5) and not changed here.
+- **The third ruled line (addenda 379 item 3 and 380 item 2):** `/dev/shm:ro` joins `TemporaryFileSystem`.
+  - The host showed that PrivateDevices binds its own /dev/shm, writable, into the unit: a file written from inside was present in the host's /dev/shm (380 item 1).
+  - The header now names what makes each part of "the one writable path" true: ProtectSystem=strict, TemporaryFileSystem, PrivateIPC and ReadWritePaths.
+  - The test pins all four TemporaryFileSystem entries.
+  - The rebuild builds with /dev/shm read-only in Dev 2's container (135.7 s, RSS 776 MiB).
+- **cgroup v1 (379 item 4):** a finite v1 limit at or above the machine's memory is a limit. Only the kernel's own no-limit value, 9223372036854771712 on 4 KiB pages, reads as none.
+- **The spec's unit paragraph** says what the unit does with data/ and /dev/shm.
+- **Tests:** tests/test_availability_graph.py, 32 passed and 11 skipped without the engine; 42 passed and 1 skipped with ladybug 0.22.3.
+
+## 2026-11-14 (#994: 377-paid-feed-no — the availability record's two paid-feed steps closed as the architect's written no (ARCHITECT, addendum 377 item 2); section O of hosting-h1.md brought to addendum 378's state (378 item 6).)
+- **docs/roadmap.json, lane `availability-record`:**
+  - **"the paid feed's adapter specified, if the operator names one on 11-13"** (architect, due 11-14): done 2026-11-14, with 377 item 2 quoted verbatim as its receipt. No adapter is specified, because no feed was named ("NHL — none bought; we build and measure our own", 375 item 1(vi)).
+  - **"the paid feed's adapter, if one is named"** (code, due 11-21): done 2026-11-14 as NOT APPLICABLE, nothing built. Its due date stays as the record.
+  - The lane's next step is the NBA injury-report probe, due 11-24.
+- **docs/specs/hosting-h1.md, section O (378 item 6):**
+  - THE HELD LIST's `sp-availability-graph.timer` row now lifts on the architect's block that enables it only on a build, after the next tag carries the unit's fix.
+  - The graph's state on v1.6.8: the engine installed 2026-11-14 13:08Z; both unit files installed, the timer disabled; the first run refused by the fence.
+  - The next tag's step 1 has one failing receipt row named now: the failure page of 2026-11-14 13:08Z for sp-availability-graph.service. The probe left no row.
+- **Review round 2 (Codex, 3 P2), fixed:**
+  - docs/specs/availability-record.md (k) records the paid steps' form as resolved by 377 item 2.
+  - The roadmap's graph step names what the 13:08Z block did and what still remains (378 items 1 and 5), with no date moved.
+  - The runbook's graph recipe and its timer row enable only on a build, after the next tag carries the fix (378 item 5).
+- **The schema is untouched:** the source name `sportsdataio_goalies` stays in its vocabulary, unused (377 item 2).
+- Records only: no code, no date moved, and no bar moves. The two faults are fixed on the model track (378 item 5), not here.
+
+## 2026-11-13 (#993: 375-inferred-layer-records — the inferred data layer recorded: the two sourcing steps closed, the NHL lane's dates cleared, the lane inferred-layer opened (ARCHITECT, addenda 375 and 376).)
+- **docs/roadmap.json, lane `nhl` (375 item 3(a)):**
+  - **The 11-13 sourcing step is done.** Its receipt is 375 item 1(vi) ("NHL — none bought; we build and measure our own") with the operator's words.
+  - **earliest_live 2027-01-22 is cleared** with a moved line (`now` null) quoting 375 item 3(a).
+    - The 12-28, 12-29, 01-20 and 01-21 steps are removed. Their dates are recorded in that line, because a step's due is never cleared (addendum 61 item 4), as ncaa (302) and nfl-v2 (265, the form 267 item 2(3) accepted) were done.
+  - **Two steps are added:** "the ceiling readiness read (item 4(a))", code, due 11-19; and "the true-starter ceiling test declared with its threshold, or my written no", architect, due 11-24.
+  - The bar's text in live_needs is not touched.
+- **Lane `nfl-qb` (375 item 3(b)):** the 11-13 sourcing step is done on 375 item 1(vi), since the operator's 11-06 decision stands (nflverse depth charts; no feed bought). The 11-16 step stands.
+- **A new lane, `inferred-layer` (#992; 375 item 3(c)):**
+  - Its state is "to declare" and earliest_live is null.
+  - Steps: the design proposal (code, 11-25), the design PR with nothing built behind it (code, 12-01), and the architect's ruling on the design with the pilot's gate written (architect, 12-03).
+  - Issue #992 quotes 375 items 1–2 and 376 items 1–2 verbatim.
+- **Addendum 376 item 1 amends 375 item 1(iii)** (recorded in the ledger entry and #992): the provider is the Claude API, by key NAME `ANTHROPIC_API_KEY`; there is no spend cap during the controlled tests; the daily cap is set by the operator on their measured cost and is in force before anything runs on a timer.
+- **CLAUDE.md's NHL line** is brought to this state: sourcing decided (none bought), the dates cleared, the ceiling read 11-19 and its declaration or a written no 11-24, and projected starters as the inferred layer's pilot.
+- Records only: nothing is built or run, and no bar moves.
+
+## 2026-11-13 (#991: 374-v168-records — the v1.6.8 release record: the RELEASES.md row and entry, and section O of hosting-h1.md brought to the state after the deploy (ARCHITECT, addenda 373 and 374).)
+- **docs/RELEASES.md:**
+  - **The row:** `v1.6.8` · 2026-11-13 21:13:23Z · `b3c5fbcf0791ff9201136d57882b80d33f01a474` · tag object `5a88468c646ae2198790da448b11d4ddf7befbe1` · #990.
+  - **The entry quotes, verbatim:** 373 items 1–3 (step 1's three clauses, step 2, the ruling) and 374 items 1–3 (the tag, the deploy, the state).
+  - **The span, from git (`v1.6.7..v1.6.8`):** 32 PRs plus the fold PR #989; 164 commits, 83 files.
+  - **The tag message:** byte-identical to `release_notes.py --to b3c5fbcf…`, 323 lines.
+- **docs/specs/hosting-h1.md, section O, brought to v1.6.8's state:** this is prose only, and no quoted ruling is edited.
+  - **THE HELD LIST's "Lifts when" column:** sp-tennis-daily's tag condition is met, because the map, #900, has been in every tag since v1.6.6; the block remains. The tag that carries #943 (v1.6.8) is deployed, and the graph's install-and-enable block remains.
+  - **Held timers not yet installed:** sp-ncaamb-daily joins sp-availability-graph as "no unit file".
+  - **Timer counts:** the pack ships 27 timers, 24 of them `Persistent=true`; sp-availability-observe joins the `Persistent=false` list. T11's `TIMERS` holds 21 of T11's 27.
+  - **SP_SYNC_HOLD:** it shipped as #925 and is in every tag from v1.6.7, so the "until it merges" and "until then" sentences now read as past.
+  - **The deploy's timers line:** it counts `TIMERS_BY_BLOCK` plain, with the v1.6.8 line quoted (374 item 2). The retired `HELD_FOR_CUTOVER` is now "an earlier third list".
+- **docs/roadmap.json, the graph rebuild step:** the tag that carries #943 leaves REMAINING. v1.6.8 is on b3c5fbcf, deployed 2026-11-13 21:14Z (374 items 2–3), so only the architect's install-and-enable block remains. The text changes, not the date.
+- **Release Issue #990** (opened by addendum 374 item 4) carries the same quotes, the record line and the notes.
+- Records only: no code, and no date moved.
+
 ## 2026-11-13 (#988: 371-ledger-header-times — docs/LEDGER.md's rule 7: the addenda's header times before 371 are estimates; addenda are cited and ordered by number (addendum 371 items 1 and 2).)
 - **docs/LEDGER.md, rule 7**, the line addendum 371 item 2 gives, verbatim: "The header times of the architect's addenda before 371 are the architect's estimates and run up to about 70 minutes ahead of the clock; from 371 on they are clock-read. Addenda are cited by number and ordered by number (ARCHITECT, addendum 371 item 1)."
 - **The ruling it records:** addendum 371 item 1. Its header reads "ARCHITECT 2026-11-13 11:49 ET (16:49Z, read from the clock)". Its item 1 (RULED), verbatim:

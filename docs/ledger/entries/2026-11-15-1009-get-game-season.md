@@ -1,4 +1,0 @@
-**2026-11-15 — #1009: THE SEASON A ONE-GAME ANSWER SERVES (ARCHITECT 2026-11-15 08:01 ET, addendum 385 item 2).** The recorded answer (GET /games?id=, the laptop, 12:59Z, two ids) "carries its season at response[0].league.season, A STRING OF THE YEAR".
-- **Built:** `get_game` reads that field and hands it to `_parse_games` in place of `""`. An answer with no league block, or a season that is not a string of a year, keeps today's behaviour and is never guessed (law 4).
-- **The effect:** `dedupe-matches --orphans`' season check, inert in production since #1005 (finding #1009), now fires. The same pair under another season reads "live, the id serves another game" (383 item 4(a)).
-- **The comparison (385 item 2's question):** year to year. `season_year` is read on both sides, and the check runs only when both read a year; the listing's rows hold the bare year they were read with ("2026"). It fires on a real difference and on nothing else.

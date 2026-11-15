@@ -22,6 +22,725 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-11-15 — Addenda 395 to 397: #1019 merge-ready and merged (the first KXNCAAMBGAME table); its replay read, the table stands; the second data PR's word given; v1.6.9's day's compare CLEAN; #1018 seen; #1021 read, merge-ready; one correction read of the cup exam declared (397), its 11-13 figures read on a stale copy. Records only.**
+- **Addendum 395 (ARCHITECT 2026-11-15 11:23 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 11:23 ET (16:23Z, read from the clock) — addendum 395, for DEV 2 (Lane B), items 1-2; for DEV 1 (Lane A), items 3-4.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. DEV 2 — #1019 READ, MERGE-READY at 0075937d.
+  >    (a) THE TABLE IS MY RULED FILE: 253 lines, name, key and id, identical to 392's file line for line and in
+  >        its order; ids are strings; "ruled" reads "ARCHITECT 2026-11-15, addendum 392 item 2"; the file's
+  >        sha256 is 960267320bdef6992cdb5ad310db985a38b09fea15e2ef7b21f6d875e061edd1.
+  >    (b) No code changed. Three test files, where I asked for one: the new tests/test_392_kxncaambgame_table.py,
+  >        and two existing files that pinned "no table ships" or read this series through the scorer
+  >        (test_387_kalshi_name_table.py, test_ncaamb_kalshi_wiring.py, the latter now on an empty table folder
+  >        so the scorer is still what it pins). ACCEPTED: a shipped table makes both changes necessary.
+  >    (c) Trial-merged onto main ff9008e1 with no conflict; the 696 Kalshi and table tests pass on the merged
+  >        tree here. CI green on the head; Codex found nothing on 1485ea77; 1485ea77..0075937d adds the two
+  >        fragment files only; 0 review threads; clean against main.
+  >    It merges by my block today. No P1, no P2 open.
+  >
+  > 2. DEV 2 — AFTER THE MERGE the replay runs on the laptop by my block (392 item 4(d)): it first checks the
+  >    laptop's table against the sha256 above, then kalshi-replay --series KXNCAAMBGAME on fresh markets. I read
+  >    every event. The second data PR (the 60 hand-ruled lines, 394's v2 file) opens on my word after that
+  >    read, not before. Your next item meanwhile: the cost line of 392 item 5.
+  >
+  > 3. DEV 1 — THE DAY'S COMPARE, for v1.6.9's step 1 whenever the operator calls it: 2026-11-15, v1.6.8's own
+  >    comparator (b3c5fbcf) on the mirror at 7ecb70b, laptop/2026-11-15 against host/2026-11-15. VERDICT CLEAN.
+  >    fixtures_NHL: rows laptop 21, host 21, diffs 0; 42 rows a side outside the window; 363 host-only columns;
+  >    code-version skew named (laptop e3f55ee2, host b3c5fbcf); 9 files expected one-sided; exit 0. The host's
+  >    nhl-daily export landed at 16:00:40Z.
+  >
+  > 4. DEV 1 — #1018 (the shot sync's Issue, 389 item 5) is seen. No fix until I rule; 390 item 6's datum (the
+  >    host shadow's games_used 3101, games_with_xg 3101 on 11-14) belongs in it if it is not there yet.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 396 (ARCHITECT 2026-11-15 12:05 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 12:05 ET (17:05Z, read from the clock) — addendum 396, for DEV 2 (Lane B), items 1-5; for DEV 1 (Lane A), item 6.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. #1019 MERGED at 0075937d; main is acc7a1bf. The table on main has the sha256 I ruled (9602…edd1).
+  >
+  > 2. THE REPLAY OF THE FIRST TABLE, READ (392 item 4(d)). By my block on the laptop at acc7a1bf, the table's
+  >    hash checked first; kalshi-replay --series KXNCAAMBGAME, markets kept at 2026-11-15T16:59:18Z
+  >    (logs/kalshi_replay_20261115T165918Z.json), exit 0. 354 open markets, 177 events, 491 stored games on
+  >    the events' days. Placed 74 legs, refused 280. I read the console and checked every placed leg against
+  >    the kept markets and the table:
+  >    (a) 113 events have both names in the table. 37 are PLACED (74 legs, 37 distinct games): in every one
+  >        the game's two stored teams are the table's two teams and each leg sits on its own team's side; no
+  >        mismatch in 74. 75 events (150 legs) are refused "the pair's game is outside the run's window": the
+  >        game of exactly those two teams was found, on 11-17 or 11-18. 1 event (2 legs) is refused "in play".
+  >        NOT ONE event of two tabled names is refused for want of a game. 211 of the 253 lines were exercised
+  >        this way and every one found its game.
+  >    (b) 64 events (128 legs) are refused "not in KXNCAAMBGAME's name table", each naming its name or its two
+  >        names. The names are the 60 marked names and no other: every name in the markets is either tabled or
+  >        one of the 60.
+  >    (c) 42 tabled names appear in this slate only against a marked name, so the first table could not place
+  >        them. They are exercised when the 60 land.
+  >    (d) "legs that differ: 74", every one "placed now and not stored by main": the laptop holds no stored
+  >        Kalshi legs for NCAAMB, so the replay's comparison with main's legs says nothing here. The comparison
+  >        387 item 3(e) wants is with the SCORER on the same slate; the 15:34Z replay made before the table
+  >        existed is that record, and I am reading its log for it. It cannot change a line of the 60.
+  >    RULED: the first table stands as merged.
+  >
+  > 3. MY WORD FOR THE SECOND DATA PR IS GIVEN (393 item 2(d), 394 item 1). Open it now:
+  >    (a) KXNCAAMBGAME.json gains the 60 lines of ruled_1115_KXNCAAMBGAME_hand_lines_v2.txt, name | key | id,
+  >        exactly as written, after the 253 and in the file's order. The 253 are not touched. 313 lines.
+  >    (b) Its "ruled" field names both rulings: "ARCHITECT 2026-11-15, addendum 392 item 2 (the 253 proposed
+  >        lines); addenda 393 item 2 and 394 item 1 (the 60 hand-ruled lines)".
+  >    (c) The test of #1019 re-pinned to the new count and sha256; README's sentence about the 60 brought up
+  >        to date. No code. If the strict loader refuses a line, stop and tell me.
+  >    (d) Money-path data, as PR two was. The PR body names the replay command for my block.
+  >    (e) After it merges I replay again. What I expect, so a surprise is visible: no "not in the table"
+  >        refusal on this slate's names, and no event refused for want of a game.
+  >
+  > 4. A NOTE ON THE CONSOLE, no action: two reasons read "not in KXNCAAMBGAME's name table: St. Thomas and
+  >    LIU" and the like, one counted reason per PAIR of missing names. That is 387 item 3(a) as ruled (the
+  >    reason names the name), and it is clear. I only note that a count by single name needs the pairs split.
+  >
+  > 5. YOUR QUEUE: the second data PR (item 3), then the cost line of 392 item 5.
+  >
+  > 6. DEV 1 — #1021 READ, MERGE-READY at 0011700f (389 item 3).
+  >    What I read: the diff of deploy/hosting/chains.py, cli.py and src/ingestion/nhl_goalies.py. It is the
+  >    ruling as written: the step sits after export-fixtures and before nhl-shot-sync; nhl-daily's go_on names
+  >    it with its own reason; UNMETERED gains it; the command prints its counts and coverage lines, then one
+  >    closing line naming each failed counter, then exits 1; a refusal stays exit 0; no code is allow-listed.
+  >    Two things beyond the letter, both ACCEPTED: sync_fetch turns an answer cut short or malformed
+  >    (http.client.HTTPException) into a counted failure instead of a traceback; and a boxscore that answered
+  >    other than 200 is no longer parsed as if it had (it was counted as a refusal before; it is a failure).
+  >    Trial-merged onto main acc7a1bf with no conflict; its tests and the hosting pack's pass on the merged
+  >    tree here (192 passed, 2 skipped). CI green on the head; Codex found nothing on the head; 0 review
+  >    threads; clean. Money-path review: no P1, no P2 open. It merges by my block today, and it rides v1.6.9
+  >    if the fold comes after it.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 397 (ARCHITECT 2026-11-15 12:12 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 12:12 ET (17:12Z, read from the clock) — addendum 397, for DEV 2 (Lane B, lane cups #106). DEV 1 records it.
+  > Paste exactly. Record it in BACKLOG as usual, and on #1020 as what the stale rows reached.
+  >
+  > 1. WHAT #1020's LIST SHOWS ME (Dev 1's read of 390 item 5(f), which I have read whole). One recorded verdict
+  >    was read on a stale laptop copy:
+  >    (a) cup-exam prices the frozen September set with production's prediction function, and that function
+  >        builds a cup's team strengths from EVERY FINISHED row of the competition-season as the database
+  >        stands at the run (src/walters/training.py:478-487; no as-of date). So the exam's figures move with
+  >        the state of the copy it is run on. They did: fix-v2 read 14.76pp on 11-05 (256) and 15.32pp on
+  >        11-13 (367), same set, same key.
+  >    (b) THE PERFECT-XI RECEIPT OF 11-13 (367) was run by my block on a copy of the laptop's database. By
+  >        today's read that database then lacked, as SCHEDULED rows past kickoff: EFL 8 (10-28), CL 18
+  >        (11-03, 11-04), UEL 18 (11-05), and league results from 10-03 (EL1, EL2), 10-10 (ELC and most
+  >        leagues) and 10-31 (PL). The 11-05 exam figure (256) was read on the same laptop.
+  >    (c) THE CAUSE IS MINE (390 item 5(c)): the laptop's routine, which I write, ran no whole-season read.
+  >
+  > 2. WHAT THIS DOES NOT DO. It does not reopen the R-track, move a threshold, or say 367's verdict is wrong.
+  >    367's three figures missed by a wide margin (16.43pp against <= 6.0pp; 34 rows against <= 13; 60%
+  >    against >= 80%), and I expect a read on complete rows to miss as well. But a figure of record read on
+  >    an incomplete copy is a defective receipt, and I do not leave one standing because its verdict suits.
+  >
+  > 3. DECLARED NOW, BEFORE ANY READ: ONE CORRECTION READ.
+  >    (a) WHAT: cup-exam --with-history-xi --db COPY, by my block, on a fresh .backup copy of the laptop
+  >        (mode=ro + immutable=1), the same key (exports/cup_answer_key.csv, sha256 3eb1d22858b4), model v22,
+  >        the cup coefficients as they are. Nothing else changes.
+  >    (b) WHEN: after item 4 is answered and the laptop's whole-season pass has run over every current
+  >        competition-season (tomorrow's morning block), not before.
+  >    (c) WHAT IT DECIDES: its three figures REPLACE 367 item 2's as the figures of record, whichever way they
+  >        fall. 367 item 3's thresholds apply to them UNCHANGED, on the same figure of record (the history XI
+  >        as `confirmed`, 0.7).
+  >    (d) IF IT MISSES on any of the three: 367 stands in every word but its figures; the R-track stays closed
+  >        for the season; path (b) alone remains.
+  >    (e) IF IT MEETS all three: the closure of 367 is void, and I rule the next step then. Nothing is
+  >        declared, built or run on it before that ruling.
+  >    (f) It is read ONCE. A second read needs a second defect, named before it is made.
+  >
+  > 4. TWO FACTS I ASK OF YOU, read-only, no run, on #106 (or #1020, where Dev 1's list is):
+  >    (a) Everything cup-exam --with-history-xi reads from STORED RESULTS besides the cup competition's own
+  >        FINISHED rows: the league rows behind a cross-league price, the ratings it reads and when the laptop
+  >        last wrote them, anything else. File and line. I want to know what "complete" means for this read
+  >        before I make it.
+  >    (b) nfl-v2-gate (the 11-06 run, 265) and the corrected 2024 warm-up read of nfl_elo_v1 (214): does
+  >        either read ANY 2026 row? #1020's list says the gate is in scope "if its stream reaches 2026". The
+  >        laptop's NFL rows were stale from 10-27. One line each, with the line of code that bounds the stream.
+  >
+  > 5. FOR THE RECORD, what else #1020's list names inside the stale window, and where each stands:
+  >    (a) soccer-v23-gate: not yet run; the laptop was caught up today, five days before the declaration.
+  >    (b) soccer-expansion-confirm reads the LIVE database only and PD's cohort (10-09..11-22) lies inside the
+  >        stale window; no confirmation is recorded yet. When one is, my block names the machine and the copy.
+  >    (c) intl-elo-confirm: the UNL record of 11-17 reads the host's pulled copy (346), not the laptop.
+  >    (d) results-tally, evaluate, export-results and predict on the laptop's own database: the host's are
+  >        the record and the Desk's; the laptop's were stale for PL from 10-31 and NFL from 10-27, and are
+  >        caught up as of today.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did:**
+  - Item 3: recorded here, for v1.6.9's step 1. No v1.6.9 release Issue exists yet; the compare is carried into it when the fold opens one.
+  - Item 4: 390 item 6's datum was already on #1018 (issuecomment-6896762127, posted 2026-11-15). Nothing else is done there until the architect rules.
+  - 397: recorded here and on #1020 (issuecomment-6898220121), as it asks. Its item 4 (two facts, read-only) is asked of Dev 2 on lane cups (#106) and is not answered here.
+  - 395 items 1-2 and 396 items 1-5 are Dev 2's. 396 item 6: #1021 waits on the architect's merge block at 0011700f. Nothing more is asked of it, and nothing was pushed to it after its read.
+
+**2026-11-15 — KXNCAAMBGAME's first name table, as data (addendum 392 items 2 and 4; #955; #1019).**
+- **Ruling (392 item 2(d), verbatim):** "RULED: the first table of KXNCAAMBGAME is the 253 lines of the attached file, name | key | id, exactly as printed, less any of the three I strike. Its "ruled" field: "ARCHITECT 2026-11-15, addendum 392 item 2". No line of your own, no name normalised, no order imposed beyond the file's."
+- **What landed:**
+  - src/ingestion/kalshi_tables/KXNCAAMBGAME.json: 253 lines, 253 distinct names and api_basketball ids, file sha256 960267320bde;
+  - the strict loader accepts it;
+  - one test file pinning it;
+  - the scorer's NCAAMB tests pointed at an empty table folder.
+- **What it changes:** KXNCAAMBGAME is placed by the table alone, on the laptop. No host reads the series before 12-05.
+- **The three watched lines** (Charlotte 3429, Florida International 5628, Loyola Marymount 3382) are CONFIRMED by the architect's read of their stored games (393 item 1).
+- **Still to come:**
+  - his replay after it merges (392 item 4(d));
+  - then the series' second data PR, on his word: the 60 hand lines he ruled (393 item 2; "UIC" by 394 item 1).
+
+**2026-11-15 — Addenda 390 to 394: #1017 merge-ready and merged; the laptop's goalie backfill and its stale database (a finding, #1020); its catch-up; the first KXNCAAMBGAME table ruled and its three watched lines confirmed; all 60 hand lines ruled for a later data PR; 393 item 3(a) withdrawn. Records only.**
+- **Addendum 390 (ARCHITECT 2026-11-15 10:17 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 10:17 ET (15:17Z, read from the clock) — addendum 390, for DEV 2 (Lane B), items 1-3; for DEV 1 (Lane A), items 4-6.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. DEV 2 — #1017 READ, MERGE-READY at 8d2f95a7.
+  >    What I read: the diff of kalshi_match.py and its four callers (kalshi_sync, kalshi_replay, tennis_kalshi,
+  >    kalshi_history), the whole of kalshi_table.py, and the kalshi-table-propose command. What I checked:
+  >    (a) no table file ships (src/ingestion/kalshi_tables/ holds README.md only), so declared() is empty and every
+  >        series is matched by the scorer as before;
+  >    (b) place() reads declared() itself, so no caller can leave a declared series to the scorer; a declared
+  >        series the run did not read, or whose file is not a table, REFUSES every event of it;
+  >    (c) a tabled pair fits a game only by its two teams' ids, one each; no word is read;
+  >    (d) trial-merged onto main 7506e550 with no conflict; the 690 Kalshi tests pass on the merged tree here;
+  >    (e) CI green on the head; Codex found nothing on 21de9d9a; 21de9d9a..8d2f95a7 adds the two fragment files
+  >        only; 0 review threads.
+  >    Money-path code under the stop rule: no P1, no P2 open. It merges by my block today.
+  >
+  > 2. DEV 2 — YOUR QUESTION, RULED: the history paths KEEP REFUSING a declared series, as built (TABLE_HELD on
+  >    run_history, place-held, place-chain and the chain listing). They open by their own ruling, for the first
+  >    declared series that needs a history pull, with that series' own replay. KXNCAAMBGAME needs none: 2026-27
+  >    only, market-only, no history pot (352 item 3(iv)). PR two is not held by this.
+  >
+  > 3. DEV 2 — NEXT: after the merge I run the proposer on the laptop by my block (a kept markets file holding
+  >    KXNCAAMBGAME, key api_basketball, a fresh copy with no sidecar) and read every line. PR two, the table as
+  >    data, waits for that reading. Build nothing for it before then.
+  >
+  > 4. DEV 1 — THE LAPTOP GOALIE BACKFILL RAN (389 item 4(a)), on main 7506e550. The receipt, for your PR body
+  >    of 389 item 3 and for the record:
+  >    (a) window 2026-10-01 .. 2026-11-15: schedule_calls 7 (all 200), games_found 322, skipped_not_finished 5,
+  >        boxscore_calls 317 (all 200), both_starters 317, mapped_to_our_match 317, rows_written 1268; nothing
+  >        refused, nothing "not in our DB"; exit 0. The dry run before it printed the same counts.
+  >    (b) nhl_goalie_appearances 16,798 -> 18,066 rows. The season receipt on a fresh copy: 2026-27 holds 325
+  >        regular-season games, both starters flagged on 325, no appearance without a linked match, relief 34
+  >        of 325 = 10.5%, latest stored game 2026-11-15 (UTC).
+  >    (c) MY BLOCK'S FAULT, recorded: its step 3 wrote the day's backup over the morning's file of the same
+  >        name; on the laptop that left a 0-byte -wal and a -shm beside it, and nhl-goalie-coverage --db refused
+  >        the copy, rightly. The fence held. The overwritten file was moved aside, a fresh copy taken under the
+  >        free name, and the receipt read from that. STANDING, for my blocks: a .backup is never written onto a
+  >        name that exists.
+  >
+  > 5. DEV 1 — A FINDING, yours to open as ONE Issue (class finding): THE LAPTOP'S DATABASE IS STALE OUTSIDE
+  >    NCAA, NHL AND TENNIS.
+  >    (a) The read, 2026-11-15 15:15Z, on a fresh copy, counts only: matches with a kickoff between 2026-07-01
+  >        and 36 hours before the read whose status is SCHEDULED. NHL 107 (2026-10-22 and 10-26..11-10) before
+  >        today's catch-up, 0 after it (one whole-season sync-matches for NHL 2026: updated 1409, created 0;
+  >        October FINISHED 217, November FINISHED 101, every one linked to a stored goalie game).
+  >    (b) STILL STALE after it, 990 rows in 27 competitions: ELC 84, EL2 71, EL1 66, NCAAMB 60, SA 60, NBA 50,
+  >        PD 50, NED 45, TUR 45, BL1 44, FL1 44, CZE 41, BEL 36, POR 36, SCO 36, GRE 35, NFL 31, AUT 30, SUI 24,
+  >        PL 20, CL 18, UEL 18, UNL 18, CNL 12, EFL 8, FRIENDLIES_INT 5, WC 3. First stale days: 10-03 (EL1,
+  >        EL2), 10-09/10-10 (most leagues), 10-27 (NFL), 10-31 (PL), 11-03 (CL).
+  >    (c) THE CAUSE IS MY ROUTINE: the laptop's morning block syncs NCAA, NHL (a three-day window) and tennis,
+  >        and no whole-season read has run on the laptop since early October. The host is not touched by this:
+  >        its chains read its own database.
+  >    (d) WHAT IT TOUCHES: soccer-v23-gate reads the laptop's database (docs/specs/soccer-v23.md), so the laptop
+  >        is caught up BEFORE the 11-20 declaration. The catch-up is mine, by block, today: per stale
+  >        competition-season, sync-teams then sync-matches, the host's weekly form (204 item 3(a)).
+  >    (e) STANDING, for my blocks: the stale count (this read) joins every morning block, and a weekly
+  >        whole-season pass joins the laptop's routine.
+  >    (f) ONE FACT I ASK OF YOU, in the Issue: every command that reads RESULTS from the laptop's own database
+  >        for a gate, a record or an export (soccer-v23-gate is one), so I can say what else the stale rows
+  >        reached since early October. A list with file and line; no fix, no build.
+  >
+  > 6. DEV 1 — unchanged: 389 item 3 (the daily goalie step) and item 5 (the shot sync's Issue) stand as written.
+  >    One datum for item 5's Issue: the host's NHL shadow export of 11-14 16:01Z reads games_used 3101,
+  >    games_with_xg 3101, goal_margin_fallbacks 0, so on that day no finished game the shadow used lacked its
+  >    shot events.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 391 (ARCHITECT 2026-11-15 10:33 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 10:33 ET (15:33Z, read from the clock) — addendum 391, for DEV 1 (Lane A). DEV 2: item 4 is for your information.
+  > Paste exactly. Record it in BACKLOG as usual. It completes 390 item 5: the same ONE Issue carries it.
+  >
+  > 1. THE LAPTOP'S CATCH-UP RAN (390 item 5(d)), on main ff9008e1, 2026-11-15 15:22Z to 15:33Z, by my block.
+  >    A fresh backup first. The list was built from that copy: every competition-season holding a match past
+  >    kickoff by 36 hours and SCHEDULED, less the internationals and what the routine already reads. 23 lines,
+  >    952 matches. Per line: sync-teams then sync-matches for the whole season, the host's weekly form.
+  >    (a) 23 of 23 lines: both commands exit 0.
+  >    (b) BEFORE 991 such matches in 28 competition-seasons; AFTER 40 in 6: UNL 18, CNL 12, FRIENDLIES_INT 5,
+  >        WC 3 (the internationals, not in the block), NCAA 1 (2026-09-05, status_raw PST), SCO 1 (2026-10-31).
+  >    (c) created, by line: NCAAMB 40, EFL 4, SCO 1; every other line created 0.
+  >    (d) the sync's own named rows: FL1 orientation_reversed 1 (match 19536); NCAAMB teams_mismatch_refused 1
+  >        (match 59235) and skipped 1; NFL skipped 6. Each is the sync's ruled behaviour (a reversed listing is
+  >        written by team and the stored sides never flipped; a listing naming neither arrangement refuses the
+  >        row and leaves it untouched). Nothing here is to be fixed into a guess.
+  >
+  > 2. STILL OPEN ON THE LAPTOP, named so the Issue is whole:
+  >    (a) the internationals, 38 rows: their command is intl-sync, the host's intl-daily form. I read its laptop
+  >        form before I write that block. Nothing on the laptop reads those rows for a gate before then: the UNL
+  >        confirmation record reads a pulled host copy.
+  >    (b) SCO, one row of 2026-10-31 still SCHEDULED after a whole-season read that created one row. It may be
+  >        a fixture the provider moved or re-issued under a new id. ONE FACT I ASK OF YOU, read-only, in the
+  >        Issue: what a whole-season sync does with a stored row whose provider id the season's listing no
+  >        longer serves (file and line), and whether dedupe-matches --orphans reads a soccer competition as it
+  >        reads NCAA. No fix, no build, no run.
+  >
+  > 3. THE TWO STANDING LINES OF 390 item 5(e) STAND: the stale count joins every morning block from tomorrow;
+  >    a weekly whole-season pass joins the laptop's routine. Both are my blocks. Nothing for you to ship.
+  >
+  > 4. DEV 2 — #1017 MERGED at 8d2f95a7; main is ff9008e1. The proposer runs next, by my block, on a laptop
+  >    whose college basketball teams and games were refreshed by this catch-up (NCAAMB: created 40, updated
+  >    5067). Your queue is as 390 item 3 left it.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 392 (ARCHITECT 2026-11-15 10:42 ET), verbatim.** The file that travels with it, `ruled_1115_KXNCAAMBGAME_first_table_lines.txt`, is Dev 2's, for PR two. It is not carried here.
+
+  > ARCHITECT 2026-11-15 10:42 ET (15:42Z, read from the clock) — addendum 392, for DEV 2 (Lane B). DEV 1 records it.
+  > Paste exactly. Record it in BACKLOG as usual. One file travels with it: ruled_1115_KXNCAAMBGAME_first_table_lines.txt.
+  >
+  > 1. THE PROPOSER RAN, by my block, on main ff9008e1 (387 item 3; 390 item 3).
+  >    kalshi-replay --series KXNCAAMBGAME kept 354 open markets at 2026-11-15T15:34:49Z
+  >    (logs/kalshi_replay_20261115T153448Z.json). kalshi-table-propose --series KXNCAAMBGAME --from-file that
+  >    file --key api_basketball --db a fresh copy (sha256 80a607f98977, no sidecar): exit 0. 313 names, 741
+  >    stored teams of NCAAMB, PROPOSED 253, MARKED FOR HAND READING 60, no table declared. The laptop's college
+  >    basketball rows were refreshed an hour before by the catch-up of 391 (NCAAMB: created 40, updated 5067).
+  >
+  > 2. MY READ OF THE 253 PROPOSED LINES — every line read.
+  >    (a) 253 distinct names, 253 distinct provider ids, 253 distinct teams; no two names differ only by case.
+  >    (b) 200 names are the stored name to the character. 53 differ, in these ways only: 49 end in "St." where
+  >        the stored name ends in "State" or "St" (the tokens' own reading of State, at the END of a name; none
+  >        opens with it); Gardner-Webb / Gardner Webb; Louisiana-Monroe / Louisiana Monroe; SIU Edwardsville /
+  >        Siu Edwardsville; UConn / Uconn.
+  >    (c) 240 ids sit in the provider's own alphabetical runs (176-247, 1489-1506, 1570, 1803-2218): its base
+  >        list. 13 are later ids: Bellarmine 2358, Charlotte 3429, Fisk 3249, Florida International 5628,
+  >        IU Indy 6712, Le Moyne 3274, Louisiana Christian 5782, Loyola Marymount 3382, Miami-Hamilton 3351,
+  >        Southern Indiana 5566, Stonehill 5866, UC San Diego 2363, Wilson College 3345. Ten are new members,
+  >        renames or smaller schools, as a late id would be. THREE are long-standing schools with a late id
+  >        (Charlotte, Florida International, Loyola Marymount), so the provider may hold a second entry for
+  >        each; I read their stored games on the laptop today and CONFIRM OR STRIKE each before PR two merges.
+  >    (d) RULED: the first table of KXNCAAMBGAME is the 253 lines of the attached file, name | key | id, exactly
+  >        as printed, less any of the three I strike. Its "ruled" field: "ARCHITECT 2026-11-15, addendum 392
+  >        item 2". No line of your own, no name normalised, no order imposed beyond the file's.
+  >    (e) A WRONG LINE FAILS CLOSED, and that is why a whole read is enough for the first table: a tabled pair
+  >        fits only a stored game of exactly its two teams within a day, so a line on the wrong school places
+  >        nothing. The proof is the replay: item 4.
+  >
+  > 3. THE 60 MARKED NAMES ARE NOT IN THE FIRST TABLE (387 item 3(e)). Their events refuse under the new reason
+  >    naming them, on the laptop only: no host reads this series before 12-05. Each becomes a line by its own
+  >    ruling, as a pin is, in a later data PR. My reading of them is under way by a second block (the stored
+  >    team, its ids, and its stored games around each event's date, so the opponent proves the team). Build
+  >    nothing for them.
+  >
+  > 4. PR TWO — the table as data, and nothing else.
+  >    (a) src/ingestion/kalshi_tables/KXNCAAMBGAME.json from the attached file; its changelog fragment and its
+  >        ledger entry. No code. If the strict loader refuses anything in it, stop and tell me; do not adjust a
+  >        line to fit.
+  >    (b) A test that every shipped table loads under the strict loader, and that this one holds the ruled
+  >        lines, by count and by the sha256 of the file. One test file; say in the PR body what it pins.
+  >    (c) Money-path data: the stop rule's money-path side. The PR body names the replay command and its
+  >        arguments for my block (198 item 6(i)); it ships no block.
+  >    (d) THE REPLAY IS MINE, after the merge, on the laptop, before any tag carries the table to the host:
+  >        kalshi-replay --series KXNCAAMBGAME on fresh markets. I read every event: placed by the table, or
+  >        refused with its reason. An event of two tabled names that does not place is a line I look at again.
+  >        387 item 3(e) stands: against main's legs the first table only removes placements; each placement it
+  >        ADDS is named to me, one by one.
+  >
+  > 5. ONE THING I FOUND USING THE PROPOSER, for a cost line from you, NOT a build: its marked section prints an
+  >    id only for a whole read and prints no event, so each "no whole read" name (44 of the 60) needed a second
+  >    read by a block of mine to get the candidate's ids and to see the opponent. Before KXNCAAFGAME's table I
+  >    would like the marked section to print, per name, each event's ticker with the other name, and per
+  >    top-score team its team id and provider id. Tell me in one line what that costs and what it touches.
+  >    It queues behind PR two.
+  >
+  > 6. DEV 1 — for the record only: the hand-reading block and the replay block are mine; nothing for you here.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 393 (ARCHITECT 2026-11-15 10:45 ET), verbatim.** The file that travels with it, `ruled_1115_KXNCAAMBGAME_hand_lines.txt`, is Dev 2's, for the series' second data PR on the architect's word. It is not carried here.
+
+  > ARCHITECT 2026-11-15 10:45 ET (15:45Z, read from the clock) — addendum 393, for DEV 2 (Lane B). DEV 1 records it.
+  > Paste exactly. Record it in BACKLOG as usual. One file travels with it: ruled_1115_KXNCAAMBGAME_hand_lines.txt.
+  >
+  > 1. THE THREE WATCHED LINES OF 392 item 2(c) ARE CONFIRMED; the first table is the 253 lines, whole.
+  >    Read on the laptop's fresh copy by my block, each team's stored game around its event's date:
+  >    Charlotte (api_basketball 3429, 25 games this season): Charlotte at Davidson, 2026-11-18 00:00 UTC, the
+  >    event KXNCAAMBGAME-26NOV17CHARDAV. Florida International (5628, 27 games): at UAB, 11-18 00:30 UTC, the
+  >    event 26NOV17FIUUAB. Loyola Marymount (3382, 26 games): Chicago State at Loyola Marymount, 11-15 21:00
+  >    UTC, the event 26NOV15CHSLMU. PR two builds from 392's file unchanged.
+  >
+  > 2. THE HAND READING: 59 OF THE 60 MARKED NAMES ARE RULED, each as its own line, as a pin is (387 item 3(e)).
+  >    (a) The attached file holds the 59: name | key | id, then the stored team, then the proof. The proof of
+  >        every line is the same kind: the stored team has a stored game, within a day of the event's date,
+  >        against the stored team of the event's OTHER name. I read each one. No id among the 59 is among the
+  >        253.
+  >    (b) What the reading turned up, so the record has it:
+  >        - "St. Thomas" is St. Thomas (Minn.), api_basketball 3325 (30 games, at LIU on the event's date). The
+  >          id in the provider's base run, 2132, is St. Thomas (TX): one game this season, none near the event.
+  >          A whole read or an id's age would have picked the wrong school.
+  >        - "Alabama A&M" is Alabama A&M Bulldogs, 1806, not Alabama, 176, its whole read. "North Carolina A&T"
+  >          is N. Carolina A&T, 2025, not North Carolina, its whole read. Your correction (387 item 3(d)) was
+  >          right on both.
+  >        - "LIU" is LIU Sharks, 1966, and "University at Albany" is Albany Great Danes, 6632. The matcher's
+  >          pins for those two names point at other stored names; the pins stand as they are (387 item 3(c)),
+  >          and for this series the table decides.
+  >        - "Omaha" is Nebraska O., 2030. "Purdue Fort Wayne" is IPFW, 257. "Green Bay" is Wisc. Green Bay,
+  >          249. "Saint Mary's" is St. Marys (CA), 2130. "FDU" is Fairleigh Dickinson, 1907.
+  >    (c) NOT RULED: "UIC" (one event, 26NOV18CHSUIC, against Chicago St.). My searches found no stored team.
+  >        It stays out and its event refuses by name until I find it.
+  >    (d) THESE 59 ARE NOT FOR PR TWO. Order, unchanged from 387 item 3(e) and 392: PR two is the 253; I replay
+  >        it; then the 59 go in as the series' second data PR, the same file gaining lines, with the same test
+  >        re-pinned. Open that second PR only on my word after the replay.
+  >
+  > 3. TWO THINGS SEEN IN THE STORED GAMES, for the record; no action by you:
+  >    (a) St. Thomas (Minn.) at LIU Sharks, 2026-11-17 00:00 UTC, is stored TWICE (two SCHEDULED rows). I am
+  >        reading how many such pairs the laptop holds, by competition, before anything is done about them.
+  >    (b) Detroit at Eastern Michigan is stored on 11-17 21:00 UTC as CANCELLED and on 11-18 23:30 UTC as
+  >        SCHEDULED: the provider moved the game and issued a new row. Several 11-14 games read POSTPONED.
+  >
+  > 4. YOUR QUEUE: PR two, as 392 item 4 has it. Then the cost line of 392 item 5.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 394 (ARCHITECT 2026-11-15 10:50 ET), verbatim.** The file that travels with it, `ruled_1115_KXNCAAMBGAME_hand_lines_v2.txt`, replaces the file sent with 393. It is Dev 2's, and it is not carried here.
+
+  > ARCHITECT 2026-11-15 10:50 ET (15:50Z, read from the clock) — addendum 394, for DEV 2 (Lane B). DEV 1 records it.
+  > Paste exactly. Record it in BACKLOG as usual. One file travels with it: ruled_1115_KXNCAAMBGAME_hand_lines_v2.txt,
+  > which REPLACES the file sent with 393.
+  >
+  > 1. "UIC" IS RULED: Illinois (Chi.), our team 2683, api_basketball 1502. The proof, read on the laptop's fresh
+  >    copy: Chicago State at Illinois (Chi.), 2026-11-19 00:00 UTC, the only stored game of Chicago State from
+  >    11-17 to 11-20, and the event is KXNCAAMBGAME-26NOV18CHSUIC, Chicago St. vs UIC. So ALL 60 marked names
+  >    are ruled; the v2 file holds the 60. 393 item 2(c) is closed by this item; 393 item 2(d) stands: the 60
+  >    are the series' SECOND data PR, opened on my word after I replay PR two.
+  >
+  > 2. A RETRACTION — 393 item 3(a) IS WRONG AND IS WITHDRAWN. St. Thomas (Minn.) at LIU Sharks is stored ONCE.
+  >    My reading block printed a team's stored games once per event of that name; LIU has two events whose
+  >    one-day windows overlap, so the same row was printed under each, and I read two printed lines as two
+  >    stored rows. The read made to check it (every pair of teams stored more than once on one UTC day since
+  >    2026-10-01, cancelled and postponed rows left out) finds NONE in NCAAMB and none in any soccer
+  >    competition. The v2 file names each stored game once. No other line of 393 rests on that reading.
+  >
+  > 3. WHAT THAT SAME READ DID FIND, for the record; no action by anyone:
+  >    (a) MLB 2026, three pairs (Padres at Brewers 10-04, Dodgers at Brewers 10-12, Rays at Guardians 10-18):
+  >        two postseason games of one series falling on one UTC day, different provider ids, both FINISHED.
+  >        Two games, not one game twice.
+  >    (b) NHL 2026, one pair: Dallas Stars at Winnipeg Jets on 2026-12-20 at 00:00 UTC and at 22:00 UTC, two
+  >        SCHEDULED rows, two provider ids. Either two games on consecutive local days or a game the provider
+  >        re-issued. It is five weeks out; I read it again nearer the day. Nothing is deduplicated on a guess.
+  >
+  > 4. YOUR QUEUE is unchanged: PR two (the 253, 392 item 4), then the cost line of 392 item 5.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did:**
+  - 390 item 4: the 45-day receipt is in the 389 item 3 PR's body and its ledger entry.
+  - 390 item 5 and 391 item 2(b): opened as ONE Issue, #1020 (class:finding). It holds the list of commands that read results from the laptop's own database, with file and line, and the answer on a stored row the season's listing no longer serves, also with file and line.
+  - 390 item 6: the shadow datum is posted on #1018 (issuecomment-6896762127).
+  - 392 to 394: recorded here. Nothing in them is Dev 1's to act on. The files that travel with them (the 253 first-table lines, and the hand lines, whose v2 replaces 393's) are Dev 2's, and none is committed here. 393 item 3(a) stands withdrawn by 394 item 2. Its text is kept above only because 393 is pasted verbatim.
+
+**2026-11-15 — Addendum 389: #1016 merge-ready; the NHL goalie gap read; the daily goalie step ruled and built; the backfills are the architect's; the shot sync's silent exit opened as a finding (#1018).**
+- **Addendum 389 (ARCHITECT 2026-11-15 09:50 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 09:50 ET (14:50Z, read from the clock) — addendum 389, for DEV 1 (Lane A). DEV 2 reads item 6 only.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. #1016 — READ, MERGE-READY at 49723eff.
+  >    Tests only (4 files, +20/-2): the two results-tally tests freeze export.utc_now_naive where their
+  >    renderings compare. CI green on the head (smoke, smoke-py310, fragments, closing-refs), clean against
+  >    main 08554df9, 0 open review threads. It merges by my block today. Nothing more is asked of it.
+  >
+  > 2. THE NHL GOALIE GAP — your five lines are accepted as the facts. What I read myself on main 08554df9:
+  >    (a) src/ingestion/nhl_goalies.py http_json returns (0, None) on a network failure and (code, None) on
+  >        an HTTP error; sync() only counts them (schedule_http_<code>, boxscore_http_<code>); the command
+  >        exits 0 whatever the counts say.
+  >    (b) nhl-shot-sync keys its games through the goalie-sync mapping and falls back to the matcher for a
+  >        game with no goalie link (its own docstring). So the mapping belongs BEFORE the shot sync.
+  >    (c) nhl-daily holds no nhl-goalie-sync step; UNMETERED holds nhl-shot-sync and not nhl-goalie-sync;
+  >        the chain's date placeholders hold no day earlier than {yesterday}.
+  >
+  > 3. RULING — build the daily step. One small PR, lane A.
+  >    (a) THE STEP: ["nhl-goalie-sync", "--start", "{yesterday}", "--end", "{today}"] in nhl-daily, after
+  >        export-fixtures and before nhl-shot-sync.
+  >    (b) UNMETERED gains "nhl-goalie-sync", beside nhl-shot-sync, with the same reason (api-web.nhle.com,
+  >        the NHL's free API, never api-sports). tests/test_hosting_pack.py follows.
+  >    (c) nhl-daily's go_on names it: a failed goalie step is receipted and paged as a sync-step failure and
+  >        stops nothing after it. Its go_on_why cites this item.
+  >    (d) A FAILURE THAT READS AS ONE: nhl-goalie-sync exits non-zero when any schedule or boxscore request
+  >        of the run answered other than 200. It still prints its counts line and its coverage lines first,
+  >        and what it parsed is still written (the upsert is unchanged). No flag: it holds for a hand run and
+  >        for --dry-run as for the chain. You pick the exit code the repo's other syncs use for a provider
+  >        failure and name it in the PR body.
+  >    (e) A REFUSAL IS NOT A FAILURE: REFUSED games and "not in our DB" stay counted and printed, exit 0.
+  >        No tolerance changes, no refusal becomes a guess.
+  >    (f) If the provider answers other than 200 for a kind of game that is not a failure (a postponed game,
+  >        say), STOP and tell me which kind, with the count. Do not allow-list a code on your own.
+  >    (g) No new placeholder, no wider window in this PR. A game whose request fails on both of its two days
+  >        is caught by the page, and the catch-up is a hand run by my block.
+  >    (h) CLASS: a deploy script and a command's exit, so the stop rule's money-path side applies: P2s left
+  >        after round two are listed for me. The PR body names the command and its arguments (198 item 6(i));
+  >        it ships no block.
+  >    (i) TAG: it rides the first tag cut after it merges. If it is merged before v1.6.9's fold, that is
+  >        v1.6.9; I do not hold v1.6.9 for it.
+  >
+  > 4. THE BACKFILLS — mine, by block, both.
+  >    (a) LAPTOP, today: an OPERATOR ONLY block (a one-off write outside the routine). A named pre-run
+  >        backup, then your dry run for 2026-10-01 .. 2026-11-15 to a file, then a mechanical stop if any
+  >        request answered other than 200 or boxscore_calls is 0 or above 500, then the same command without
+  >        --dry-run, then the day's backup again and nhl-goalie-coverage --db on that copy. The operator
+  >        relays the console to you: it is the 45-day receipt for your PR body (refusals, unmatched games,
+  >        request counts), and it runs on main as it stands, so its exit is still 0 by design.
+  >    (b) LAPTOP, from tomorrow: the two-day goalie sync joins my morning block after the NHL export. Nothing
+  >        for you to ship.
+  >    (c) HOST: after the tag that carries item 3, by my OPERATOR ONLY block: one hand run from 2026-10-01,
+  >        then the coverage read on a backup copy. Not before.
+  >
+  > 5. A FINDING FOR THE LEDGER, yours to open: nhl-shot-sync, LIVE on the host's nhl-daily, has the same
+  >    silent form (pbp_http_<code> is counted, the exit is 0), and on a {yesterday, today} window a game
+  >    whose request fails on both days is never asked again. ONE Issue (class finding, sport nhl). In
+  >    it, state what the host's receipts keep of that step's printed counts line, since that decides whether
+  >    I can read from the receipts if it has ever happened. NO FIX YET: that step has no go_on, so an honest
+  >    exit there would stop the shadow steps behind it, and that is its own ruling. It is not part of item
+  >    3's PR.
+  >
+  > 6. DEV 2 — for your information only: this season's goalie appearances will exist on the laptop from
+  >    today's backfill and on the host from the tag after v1.6.9 at the latest. The ceiling test's cohort is
+  >    the retired 2025 season and does not wait on this. Nothing here changes your queue: matcher PR one is
+  >    next.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Item 3, what landed (this PR):**
+  - `nhl-goalie-sync` exits 1 (`nhl_goalies.PROVIDER_FAILURE_EXIT`) when any schedule or boxscore request answered other than 200. 1 is the exit the repo's other syncs use for a failed provider read: sync-matches' strict read, availability-nflverse's `failed`, availability-nhl-observe's failed schedule read.
+  - The line is printed last, after the counts and coverage lines, so the step receipt's five-line tail and the page carry it. Refusals and games not in our DB stay exit 0. No code is allow-listed.
+  - On nhl-daily: the step sits between export-fixtures and nhl-shot-sync. It is UNMETERED, and `go_on` (`chains.NHL_GOALIE_GO_ON`) names it.
+  - From the pre-push review: an answer cut short or malformed (`http.client.HTTPException`) counts as code 0 through the goalie sync's own fetch (`sync_fetch`), not a traceback. A failed boxscore is counted only as a failed request, never also as a refusal. `http_json` and the shot sync are untouched (#1018).
+  - **The 45-day receipt (390 item 4(a)), the laptop on main 7506e550:** window 2026-10-01 .. 2026-11-15; schedule_calls 7 (all 200), games_found 322, skipped_not_finished 5, boxscore_calls 317 (all 200), both_starters 317, mapped_to_our_match 317, rows_written 1268; nothing refused, nothing not in our DB; exit 0. No code other than 200 came back, so 3(f)'s stop has nothing to report.
+- **Item 5:** opened as #1018 (track:ops, class:finding, sport:nhl, size:S).
+  - The host's receipts never hold the shot sync's counts line. A step receipt keeps its last five lines, which are always the end of the coverage block, and `marks` reads only the sync-teams and sync-matches family of lines. The journal holds the full output, for as far back as the host's journald keeps it.
+  - Read for #1018 and stated there: the window asks for a game that starts after 10:00Z on ONE run only, not two. Those are the US afternoon and early-evening starts. The same holds for the new goalie step, where 3(d)'s exit and 3(c)'s page make that one failure visible.
+- **Next:** 4(a) is the architect's laptop block. Its console is the 45-day receipt for the PR body, and 3(f)'s stop applies to any code other than 200 it shows.
+
+**2026-11-15 — The Kalshi matcher's name tables, (B): PR one, the machinery and no data (addendum 387 item 3; #955; #1017).**
+- **Ruling (387 item 3, verbatim in part):** "THE MATCHER: RULED, (B), THE REVIEWED NAME TABLE, as your proposal and its correction have it. One matcher, no competition branch, no change to team_aliases.norm_tokens ... (a) a series DECLARES a table by having one; a declared series' name that is not in its table REFUSES its event under a new counted reason that names the name; a series with no table is matched as today, to the last character. (b) A line maps one Kalshi name to one team by the provider's key and id through Team.external_ids ... (c) A tabled name fits exactly one team; no line can loosen a fit, and the existing pins stand as they are."
+- **What landed:**
+  - the loader and resolver (kalshi_table.py);
+  - place() by the table alone for a declared series: the generalised pin, a pin by provider id and total for its series;
+  - the four refusals;
+  - every caller passing the tables, and the history paths refusing a declared series;
+  - the read-only proposer, `kalshi-table-propose`.
+- **The data:** no table is in the repo. KXNCAAFGAME is untouched ((f)).
+- **The proposer on the operator's 2026-11-13 names file (scratch read, not committed):**
+  - KXNCAAMBGAME: 254 proposed and 62 by hand, of 316 names. The correction of 11-13 counted 256/60. The differences are St. Bonaventure (it opens with "St."; 11-13's regex missed "St." before a space) and Penn (pinned; a mark beyond (d)).
+  - KXNCAAFGAME: 238 proposed and 27 by hand, as counted then. St. Thomas is now marked for its opening, and Hawai'i is now proposed: the tokens keep its apostrophe.
+- **Next:** the architect runs the proposer on the laptop by his block and reads its lines. PR two is KXNCAAMBGAME's table as data. The roadmap's 12-05 step waits for the tag that carries both.
+
+**2026-11-15 — `nhl-goalie-coverage --db COPY`: the counts-only NHL season receipt (addendum 386 item 2; #1012).**
+- **Ruling (verbatim in part):** "THE NHL COVERAGE RECEIPT — RULED: ADD --db, AND I RUN IT ON A COPY ... --db COPY through the shared fence, opened mode=ro with immutable=1, with NO init_db() on that path; the command without --db is unchanged ... No goalie's name and no figure of any model."
+- **What landed:** the receipt (a)–(e) by season, 2023-24 to 2026-27, from the stored appearances alone.
+- **The definitions:**
+  - a game is one nhl_game_id;
+  - the season comes from its stored start, UTC, 1 July to 30 June;
+  - the regular season is game type 2 as the rows say it, never inferred;
+  - flagged means exactly one starter row on a side;
+  - relief means another goalie with TOI > 0.
+- **Next:** the architect writes the laptop block; the command and its one argument are named in #1012.
+
+**2026-11-15 — The graph rebuild's line names the record's size before the walk starts (addendum 386 item 1; #1010(a); #1011).**
+- **Ruling (verbatim):** "#1010(a) — RULED: YES. The record's size goes on the line BEFORE the walk starts: a COUNT on the copy in the parent, before the fork, written as record_assertions on the run's line, so a night that dies in the walk (the child taken by MemoryMax, 'the staging child gave no answer (exit -9)') names the size it died at. It is 378 item 4(d) carried one step earlier, and without it the one failure #1010 predicts would be the one failure that says nothing."
+- **What landed:** the count in the parent's read-only session before the fork, written on the line then.
+- **The test:** the child is killed outright and the line read, with `record_assertions` present and `staged` absent.
+- **The figure of record:** #1010's measured ceiling, about 21 million assertions or about sixteen times today's. It is an extrapolation of three points and is labelled as one, until a fourth point replaces it.
+- **Not ordered:** the streaming walk (386 item 1).
+
+**2026-11-15 — THE RECORDS OF ADDENDA 382, 383 AND 385 (ARCHITECT 2026-11-14 13:38 ET, addendum 382 item 6: "The records of this addendum ride your next records PR"; 2026-11-14 16:29 ET, addendum 383; 2026-11-15 08:01 ET, addendum 385 item 3).** One records PR; no code.
+- **382 item 1, the window:** #998, #997, #999, #1000, #1002 and Dev 2's #996 read merge-ready; all six merged on 2026-11-14.
+- **382 item 2, the keep step's Issue:** #1003, asked to be opened "before #853 closes". It was opened at 18:50:28Z, twelve seconds AFTER #999's merge closed #853 (18:50:16Z). Said in #1004's body and ledger entry; recorded here as asked. #1004 is its PR.
+- **382 item 3, the unchanged answer:** "AN UNCHANGED ANSWER TAKES THE STATUS OF THE PAYLOAD IT IS UNCHANGED FROM": `empty` after a header-only payload, `complete` after a complete or partial one; nothing stored is rewritten. Built in #1004.
+- **382 item 4, "live, resync needed" is for a change of state:** built in #1005 (merged 2026-11-15 12:47Z at 0d8c2f9a, e3f55ee2). #1001 lost needs-ruling.
+  - 383 item 4(a) renamed the other-pair label "live, the id serves another game", covering the same pair under another season too.
+  - 383 item 4(b) put the season check that never fired in production on finding #1009; its PR is #1014 (385 item 2).
+- **382 item 5, the twenty:** posted on #945 (issuecomment-6882817664, 2026-11-14 19:13Z), each with the laptop match id, the provider's game id and the stored kickoff.
+- **385 item 1, the expected read, met:** the daily dry run on the laptop at e3f55ee2, 2026-11-15 12:59Z, verbatim: "plan: merge 0 · relink 0 · stale_orphan 0 · live 20 · live, resync needed 0 · live, the id serves another game 0 · refused 0 · unresolved 0". That is 382 item 4(d)'s line.
+  - Fourteen of the twenty carry an annotation and nothing else (status_raw None -> NS on thirteen, None -> PST on 35238). The six with no served code carry none.
+  - "#945's twenty are now a stated limitation and no longer noise in the morning's read."
+- **383 item 3, #1006's two threads, the architect's written no:** "The atomic indirection or the marker is NOT WANTED". Limitation Issue #1008 quotes it ("the tally pair's two-rename moment and a write-refusing folder; accepted"). Both threads were answered with #1008 and resolved; nothing was pushed. #1006 merged 2026-11-15 12:35Z.
+- **383 item 5, #1004 after #1007:** #1007 merged first (12:34Z). main was merged into #1004 with both docs/CLI.md rows kept (the graph-rebuild row as #1007 left it, the nflverse row as #1004 changed it). Head c23a9542, CI green, no review round.
+- **383 item 6, tennis:** the five lines of 381 item 3(iii) are on #838 (issuecomment-6884507328, 2026-11-14 21:31Z). The last word on #838 had been DEV 1's of 2026-11-09; the lines had reached the architect only in relays.
+- **385 item 2, the recorded answer for #1009:** GET /games?id= on the laptop, 12:59Z, two ids, key names and types only. "the single-game answer carries its season at response[0].league.season, A STRING OF THE YEAR". Built in #1014.
+- **385 item 3, three roadmap done-marks (this PR):**
+  - (a) lane nhl, the ceiling readiness read, DONE 2026-11-13 (#105 issuecomment-6865754939; 383 item 2).
+  - (b) lane availability-record, the graph's node shape, DONE 2026-11-15 by #1007 at 455a3f07.
+  - (c) lane inferred-layer, the design proposal, DONE 2026-11-14 by Dev 2's comment on #992 (issuecomment-6877950027). The architect's ruling on it stays due 12-03.
+- **385 item 4, watched, nobody's to fix:** sync-kalshi-atp matched 8 and refused 16 ("no game of the competition on the event's day fits both names"). The likeliest cause is markets for days beyond the daily step's window. The architect reads the tickers' dates in the next block before calling it anything.
+
+**2026-11-15 — #1013: TWO TALLY TESTS RACED THE WALL CLOCK (Dev 2's finding; ARCHITECT 2026-11-15 09:01 ET, addendum 387 item 6: "#1013 [...] the one-line fix Dev 2 proposed, fail-first if a test can show it").**
+- **The race:** `results_tally`'s Source line prints its cutoff to the minute. A test that renders twice and compares fails when the renderings straddle a minute boundary (seen once in CI, smoke-py310 job 132825126980).
+- **The fix:** freeze `src.walters.export.utc_now_naive` at one reading for all of the test's renderings. Test-only.
+- **The sweep:** a probe clock stepping 61 seconds per read, scratch only, was run over the thirteen files that render the tally. It found two tests: #1013's in `test_exec_cohorts.py`, and the laptop/host comparison in `test_host_results_tally.py`. Both now freeze the clock; all 241 pass under the stepping clock.
+
+**2026-11-15 — #1009: THE SEASON A ONE-GAME ANSWER SERVES (ARCHITECT 2026-11-15 08:01 ET, addendum 385 item 2).** The recorded answer (GET /games?id=, the laptop, 12:59Z, two ids) "carries its season at response[0].league.season, A STRING OF THE YEAR".
+- **Built:** `get_game` reads that field and hands it to `_parse_games` in place of `""`. An answer with no league block, or a season that is not a string of a year, keeps today's behaviour and is never guessed (law 4).
+- **The effect:** `dedupe-matches --orphans`' season check, inert in production since #1005 (finding #1009), now fires. The same pair under another season reads "live, the id serves another game" (383 item 4(a)).
+- **The comparison (385 item 2's question):** year to year. `season_year` is read on both sides, and the check runs only when both read a year; the listing's rows hold the bare year they were read with ("2026"). It fires on a real difference and on nothing else.
+
+**2026-11-14 — #945: THE PLANNER'S "live, resync needed" LABEL CORRECTED (ARCHITECT, addendum 365 item 3, relayed verbatim in addendum 379 item 6).**
+- **What the architect read:** the twenty NCAA rows are, by the provider's own listing, games that never started: status_raw NS on 13, no status word on 6, PST on 1, no score, served at the stored kickoff.
+- **The ruling:**
+  - **(a) No resync and no write.** The rows are not orphans and are never marked so.
+  - **(b)** "live, resync needed" must mean the provider serves something our row lacks.
+  - **(c)** #945 is carried by this PR. The twenty ids are listed in the Issue as a stated limitation of the provider's listing.
+- **The planner** now names what differs, as the upsert would write it. A stale row that serves what it stores reads `live`, and `[live]` lines print only under `--sample`.
+- **Expected after this:** the dry run reads `live 20 · live, resync needed 0`, if the twenty store the codes the provider serves.
+  - A row storing no code while the provider serves one reads `live_resync`, naming `status_raw`. The architect is asked to rule on that case.
+  - A served pair that is not the stored one also stays `live_resync`, with `teams` named.
+
+**2026-11-14 — #881: THE HOST'S TALLY PAIR, ALL-OR-NOTHING; THE SHADOW GRADES ON THE REQUESTED EXPORT SET (ARCHITECT 2026-11-14 13:38 ET, addendum 382 item 6(iv): "#881, the tally pair published all-or-nothing, which #1000 left for its own PR").**
+- **The pair:** a failed rename of `results_tally.json` now puts the previous `RESULTS.md` back, so the mirror never carries a new Markdown beside an old or missing JSON.
+- **The export set:** #881's second item (the NHL and UNL grades ignoring a non-default `exports_dir`) rides the same PR. It is the Issue's own second fix, and production's default directory is unchanged by it.
+
+**2026-11-14 — #853: THE NFLVERSE FEED'S TWO FAILURE SHAPES, FIXED FAIL-FIRST (ARCHITECT, addendum 381 item 3(iv)).** The order: "That feed runs daily on the host and is 1,341,335 of the record's 1,341,567 assertions, so its failure paths are worth more than their size label. Fail-first."
+- **F1:** a `--file` that cannot be read into its temporary copy now exits 2 with nothing written. Before, it escaped as a traceback with exit 1, so a chain could not tell it from a failed fetch.
+- **F2:** a header-only (`empty`) observation's kept payload is now the endpoint's previous payload. Its ETag is sent, and an identical file is not downloaded and kept again each day.
+- **The same class of gap at the keep step, unprobed, is not built:** `from_file` → `_retain`. #853 says it "needs its own decision".
+
+**2026-11-14 — #851: THE BULLETIN MIRROR'S TWO ROUND-TWO FINDINGS, FIXED FAIL-FIRST (ARCHITECT, addendum 381 item 3(v): "#851 with #881 if they touch the same module, else #851 alone").**
+- **#851 alone:** #881 is in `src/walters/export.py`, a different module from `deploy/hosting/exports_mirror.py`.
+- **R2-2:** a bulletin swapped after the plan for a symlink or a FIFO is skipped and receipted, never read through or blocked on.
+- **R2-3:** a submodule is matched by its checkout folder's (st_dev, st_ino) as well as its text. So a case-folded family folder on the laptop's clone never swallows a bulletin silently.
+- **Today:** neither had a trigger. Nothing writes `exports/bulletins/` before the renderer runs, and both need a hand-made oddity in the mirror's clone (277 item 1).
+
+**2026-11-14 — THE LEDGER SWEEP (ARCHITECT, addendum 381 item 3(ii)): every open Issue in one table, read-only.** The page is docs/ledger/2026-11-14-ledger-sweep.md, with 197 rows: the 196 open when the sweep began, plus #1001.
+- **The verdicts on each Issue's own closing condition:** yes 28 · partly 36 · no 125 · unknown 8.
+- **Titles:** 34 no longer say what the Issue is.
+- **Read-only:** "No Issue is closed by the sweep and no label moves: I rule the closures from the table" (381 item 3(ii)).
+- **#932:** the 11-13 apply console (the four keepers and NCAA 2026 at 1,729) is not on the record anywhere the sweep could read.
+
+**2026-11-14 — THE GRAPH'S SHAPE RE-RULED (ARCHITECT, addendum 379, 10:34 ET): each assertion becomes a node. Addendum 252 item 4's "an edge per assertion" is amended. MemoryMax stays 1536M. No bar moves and no date moves.**
+- **Why (379 item 2):**
+  - Under the edge shape, the pool a checkpoint needs grows with the whole record.
+  - With the assertion a node, both three-times shapes build in a 256 MiB pool in about 117 s.
+  - An inferred claim needs edges of its own (to its evidence, its successor and its truth), and an edge cannot carry an edge.
+- **Order:** #996 merges first, as it stands after its ruled push. The node shape is its own PR, carrying #995 and due 2026-11-23, and it is on lane `availability-record`.
+- **The 11-25 step stands:** the architect's block enables on a build, on whichever shape the tag before it carries.
+- **Recorded from the console (379 item 5):** the graph's directory was made, "sp:sp 775 /opt/sports-predictor/logs/availability/graph".
+- **The first host NBA PAPER page (ARCHITECT, addendum 381 item 2, 11:25 ET):** the step is done 2026-11-10. The mirror's host coverage file of that day carries NBA's paper block ("PAPER, never a call") with 6 games, each with a stored Kalshi quote, and every day since has one. sp-nba-daily.timer has been enabled since 2026-11-09 14:16Z.
+- **The compare (ARCHITECT, addendum 380 item 3):** 2026-11-14 was CLEAN, the first day with the host on v1.6.8. That makes three CLEAN days of three.
+
+**2026-11-14 — The availability graph's node shape: each assertion a node (addendum 379 item 2); ten times today's record builds inside the unit's 1536M (#1007, carrying #995).**
+- **Ruling (379 item 2, verbatim in part):** "THE THREE-TIMES CHOICE (#995) — RULED: (B), AND NOT AS AN EXPERIMENT. THE GRAPH'S SHAPE CHANGES: EACH ASSERTION IS A NODE. This amends addendum 252 item 4's 'an edge per assertion'. MemoryMax stays 1536M; (A) is declined: a larger limit on a host with no swap only moves the night it fails."
+- **The shape:** `Assertion` nodes carry FACT's properties unchanged. `NAMES_PLAYER`, `NAMES_TEAM` and `ASSERTED_IN` are property-less, forward-only edges from each assertion. The line names the record's assertions beside the graph's assertion nodes, and a build fails if they differ.
+- **What the ten-times measurement found:** ten times today's was killed by MemoryMax under the node shape's first load. Three causes, each measured and each found in the engine's v0.22.3 source:
+  1. **The record's walk** holds 888 MiB of heap at ten times today's.
+  2. **A node checkpoint** that rewrites a string segment leaves its de-duplication table on the heap until a close.
+  3. **A relationship COPY into a non-empty table** builds a CSR index for every node group of the assertions, about 8 MiB a group.
+- **The load as built:**
+  - the walk in a forked child, with SIGTERM blocked across the fork;
+  - the nodes in COPYs of 100,000 rows, with the database reopened every 10 and between tables;
+  - each relationship table in one COPY into the empty table;
+  - the pool a sixth of the limit, 256 MiB.
+- **Receipts inside 1536M:**
+
+  | Size | Seconds | Process peak RSS |
+  |---|---|---|
+  | Today's | 118.7 | 436 MiB |
+  | Three times | 380.1 | 589 MiB |
+  | Ten times | 1577.2 | 920 MiB |
+
+  What still grows with the record is the walk's longest partition.
+- **#995:** carried by #1007. The 11-25 step stands: the architect's block enables on a build, on whichever shape the tag before it carries.
+
+**2026-11-14 — The graph rebuild's two host faults fixed (ARCHITECT addendum 378 items 3 and 4); three times today's record does not build inside 1536M, and the choice is the architect's (#995).**
+- **Ruling, item 3 (verbatim):** "RULED: the unit changes, the fence does not. "InaccessiblePaths=/etc/sports-predictor" and data/ joins TemporaryFileSystem as ":ro", exactly the two lines the probe ran. Inside this unit the fence then walks an empty folder; that is accepted HERE AND ONLY HERE, because the live file is not in the unit's view at all, the copy is taken only with a matching sha256 sidecar that sp_backup wrote, the open is mode=ro with immutable=1, and ProtectSystem=strict leaves no write path outside the graph's folder. Not one line of check_db loosens for it."
+- **Fault one (#996):** the unit's two lines, its header in those terms, and a test that no unit running the app puts a fenced data/ on InaccessiblePaths.
+- **Fault two (#996):** the engine's pool is half the limit the rebuild runs under, capped at the unit's MemoryMax, so 768 MiB under the unit. `auto_checkpoint` is ON. The line carries the staged size, the limit and the pool before the load starts.
+- **Finding (#995, `class:limitation`, `needs-ruling`):** from the engine's own v0.22.3 source:
+  - every COPY forces a checkpoint;
+  - every Player sits in one 2^17-node group, which the checkpoint rewrites in memory, unspilled.
+
+  So the pool a FACT checkpoint needs grows with the record. Measured on synthetic records inside 1536M: 1× builds at the rule's 768 MiB; the last COPY that still built reached about 3.2–3.5M FACT edges (2.4–2.6×); 3× fails at every pool from 256 to 1024 MiB.
+- **The choice, for the architect:**
+  - **(A) A larger MemoryMax:** 2560M builds 3× in 565.6 s, RSS 1813 MiB, on a host with 3,381 MB available and no swap.
+  - **(B) Assertions as nodes:** 3× builds at a 256 MiB pool in about 117 s, but it changes 252 item 4's ruled shape.
+
+  The limit is not raised (item 4(b)).
+- **/dev/shm (addenda 379 item 3 and 380):** the pre-PR pass reported that systemd's PrivateDevices binds the host's /dev/shm, writable, into the unit.
+  - **The host's answer (380 item 1, quoted):** "a file written from inside is PRESENT in the host /dev/shm (the write crossed out of the sandbox)"; with /dev/shm:ro, "absent from the host /dev/shm".
+  - **The ruling (380 item 2):** #996 takes the third line, `/dev/shm:ro`. The header names what makes each part of "the one writable path" true. The architect recorded that 378 item 3's sentence was false as written.
+- **cgroup v1 (379 item 4):** Codex's round-two P2 does not block and is fixed in the same push. Only v1's own no-limit value reads as no limit.
+- **State:** the timer stays on THE HELD LIST. The fix rides the next tag. Then the architect's block installs the unit file, runs it once and enables it only on a build (item 5).
+
+**2026-11-14 — THE AVAILABILITY RECORD'S PAID-FEED STEPS CLOSED AS A WRITTEN NO (ARCHITECT, addendum 377 item 2, 06:39 ET). Nothing moves a bar.**
+- **Why there is no adapter:** no paid feed was named on 11-13 ("NHL — none bought; we build and measure our own", 375 item 1(vi)). So no adapter is specified and none is to be built.
+  - The 11-14 step ("the paid feed's adapter specified, if the operator names one on 11-13") is done on 377 item 2.
+  - The 11-21 step ("the paid feed's adapter, if one is named") is done as not applicable, with nothing built.
+- **The schema is unchanged:** the source name `sportsdataio_goalies` stays in its vocabulary, unused. "removing a declared name is a schema-text change with no gain today" (377 item 2).
+- **The state (377 item 3):** production v1.6.8 ran its first night clean on the mirror's evidence. The host steps are the architect's, each by block: the graph engine's install and first run first, then the injury probe's report phase and the goalie agreement receipt.
+- **THE GRAPH REBUILD DID NOT BUILD ON THE HOST (ARCHITECT, addendum 378, 08:23 ET; recorded by 378 item 6):**
+  - **The install, 2026-11-14 13:08Z:** the engine, ladybug 0.22.3, was installed by the recorded hash. Both unit files were installed, byte-identical to the checkout's, with the timer disabled.
+  - **The first run was refused** by the --db fence: `check_db` cannot read the data/ that the unit makes inaccessible.
+  - **A probe passed the fence** and then failed at the engine's post-commit checkpoint, because the buffer pool was full. The record it met held 1,341,567 assertions.
+  - **The fix:** one model-track PR covers both faults (the unit changes, the fence does not) and rides the next tag. `sp-availability-graph.timer` stays on THE HELD LIST.
+  - **Named now for the next tag's step 1:** the one failing receipt row is the failure page of 2026-11-14 13:08Z for sp-availability-graph.service, the architect's block's first run, refused by the fence.
+
+**2026-11-14 — #1003: THE NFLVERSE KEEP STEP PROBED; AN UNCHANGED ANSWER TAKES THE STATUS OF ITS PAYLOAD (ARCHITECT 2026-11-14 13:38 ET, addendum 382 items 2-3).**
+- **The keep step:** a `--file` whose keep fails now exits 2 and leaves nothing on disk; before, it escaped as a traceback with exit 1. A fetch whose keep fails was already a failed observation with nothing kept; the probe pins it.
+- **Ruled (382 item 3, verbatim):** "AN UNCHANGED ANSWER TAKES THE STATUS OF THE PAYLOAD IT IS UNCHANGED FROM. After a header-only payload a 304, a byte-identical 200 or a byte-identical --file is recorded `empty`, never `complete` with zero rows: the source is still serving a header and no row, and `complete` there would let a reader count a day of nothing as a day read whole (law 4). After a complete or partial payload it stays `complete` with rows_asserted 0, as the spec's table says today; the table's line is amended to say which. Nothing stored is rewritten; the rule holds from its merge."
+- **The Issue's timing:** #1003 was opened at 18:50:28Z, 12 seconds after #999's merge closed #853 (18:50:16Z), not before it as 382 item 2 asked. The gap was named on #853 until that close.
+
+**2026-11-14 — #1001: "LIVE, RESYNC NEEDED" IS FOR A CHANGE OF STATE (ARCHITECT 2026-11-14 13:38 ET, addendum 382 item 4).** The ruling reads 365 item 3(b)'s second clause as the binding one.
+- **State, each named:** the status, a score, the kickoff, the provider_orientation key.
+- **Annotations, named and never counted:** status_raw, matchday and stage.
+- **Another pair:** an id that serves another pair is "live, the id serves another pair", counted on the plan line and printed always: "it is the #902 class standing in plain sight" (382 item 4(c)).
+- **A reversed pair:** a reversal not yet recorded is a key a resync would write; one already recorded reads `live`.
+- **The rename (ARCHITECT 2026-11-14 16:29 ET, addendum 383 item 4(a)):** "THE SAME PAIR SERVED UNDER ANOTHER SEASON IS NOT "live, resync needed" [...] it is the #902 class again". The label becomes "live, the id serves another game", covering another pair and the same pair under another season: one count, printed always, each line saying which it is. The refusal of a twin whose id serves another season stands.
+- **The season check (383 item 4(b)):** `get_game` parses its answer with season "", so the check never fires in production. Finding #1009; its own small PR after the architect relays one recorded `/games?id=` answer's structure (law 1).
+- **#1001:** loses needs-ruling (382 item 4).
+- **The expected read (382 item 4(d)):** the daily dry run on the twenty (382 item 5, listed on #945) should read `live 20 · live, resync needed 0 · live, the id serves another pair 0` (382 item 4(d)); after 383 item 4(a) the third count reads `live, the id serves another game 0`.
+
+**2026-11-13 — THE INFERRED DATA LAYER (ARCHITECT, addendum 375 at 16:40 ET, amended by addendum 376 at 16:45 ET): the operator's decisions recorded, the two sourcing steps closed, lane nhl's dates cleared, lane inferred-layer opened (#992). NOTHING IS BUILT OR RUN ON EITHER ADDENDUM, AND NO BAR MOVES.**
+- **Sourcing (375 item 1(vi)):** NHL: none bought; "we build and measure our own". NFL: the 11-06 decision stands (nflverse depth charts; no feed bought).
+- **Adopted (375 item 1(i)–(v)):**
+  - one pilot, NHL starting goalies, shadow only;
+  - the inferred rows live in their own store on the host, never in sports.db, and never on the laptop, in the public repo or in an Issue;
+  - the LLM provider sits behind a plug (its spend-cap clause amended by 376 item 1(b), below);
+  - inferred context reaches a bulletin only after the pilot's first scored read;
+  - after the pilot: NBA, NFL, soccer leagues, MLB and tennis at their 2027 seasons, college last.
+- **The provider and the cap (376 item 1, which amends 375 item 1(iii); 376 also amends 375 item 4(b)):**
+  - The first provider plug is the Claude API. Its key's NAME is `ANTHROPIC_API_KEY`, and its value goes into host.env by the operator's hand only.
+  - 376 item 1(b), verbatim: "So 375 item 1(iii) reads: no spend cap during the controlled tests; the daily cap is set by the operator after them, on their measured cost, and is in force before anything runs on a timer."
+  - Controlled tests (376 item 2): run by hand by the architect's block on the host; bounded by count; token counts printed; no dollar figure written to the repo, an Issue or a PR; test rows never enter the scored record.
+- **The layer's rules, standing from 2026-11-13 (375 item 2, verbatim):**
+  > 2. THE LAYER'S RULES, standing from today (the page he approved, in my words here; quote these in the records). (a) TWO TIERS, NEVER ONE TABLE: tier api is a fact a provider or league endpoint serves; tier inferred is a stamped claim derived from public news, with a confidence. Every row carries its tier. An inferred row never overwrites or fills an API field; where an API fact exists for the same question the API fact is used and the inferred row stays as the record to be scored. (b) STATUS WORDS of the inferred tier: projected (our estimate under a declared rule, no source), likely (a source suggests it), stated (a source says it outright); each row with its evidence links, the publication time each source showed, the fetch time, the model and prompt version. Append-only: a change of mind is a new row. (c) TWO CLASSES: a TRACKED ELEMENT has a truth that arrives later and is scored on every row; a CONTEXT NOTE is anything else, never scored, never a model input, labelled as reading. A note becomes an element only by promotion from a candidate register (its definition, the truth that scores it, its free baseline), reviewed by me monthly and approved by the operator. (d) SCORED AND GATED: by element, by status, by lead time, with calibration, against the best free baseline (the API layer's own listing where one exists; "the same as last game"). The sample and the margin are written before the first row is stored and do not move. An element that passes may be DECLARED as an input to a candidate, which then runs at that sport's UNCHANGED gate. (e) FORWARD-ONLY: no season is backfilled by an LLM. (f) NO MARKET CONTENT in what the reader is given: no odds, lines or betting articles (the market is a reference, never a model feature). (g) UNKNOWN STAYS UNKNOWN: no evidence, no row. (h) STORED, NEVER REGENERATED: a new model or prompt version starts a new scored series. (i) EACH SOURCE'S TERMS ARE READ BEFORE ITS FIRST FETCH, by a terms phase as the NBA probe has; facts kept, text not republished; one fetch per page per run; on an objection the source is unplugged and its rows destroyed. (j) EVERY PART IS A PLUG. (k) PASS STAYS PASS: nothing inferred changes a call or a stake before its gates.
+- **lane nhl:**
+  - The 11-13 sourcing step is done, and earliest_live 2027-01-22 is cleared.
+  - The 12-28, 12-29, 01-20 and 01-21 steps are removed, with their dates kept in the moved line.
+  - Added: the ceiling readiness read (code, 11-19), and the true-starter ceiling test declared with its threshold or a written no (architect, 11-24).
+  - live_needs is untouched.
+- **lane nfl-qb:** the 11-13 step is done; 11-16 stands.
+- **lane inferred-layer (#992):** design proposal 11-25; design PR 12-01; the architect's ruling with the pilot's gate written 12-03.
+- **"No date here is a reason to shorten anything (59 item 5(c))"** (375 item 3).
+
+**2026-11-13 — RELEASED (ARCHITECT, addenda 373 and 374): v1.6.8 on b3c5fbcf (the #989 merge, the ledger compile afc17728 over 1790723d), tag object 5a88468c, tagger 21:13:23Z; deployed on the host at 21:14Z, no migration. PRODUCTION = v1.6.8.**
+- **Step 1:** CI green on the tag's commit; the host's receipts since v1.6.7 had one explained failing row (the landing watch's 06:00:32Z schedule-read timeout); the 2026-11-13 compare was CLEAN.
+- **After the deploy:** the timer set is 21 expected, 21 active. THE HELD LIST is sp-tennis-daily, sp-ncaamb-daily and sp-availability-graph.
+- **Next host steps, each by the architect's block:** the graph engine's install and first run; the injury probe's report phase; the goalie agreement receipt on a host backup copy.
+- **The record:** docs/RELEASES.md's row and entry, Release Issue #990, and section O of hosting-h1.md brought to this state.
+  - **THE HELD LIST's lift conditions:** the tag halves are met; the blocks remain.
+  - **Not-installed held timers:** sp-availability-graph and sp-ncaamb-daily.
+  - **Counts:** 27 timers shipped, three of them `Persistent=false`.
+  - **SP_SYNC_HOLD:** shipped in v1.6.7.
+  - **The deploy's timers line:** it counts `TIMERS_BY_BLOCK` plain.
+
 **2026-11-13 — FIXED (#979; ARCHITECT 2026-11-13 09:00 ET, addendum 364 item 2): CSV_RUN (the shared #817 header-row pattern) and the bulletin guard's FRACTION backtracked quadratically (slow, never wrong). Both now read in linear time and match exactly what they matched before. THE CLASS IS CLOSED: one test holds every pattern in src/privacy_patterns.py to one bound.**
 - **The quadratic reads:**
   - a long word (CSV_RUN: 11.6 s on 20,000 letters; 54.6 s through the guard);

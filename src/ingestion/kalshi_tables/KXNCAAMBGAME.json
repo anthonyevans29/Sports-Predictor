@@ -1,6 +1,6 @@
 {
  "series": "KXNCAAMBGAME",
- "ruled": "ARCHITECT 2026-11-15, addendum 392 item 2",
+ "ruled": "ARCHITECT 2026-11-15, addendum 392 item 2 (the 253 proposed lines); addenda 393 item 2 and 394 item 1 (the 60 hand-ruled lines)",
  "lines": [
   {
    "name": "Abilene Christian",
@@ -1266,6 +1266,306 @@
    "name": "Youngstown St.",
    "key": "api_basketball",
    "id": "2218"
+  },
+  {
+   "name": "Alabama A&M",
+   "key": "api_basketball",
+   "id": "1806"
+  },
+  {
+   "name": "American",
+   "key": "api_basketball",
+   "id": "1811"
+  },
+  {
+   "name": "BYU",
+   "key": "api_basketball",
+   "id": "1841"
+  },
+  {
+   "name": "Bryant",
+   "key": "api_basketball",
+   "id": "1843"
+  },
+  {
+   "name": "Cal State Fullerton",
+   "key": "api_basketball",
+   "id": "224"
+  },
+  {
+   "name": "Cal State Northridge",
+   "key": "api_basketball",
+   "id": "209"
+  },
+  {
+   "name": "Chattanooga",
+   "key": "api_basketball",
+   "id": "2359"
+  },
+  {
+   "name": "Detroit Mercy",
+   "key": "api_basketball",
+   "id": "1887"
+  },
+  {
+   "name": "East Texas A&M",
+   "key": "api_basketball",
+   "id": "7806"
+  },
+  {
+   "name": "Eastern Washington",
+   "key": "api_basketball",
+   "id": "1492"
+  },
+  {
+   "name": "FDU",
+   "key": "api_basketball",
+   "id": "1907"
+  },
+  {
+   "name": "Florida",
+   "key": "api_basketball",
+   "id": "1909"
+  },
+  {
+   "name": "Florida A&M",
+   "key": "api_basketball",
+   "id": "1910"
+  },
+  {
+   "name": "Green Bay",
+   "key": "api_basketball",
+   "id": "249"
+  },
+  {
+   "name": "Hawai'i",
+   "key": "api_basketball",
+   "id": "1933"
+  },
+  {
+   "name": "Jacksonville",
+   "key": "api_basketball",
+   "id": "6646"
+  },
+  {
+   "name": "LIU",
+   "key": "api_basketball",
+   "id": "1966"
+  },
+  {
+   "name": "Louisiana",
+   "key": "api_basketball",
+   "id": "1975"
+  },
+  {
+   "name": "Maryland-Eastern Shore",
+   "key": "api_basketball",
+   "id": "1991"
+  },
+  {
+   "name": "Mercyhurst",
+   "key": "api_basketball",
+   "id": "2472"
+  },
+  {
+   "name": "Merrimack",
+   "key": "api_basketball",
+   "id": "1992"
+  },
+  {
+   "name": "Miami (FL)",
+   "key": "api_basketball",
+   "id": "1993"
+  },
+  {
+   "name": "Middle Tennessee",
+   "key": "api_basketball",
+   "id": "1999"
+  },
+  {
+   "name": "Mount St. Mary's",
+   "key": "api_basketball",
+   "id": "2020"
+  },
+  {
+   "name": "Nebraska",
+   "key": "api_basketball",
+   "id": "195"
+  },
+  {
+   "name": "New Hampshire",
+   "key": "api_basketball",
+   "id": "6663"
+  },
+  {
+   "name": "New Haven",
+   "key": "api_basketball",
+   "id": "7588"
+  },
+  {
+   "name": "North Carolina A&T",
+   "key": "api_basketball",
+   "id": "2025"
+  },
+  {
+   "name": "North Carolina Central",
+   "key": "api_basketball",
+   "id": "2026"
+  },
+  {
+   "name": "Omaha",
+   "key": "api_basketball",
+   "id": "2030"
+  },
+  {
+   "name": "Prairie View A&M",
+   "key": "api_basketball",
+   "id": "2083"
+  },
+  {
+   "name": "Purdue Fort Wayne",
+   "key": "api_basketball",
+   "id": "257"
+  },
+  {
+   "name": "Richmond",
+   "key": "api_basketball",
+   "id": "2092"
+  },
+  {
+   "name": "SMU",
+   "key": "api_basketball",
+   "id": "2099"
+  },
+  {
+   "name": "Saint Joseph's",
+   "key": "api_basketball",
+   "id": "2103"
+  },
+  {
+   "name": "Saint Louis",
+   "key": "api_basketball",
+   "id": "2128"
+  },
+  {
+   "name": "Saint Mary's",
+   "key": "api_basketball",
+   "id": "2130"
+  },
+  {
+   "name": "Saint Peter's",
+   "key": "api_basketball",
+   "id": "2131"
+  },
+  {
+   "name": "Sam Houston",
+   "key": "api_basketball",
+   "id": "198"
+  },
+  {
+   "name": "San Diego",
+   "key": "api_basketball",
+   "id": "199"
+  },
+  {
+   "name": "South Dakota",
+   "key": "api_basketball",
+   "id": "1498"
+  },
+  {
+   "name": "Southeastern Louisiana",
+   "key": "api_basketball",
+   "id": "2098"
+  },
+  {
+   "name": "Southern University",
+   "key": "api_basketball",
+   "id": "2121"
+  },
+  {
+   "name": "St. John's",
+   "key": "api_basketball",
+   "id": "2127"
+  },
+  {
+   "name": "St. Thomas",
+   "key": "api_basketball",
+   "id": "3325"
+  },
+  {
+   "name": "Tarleton St.",
+   "key": "api_basketball",
+   "id": "2362"
+  },
+  {
+   "name": "Texas",
+   "key": "api_basketball",
+   "id": "203"
+  },
+  {
+   "name": "Texas A&M",
+   "key": "api_basketball",
+   "id": "2144"
+  },
+  {
+   "name": "Texas A&M-Corpus Christi",
+   "key": "api_basketball",
+   "id": "2145"
+  },
+  {
+   "name": "The Citadel",
+   "key": "api_basketball",
+   "id": "1866"
+  },
+  {
+   "name": "UCF",
+   "key": "api_basketball",
+   "id": "2165"
+  },
+  {
+   "name": "UIC",
+   "key": "api_basketball",
+   "id": "1502"
+  },
+  {
+   "name": "UMBC",
+   "key": "api_basketball",
+   "id": "2167"
+  },
+  {
+   "name": "UNC Greensboro",
+   "key": "api_basketball",
+   "id": "193"
+  },
+  {
+   "name": "UNC Wilmington",
+   "key": "api_basketball",
+   "id": "2028"
+  },
+  {
+   "name": "UTSA",
+   "key": "api_basketball",
+   "id": "2178"
+  },
+  {
+   "name": "University at Albany",
+   "key": "api_basketball",
+   "id": "6632"
+  },
+  {
+   "name": "Utah",
+   "key": "api_basketball",
+   "id": "2181"
+  },
+  {
+   "name": "West Florida",
+   "key": "api_basketball",
+   "id": "3339"
+  },
+  {
+   "name": "William & Mary",
+   "key": "api_basketball",
+   "id": "2209"
   }
  ]
 }

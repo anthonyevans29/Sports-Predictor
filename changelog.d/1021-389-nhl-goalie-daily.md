@@ -1,4 +1,4 @@
-## 2026-11-15 (#000: 389-nhl-goalie-daily — the daily goalie step on nhl-daily, and a failure that reads as one (ARCHITECT 2026-11-15, addendum 389 item 3))
+## 2026-11-15 (#1021: 389-nhl-goalie-daily — the daily goalie step on nhl-daily, and a failure that reads as one (ARCHITECT 2026-11-15, addendum 389 item 3))
 - **cli.py `nhl-goalie-sync`, the exit (3(d), (e)):**
   - It exits 1 when any schedule or boxscore request of the run answered other than 200 (`schedule_http_<code>`, `boxscore_http_<code>`; 0 = no usable answer).
   - It still prints its counts line and its coverage lines first. Its last line reads `✗ NHL-GOALIE-SYNC: N of M request(s) answered other than 200 (...)`.

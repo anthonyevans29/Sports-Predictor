@@ -12,3 +12,7 @@
   No goalie's name, no goalie id, no model figure.
 - **docs/CLI.md's row.**
 - **Tests:** tests/test_386_nhl_season_receipt.py, 3 tests on a synthetic copy. Each failed first on main.
+- **Review round 1 (Codex, two P2s, both fixed):**
+  - A copy with a `-wal`, `-shm` or `-journal` sidecar refuses before any read, since immutable=1 would ignore it (nfl_v2_gate.check_db's rule).
+  - A file SQLite cannot read refuses with exit 2, not a traceback.
+  - Both tests failed first.

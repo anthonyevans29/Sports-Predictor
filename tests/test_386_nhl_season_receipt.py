@@ -151,3 +151,25 @@ def test_386_2_a_copy_without_the_table_refuses_by_name(tmp_path):
     sqlite3.connect(path).execute("CREATE TABLE matches (id INTEGER PRIMARY KEY)").connection.close()
     r = _cli("--db", str(path))
     assert r.exit_code == 2 and "nhl_goalie_appearances" in r.output and "REFUSED" in r.output, r.output
+
+
+@pytest.mark.parametrize("sidecar", ["-wal", "-shm", "-journal"])
+def test_386_2_a_copy_with_a_sidecar_refuses_before_any_read(copy, sidecar):
+    """immutable=1 ignores a -wal / -shm / -journal: committed pages still in a WAL would be missed without a word, so
+    a copy with one beside it is not a fresh .backup copy and refuses (nfl_v2_gate.check_db's rule; Codex P2 on #1012)."""
+    side = copy.with_name(copy.name + sidecar)
+    side.write_bytes(b"")
+    r = _cli("--db", str(copy))
+    assert r.exit_code == 2 and "NHL-GOALIE COVERAGE REFUSED" in r.output and sidecar in r.output, r.output
+    assert "NHL-GOALIE SEASON RECEIPT" not in r.output
+
+
+def test_386_2_a_file_that_is_not_a_database_refuses_not_a_traceback(tmp_path):
+    """An existing file the fence accepts but SQLite cannot read (not a database, or truncated) is a refusal, exit 2,
+    never a traceback (Codex P2 on #1012)."""
+    path = tmp_path / "junk" / "sports.db"
+    path.parent.mkdir()
+    path.write_bytes(b"this is not an SQLite database, only bytes " * 200)
+    r = _cli("--db", str(path))
+    assert r.exit_code == 2 and "NHL-GOALIE COVERAGE REFUSED" in r.output and "cannot be read" in r.output, r.output
+    assert r.exception is None or isinstance(r.exception, SystemExit)

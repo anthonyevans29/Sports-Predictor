@@ -8899,15 +8899,31 @@ def nhl_goalie_coverage_cmd(db_path):
 def _nhl_goalie_season_receipt(db_path):
     """Addendum 386 item 2: counts only, by season; no goalie's name and no model figure. A refusal exits 2."""
     import hashlib
+    import sqlite3
+
+    from sqlalchemy.exc import DBAPIError
 
     from src.ingestion import nhl_goalies as ngs
     from src.walters import mlb_pitchers_gate as mp
+    from src.walters.nfl_v2_gate import SIDECARS
     try:
         path = mp.check_db(db_path)
+        # immutable=1 ignores a -wal / -shm / -journal beside the file: committed pages still in a WAL would be missed
+        # without a word, so a copy with one is not a fresh .backup copy (nfl_v2_gate.check_db's rule; #1012 review).
+        for sfx in SIDECARS:
+            if path.with_name(path.name + sfx).exists():
+                raise mp.GateRefused(f"--db {db_path} has a {sfx} sidecar ({path.name + sfx}): not a fresh .backup "
+                                     "copy; immutable=1 would ignore it and read stale pages; take a fresh .backup "
+                                     "copy; nothing read")
         with mp.readonly_session(path) as s:
             r = ngs.season_receipt(s)
     except (mp.GateRefused, ngs.SeasonReceiptRefused) as e:
         click.echo(f"NHL-GOALIE COVERAGE REFUSED: {e}")
+        raise SystemExit(2)
+    except (DBAPIError, sqlite3.DatabaseError) as e:      # not a database, truncated, corrupt (law 4: never a traceback)
+        cause = getattr(e, "orig", None) or e
+        click.echo(f"NHL-GOALIE COVERAGE REFUSED: --db {db_path} cannot be read as SQLite "
+                   f"({type(cause).__name__}: {cause}); nothing read")
         raise SystemExit(2)
     h = hashlib.sha256()
     with open(path, "rb") as f:

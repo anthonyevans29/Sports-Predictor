@@ -1214,10 +1214,10 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     and passes only when both are empty, with the counts beside them as information. The held list is also what the
     deploy's receipt reads when it reports timers not in timers.enabled. 316 item 3's "19 sp timers active" is
     corrected in place to this, with this addendum quoted". Why: T11's `TIMERS` names 21 timers (27 across its three
-    lists at v1.6.8), and a fixed count also passes a host that is missing one
+    lists at v1.6.8 and at v1.6.9), and a fixed count also passes a host that is missing one
     expected timer and running one stray one (Codex on #914, confirmed). The quote's "today" is 2026-11-10's list.
-    The current list is THE HELD LIST below (on v1.6.8: sp-tennis-daily, sp-ncaamb-daily and sp-availability-graph,
-    addendum 374 item 3).
+    The current list is THE HELD LIST below (on v1.6.9: sp-tennis-daily, sp-ncaamb-daily and sp-availability-graph,
+    addendum 402 item 1(c), as on v1.6.8, addendum 374 item 3).
     TERMINAL (host), in bash, as any user (it reads, it changes nothing). `HELD` copies THE HELD LIST below, by name:
     ```
     f=/etc/sports-predictor/timers.enabled
@@ -1247,9 +1247,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 
     | Timer | Held by | Lifts when |
     |---|---|---|
-    | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the architect's block (288 item 5). Its other condition, the tag that carries the map, is met: the map (#900, tennis-E) is in every tag from v1.6.6 on, and production is v1.6.8 (addendum 374 item 3) |
+    | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the architect's block (288 item 5). Its other condition, the tag that carries the map, is met: the map (#900, tennis-E) is in every tag from v1.6.6 on, and production is v1.6.9 (addendum 402 item 1) |
     | `sp-ncaamb-daily.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 (entered when #957 merged, 2026-11-12 20:46Z) | the architect's enabling block after the host's NCAAMB load and stored certification |
-    | `sp-availability-graph.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 | the architect's block that enables it only on a build, after the next tag carries the unit's fix (addendum 378 item 5). On v1.6.8 the engine was installed 2026-11-14 13:08Z and both unit files installed, the timer disabled; the first run was refused by the fence (378 items 1 and 3) |
+    | `sp-availability-graph.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 | the architect's block that enables it only on a build, after the next tag carries the unit's fix (addendum 378 item 5). On v1.6.8 the engine was installed 2026-11-14 13:08Z and both unit files installed, the timer disabled; the first run was refused by the fence (378 items 1 and 3). The tag that carries the unit's fix (#996) is v1.6.9, deployed 2026-11-15 19:57Z, the timer still disabled after it (addendum 402 item 1(c)); the architect's first-run block follows, the timer enabled only on "ok": true with the ruled pool, limit and assertion count (398 item 4(a)) |
 
     - **The rule that joins THE HELD LIST and `TIMERS_BY_BLOCK` (ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2,
       verbatim in part):** "THE HELD LIST AND `TIMERS_BY_BLOCK` STAY TWO LISTS. They say different things.
@@ -1269,6 +1269,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       architect's enabling blocks (addendum 374 item 2). sp-tennis-daily.timer is installed and reads disabled.
       Since 2026-11-14 13:08Z `sp-availability-graph`'s two unit files are installed and its timer reads disabled
       (addendum 378 item 1(a)), so it passes the `HELD:` line as disabled; `sp-ncaamb-daily.timer` still reads not-found.
+      On v1.6.9 the same: sp-availability-graph.timer disabled, sp-ncaamb-daily.timer not installed, sp-tennis-daily.timer
+      disabled (addendum 402 item 1(c)).
     - **`sp-availability-graph` on the host (ARCHITECT 2026-11-14 08:23 ET, addendum 378).**
       - **The install, 2026-11-14 13:08Z** (378 item 1(a), verbatim in part): "Successfully installed ladybug-0.22.3",
         pip exit 0, by the recorded hash, wheel only. The two unit files were installed, "byte-identical to the
@@ -1322,7 +1324,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         sp-chain@<chain>.service`) and says so in its block; sp-tennis-daily's block (288 item 5, when it comes) does
         NOT: its first run is its next 06:53Z firing, read the morning after — the laptop's daily step covers the days
         before." This corrects 330 item 2's "the next instance: its block says so" (Codex on #918, #920).
-        - Of the 27 timers the pack ships (read at v1.6.8, b3c5fbcf), 24 carry `Persistent=true`;
+        - Of the 27 timers the pack ships (read at v1.6.8, b3c5fbcf; v1.6.9, 482de3fd, adds none), 24 carry `Persistent=true`;
           `sp-closing-watch.timer`, `sp-cup-observe.timer` and `sp-availability-observe.timer` carry `Persistent=false`.
           Read the unit under
           `deploy/hosting/systemd/` before the lift. What decides the catch-up is systemd's stamp,
@@ -1486,16 +1488,17 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
           read as that list.
         - **The durable answer, declared (332 item 3):** a per-competition sync hold that the step itself honors,
           `SP_SYNC_HOLD`. It shipped as its own small PR, #925 (Issue #921), merged 2026-11-11 and in every tag from
-          v1.6.7; production v1.6.8 carries it (addendum 374 item 3). (333
+          v1.6.7; production v1.6.9 carries it (addendum 402 item 1). (333
           item 3(iii), verbatim): "SP_SYNC_HOLD (#921) honors the same path: its design covers intl-sync, or says in
           its body why not."
     - **The deploy's receipt:** 323 item 1 rules that the deploy's report of timers missing from `timers.enabled`
       reads this list. Today `sp_deploy.py` reads only T11's lists, so a held timer missing from the file still
       reads "!" under `TIMERS`. Teaching it this list is a deploy-script change, so it ships as its own PR after
-      this one (addendum 7 item 2 (5): the policy first): #915. On v1.6.8 every held timer is on `TIMERS_BY_BLOCK`,
-      which the line counts plain, so the deploy printed no "!" for them:
+      this one (addendum 7 item 2 (5): the policy first): #915. On v1.6.8 and v1.6.9 every held timer is on
+      `TIMERS_BY_BLOCK`, which the line counts plain, so the deploy printed no "!" for them:
       `· shipped timers not in /etc/sports-predictor/timers.enabled: 3 on MLB_LAPTOP_ONLY (held off by T11) · 3 on TIMERS_BY_BLOCK (held off by T11)`
-      (addendum 374 item 2). A held timer reads "!" only when it is a `TIMERS` timer missing from the file.
+      (addendum 374 item 2; the v1.6.9 deploy the same, 402 item 1(b): "3 on MLB_LAPTOP_ONLY and 3 on TIMERS_BY_BLOCK,
+      held off by T11, as before"). A held timer reads "!" only when it is a `TIMERS` timer missing from the file.
     - **SP_SYNC_HOLD, the hold's first move (ARCHITECT 2026-11-10 18:55 ET, addendum 332 item 3, verbatim):** "THE
       DURABLE ANSWER is a per-competition sync hold the step itself honors: SP_SYNC_HOLD, a list of competition codes
       read by sync-teams and sync-matches, which print "HELD <code> (SP_SYNC_HOLD)" and exit 0 for a listed code, every
@@ -1586,7 +1589,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         and `; held steps (SP_SYNC_HOLD) N` to the receipts table's key line, and a held competition's receipt line
         reads `sync-teams HELD (SP_SYNC_HOLD)` and `sync-matches HELD (SP_SYNC_HOLD)`.
       - **Where it runs.** The laptop holds from #925's merge (main, 2026-11-11). The host holds from the tag that carries
-        it, v1.6.7 (deployed 2026-11-12), and so on production v1.6.8 (addendum 374 item 3). Before v1.6.7 a host hold
+        it, v1.6.7 (deployed 2026-11-12), and so on production v1.6.9 (addendum 402 item 1). Before v1.6.7 a host hold
         was the procedure above (timers), as 332 item 3 says.
   - **The read before the policy (addendum 316 item 3):** "Ubuntu 24.04.5, kernel 6.8.0-147 with 149 waiting, 24
     noble-updates packages, 3w4d uptime, disk 25%."
@@ -1689,7 +1692,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     line must name only the TIMERS timers missing"); alone they leave the line plain. `TIMERS_BY_BLOCK` (addendum 351
     item 2) is counted the same way; the v1.6.8 deploy's line read
     `· shipped timers not in /etc/sports-predictor/timers.enabled: 3 on MLB_LAPTOP_ONLY (held off by T11) · 3 on TIMERS_BY_BLOCK (held off by T11)`
-    (addendum 374 item 2). A timer on no T11 list is
+    (addendum 374 item 2), and the v1.6.9 deploy's the same counts (402 item 1(b)). A timer on no T11 list is
     named, "!", "(unlisted)". The lists are read as T11's block holds them, whatever their names: a list the code
     expects that the block lacks is noted on the line and never empties the others (`HELD_FOR_CUTOVER`, an earlier third
     list, was retired at the cutover: addendum 168 item 5; the deploy runs the release it replaces, so the old

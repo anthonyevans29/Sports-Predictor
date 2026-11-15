@@ -158,6 +158,7 @@ its compare verdict.
 | `v1.6.6` | 2026-11-10 20:11:06Z | `8aa27a89b3e0018e8ad229f321cab3e02acec212` | `0e7844aca0254cb6b17c383f0971166ef749ecab` | #917 |
 | `v1.6.7` | 2026-11-12 15:19:06Z | `6792cefec6acc3f9254a97e2ba10fc530ce1f6eb` | `577e444a9d16f9d4979faa7d587a1ce2a1d15255` | #949 |
 | `v1.6.8` | 2026-11-13 21:13:23Z | `b3c5fbcf0791ff9201136d57882b80d33f01a474` | `5a88468c646ae2198790da448b11d4ddf7befbe1` | #990 |
+| `v1.6.9` | 2026-11-15 19:57:26Z | `482de3fdc4ee81ee532733975fd127999d6b7843` | `eb3becef4f5f24524cefa803923c463e416e908c` | #1027 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -514,6 +515,81 @@ its compare verdict.
     - It carries 373 items 1–3 and 374 items 1–3 verbatim, the 32 from git, and the record line.
     - It also carries the notes in two comments. GitHub stores three of their characters differently, all in #981's
       section; the byte-identical copy is the tag.
+- **v1.6.9** (ARCHITECT, addendum 400, the tag ruling, as Release Issue #1027 quotes it): no migration, and none was
+  due. The commit is the #1025 merge 482de3fd, the ledger compile f6c8ba27 (22 changelog fragments, 23 ledger entries)
+  over ff8042fe (#1022's merge), as v1.6.8's was the #989 merge. The tag was cut and pushed by the operator from the
+  architect's block once CI read green on the tag's commit: tagger stamp 2026-11-15 19:57:26Z (14:57:26 -0500).
+  Verbatim (400 item 3): "RULED: v1.6.9 IS CUT ON 482de3fd. The operator cuts and pushes it by my block (step 3), then
+  deploys it on the host by my block. After the deploy, by my blocks and in this order, as 398 item 4 has it: the
+  graph (unit reinstalled, one first run, the timer enabled only on ok), then the goalies (one hand run from
+  2026-10-01, a backup first, then the coverage read on a backup copy)."
+  - **Step 1:** (a) the compare, verbatim (395 item 3): "2026-11-15, v1.6.8's own comparator (b3c5fbcf) on the mirror at
+    7ecb70b, laptop/2026-11-15 against host/2026-11-15. VERDICT CLEAN. fixtures_NHL: rows laptop 21, host 21, diffs 0;
+    42 rows a side outside the window; 363 host-only columns; code-version skew named (laptop e3f55ee2, host
+    b3c5fbcf); 9 files expected one-sided; exit 0. The host's nhl-daily export landed at 16:00:40Z." (b) the host's
+    receipts since the v1.6.8 tag, verbatim (399 item 1): "v1.6.9 STEP 1(b), THE HOST'S RECEIPTS SINCE THE v1.6.8 TAG
+    — READ. By my block on the host at 2026-11-15T17:23Z: host on v1.6.8 (b3c5fbcf), up 12 h 53 min, no reboot
+    pending; the window read 45 h. 1,253 chain and unit rows, 3 failing; with step rows 2,356, 9 failing. Every
+    failing row, NAMED: (a) 11-14 13:08Z, the failure page for sp-availability-graph.service: the row 398 item 2(b)
+    named before the read. The journal has that one start and that one failure (the --db fence refusing under the
+    unit's sandbox; fixed on main by #996). The timer is disabled and inactive. (b) 11-15 15:06Z,
+    sp-chain@window.service, exit 1, steps 16/22, and its failure page (delivered). NOT named before the read; read
+    now by a second block (17:25Z). Its six failing steps are the two single-day sync-matches for UNL 2026/27, CNL
+    2025/26 and FRIENDLIES_INT 2026, each answered by API-Football (src/adapters/api_football.py:252) with "Free plans
+    do not have access to this season", each in 1.3 to 3.1 s, none retried. The SAME six commands exit 0 in every
+    other window run of the day, the 14:05Z run before it and the 16:05Z and 17:05Z runs after it included. That
+    answer appears in no other of the 18,795 receipt rows the file holds (from 11-01). The weekly full-season chain at
+    06:00Z and every other soccer step of the day exit 0. READ AS: the provider treating the key as a free-plan key
+    for about one minute. Not a defect of the code being tagged, and not of v1.6.8. The operator is checking the
+    subscription's own page (the plan it shows, its renewal date, a payment attempted today). (c) The landing watch:
+    482 runs finished, 0 failed, since the v1.6.8 deploy. (d) Timers: timers.enabled 21 names, 21 expected active, 21
+    active, none missing, none stray. No failed unit. The checkout is clean. STEP 1(b) IS MET: every failing row is
+    named. Step 1(a) was met by 395 item 3. Step 1(c) is the tag block's." (c) CI on the tag's commit, verbatim (400
+    item 2): "STEP 1 IS MET IN FULL: (a) the day's compare CLEAN (395 item 3); (b) the host's receipts since the
+    v1.6.8 tag, every failing row named (399 item 1); (c) CI green on 482de3fd (smoke and smoke-py310 success;
+    fragments skipped), read at 13:24 ET, and read again by the tag block before it cuts."
+  - **Step 2 (400 item 1, verbatim):** "THE FOLD IS IN (step 2). #1025 merged at f6c8ba27 by my block; main is
+    482de3fdc4ee81ee532733975fd127999d6b7843, tree de6cbfff, the tree my own compile on ff8042fe gave. No fragment
+    pending. The release notes were written on the merge commit: 361 lines, 22 sections, no AMENDED line, no failing
+    line, as my preview on the fold's head read. Your span count is accepted: 22 PR merges and 3 merges of main into
+    PR branches since b3c5fbcf."
+  - **The tag message:**
+    - Stored (`git cat-file -p v1.6.9`): 361 lines and 47,754 bytes (its final newline included); 23 lines begin with `#`
+      (the header and all 22 `## ` section headings).
+    - It is byte-identical to `python3 scripts/release_notes.py --to 482de3fdc4ee81ee532733975fd127999d6b7843` (361 lines,
+      exit 0). `git for-each-ref --format='%(contents)'` prints one more newline, as on the earlier entries.
+    - No AMENDED line. The one `✗` sits inside #1021's section and quotes the goalie step's own failure line.
+  - **The tag, the deploy and the state after it, verbatim (ARCHITECT, addendum 402 item 1):** "v1.6.9 IS TAGGED AND
+    DEPLOYED. (a) THE TAG (step 3), by my block, the operator's hand: CI read again on 482de3fd (smoke and smoke-py310
+    success, fragments skipped); the notes file 361 lines, 22 sections, its first line naming the commit; git tag -a
+    v1.6.9 --cleanup=verbatim -F the notes; pushed. Tag object eb3becef4f5f24524cefa803923c463e416e908c, pointing at
+    482de3fdc4ee81ee532733975fd127999d6b7843, tagger time 2026-11-15 14:57:26 -0500 (19:57:26Z). (b) THE DEPLOY, by my
+    block on the host at 2026-11-15T19:57Z: release before v1.6.8 (b3c5fbcf), no reboot pending; the dry run "would
+    deploy v1.6.8 -> v1.6.9 (482de3fd)", exit 0; the deploy "v1.6.8 -> v1.6.9 (482de3fd, 47 files)", exit 0; HEAD is
+    482de3fd; the deploy's receipt row at 11-15 19:57, exit 0. Shipped timers not in timers.enabled: 3 on
+    MLB_LAPTOP_ONLY and 3 on TIMERS_BY_BLOCK, held off by T11, as before. (c) AFTER IT: timers.enabled 21 names, 21
+    expected active, 21 active, none missing, none stray; sp-tennis-daily.timer disabled, sp-ncaamb-daily.timer not
+    installed, sp-availability-graph.timer disabled; the landing watch's timer active; no failed unit; the checkout
+    clean." PRODUCTION = v1.6.9.
+  - **What changed for the host, read from git (`v1.6.8..v1.6.9`):**
+    - `src/db/schema.py`, every `migrate_*.py`, `requirements.txt` and both side requirements files are unchanged.
+    - Three deploy files changed: `deploy/hosting/chains.py` (#1021, the daily goalie step in nhl-daily, UNMETERED, its
+      `go_on`), `deploy/hosting/exports_mirror.py` (#1000) and `deploy/hosting/systemd/sp-availability-graph.service`
+      (#996, the unit's sandbox lines). No unit file was added: the pack ships 27 timers, as at v1.6.8.
+    - The held set after the deploy is unchanged: sp-tennis-daily, sp-ncaamb-daily and sp-availability-graph (402 item
+      1(c)). The graph's first-run block and the goalie backfill follow by the architect's blocks (398 item 4; 402
+      item 3).
+  - **Carries:** git's `v1.6.8..v1.6.9` holds 118 commits and 47 files. Of its 26 merge commits, 23 are "Merge pull
+    request #N" on main's first parent: the 22 PRs the notes carry, one CHANGELOG section each, and the fold PR #1025;
+    the other 3 merge main into PR branches (#1017's, #1004's, #1007's). The 22: #991, #993, #994, #996, #997, #998,
+    #999, #1000, #1002, #1004, #1005, #1006, #1007, #1011, #1012, #1014, #1015, #1016, #1017, #1019, #1021, #1022. Not
+    in the tag: #1023 (the 60 hand-ruled KXNCAAMBGAME lines), merged after the tag by the architect's block (400 item
+    5; 402 item 4); it opens the next span.
+  - **Release Issue:** #1027 (ritual step 4), opened 2026-11-15 by ARCHITECT, addendum 402 item 2.
+    - It carries 395 item 3, 399 item 1, 400 items 1-2 and 402 item 1 verbatim, what the release puts on the host as 402
+      item 2 names it, the 22 from git, and the record line.
+    - It also carries the notes in one comment; read back from GitHub, the comment is the tag message character for
+      character, with the server's attribution footer after it. The byte-identical copy is the tag.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

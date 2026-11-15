@@ -630,8 +630,11 @@ def test_results_tally_places_the_section_after_nfl_and_before_the_nhl_shadow(tm
     assert CONSOLE.format(n=1, k=0, tail="not read before n=30", b=0) in said
 
 
-def test_results_tally_leaves_the_mlb_pl_and_nfl_sections_as_they_were(tmp_path):
+def test_results_tally_leaves_the_mlb_pl_and_nfl_sections_as_they_were(tmp_path, monkeypatch):
+    from src.walters import export
     from src.walters.export import results_tally
+    now = export.utc_now_naive()                        # #1013: one clock for both renderings (the Source line's
+    monkeypatch.setattr(export, "utc_now_naive", lambda: now)   # cutoff prints to the minute)
     from tests.test_void_redated import _mlb_world
     _mlb_world()
     desk_by, _ = annotate(mil_lad())

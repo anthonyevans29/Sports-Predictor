@@ -56,6 +56,19 @@ OCC_UTSA = "2026-11-16T04:00:00Z"                                  # 353 item 2:
 SJSU = [("SJSU", "San Jose St."), ("ALST", "Alabama St.")]
 
 
+@pytest.fixture(autouse=True)
+def _the_scorer_alone(tmp_path, monkeypatch):
+    """These tests pin the SHARED SCORER on 353 item 2's real KXNCAAMBGAME spellings, as written before the series
+    declared its name table. Since ARCHITECT 2026-11-15, addendum 392 item 2, KXNCAAMBGAME is placed by its table
+    alone (src/ingestion/kalshi_tables/KXNCAAMBGAME.json; 387 item 3(a)), so here the table folder is an empty one and
+    the scorer, still every series' matcher without a table, is what is read. The series under its shipped table:
+    tests/test_392_kxncaambgame_table.py."""
+    from src.ingestion import kalshi_table as kt
+    empty = tmp_path / "no_tables"
+    empty.mkdir()
+    monkeypatch.setattr(kt, "TABLE_DIR", empty)
+
+
 def run(markets, games, now=NOW, hours=48):
     return km.place(markets, games, now=now, lo=now - timedelta(days=1), hi=now + timedelta(hours=hours))
 

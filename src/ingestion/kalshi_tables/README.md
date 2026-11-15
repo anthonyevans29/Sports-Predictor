@@ -8,9 +8,11 @@ the table alone (`src/ingestion/kalshi_match.py`, `place(tables=...)`; `src/inge
 
 A series with no file here is matched by the scorer as before, to the last character.
 
-**This folder holds no table yet.** PR one of 387 item 3 is the machinery and no data. Each table arrives as data in a
-PR of its own (KXNCAAMBGAME's is PR two), from the architect's read of the proposer's console
-(`python cli.py kalshi-table-propose`). Every line is read by the architect before it is data (387 item 3(e)).
+**The tables here:** `KXNCAAMBGAME.json`, its first table (ARCHITECT 2026-11-15, addendum 392 item 2: the 253 proposed
+lines as the architect read them; the 60 marked names are not in it and refuse by name until each is its own ruling).
+PR one of 387 item 3 was the machinery and no data; each table arrives as data in a PR of its own, from the
+architect's read of the proposer's console (`python cli.py kalshi-table-propose`). Every line is read by the architect
+before it is data (387 item 3(e)).
 KXNCAAFGAME, live on the host, stays without a table until its own is declared and a replay shows its placements
 identical to main's but for removals, each removal a named gap of the table (387 item 3(f)).
 

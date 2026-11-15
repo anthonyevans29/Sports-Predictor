@@ -1,0 +1,1271 @@
+{
+ "series": "KXNCAAMBGAME",
+ "ruled": "ARCHITECT 2026-11-15, addendum 392 item 2",
+ "lines": [
+  {
+   "name": "Abilene Christian",
+   "key": "api_basketball",
+   "id": "1803"
+  },
+  {
+   "name": "Air Force",
+   "key": "api_basketball",
+   "id": "1804"
+  },
+  {
+   "name": "Akron",
+   "key": "api_basketball",
+   "id": "1805"
+  },
+  {
+   "name": "Alabama",
+   "key": "api_basketball",
+   "id": "176"
+  },
+  {
+   "name": "Alabama St.",
+   "key": "api_basketball",
+   "id": "1807"
+  },
+  {
+   "name": "Alcorn St.",
+   "key": "api_basketball",
+   "id": "1809"
+  },
+  {
+   "name": "Arizona",
+   "key": "api_basketball",
+   "id": "1815"
+  },
+  {
+   "name": "Arizona St.",
+   "key": "api_basketball",
+   "id": "1816"
+  },
+  {
+   "name": "Arkansas",
+   "key": "api_basketball",
+   "id": "177"
+  },
+  {
+   "name": "Arkansas St.",
+   "key": "api_basketball",
+   "id": "1817"
+  },
+  {
+   "name": "Arkansas-Pine Bluff",
+   "key": "api_basketball",
+   "id": "1818"
+  },
+  {
+   "name": "Army",
+   "key": "api_basketball",
+   "id": "1820"
+  },
+  {
+   "name": "Auburn",
+   "key": "api_basketball",
+   "id": "1822"
+  },
+  {
+   "name": "Ball St.",
+   "key": "api_basketball",
+   "id": "1824"
+  },
+  {
+   "name": "Baylor",
+   "key": "api_basketball",
+   "id": "1825"
+  },
+  {
+   "name": "Bellarmine",
+   "key": "api_basketball",
+   "id": "2358"
+  },
+  {
+   "name": "Bethune-Cookman",
+   "key": "api_basketball",
+   "id": "1829"
+  },
+  {
+   "name": "Binghamton",
+   "key": "api_basketball",
+   "id": "1830"
+  },
+  {
+   "name": "Boise St.",
+   "key": "api_basketball",
+   "id": "1835"
+  },
+  {
+   "name": "Boston College",
+   "key": "api_basketball",
+   "id": "1836"
+  },
+  {
+   "name": "Boston University",
+   "key": "api_basketball",
+   "id": "1837"
+  },
+  {
+   "name": "Bowling Green",
+   "key": "api_basketball",
+   "id": "1838"
+  },
+  {
+   "name": "Bradley",
+   "key": "api_basketball",
+   "id": "1839"
+  },
+  {
+   "name": "Brown",
+   "key": "api_basketball",
+   "id": "208"
+  },
+  {
+   "name": "Bucknell",
+   "key": "api_basketball",
+   "id": "1844"
+  },
+  {
+   "name": "Buffalo",
+   "key": "api_basketball",
+   "id": "1845"
+  },
+  {
+   "name": "Butler",
+   "key": "api_basketball",
+   "id": "178"
+  },
+  {
+   "name": "Cal Poly",
+   "key": "api_basketball",
+   "id": "1847"
+  },
+  {
+   "name": "California Baptist",
+   "key": "api_basketball",
+   "id": "210"
+  },
+  {
+   "name": "Campbell",
+   "key": "api_basketball",
+   "id": "179"
+  },
+  {
+   "name": "Canisius",
+   "key": "api_basketball",
+   "id": "1489"
+  },
+  {
+   "name": "Central Arkansas",
+   "key": "api_basketball",
+   "id": "1490"
+  },
+  {
+   "name": "Central Connecticut St.",
+   "key": "api_basketball",
+   "id": "1856"
+  },
+  {
+   "name": "Central Michigan",
+   "key": "api_basketball",
+   "id": "211"
+  },
+  {
+   "name": "Charleston",
+   "key": "api_basketball",
+   "id": "1861"
+  },
+  {
+   "name": "Charleston Southern",
+   "key": "api_basketball",
+   "id": "226"
+  },
+  {
+   "name": "Charlotte",
+   "key": "api_basketball",
+   "id": "3429"
+  },
+  {
+   "name": "Chicago St.",
+   "key": "api_basketball",
+   "id": "1863"
+  },
+  {
+   "name": "Cincinnati",
+   "key": "api_basketball",
+   "id": "1865"
+  },
+  {
+   "name": "Clemson",
+   "key": "api_basketball",
+   "id": "180"
+  },
+  {
+   "name": "Cleveland St.",
+   "key": "api_basketball",
+   "id": "1867"
+  },
+  {
+   "name": "Coastal Carolina",
+   "key": "api_basketball",
+   "id": "212"
+  },
+  {
+   "name": "Colgate",
+   "key": "api_basketball",
+   "id": "1491"
+  },
+  {
+   "name": "Colorado",
+   "key": "api_basketball",
+   "id": "181"
+  },
+  {
+   "name": "Colorado St.",
+   "key": "api_basketball",
+   "id": "1870"
+  },
+  {
+   "name": "Columbia",
+   "key": "api_basketball",
+   "id": "1871"
+  },
+  {
+   "name": "Coppin St.",
+   "key": "api_basketball",
+   "id": "1878"
+  },
+  {
+   "name": "Cornell",
+   "key": "api_basketball",
+   "id": "227"
+  },
+  {
+   "name": "Creighton",
+   "key": "api_basketball",
+   "id": "182"
+  },
+  {
+   "name": "Dartmouth",
+   "key": "api_basketball",
+   "id": "1883"
+  },
+  {
+   "name": "Davidson",
+   "key": "api_basketball",
+   "id": "183"
+  },
+  {
+   "name": "Dayton",
+   "key": "api_basketball",
+   "id": "184"
+  },
+  {
+   "name": "DePaul",
+   "key": "api_basketball",
+   "id": "213"
+  },
+  {
+   "name": "Delaware",
+   "key": "api_basketball",
+   "id": "1884"
+  },
+  {
+   "name": "Drake",
+   "key": "api_basketball",
+   "id": "228"
+  },
+  {
+   "name": "Duke",
+   "key": "api_basketball",
+   "id": "1890"
+  },
+  {
+   "name": "Duquesne",
+   "key": "api_basketball",
+   "id": "1891"
+  },
+  {
+   "name": "East Tennessee St.",
+   "key": "api_basketball",
+   "id": "229"
+  },
+  {
+   "name": "Eastern Illinois",
+   "key": "api_basketball",
+   "id": "1894"
+  },
+  {
+   "name": "Eastern Kentucky",
+   "key": "api_basketball",
+   "id": "1895"
+  },
+  {
+   "name": "Eastern Michigan",
+   "key": "api_basketball",
+   "id": "1896"
+  },
+  {
+   "name": "Elon",
+   "key": "api_basketball",
+   "id": "1901"
+  },
+  {
+   "name": "Evansville",
+   "key": "api_basketball",
+   "id": "1904"
+  },
+  {
+   "name": "Ferrum",
+   "key": "api_basketball",
+   "id": "1908"
+  },
+  {
+   "name": "Fisk",
+   "key": "api_basketball",
+   "id": "3249"
+  },
+  {
+   "name": "Florida Atlantic",
+   "key": "api_basketball",
+   "id": "230"
+  },
+  {
+   "name": "Florida Gulf Coast",
+   "key": "api_basketball",
+   "id": "1912"
+  },
+  {
+   "name": "Florida International",
+   "key": "api_basketball",
+   "id": "5628"
+  },
+  {
+   "name": "Florida St.",
+   "key": "api_basketball",
+   "id": "1914"
+  },
+  {
+   "name": "Fordham",
+   "key": "api_basketball",
+   "id": "1916"
+  },
+  {
+   "name": "Fresno St.",
+   "key": "api_basketball",
+   "id": "1919"
+  },
+  {
+   "name": "Furman",
+   "key": "api_basketball",
+   "id": "185"
+  },
+  {
+   "name": "Gardner-Webb",
+   "key": "api_basketball",
+   "id": "1922"
+  },
+  {
+   "name": "George Mason",
+   "key": "api_basketball",
+   "id": "1499"
+  },
+  {
+   "name": "George Washington",
+   "key": "api_basketball",
+   "id": "1500"
+  },
+  {
+   "name": "Georgetown",
+   "key": "api_basketball",
+   "id": "186"
+  },
+  {
+   "name": "Georgia",
+   "key": "api_basketball",
+   "id": "1924"
+  },
+  {
+   "name": "Georgia Southern",
+   "key": "api_basketball",
+   "id": "1501"
+  },
+  {
+   "name": "Georgia St.",
+   "key": "api_basketball",
+   "id": "1925"
+  },
+  {
+   "name": "Georgia Tech",
+   "key": "api_basketball",
+   "id": "1926"
+  },
+  {
+   "name": "Gonzaga",
+   "key": "api_basketball",
+   "id": "1927"
+  },
+  {
+   "name": "Grambling St.",
+   "key": "api_basketball",
+   "id": "232"
+  },
+  {
+   "name": "Harvard",
+   "key": "api_basketball",
+   "id": "187"
+  },
+  {
+   "name": "High Point",
+   "key": "api_basketball",
+   "id": "1934"
+  },
+  {
+   "name": "Hofstra",
+   "key": "api_basketball",
+   "id": "188"
+  },
+  {
+   "name": "Holy Cross",
+   "key": "api_basketball",
+   "id": "1936"
+  },
+  {
+   "name": "Houston",
+   "key": "api_basketball",
+   "id": "1938"
+  },
+  {
+   "name": "Howard",
+   "key": "api_basketball",
+   "id": "215"
+  },
+  {
+   "name": "IU Indy",
+   "key": "api_basketball",
+   "id": "6712"
+  },
+  {
+   "name": "Idaho",
+   "key": "api_basketball",
+   "id": "1942"
+  },
+  {
+   "name": "Idaho St.",
+   "key": "api_basketball",
+   "id": "1943"
+  },
+  {
+   "name": "Illinois",
+   "key": "api_basketball",
+   "id": "1944"
+  },
+  {
+   "name": "Illinois St.",
+   "key": "api_basketball",
+   "id": "1945"
+  },
+  {
+   "name": "Incarnate Word",
+   "key": "api_basketball",
+   "id": "1946"
+  },
+  {
+   "name": "Indiana",
+   "key": "api_basketball",
+   "id": "189"
+  },
+  {
+   "name": "Iona",
+   "key": "api_basketball",
+   "id": "1949"
+  },
+  {
+   "name": "Iowa",
+   "key": "api_basketball",
+   "id": "1950"
+  },
+  {
+   "name": "Iowa St.",
+   "key": "api_basketball",
+   "id": "1951"
+  },
+  {
+   "name": "Jackson St.",
+   "key": "api_basketball",
+   "id": "1952"
+  },
+  {
+   "name": "Jacksonville St.",
+   "key": "api_basketball",
+   "id": "1493"
+  },
+  {
+   "name": "James Madison",
+   "key": "api_basketball",
+   "id": "1954"
+  },
+  {
+   "name": "Kansas",
+   "key": "api_basketball",
+   "id": "1959"
+  },
+  {
+   "name": "Kansas St.",
+   "key": "api_basketball",
+   "id": "1960"
+  },
+  {
+   "name": "Kennesaw St.",
+   "key": "api_basketball",
+   "id": "1963"
+  },
+  {
+   "name": "Kent St.",
+   "key": "api_basketball",
+   "id": "235"
+  },
+  {
+   "name": "Kentucky",
+   "key": "api_basketball",
+   "id": "1964"
+  },
+  {
+   "name": "LSU",
+   "key": "api_basketball",
+   "id": "1967"
+  },
+  {
+   "name": "La Salle",
+   "key": "api_basketball",
+   "id": "1968"
+  },
+  {
+   "name": "Lafayette",
+   "key": "api_basketball",
+   "id": "1969"
+  },
+  {
+   "name": "Lamar",
+   "key": "api_basketball",
+   "id": "1970"
+  },
+  {
+   "name": "Le Moyne",
+   "key": "api_basketball",
+   "id": "3274"
+  },
+  {
+   "name": "Lehigh",
+   "key": "api_basketball",
+   "id": "1971"
+  },
+  {
+   "name": "Liberty",
+   "key": "api_basketball",
+   "id": "1972"
+  },
+  {
+   "name": "Lindenwood",
+   "key": "api_basketball",
+   "id": "1973"
+  },
+  {
+   "name": "Lipscomb",
+   "key": "api_basketball",
+   "id": "190"
+  },
+  {
+   "name": "Long Beach St.",
+   "key": "api_basketball",
+   "id": "1974"
+  },
+  {
+   "name": "Longwood",
+   "key": "api_basketball",
+   "id": "216"
+  },
+  {
+   "name": "Louisiana Christian",
+   "key": "api_basketball",
+   "id": "5782"
+  },
+  {
+   "name": "Louisiana Tech",
+   "key": "api_basketball",
+   "id": "1976"
+  },
+  {
+   "name": "Louisiana-Monroe",
+   "key": "api_basketball",
+   "id": "236"
+  },
+  {
+   "name": "Louisville",
+   "key": "api_basketball",
+   "id": "1977"
+  },
+  {
+   "name": "Loyola Chicago",
+   "key": "api_basketball",
+   "id": "191"
+  },
+  {
+   "name": "Loyola Marymount",
+   "key": "api_basketball",
+   "id": "3382"
+  },
+  {
+   "name": "Manhattan",
+   "key": "api_basketball",
+   "id": "1981"
+  },
+  {
+   "name": "Marist",
+   "key": "api_basketball",
+   "id": "1982"
+  },
+  {
+   "name": "Marquette",
+   "key": "api_basketball",
+   "id": "1983"
+  },
+  {
+   "name": "Marshall",
+   "key": "api_basketball",
+   "id": "237"
+  },
+  {
+   "name": "Maryland",
+   "key": "api_basketball",
+   "id": "1985"
+  },
+  {
+   "name": "Memphis",
+   "key": "api_basketball",
+   "id": "192"
+  },
+  {
+   "name": "Mercer",
+   "key": "api_basketball",
+   "id": "1494"
+  },
+  {
+   "name": "Miami-Hamilton",
+   "key": "api_basketball",
+   "id": "3351"
+  },
+  {
+   "name": "Michigan",
+   "key": "api_basketball",
+   "id": "1994"
+  },
+  {
+   "name": "Michigan St.",
+   "key": "api_basketball",
+   "id": "1995"
+  },
+  {
+   "name": "Minnesota",
+   "key": "api_basketball",
+   "id": "2003"
+  },
+  {
+   "name": "Mississippi St.",
+   "key": "api_basketball",
+   "id": "2005"
+  },
+  {
+   "name": "Missouri",
+   "key": "api_basketball",
+   "id": "2006"
+  },
+  {
+   "name": "Missouri St.",
+   "key": "api_basketball",
+   "id": "2008"
+  },
+  {
+   "name": "Monmouth",
+   "key": "api_basketball",
+   "id": "2011"
+  },
+  {
+   "name": "Montana",
+   "key": "api_basketball",
+   "id": "2012"
+  },
+  {
+   "name": "Montana St.",
+   "key": "api_basketball",
+   "id": "2013"
+  },
+  {
+   "name": "Morehead St.",
+   "key": "api_basketball",
+   "id": "2016"
+  },
+  {
+   "name": "Morgan St.",
+   "key": "api_basketball",
+   "id": "2018"
+  },
+  {
+   "name": "Murray St.",
+   "key": "api_basketball",
+   "id": "2024"
+  },
+  {
+   "name": "NJIT",
+   "key": "api_basketball",
+   "id": "238"
+  },
+  {
+   "name": "Navy",
+   "key": "api_basketball",
+   "id": "2029"
+  },
+  {
+   "name": "Nevada",
+   "key": "api_basketball",
+   "id": "2032"
+  },
+  {
+   "name": "New Mexico St.",
+   "key": "api_basketball",
+   "id": "2035"
+  },
+  {
+   "name": "New Orleans",
+   "key": "api_basketball",
+   "id": "239"
+  },
+  {
+   "name": "Niagara",
+   "key": "api_basketball",
+   "id": "2036"
+  },
+  {
+   "name": "Nicholls St.",
+   "key": "api_basketball",
+   "id": "2037"
+  },
+  {
+   "name": "Norfolk St.",
+   "key": "api_basketball",
+   "id": "196"
+  },
+  {
+   "name": "North Alabama",
+   "key": "api_basketball",
+   "id": "2038"
+  },
+  {
+   "name": "North Dakota",
+   "key": "api_basketball",
+   "id": "2041"
+  },
+  {
+   "name": "North Dakota St.",
+   "key": "api_basketball",
+   "id": "2042"
+  },
+  {
+   "name": "Northern Colorado",
+   "key": "api_basketball",
+   "id": "2047"
+  },
+  {
+   "name": "Northern Illinois",
+   "key": "api_basketball",
+   "id": "2048"
+  },
+  {
+   "name": "Northern Iowa",
+   "key": "api_basketball",
+   "id": "2049"
+  },
+  {
+   "name": "Northwestern",
+   "key": "api_basketball",
+   "id": "2053"
+  },
+  {
+   "name": "Notre Dame",
+   "key": "api_basketball",
+   "id": "2055"
+  },
+  {
+   "name": "Oakland",
+   "key": "api_basketball",
+   "id": "2056"
+  },
+  {
+   "name": "Ohio",
+   "key": "api_basketball",
+   "id": "2057"
+  },
+  {
+   "name": "Ohio St.",
+   "key": "api_basketball",
+   "id": "2058"
+  },
+  {
+   "name": "Oklahoma",
+   "key": "api_basketball",
+   "id": "2059"
+  },
+  {
+   "name": "Oklahoma St.",
+   "key": "api_basketball",
+   "id": "2060"
+  },
+  {
+   "name": "Old Dominion",
+   "key": "api_basketball",
+   "id": "2061"
+  },
+  {
+   "name": "Ole Miss",
+   "key": "api_basketball",
+   "id": "2062"
+  },
+  {
+   "name": "Oral Roberts",
+   "key": "api_basketball",
+   "id": "2064"
+  },
+  {
+   "name": "Oregon",
+   "key": "api_basketball",
+   "id": "2065"
+  },
+  {
+   "name": "Oregon St.",
+   "key": "api_basketball",
+   "id": "2066"
+  },
+  {
+   "name": "Pacific",
+   "key": "api_basketball",
+   "id": "2069"
+  },
+  {
+   "name": "Penn St.",
+   "key": "api_basketball",
+   "id": "2073"
+  },
+  {
+   "name": "Pepperdine",
+   "key": "api_basketball",
+   "id": "2074"
+  },
+  {
+   "name": "Pittsburgh",
+   "key": "api_basketball",
+   "id": "2079"
+  },
+  {
+   "name": "Portland",
+   "key": "api_basketball",
+   "id": "2080"
+  },
+  {
+   "name": "Portland St.",
+   "key": "api_basketball",
+   "id": "2082"
+  },
+  {
+   "name": "Presbyterian",
+   "key": "api_basketball",
+   "id": "240"
+  },
+  {
+   "name": "Princeton",
+   "key": "api_basketball",
+   "id": "2084"
+  },
+  {
+   "name": "Providence",
+   "key": "api_basketball",
+   "id": "197"
+  },
+  {
+   "name": "Purdue",
+   "key": "api_basketball",
+   "id": "2085"
+  },
+  {
+   "name": "Quinnipiac",
+   "key": "api_basketball",
+   "id": "241"
+  },
+  {
+   "name": "Radford",
+   "key": "api_basketball",
+   "id": "2087"
+  },
+  {
+   "name": "Rhode Island",
+   "key": "api_basketball",
+   "id": "2091"
+  },
+  {
+   "name": "Rice",
+   "key": "api_basketball",
+   "id": "1504"
+  },
+  {
+   "name": "Rider",
+   "key": "api_basketball",
+   "id": "2093"
+  },
+  {
+   "name": "Rutgers",
+   "key": "api_basketball",
+   "id": "2096"
+  },
+  {
+   "name": "SIU Edwardsville",
+   "key": "api_basketball",
+   "id": "2114"
+  },
+  {
+   "name": "Sacred Heart",
+   "key": "api_basketball",
+   "id": "2102"
+  },
+  {
+   "name": "Samford",
+   "key": "api_basketball",
+   "id": "2106"
+  },
+  {
+   "name": "San Diego St.",
+   "key": "api_basketball",
+   "id": "2108"
+  },
+  {
+   "name": "San Francisco",
+   "key": "api_basketball",
+   "id": "1497"
+  },
+  {
+   "name": "San Jose St.",
+   "key": "api_basketball",
+   "id": "2110"
+  },
+  {
+   "name": "Seattle",
+   "key": "api_basketball",
+   "id": "243"
+  },
+  {
+   "name": "Siena",
+   "key": "api_basketball",
+   "id": "1570"
+  },
+  {
+   "name": "South Carolina",
+   "key": "api_basketball",
+   "id": "2116"
+  },
+  {
+   "name": "South Carolina St.",
+   "key": "api_basketball",
+   "id": "2117"
+  },
+  {
+   "name": "South Florida",
+   "key": "api_basketball",
+   "id": "218"
+  },
+  {
+   "name": "Southern Illinois",
+   "key": "api_basketball",
+   "id": "2120"
+  },
+  {
+   "name": "Southern Indiana",
+   "key": "api_basketball",
+   "id": "5566"
+  },
+  {
+   "name": "Southern Miss",
+   "key": "api_basketball",
+   "id": "219"
+  },
+  {
+   "name": "Stanford",
+   "key": "api_basketball",
+   "id": "2133"
+  },
+  {
+   "name": "Stonehill",
+   "key": "api_basketball",
+   "id": "5866"
+  },
+  {
+   "name": "Syracuse",
+   "key": "api_basketball",
+   "id": "2137"
+  },
+  {
+   "name": "Temple",
+   "key": "api_basketball",
+   "id": "2140"
+  },
+  {
+   "name": "Tennessee",
+   "key": "api_basketball",
+   "id": "2141"
+  },
+  {
+   "name": "Tennessee St.",
+   "key": "api_basketball",
+   "id": "2142"
+  },
+  {
+   "name": "Tennessee Tech",
+   "key": "api_basketball",
+   "id": "2143"
+  },
+  {
+   "name": "Texas Southern",
+   "key": "api_basketball",
+   "id": "246"
+  },
+  {
+   "name": "Texas St.",
+   "key": "api_basketball",
+   "id": "247"
+  },
+  {
+   "name": "Texas Tech",
+   "key": "api_basketball",
+   "id": "2146"
+  },
+  {
+   "name": "Towson",
+   "key": "api_basketball",
+   "id": "2152"
+  },
+  {
+   "name": "Troy",
+   "key": "api_basketball",
+   "id": "2157"
+  },
+  {
+   "name": "Tulsa",
+   "key": "api_basketball",
+   "id": "2159"
+  },
+  {
+   "name": "UAB",
+   "key": "api_basketball",
+   "id": "221"
+  },
+  {
+   "name": "UC Davis",
+   "key": "api_basketball",
+   "id": "2161"
+  },
+  {
+   "name": "UC Irvine",
+   "key": "api_basketball",
+   "id": "2162"
+  },
+  {
+   "name": "UC Riverside",
+   "key": "api_basketball",
+   "id": "2163"
+  },
+  {
+   "name": "UC San Diego",
+   "key": "api_basketball",
+   "id": "2363"
+  },
+  {
+   "name": "UCLA",
+   "key": "api_basketball",
+   "id": "2166"
+  },
+  {
+   "name": "UConn",
+   "key": "api_basketball",
+   "id": "2179"
+  },
+  {
+   "name": "UMass",
+   "key": "api_basketball",
+   "id": "2168"
+  },
+  {
+   "name": "UMass Lowell",
+   "key": "api_basketball",
+   "id": "2169"
+  },
+  {
+   "name": "UNC Asheville",
+   "key": "api_basketball",
+   "id": "2170"
+  },
+  {
+   "name": "UNLV",
+   "key": "api_basketball",
+   "id": "2171"
+  },
+  {
+   "name": "USC",
+   "key": "api_basketball",
+   "id": "2172"
+  },
+  {
+   "name": "USC Upstate",
+   "key": "api_basketball",
+   "id": "2173"
+  },
+  {
+   "name": "UT Arlington",
+   "key": "api_basketball",
+   "id": "2174"
+  },
+  {
+   "name": "UTEP",
+   "key": "api_basketball",
+   "id": "2177"
+  },
+  {
+   "name": "Utah St.",
+   "key": "api_basketball",
+   "id": "2180"
+  },
+  {
+   "name": "VMI",
+   "key": "api_basketball",
+   "id": "2183"
+  },
+  {
+   "name": "Vanderbilt",
+   "key": "api_basketball",
+   "id": "2185"
+  },
+  {
+   "name": "Vermont",
+   "key": "api_basketball",
+   "id": "2187"
+  },
+  {
+   "name": "Villanova",
+   "key": "api_basketball",
+   "id": "2188"
+  },
+  {
+   "name": "Virginia",
+   "key": "api_basketball",
+   "id": "2189"
+  },
+  {
+   "name": "Virginia Tech",
+   "key": "api_basketball",
+   "id": "2190"
+  },
+  {
+   "name": "Wagner",
+   "key": "api_basketball",
+   "id": "2191"
+  },
+  {
+   "name": "Wake Forest",
+   "key": "api_basketball",
+   "id": "2192"
+  },
+  {
+   "name": "Washington",
+   "key": "api_basketball",
+   "id": "2193"
+  },
+  {
+   "name": "Washington St.",
+   "key": "api_basketball",
+   "id": "2195"
+  },
+  {
+   "name": "Weber St.",
+   "key": "api_basketball",
+   "id": "2196"
+  },
+  {
+   "name": "West Virginia",
+   "key": "api_basketball",
+   "id": "223"
+  },
+  {
+   "name": "Western Carolina",
+   "key": "api_basketball",
+   "id": "2199"
+  },
+  {
+   "name": "Western Illinois",
+   "key": "api_basketball",
+   "id": "2200"
+  },
+  {
+   "name": "Western Kentucky",
+   "key": "api_basketball",
+   "id": "2201"
+  },
+  {
+   "name": "Western Michigan",
+   "key": "api_basketball",
+   "id": "2202"
+  },
+  {
+   "name": "Wichita St.",
+   "key": "api_basketball",
+   "id": "205"
+  },
+  {
+   "name": "Wilson College",
+   "key": "api_basketball",
+   "id": "3345"
+  },
+  {
+   "name": "Winthrop",
+   "key": "api_basketball",
+   "id": "2212"
+  },
+  {
+   "name": "Wisconsin",
+   "key": "api_basketball",
+   "id": "2214"
+  },
+  {
+   "name": "Wofford",
+   "key": "api_basketball",
+   "id": "2215"
+  },
+  {
+   "name": "Wyoming",
+   "key": "api_basketball",
+   "id": "1506"
+  },
+  {
+   "name": "Xavier",
+   "key": "api_basketball",
+   "id": "207"
+  },
+  {
+   "name": "Yale",
+   "key": "api_basketball",
+   "id": "2217"
+  },
+  {
+   "name": "Youngstown St.",
+   "key": "api_basketball",
+   "id": "2218"
+  }
+ ]
+}

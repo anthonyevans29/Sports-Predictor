@@ -1,4 +1,4 @@
-## 2026-11-15 (#000: 1009-get-game-season — `get_game` reads the season the one-game answer serves, so `dedupe-matches --orphans`' season check fires in production (#1009; ARCHITECT, addendum 385 item 2).)
+## 2026-11-15 (#1014: 1009-get-game-season — `get_game` reads the season the one-game answer serves, so `dedupe-matches --orphans`' season check fires in production (#1009; ARCHITECT, addendum 385 item 2).)
 - **The recorded answer (385 item 2):** GET /games?id= on the laptop, 2026-11-15 12:59Z, two ids, key names and types only. "the single-game answer carries its season at response[0].league.season, A STRING OF THE YEAR" ('2025' for id 20141, '2023' for id 10948).
 - **As built** (`src/adapters/api_american_football.py`): `served_season(data)` reads `response[0].league.season` when it is a string of four ASCII digits and nothing else. `get_game` hands it to `_parse_games` in place of `""`.
   - An answer with no league block, no season, a season that is not a year, or a season that is not a string (an int was never recorded) keeps today's `""`. Never guessed, never coerced (law 4).

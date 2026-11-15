@@ -1003,7 +1003,8 @@ ids ride along as columns, each from the latest assertion that carries one.
   gives one, #944), one per pair an assertion names; `ABOUT` (Observation to Game), the games an observation's assertions
   name, else its own match.
 - The line names the record's assertions (a COUNT on the copy) beside the graph's assertion nodes, and a build whose two
-  counts differ fails (379 item 2).
+  counts differ fails (379 item 2). The count is taken in the parent BEFORE the walk starts and written on the line
+  then, so a night that dies in the walk (the child taken by MemoryMax) names the size it died at (386 item 1; #1010).
 - Timestamps are naive UTC (the engine drops an offset without converting it, so the rebuild converts first).
 
 **The copy (347 item 5(b)).** `--backup-dir DIR`: the newest daily `.backup` copy (`sports_YYYY-MM-DD[_HHMMSS].db`,

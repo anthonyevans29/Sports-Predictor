@@ -511,8 +511,8 @@ def test_379_2_the_shape_each_assertion_a_node_with_forward_only_edges():
 
 def test_379_2_the_walk_stages_in_a_child_that_exits_before_the_load(fresh_db, tmp_path, monkeypatch):
     """379 item 2, rule (3): the walk runs in a forked child, so its heap is the system's again before the engine's
-    load starts; the parent receives the staged files, their counts and the record's count. A child that fails, or
-    gives no answer, fails the run (exit 1) with its line written."""
+    load starts; the parent receives the staged files and their counts (the record's count is its own). A child
+    that fails, or gives no answer, fails the run (exit 1) with its line written."""
     _history_b()
     copy = _copy(fresh_db, tmp_path / "backups")
     out = tmp_path / "graph"
@@ -587,6 +587,33 @@ def test_379_2_review_sigterm_is_blocked_across_the_fork_and_the_child_unblocks_
     assert seen["blocked_at_start"] is True
     assert json.loads(marks.read_text()) == {"blocked": False, "handler_default": True}
     assert signal.SIGTERM not in signal.pthread_sigmask(signal.SIG_BLOCK, [])     # the parent unblocked it again
+
+
+def test_386_1_a_night_that_dies_in_the_walk_names_the_record_size_it_died_at(fresh_db, tmp_path, monkeypatch):
+    """ARCHITECT 2026-11-15 08:05 ET, addendum 386 item 1 (#1010(a)): "The record's size goes on the line BEFORE the
+    walk starts: a COUNT on the copy in the parent, before the fork, written as record_assertions on the run's line,
+    so a night that dies in the walk (the child taken by MemoryMax, 'the staging child gave no answer (exit -9)')
+    names the size it died at." The child is killed outright here, as MemoryMax kills it; the line has the record's
+    size and no staged size."""
+    import signal
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    with sqlite3.connect(copy) as c:
+        n = c.execute("SELECT COUNT(*) FROM availability_assertions").fetchone()[0]
+    assert n > 0
+
+    def killed(*a, **k):
+        os.kill(os.getpid(), signal.SIGKILL)
+    monkeypatch.setattr(g, "_stage", killed)
+    with pytest.raises(RuntimeError, match=r"the staging child gave no answer \(exit -9\)"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert line["ok"] is False and "no answer (exit -9)" in line["error"]
+    assert line["record_assertions"] == n                            # the size it died at
+    assert "staged" not in line                                     # the walk never finished
+    assert sorted(p.name for p in out.iterdir()) == [LOCK, g.RECEIPTS]
 
 
 def test_379_2_the_load_reopens_the_database_every_ten_copies_and_between_tables(tmp_path):

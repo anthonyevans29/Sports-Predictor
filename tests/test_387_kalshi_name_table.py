@@ -564,3 +564,29 @@ def test_a_table_is_read_against_its_own_competitions_teams_only(ncaamb_db, tabl
         assert kt.series_comp_ids(s, "KXNOTMAPPED", [comp.id, other.id]) == []
         s.query(Match).filter(Match.competition_id == other.id).delete(synchronize_session=False)
         s.query(Competition).filter(Competition.id == other.id).delete(synchronize_session=False)
+
+
+@pytest.mark.parametrize("name", ["St.Bonaventure", "Saint-Joseph's", "Mount-St. Mary's", "St John's", "Mt. St. Mary's",
+                                  "St. Thomas", "Saint Louis", "Mount St. Mary's"])
+def test_a_name_opening_with_saint_st_or_mount_is_marked_however_it_is_spelled(name):
+    """387 item 3(d): "a name opening with Saint, St. or Mount" is never proposed: with no space after it ("St.Bonaventure",
+    "Saint-Joseph's"), dotless ("St John's", read as State by the tokens exactly as "St." is) or as Mt. (review of #1016's
+    head, P2)."""
+    stored = NS(id=1, name=name, external_ids={KEY: "1"})                  # a whole read on itself
+    (p,) = kt.propose({name: 1}, [stored], KEY)
+    assert kt.MARK_SAINT in p.marks and not p.proposed, p.marks
+
+
+@pytest.mark.parametrize("name", ["Stony Brook", "Stetson", "Montana", "Mountaineers", "Saintly"])
+def test_a_name_that_only_starts_with_those_letters_is_not_marked_for_it(name):
+    (p,) = kt.propose({name: 1}, [NS(id=1, name=name, external_ids={KEY: "1"})], KEY)
+    assert kt.MARK_SAINT not in p.marks and p.proposed
+
+
+def test_two_names_that_differ_only_by_case_are_both_marked_never_proposed():
+    """The loader refuses a table holding two names that differ only by case; the proposer never proposes such a pair
+    (review P2): both are marked for hand reading, and saying why."""
+    props = kt.propose({"San Jose State": 1, "San Jose state": 1}, [NS(id=4, name="San Jose State",
+                                                                       external_ids={KEY: "9004"})], KEY)
+    assert all(not p.proposed for p in props)
+    assert [p.marks for p in props] == [[f"{kt.MARK_CASE}: San Jose state"], [f"{kt.MARK_CASE}: San Jose State"]]

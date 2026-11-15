@@ -215,9 +215,10 @@ def tables_for(sess, markets, comp_ids, table_dir: Path | None = None) -> dict:
 # A WHOLE READ: a stored team whose name has the same words as the Kalshi name under the matcher's own norm_tokens
 # (kalshi_match.norm_tokens: the shared alias tokens, "St." read as State), no more and no fewer; the reading of the
 # pins (addendum 59 item 2) and of the 2026-11-13 names file.
-# Two marks beyond (d)'s, each only adding a name to the hand reading, never proposing one: a name the matcher pins
-# (kalshi_match.PINS: its table line is a ruling as the pin was), and a whole-read team with no id, or an id two
-# stored teams answer to, under the key asked for (no line could be written for it).
+# Three marks beyond (d)'s, each only adding a name to the hand reading, never proposing one: a name the matcher pins
+# (kalshi_match.PINS: its table line is a ruling as the pin was); a whole-read team with no id, or an id two stored
+# teams answer to, under the key asked for (no line could be written for it); and a name another name of the series
+# matches but for letter case (the loader refuses a table holding both).
 
 MARK_DROPPED = "a mark the tokens drop"          # &, a lone letter, ( ), a dot other than State's
 MARK_SAINT = "opens with Saint, St. or Mount"
@@ -225,8 +226,13 @@ MARK_MANY = "a whole read on two or more teams"
 MARK_NONE = "no whole read"
 MARK_PIN = "pinned in the matcher (kalshi_match.PINS)"
 MARK_NO_ID = "the whole-read team has no one id under the key"
+MARK_CASE = "another name of the series differs from it only by case (the loader refuses a table holding both)"
 
-_SAINT = re.compile(r"^(?:Saint|St\.|Mount)(?=\s|$)")
+# 387 item 3(d): "a name opening with Saint, St. or Mount", however the opening is written: followed by a space, a hyphen
+# or nothing ("Saint-Joseph's"), its dot followed by anything ("St.Bonaventure"), the dotless St ("St John's", which the
+# tokens read as State exactly as they read "St.") and Mt.; never a word that only starts with those letters ("Stony
+# Brook", "Montana") (review of PR one, P2)
+_SAINT = re.compile(r"^(?:(?:Saint|Mount|St|Mt)(?![A-Za-z])|(?:St|Mt)\.)")
 _STATE_DOT = re.compile(r"\bSt\.")
 
 
@@ -286,6 +292,9 @@ def propose(names: dict, teams, key: str) -> list:
 
     teams = list(teams)
     tok = {t.id: km.norm_tokens(t.name or "") for t in teams}
+    by_fold: dict = {}
+    for name in names:
+        by_fold.setdefault(name.casefold(), []).append(name)
     out = []
     for name in sorted(names):
         want = km.norm_tokens(name)
@@ -318,5 +327,8 @@ def propose(names: dict, teams, key: str) -> list:
             marks.append(f"{MARK_PIN}: {km.PINS[name]}")
         if len(whole) == 1 and whole[0][3]:
             marks.append(f"{MARK_NO_ID}: {whole[0][3]}")
+        twins = sorted(n for n in by_fold[name.casefold()] if n != name)
+        if twins:
+            marks.append(f"{MARK_CASE}: {', '.join(twins)}")
         out.append(Proposal(name, names[name], whole, top, top_teams, marks))
     return out

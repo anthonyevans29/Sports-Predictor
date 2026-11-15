@@ -546,7 +546,8 @@ STAGE_RESULT = "stage.result.json"            # the staging child's answer to it
 
 
 def _stage_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> None:
-    """The staging child: the walk and the record's count, through the copy's own mode=ro + immutable=1 session, its
+    """The staging child: the walk, through the copy's own mode=ro + immutable=1 session (the record's count is the
+    parent's, before the fork: addendum 386 item 1), its
     answer written beside the CSVs. It runs in a forked process that exits when it is done, so the walk's heap (a
     partition of the record at a time: 888 MiB at ten times today's history) is the operating system's again before
     the engine's load starts, never added to it (rule (3) above)."""
@@ -560,17 +561,16 @@ def _stage_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> 
         s = ctx.__enter__()
         try:
             tables = _stage(s, stage, copy, copy_sha, built_at)
-            n = _record_assertions(s)
         finally:
             ctx.__exit__(None, None, None)
         out = {"files": {k: [str(f) for f in x.files] for k, x in tables.items()},
-               "n": {k: x.n for k, x in tables.items()}, "record_assertions": n}
+               "n": {k: x.n for k, x in tables.items()}}
     except BaseException as e:  # noqa: BLE001 - the parent raises it, with the run's line
         out = {"error": f"{type(e).__name__}: {e}"[:500]}
     (stage / STAGE_RESULT).write_text(json.dumps(out))
 
 
-def _stage_in_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> tuple[dict[str, "_Table"], int]:
+def _stage_in_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) -> dict[str, "_Table"]:
     """Stage in a forked child and wait for it (rule (3) above): the parent's memory never holds the walk. A child that
     fails (its error, or no answer: a signal, MemoryMax) fails the run here, exit 1, the previous graph untouched; a
     parent stopped while it waits stops the child too."""
@@ -607,7 +607,7 @@ def _stage_in_child(stage: Path, copy: Path, copy_sha: str, built_at: datetime) 
         x = _Table(stage, k)
         x.files, x.n = [Path(f) for f in files], out["n"][k]
         tables[k] = x
-    return tables, out["record_assertions"]
+    return tables
 
 
 def _record_assertions(s) -> int:
@@ -719,15 +719,17 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
             if not rec.migrated(s):
                 raise Refused(f"{copy}: migrate_availability_record.py has not run on this copy (the record's tables "
                               "and their marker); nothing built")
+            # ARCHITECT 2026-11-15 08:05 ET, addendum 386 item 1 (#1010(a)): the record's size on the line BEFORE the
+            # walk starts, counted here in the parent, so a night that dies in the walk (the child taken by MemoryMax)
+            # names the size it died at; 379 item 2's check reads the same count
+            receipt["record_assertions"] = record_assertions = _record_assertions(s)
         finally:
             ctx.__exit__(None, None, None)
         shutil.rmtree(stage, ignore_errors=True)
         stage.mkdir()
-        tables, record_assertions = _stage_in_child(stage, copy, copy_sha, now)
+        tables = _stage_in_child(stage, copy, copy_sha, now)
         staged = {n: tables[n].n for n in (*NODE_TABLES, *REL_TABLES)}
-        # 379 item 2: "the finished graph's count of assertion nodes equals the record's assertions and the line says
-        # both"; and the staging's bytes on disk, the size the load reads
-        receipt["record_assertions"] = record_assertions
+        # the staging's bytes on disk, the size the load reads
         receipt["staged_bytes"] = sum(f.stat().st_size for x in tables.values() for f in x.files)
         # 378 item 4(d): the line names the size BEFORE the load starts, so a failed line says what it failed at; and
         # the staging directory keeps it too, for the next run to name if this one is killed (SIGKILL: no line)

@@ -84,7 +84,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-window | window (the next-24h card and delta pages); from the next deploy (ARCHITECT 2026-10-24, addendum 164 item 2(a)) also the capture-only Kalshi sync of PD `KXLALIGAGAME`, SA `KXSERIEAGAME`, BL1 `KXBUNDESLIGAGAME`, FL1 `KXLIGUE1GAME` and ELC `KXEFLCHAMPIONSHIPGAME` (`chains.WINDOW_KALSHI_CAPTURE_ONLY`: one `sync-kalshi-soccer --competition <code>` per league, one series per call, when the league's next kickoff is near or imminent; no export, no call, no venue line on the card) | hourly at :05, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-cup-observe | (cli.py observe-cup-lineups, one tick, all four cups; not a chain): cups Step B's live T-15 observation store (ARCHITECT 2026-10-27, addendum 169 item 4(i)); a tick with no poll due ends without the DB lock | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
 | sp-availability-observe | (cli.py availability-nhl-observe, one tick; not a chain): the availability record's NHL landing watch (ARCHITECT 2026-11-04, addendum 252 item 3(b); 2026-11-11, addendum 340 item 3: "a STANDALONE unit on the cup-observe pattern"): the NHL schedule at most hourly per NHL day (no row), the landing page at T-120 .. T-0 and the boxscore at T+20 per game into the record; a poll more than five minutes past its time a `missed` row; a tick with no poll due takes no lock; needs `migrate_availability_record.py` run since #835 item 2's poll key (else it refuses, exit 2, and pages); enabled only by the architect's block (252 item 7; 340 item 3) | every 5 minutes at :00..:55, hours 00-03 and 06-23 UTC (H0-3) | — |
-| sp-availability-graph | (cli.py availability-graph-rebuild; not a chain): the availability record's graph projection (ARCHITECT 2026-11-04, addendum 252 item 4; 2026-11-11, addendum 347 item 5: LadybugDB `ladybug` 0.22.3, host-only, requirements-graph.txt): rebuilt whole from the newest daily `.backup` copy in /var/backups/sports-predictor whose `.sha256` sidecar matches (refused when older than 26 h), opened mode=ro + immutable=1, into logs/availability/graph/availability.lbug, one line of rebuild.jsonl beside it per run; its own unit with no EnvironmentFile, PrivateNetwork, ProtectSystem=strict, one writable directory (347 item 5(b)); read by nothing (347 item 5(c)); on T11's `TIMERS_BY_BLOCK` (addendum 351 item 2), enabled only by the architect's block once the engine is installed and its directory made, and, since addendum 378 item 5, only on a build after the next tag carries the unit's fix (the engine was installed 2026-11-14 13:08Z and the first run refused by the fence, 378 item 1; on THE HELD LIST until then) | daily 10:20 UTC (after sp-backup 09:30) | — |
+| sp-availability-graph | (cli.py availability-graph-rebuild; not a chain): the availability record's graph projection (ARCHITECT 2026-11-04, addendum 252 item 4; 2026-11-11, addendum 347 item 5: LadybugDB `ladybug` 0.22.3, host-only, requirements-graph.txt): rebuilt whole from the newest daily `.backup` copy in /var/backups/sports-predictor whose `.sha256` sidecar matches (refused when older than 26 h), opened mode=ro + immutable=1, into logs/availability/graph/availability.lbug, one line of rebuild.jsonl beside it per run; its own unit with no EnvironmentFile, PrivateNetwork, ProtectSystem=strict, one writable directory (347 item 5(b)); read by nothing (347 item 5(c)); on T11's `TIMERS_BY_BLOCK` (addendum 351 item 2), enabled only by the architect's block once the engine is installed and its directory made, and, since addendum 378 item 5, only on a build after the next tag carries the unit's fix (the engine was installed 2026-11-14 13:08Z and the first run refused by the fence, 378 item 1; on THE HELD LIST until then). ENABLED on the host 2026-11-15T20:01Z by that block on v1.6.9, on a build, and off THE HELD LIST (ARCHITECT 2026-11-15, addendum 404 item 1); it keeps its `TIMERS_BY_BLOCK` class (356 item 2) | daily 10:20 UTC (after sp-backup 09:30) | — |
 | sp-closing-watch | (closing.py watch, NFL and SOCCER; not a chain) — enabled at the cutover, 2026-10-26 13:47Z (T11 `TIMERS`; ARCHITECT 2026-10-26, addendum 168 item 5; held for the cutover ruling until then, C7) | every minute (the one H0-3 exemption, by name) | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
 
@@ -944,6 +944,13 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   failed first run stops the block there, with the timer disabled and on THE HELD LIST. Then
   `echo sp-availability-graph.timer | sudo tee -a /etc/sports-predictor/timers.enabled` (addendum 168 item 2), then
   `systemctl list-timers sp-availability-graph.timer` (next elapse at 10:20 UTC). The graph file is deletable without loss (252 item 4): the next run rebuilds it whole.
+  **ENABLED on the host 2026-11-15T20:01Z** by that block, on v1.6.9 (482de3fd), the tag that carries the unit's fix
+  (ARCHITECT 2026-11-15 15:09 ET, addendum 404 item 1). The unit files reinstalled from the tag, byte-identical; the
+  first run by the unit, `systemctl start` exit 0, Result=success, 247.7 s, 1,346,489 assertion nodes equal to the
+  record's assertions; the ruled verdict met: "ok": true, buffer_pool 268435456, memory_limit 1610612736 from the
+  unit's own cgroup memory.max (404 item 1(c)-(d)). Then the enable, its `timers.enabled` line and the set read at 22,
+  none missing, none stray (404 item 1(e)). systemd reported no MemoryPeak for the unit ("[not set]"), so that read
+  measures no peak (404 item 1(d)). The recipe above stays as the block's shape for a fresh host.
 - `sp-nba-daily.timer` (ARCHITECT 2026-11-05, addendum 261 item 1(b): "the chain `nba-daily` [...] at a UTC minute
   off every existing timer (Code lists the timers and picks; my block enables it)"; daily 06:47 UTC): the NBA's
   market-only daily, three single-day `sync-matches` steps (`{yesterday}`, `{today}`, `{tomorrow}`, UTC; addendum
@@ -1216,12 +1223,13 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     corrected in place to this, with this addendum quoted". Why: T11's `TIMERS` names 21 timers (27 across its three
     lists at v1.6.8 and at v1.6.9), and a fixed count also passes a host that is missing one
     expected timer and running one stray one (Codex on #914, confirmed). The quote's "today" is 2026-11-10's list.
-    The current list is THE HELD LIST below (on v1.6.9: sp-tennis-daily, sp-ncaamb-daily and sp-availability-graph,
-    addendum 402 item 1(c), as on v1.6.8, addendum 374 item 3).
+    The current list is THE HELD LIST below: since 2026-11-15T20:01Z two, sp-tennis-daily and sp-ncaamb-daily
+    (addendum 404 item 1: "THE HELD LIST ON THE HOST IS NOW TWO"). At the v1.6.9 deploy it was three, with
+    sp-availability-graph (addendum 402 item 1(c)), as on v1.6.8 (addendum 374 item 3).
     TERMINAL (host), in bash, as any user (it reads, it changes nothing). `HELD` copies THE HELD LIST below, by name:
     ```
     f=/etc/sports-predictor/timers.enabled
-    HELD="sp-tennis-daily.timer sp-ncaamb-daily.timer sp-availability-graph.timer"   # THE HELD LIST below, by name
+    HELD="sp-tennis-daily.timer sp-ncaamb-daily.timer"   # THE HELD LIST below, by name
     expected=$(tr -s ' \t\r' '\n' < "$f" | sed '/^$/d' | grep -vxF -f <(printf '%s\n' $HELD) | sort -u)
     observed=$(systemctl list-units --type=timer --state=active --no-legend --plain 'sp-*.timer' | awk '{print $1}' | sort -u)
     missing=$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$observed") | sed '/^$/d')
@@ -1249,7 +1257,6 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     |---|---|---|
     | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the architect's block (288 item 5). Its other condition, the tag that carries the map, is met: the map (#900, tennis-E) is in every tag from v1.6.6 on, and production is v1.6.9 (addendum 402 item 1) |
     | `sp-ncaamb-daily.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 (entered when #957 merged, 2026-11-12 20:46Z) | the architect's enabling block after the host's NCAAMB load and stored certification |
-    | `sp-availability-graph.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 | the architect's block that enables it only on a build, after the next tag carries the unit's fix (addendum 378 item 5). On v1.6.8 the engine was installed 2026-11-14 13:08Z and both unit files installed, the timer disabled; the first run was refused by the fence (378 items 1 and 3). The tag that carries the unit's fix (#996) is v1.6.9, deployed 2026-11-15 19:57Z, the timer still disabled after it (addendum 402 item 1(c)); the architect's first-run block follows, the timer enabled only on "ok": true with the ruled pool, limit and assertion count (398 item 4(a)) |
 
     - **The rule that joins THE HELD LIST and `TIMERS_BY_BLOCK` (ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2,
       verbatim in part):** "THE HELD LIST AND `TIMERS_BY_BLOCK` STAY TWO LISTS. They say different things.
@@ -1271,6 +1278,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       (addendum 378 item 1(a)), so it passes the `HELD:` line as disabled; `sp-ncaamb-daily.timer` still reads not-found.
       On v1.6.9 the same: sp-availability-graph.timer disabled, sp-ncaamb-daily.timer not installed, sp-tennis-daily.timer
       disabled (addendum 402 item 1(c)).
+      Since 2026-11-15T20:01Z sp-availability-graph.timer is enabled and off the list (addendum 404 item 1(e)), so the
+      `HELD:` line reads the two left: sp-tennis-daily.timer (installed, disabled) and sp-ncaamb-daily.timer (not
+      installed).
     - **`sp-availability-graph` on the host (ARCHITECT 2026-11-14 08:23 ET, addendum 378).**
       - **The install, 2026-11-14 13:08Z** (378 item 1(a), verbatim in part): "Successfully installed ladybug-0.22.3",
         pip exit 0, by the recorded hash, wheel only. The two unit files were installed, "byte-identical to the
@@ -1291,6 +1301,13 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         NAMED NOW: the failure page of 2026-11-14 13:08Z for sp-availability-graph.service, my block's first run,
         refused by the fence. The probe ran without OnFailure and leaves no receipt row."
 
+    - **Lifted: `sp-availability-graph.timer`** (held by addendum 356 item 2 on 2026-11-12; its row read: "the architect's block that enables it only on a build, after the next tag carries the unit's fix (addendum 378 item 5). On v1.6.8 the engine was installed 2026-11-14 13:08Z and both unit files installed, the timer disabled; the first run was refused by the fence (378 items 1 and 3). The tag that carries the unit's fix (#996) is v1.6.9, deployed 2026-11-15 19:57Z, the timer still disabled after it (addendum 402 item 1(c)); the architect's first-run block follows, the timer enabled only on "ok": true with the ruled pool, limit and assertion count (398 item 4(a))").
+      The lift (ARCHITECT 2026-11-15 15:09 ET, addendum 404 item 1(e) and the line after it, verbatim): "ENABLED on that verdict:
+      sp-availability-graph.timer enabled and active, next run Mon 2026-11-16 10:20:00 UTC; its name added to
+      /etc/sports-predictor/timers.enabled. Timers now: 22 names, 22 expected active, 22 active, none missing, none
+      stray. No failed unit. The checkout clean. THE HELD LIST ON THE HOST IS NOW TWO: sp-tennis-daily.timer
+      (installed, disabled) and sp-ncaamb-daily.timer (not installed)." It stays on `TIMERS_BY_BLOCK`, its class
+      (356 item 2: "a timer keeps that class after it is enabled").
     - **Lifted: `sp-ncaa-market.timer`** (held by addendum 310 item 2 on 2026-11-09, incident #902). The hold's lifting
       condition (ARCHITECT 2026-11-10, addendum 324 item 3(e), verbatim): "`systemctl enable --now
       sp-ncaa-market.timer` — the hold lifts only after (d)'s apply is read clean; the held list in the runbook loses
@@ -1692,7 +1709,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     line must name only the TIMERS timers missing"); alone they leave the line plain. `TIMERS_BY_BLOCK` (addendum 351
     item 2) is counted the same way; the v1.6.8 deploy's line read
     `· shipped timers not in /etc/sports-predictor/timers.enabled: 3 on MLB_LAPTOP_ONLY (held off by T11) · 3 on TIMERS_BY_BLOCK (held off by T11)`
-    (addendum 374 item 2), and the v1.6.9 deploy's the same counts (402 item 1(b)). A timer on no T11 list is
+    (addendum 374 item 2), and the v1.6.9 deploy's line read the same counts (402 item 1(b)). A timer on no T11 list is
     named, "!", "(unlisted)". The lists are read as T11's block holds them, whatever their names: a list the code
     expects that the block lacks is noted on the line and never empties the others (`HELD_FOR_CUTOVER`, an earlier third
     list, was retired at the cutover: addendum 168 item 5; the deploy runs the release it replaces, so the old

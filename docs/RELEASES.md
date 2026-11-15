@@ -515,7 +515,7 @@ its compare verdict.
     - It carries 373 items 1–3 and 374 items 1–3 verbatim, the 32 from git, and the record line.
     - It also carries the notes in two comments. GitHub stores three of their characters differently, all in #981's
       section; the byte-identical copy is the tag.
-- **v1.6.9** (ARCHITECT, addendum 400, the tag ruling, as Release Issue #1027 quotes it): no migration, and none was
+- **v1.6.9** (ARCHITECT, addendum 400 item 3, the tag ruling, as Release Issue #1027 quotes it): no migration, and none was
   due. The commit is the #1025 merge 482de3fd, the ledger compile f6c8ba27 (22 changelog fragments, 23 ledger entries)
   over ff8042fe (#1022's merge), as v1.6.8's was the #989 merge. The tag was cut and pushed by the operator from the
   architect's block once CI read green on the tag's commit: tagger stamp 2026-11-15 19:57:26Z (14:57:26 -0500).
@@ -523,8 +523,9 @@ its compare verdict.
   deploys it on the host by my block. After the deploy, by my blocks and in this order, as 398 item 4 has it: the
   graph (unit reinstalled, one first run, the timer enabled only on ok), then the goalies (one hand run from
   2026-10-01, a backup first, then the coverage read on a backup copy)."
-  - **Step 1:** (a) the compare, verbatim (395 item 3): "2026-11-15, v1.6.8's own comparator (b3c5fbcf) on the mirror at
-    7ecb70b, laptop/2026-11-15 against host/2026-11-15. VERDICT CLEAN. fixtures_NHL: rows laptop 21, host 21, diffs 0;
+  - **Step 1:** (a) the compare, verbatim (395 item 3): "DEV 1 — THE DAY'S COMPARE, for v1.6.9's step 1 whenever the
+    operator calls it: 2026-11-15, v1.6.8's own comparator (b3c5fbcf) on the mirror at 7ecb70b, laptop/2026-11-15
+    against host/2026-11-15. VERDICT CLEAN. fixtures_NHL: rows laptop 21, host 21, diffs 0;
     42 rows a side outside the window; 363 host-only columns; code-version skew named (laptop e3f55ee2, host
     b3c5fbcf); 9 files expected one-sided; exit 0. The host's nhl-daily export landed at 16:00:40Z." (b) the host's
     receipts since the v1.6.8 tag, verbatim (399 item 1): "v1.6.9 STEP 1(b), THE HOST'S RECEIPTS SINCE THE v1.6.8 TAG
@@ -544,8 +545,9 @@ its compare verdict.
     subscription's own page (the plan it shows, its renewal date, a payment attempted today). (c) The landing watch:
     482 runs finished, 0 failed, since the v1.6.8 deploy. (d) Timers: timers.enabled 21 names, 21 expected active, 21
     active, none missing, none stray. No failed unit. The checkout is clean. STEP 1(b) IS MET: every failing row is
-    named. Step 1(a) was met by 395 item 3. Step 1(c) is the tag block's." (c) CI on the tag's commit, verbatim (400
-    item 2): "STEP 1 IS MET IN FULL: (a) the day's compare CLEAN (395 item 3); (b) the host's receipts since the
+    named. Step 1(a) was met by 395 item 3. Step 1(c) is the tag block's." (c) CI on the tag's commit, with step 1 met
+    in full, verbatim (400 item 2): "STEP 1 IS MET IN FULL: (a) the day's compare CLEAN (395 item 3); (b) the host's
+    receipts since the
     v1.6.8 tag, every failing row named (399 item 1); (c) CI green on 482de3fd (smoke and smoke-py310 success;
     fragments skipped), read at 13:24 ET, and read again by the tag block before it cuts."
   - **Step 2 (400 item 1, verbatim):** "THE FOLD IS IN (step 2). #1025 merged at f6c8ba27 by my block; main is
@@ -576,9 +578,24 @@ its compare verdict.
     - Three deploy files changed: `deploy/hosting/chains.py` (#1021, the daily goalie step in nhl-daily, UNMETERED, its
       `go_on`), `deploy/hosting/exports_mirror.py` (#1000) and `deploy/hosting/systemd/sp-availability-graph.service`
       (#996, the unit's sandbox lines). No unit file was added: the pack ships 27 timers, as at v1.6.8.
-    - The held set after the deploy is unchanged: sp-tennis-daily, sp-ncaamb-daily and sp-availability-graph (402 item
-      1(c)). The graph's first-run block and the goalie backfill follow by the architect's blocks (398 item 4; 402
-      item 3).
+    - The held set right after the deploy is unchanged: sp-tennis-daily, sp-ncaamb-daily and sp-availability-graph (402
+      item 1(c)).
+  - **After the deploy, by the architect's blocks (398 item 4; 402 item 3):**
+    - The graph, 2026-11-15T20:01Z on v1.6.9 (ARCHITECT, addendum 404 item 1, verbatim in part): "THE GRAPH IS BUILT ON
+      THE HOST IN ITS NODE SHAPE AND ITS TIMER IS ENABLED". The first run by the unit: systemctl start exit 0,
+      Result=success, 247.7 s, 1,346,489 assertion nodes equal to the record's assertions; "ok": true, buffer_pool
+      268435456, memory_limit 1610612736 (404 item 1(c)-(d)). sp-availability-graph.timer enabled, next run 2026-11-16
+      10:20:00 UTC; 22 timers active, none missing, none stray (404 item 1(e)). "THE HELD LIST ON THE HOST IS NOW TWO:
+      sp-tennis-daily.timer (installed, disabled) and sp-ncaamb-daily.timer (not installed)."
+    - The goalie backfill, 2026-11-15T20:13Z to 20:18Z on v1.6.9 (ARCHITECT, addendum 405 item 1, verbatim in part):
+      "THE HOST'S GOALIE BACKFILL RAN (389 item 4(c); 398 item 4(b))." The dry run and the real run for 2026-10-01 ..
+      2026-11-15 each read schedule_calls 7 and boxscore_calls 317, all 200, nothing refused; rows_written 1268, exit 0,
+      under the chains' own database lock. After it, on a backup copy: 18,066 appearance rows, 4,517 games, 325
+      finished 2026-27 regular-season games with both starters, the same as the laptop (405 item 1(d)-(e)). A hand
+      run, not under sp_run: it has no receipt row, and 405 and #1027's comment are its record (405 item 2). From
+      2026-11-16 16:00Z nhl-daily's own step keeps it current.
+    - "v1.6.9's DAY, CLOSED: tagged, deployed, the graph built and its timer on, the goalie record caught up on both
+      machines, KXNCAAMBGAME's table of 313 lines on main and replayed." (405 item 4, verbatim in part.)
   - **Carries:** git's `v1.6.8..v1.6.9` holds 118 commits and 47 files. Of its 26 merge commits, 23 are "Merge pull
     request #N" on main's first parent: the 22 PRs the notes carry, one CHANGELOG section each, and the fold PR #1025;
     the other 3 merge main into PR branches (#1017's, #1004's, #1007's). The 22: #991, #993, #994, #996, #997, #998,
@@ -586,10 +603,12 @@ its compare verdict.
     in the tag: #1023 (the 60 hand-ruled KXNCAAMBGAME lines), merged after the tag by the architect's block (400 item
     5; 402 item 4); it opens the next span.
   - **Release Issue:** #1027 (ritual step 4), opened 2026-11-15 by ARCHITECT, addendum 402 item 2.
-    - It carries 395 item 3, 399 item 1, 400 items 1-2 and 402 item 1 verbatim, what the release puts on the host as 402
+    - It carries 395 item 3, 399 item 1, 400 items 1-3 and 402 item 1 verbatim, what the release puts on the host as 402
       item 2 names it, the 22 from git, and the record line.
     - It also carries the notes in one comment; read back from GitHub, the comment is the tag message character for
       character, with the server's attribution footer after it. The byte-identical copy is the tag.
+    - Addenda 404 (the graph's first run and its enable) and 405 (the goalie backfill) are each pasted verbatim in a
+      comment of its own (402 item 3; each addendum's heading).
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

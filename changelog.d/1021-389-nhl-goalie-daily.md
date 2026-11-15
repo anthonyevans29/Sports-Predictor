@@ -1,0 +1,18 @@
+## 2026-11-15 (#1021: 389-nhl-goalie-daily — the daily goalie step on nhl-daily, and a failure that reads as one (ARCHITECT 2026-11-15, addendum 389 item 3))
+- **cli.py `nhl-goalie-sync`, the exit (3(d), (e)):**
+  - It exits 1 when any schedule or boxscore request of the run answered other than 200 (`schedule_http_<code>`, `boxscore_http_<code>`; 0 = no usable answer).
+  - It still prints its counts line and its coverage lines first. Its last line reads `✗ NHL-GOALIE-SYNC: N of M request(s) answered other than 200 (...)`.
+  - What was parsed is still written; the upsert is unchanged.
+  - A hand run, `--dry-run` and the chain alike, with no flag.
+  - REFUSED games and games not in our DB stay counted, printed and exit 0. No tolerance changes and no code is allow-listed.
+- **src/ingestion/nhl_goalies.py:** `failed_requests`, `failure_line` and `PROVIDER_FAILURE_EXIT = 1`, the exit sync-matches' strict read, availability-nflverse and availability-nhl-observe use for a failed provider read.
+- **src/ingestion/nhl_goalies.py, `sync_fetch` (the goalie sync's own default fetch):** an answer `http_json` lets through as an exception (`http.client.HTTPException`: IncompleteRead, a 200 cut short on read; BadStatusLine; LineTooLong; none an OSError) counts as code 0. So the run still prints its counts and coverage lines and goes on with the window, instead of ending in a traceback. `http_json` itself, nhl-shot-sync, the audit and the probes are unchanged (#1018).
+- **A failed boxscore is not a refusal (3(e)):** a request that answered other than 200 is counted under `boxscore_http_<code>` only. It is no longer also counted as `refused_unsided` or printed as `REFUSED game`.
+- **deploy/hosting/chains.py, nhl-daily (3(a)-(c)):**
+  - `NHL_GOALIE_STEP` (`nhl-goalie-sync --start {yesterday} --end {today}`) runs after `export-fixtures` and before `nhl-shot-sync`.
+  - It is in `UNMETERED` beside `nhl-shot-sync` (api-web.nhle.com, never api-sports).
+  - `go_on` names it with `NHL_GOALIE_GO_ON`: a failed run is receipted (`continued`), pages through the chain's exit, and stops nothing after it.
+  - No new placeholder and no wider window (3(g)).
+- **docs/CLI.md's row.**
+- **Tests:** tests/test_389_nhl_goalie_daily.py, 15 tests. On main, 9 of the first 13 fail first. The 4 controls pass on both: a refusal is exit 0, all-200 is exit 0, without go_on the failure stops the chain, and a failed export-fixtures still stops it. The two added after the pre-push review (`sync_fetch` on an answer cut short; the command through its own default fetch) fail without `sync_fetch`. tests/test_hosting_pack.py gains `test_the_nhl_api_syncs_are_unmetered` (3(b)).
+- **Item 5:** the shot sync's silent exit is a finding, #1018. No fix here.

@@ -8804,7 +8804,11 @@ def _nhl_candidate_v5(nb, starts):
 def nhl_goalie_sync_cmd(start_s, end_s, sleep, refresh, dry_run, verbose, tolerance_hours):
     """NHL-GOALIE (a): map our NHL matches to api-web.nhle.com games and
     upsert per-game goalie appearances (starter flag, shots/saves/GA, TOI)
-    into nhl_goalie_appearances. Take the .backup first. Idempotent."""
+    into nhl_goalie_appearances. Take the .backup first. Idempotent.
+    Exit 1 when any schedule or boxscore request of the run answered other than
+    200, printed last, after the counts and coverage lines; what was parsed is
+    still written. Refused games and games not in our DB stay exit 0
+    (ARCHITECT 2026-11-15, addendum 389 item 3(d), (e))."""
     from datetime import date as _date
     from src.db.database import init_db
     from src.ingestion import nhl_goalies as ngs
@@ -8823,6 +8827,12 @@ def nhl_goalie_sync_cmd(start_s, end_s, sleep, refresh, dry_run, verbose, tolera
     if r["unmatched_sample"]:
         click.echo("  not in our DB (sample): " + " · ".join(f"{k} ×{n}" for k, n in r["unmatched_sample"]))
     _nhl_goalie_coverage_lines()
+    # addendum 389 item 3(d): a request that answered other than 200 makes the run exit non-zero, after every line
+    # above; refusals and games not in our DB stay exit 0 (item 3(e))
+    failed = ngs.failure_line(c, dry_run)
+    if failed:
+        click.echo(failed)
+        raise SystemExit(ngs.PROVIDER_FAILURE_EXIT)
 
 
 @cli.command("nhl-goalie-audit")

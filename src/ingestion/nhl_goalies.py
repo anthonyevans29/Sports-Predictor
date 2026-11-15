@@ -26,6 +26,7 @@ Writes: nhl_goalie_appearances only (upsert on game + goalie). Never deletes.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import time
@@ -58,6 +59,19 @@ def http_json(url: str, timeout: int = 20) -> tuple[int, dict | None]:
     except urllib.error.HTTPError as e:
         return e.code, None
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return 0, None
+
+
+def sync_fetch(url: str, timeout: int = 20) -> tuple[int, dict | None]:
+    """nhl-goalie-sync's own fetch: http_json, and an answer http_json lets through as an exception counts as no usable
+    answer (0). That covers http.client.HTTPException, the base class of IncompleteRead (a 200 cut short on read()),
+    BadStatusLine and LineTooLong, none of them an OSError. So such a request is counted like any other failure and the
+    run still prints its counts and coverage lines before it exits 1 (addendum 389 item 3(d)), instead of ending in a
+    traceback with the rest of the window unasked. Only sync() defaults to it. nhl-shot-sync, the audit and the probes
+    keep http_json as it is: the shot sync's failure form is its own ruling (#1018)."""
+    try:
+        return http_json(url, timeout)
+    except http.client.HTTPException:
         return 0, None
 
 
@@ -235,7 +249,7 @@ def match_game(s, game: dict, tolerance_hours: int = 12):
     return None
 
 
-def sync(start: date, end: date, fetch: Fetch = http_json, sleep: float = 0.25,
+def sync(start: date, end: date, fetch: Fetch = sync_fetch, sleep: float = 0.25,
          refresh: bool = False, dry_run: bool = False, now: datetime | None = None,
          tolerance_hours: int = 12,
          progress: Callable[[str], None] | None = None) -> dict:
@@ -300,6 +314,10 @@ def sync(start: date, end: date, fetch: Fetch = http_json, sleep: float = 0.25,
         rc[f"boxscore_http_{code}"] += 1
         if sleep:
             time.sleep(sleep)
+        if code != 200:
+            # a failed request is counted above (boxscore_http_<code>) and is not a REFUSAL (addendum 389 item 3(e)):
+            # nothing is parsed or written for the game, and the next run that keeps it in its window asks again
+            continue
         rows, receipt = boxscore_goalies(payload)
         keys_used.update(receipt["keys_used"])
         if rows is None:
@@ -315,6 +333,44 @@ def sync(start: date, end: date, fetch: Fetch = http_json, sleep: float = 0.25,
             + (f" -> match {match_id}" if match_id else " (not in our DB)"))
     return {"counts": dict(rc), "keys_used": keys_used, "refused": refused[:20],
             "unmatched_sample": unmatched_names.most_common(15)}
+
+
+# A FAILURE THAT READS AS ONE (ARCHITECT 2026-11-15, addendum 389 item 3(d)), verbatim: "nhl-goalie-sync exits non-zero
+# when any schedule or boxscore request of the run answered other than 200. It still prints its counts line and its
+# coverage lines first, and what it parsed is still written (the upsert is unchanged). No flag: it holds for a hand run
+# and for --dry-run as for the chain." Item 3(e): "REFUSED games and "not in our DB" stay counted and printed, exit 0."
+# A request's answer is the counter sync() keeps for it: schedule_http_<code> and boxscore_http_<code>, where <code> is
+# what sync_fetch returned: the HTTP status, or 0 when nothing usable came back (a network failure, a timeout, a body
+# that is not JSON, an answer cut short or malformed). Every code but 200 counts here; none is allow-listed (item 3(f)).
+# A failed boxscore is counted only here, never as a refusal.
+REQUEST_COUNTER = re.compile(r"(?:schedule|boxscore)_http_(\d+)")
+PROVIDER_FAILURE_EXIT = 1      # the repo's exit for a provider read that failed (sync-matches' strict read,
+                               # availability-nflverse's `failed`, availability-nhl-observe's failed schedule read)
+
+
+def failed_requests(counts: dict) -> dict:
+    """{counter: n} for every request of the run that answered other than 200 (addendum 389 item 3(d)), sorted by
+    counter. Empty when every request answered 200, or when the run made none. Refusals (refused_unsided) and games
+    not in our DB are not requests and never appear (item 3(e))."""
+    out = {}
+    for k, n in sorted(counts.items()):
+        m = REQUEST_COUNTER.fullmatch(k)
+        if m and m.group(1) != "200" and n:
+            out[k] = n
+    return out
+
+
+def failure_line(counts: dict, dry_run: bool) -> str | None:
+    """The run's last line when a request failed (addendum 389 item 3(d)), else None. Printed after the counts and
+    coverage lines, so the chain receipt's tail (sp_run keeps a step's last lines) and its page carry it."""
+    failed = failed_requests(counts)
+    if not failed:
+        return None
+    made = counts.get("schedule_calls", 0) + counts.get("boxscore_calls", 0)
+    return (f"✗ NHL-GOALIE-SYNC: {sum(failed.values())} of {made} request(s) answered other than 200 ("
+            + " · ".join(f"{k} {n}" for k, n in failed.items())
+            + f"); {'nothing written (dry run)' if dry_run else 'what was parsed is written'}; "
+              f"exit {PROVIDER_FAILURE_EXIT} (addendum 389 item 3(d))")
 
 
 def _link(nhl_game_id: int, match_id: int, dry_run: bool) -> None:

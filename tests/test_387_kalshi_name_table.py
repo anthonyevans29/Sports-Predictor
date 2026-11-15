@@ -95,12 +95,15 @@ def placed(res):
 
 # ---- the repo holds no table (PR one: the machinery and no data) -----------------------------------------------------
 
-def test_the_repo_declares_no_table_and_the_folder_says_how_one_is_declared():
+def test_the_folder_holds_its_readme_and_tables_only_and_says_how_one_is_declared():
+    """PR one shipped the folder with its README alone; each table arrives as data in a PR of its own (KXNCAAMBGAME's,
+    addendum 392 item 4; tests/test_392_kxncaambgame_table.py pins what is shipped)."""
     assert kt.TABLE_DIR == ROOT / "src" / "ingestion" / "kalshi_tables"
-    assert kt.declared() == {}
-    assert sorted(p.name for p in kt.TABLE_DIR.iterdir()) == ["README.md"]
+    names = sorted(p.name for p in kt.TABLE_DIR.iterdir())
+    assert "README.md" in names and all(n == "README.md" or n.endswith(".json") for n in names)
+    assert sorted(kt.declared()) == sorted(n[:-5] for n in names if n.endswith(".json"))
     readme = (kt.TABLE_DIR / "README.md").read_text()
-    assert "addendum 387 item 3" in readme and "holds no table yet" in readme
+    assert "addendum 387 item 3" in readme
 
 
 # ---- (a): a series with no table is matched as today -----------------------------------------------------------------
@@ -122,7 +125,7 @@ def test_a_series_with_no_table_is_matched_by_the_scorer_as_today_beside_a_decla
 
 # ---- a declared series: placed by its table alone --------------------------------------------------------------------
 
-def test_with_no_table_the_scorer_places_356s_half_fit():
+def test_with_no_table_the_scorer_places_356s_half_fit(tables_dir):
     """Today's matcher on 356 item 4(a)'s shape (the gap the table closes): Alabama State's own game not stored, one
     half-fit stored (Alabama at San Jose State) -> placed on the wrong game. Kept here so the next test's refusal reads
     against it."""

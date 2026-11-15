@@ -1,0 +1,12 @@
+**2026-11-15 — KXNCAAMBGAME's first name table, as data (addendum 392 items 2 and 4; #955; #1019).**
+- **Ruling (392 item 2(d), verbatim):** "RULED: the first table of KXNCAAMBGAME is the 253 lines of the attached file, name | key | id, exactly as printed, less any of the three I strike. Its "ruled" field: "ARCHITECT 2026-11-15, addendum 392 item 2". No line of your own, no name normalised, no order imposed beyond the file's."
+- **What landed:**
+  - src/ingestion/kalshi_tables/KXNCAAMBGAME.json: 253 lines, 253 distinct names and api_basketball ids, file sha256 960267320bde;
+  - the strict loader accepts it;
+  - one test file pinning it;
+  - the scorer's NCAAMB tests pointed at an empty table folder.
+- **What it changes:** KXNCAAMBGAME is placed by the table alone, on the laptop. No host reads the series before 12-05.
+- **The three watched lines** (Charlotte 3429, Florida International 5628, Loyola Marymount 3382) are CONFIRMED by the architect's read of their stored games (393 item 1).
+- **Still to come:**
+  - his replay after it merges (392 item 4(d));
+  - then the series' second data PR, on his word: the 60 hand lines he ruled (393 item 2; "UIC" by 394 item 1).

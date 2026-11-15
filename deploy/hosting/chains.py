@@ -70,6 +70,18 @@ AVAILABILITY_NFLVERSE_STEP = ["availability-nflverse", "--season", "2026"]
 AVAILABILITY_GO_ON = ("addendum 252 item 3(a): the nflverse read's failure is receipted and paged as a sync-step "
                       "failure, stopping nothing")
 
+# THE GOALIE STEP (ARCHITECT 2026-11-15 09:50 ET, addendum 389 item 3), verbatim in part: "(a) THE STEP: ["nhl-goalie-sync",
+# "--start", "{yesterday}", "--end", "{today}"] in nhl-daily, after export-fixtures and before nhl-shot-sync. (b) UNMETERED
+# gains "nhl-goalie-sync", beside nhl-shot-sync, with the same reason (api-web.nhle.com, the NHL's free API, never
+# api-sports). [...] (c) nhl-daily's go_on names it: a failed goalie step is receipted and paged as a sync-step failure
+# and stops nothing after it. Its go_on_why cites this item." The step exits 1 when a request answered other than 200
+# (item 3(d)); `go_on` receipts it (`continued`), the chain's exit is its exit, so OnFailure pages, and nhl-shot-sync and
+# export-nhl-predictions still run. (g): "No new placeholder, no wider window in this PR. A game whose request fails on
+# both of its two days is caught by the page, and the catch-up is a hand run by my block."
+NHL_GOALIE_STEP = ["nhl-goalie-sync", "--start", "{yesterday}", "--end", "{today}"]
+NHL_GOALIE_GO_ON = ("addendum 389 item 3(c): a failed goalie step is receipted and paged as a sync-step failure and "
+                    "stops nothing after it")
+
 # soccer-morning-after's LAST step (ARCHITECT 2026-11-03, addendum 230 item 2(b), verbatim in part: "results-tally on
 # the host (DB mode=ro) as the last step of soccer-morning-after, its RESULTS.md and a JSON beside it to the mirror";
 # 248 item 2(c); ARCHITECT 2026-11-08, addendum 289 item 3: "written on the HOST by the morning-after chain and
@@ -230,6 +242,10 @@ CHAINS: dict[str, dict] = {
             ["sync-odds", "--competition", "NHL", "--season", "2026"],
             ["sync-kalshi-nhl"],
             ["export-fixtures", "--competition", "NHL"],
+            # THE GOALIE APPEARANCES (ARCHITECT 2026-11-15, addendum 389 item 3(a)): this season's starters accrue daily,
+            # before the shot sync, which keys its games through this mapping (nhl_shots: the goalie link first, then
+            # the matcher). api-web.nhle.com, never api-sports: UNMETERED (item 3(b)). Its failure is go_on (3(c)).
+            NHL_GOALIE_STEP,
             # NHL SHADOW (architect 2026-09-30; v7 from 2026-10-02): v7 updates on
             # the xG margin, so the live season's shot events are synced first
             # (api-web.nhle.com, the NHL's own free API; stored games are skipped)
@@ -238,6 +254,8 @@ CHAINS: dict[str, dict] = {
             # it — never a call (engine model_shadow)
             ["export-nhl-predictions"],
         ],
+        "go_on": (NHL_GOALIE_STEP[0],),          # addendum 389 item 3(c): the goalie step stops nothing after it
+        "go_on_why": NHL_GOALIE_GO_ON,
     },
     # --- NBA, market-only (ARCHITECT 2026-11-05, addendum 261 item 1(b): "the chain `nba-daily` (sync-matches on a
     # [...] window, sync-kalshi, the coverage write) at a UTC minute off every existing timer (Code lists the timers
@@ -678,6 +696,7 @@ UNMETERED = frozenset({
     "export-nhl-predictions",
     "export-ncaa-predictions",  # reads the DB and the registry only (addendum 230 item 1(b): ncaa-schedule's last step)
     "nhl-shot-sync",          # api-web.nhle.com (the NHL's free API), never api-sports
+    "nhl-goalie-sync",        # api-web.nhle.com (the NHL's free API), never api-sports (addendum 389 item 3(b))
     "export-unl-predictions",  # reads the DB only
     "export-soccer-expansion-shadow",  # reads the DB and the registry only (addendum 185 D2: its chain step)
     "coverage",               # reads the DB (mode=ro), the registry, the roadmap and exports/ only (#805: its chain step)

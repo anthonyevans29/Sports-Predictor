@@ -317,6 +317,43 @@ def sync(start: date, end: date, fetch: Fetch = http_json, sleep: float = 0.25,
             "unmatched_sample": unmatched_names.most_common(15)}
 
 
+# A FAILURE THAT READS AS ONE (ARCHITECT 2026-11-15, addendum 389 item 3(d)), verbatim: "nhl-goalie-sync exits non-zero
+# when any schedule or boxscore request of the run answered other than 200. It still prints its counts line and its
+# coverage lines first, and what it parsed is still written (the upsert is unchanged). No flag: it holds for a hand run
+# and for --dry-run as for the chain." Item 3(e): "REFUSED games and "not in our DB" stay counted and printed, exit 0."
+# A request's answer is the counter sync() keeps for it: schedule_http_<code> and boxscore_http_<code>, where <code> is
+# what http_json returned: the HTTP status, or 0 when nothing usable came back (a network failure, a timeout, a body
+# that is not JSON). Every code but 200 counts here; none is allow-listed (item 3(f)).
+REQUEST_COUNTER = re.compile(r"(?:schedule|boxscore)_http_(\d+)")
+PROVIDER_FAILURE_EXIT = 1      # the repo's exit for a provider read that failed (sync-matches' strict read,
+                               # availability-nflverse's `failed`, availability-nhl-observe's failed schedule read)
+
+
+def failed_requests(counts: dict) -> dict:
+    """{counter: n} for every request of the run that answered other than 200 (addendum 389 item 3(d)), sorted by
+    counter. Empty when every request answered 200, or when the run made none. Refusals (refused_unsided) and games
+    not in our DB are not requests and never appear (item 3(e))."""
+    out = {}
+    for k, n in sorted(counts.items()):
+        m = REQUEST_COUNTER.fullmatch(k)
+        if m and m.group(1) != "200" and n:
+            out[k] = n
+    return out
+
+
+def failure_line(counts: dict, dry_run: bool) -> str | None:
+    """The run's last line when a request failed (addendum 389 item 3(d)), else None. Printed after the counts and
+    coverage lines, so the chain receipt's tail (sp_run keeps a step's last lines) and its page carry it."""
+    failed = failed_requests(counts)
+    if not failed:
+        return None
+    made = counts.get("schedule_calls", 0) + counts.get("boxscore_calls", 0)
+    return (f"✗ NHL-GOALIE-SYNC: {sum(failed.values())} of {made} request(s) answered other than 200 ("
+            + " · ".join(f"{k} {n}" for k, n in failed.items())
+            + f"); {'nothing written (dry run)' if dry_run else 'what was parsed is written'}; "
+              f"exit {PROVIDER_FAILURE_EXIT} (addendum 389 item 3(d))")
+
+
 def _link(nhl_game_id: int, match_id: int, dry_run: bool) -> None:
     from sqlalchemy import update
 

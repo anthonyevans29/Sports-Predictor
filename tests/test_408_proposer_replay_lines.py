@@ -193,7 +193,18 @@ def _seed(eng, home, away, kick):
         return m.id
 
 
-def test_the_replay_prints_the_counts_as_before_then_the_events_refused_for_a_reason_of_their_own(scratch):
+@pytest.fixture
+def no_tables(tmp_path, monkeypatch):
+    """An empty table folder: KXNCAAFGAME declares its table since ARCHITECT 2026-11-16, addendum 412 item 2 (placed by
+    its table alone, 387 item 3(a)), so a test written on its spellings as "a series with no table" reads the scorer
+    here (392's precedent, tests/test_ncaamb_kalshi_wiring.py; the series under its table: test_412)."""
+    from src.ingestion import kalshi_table as kt
+    empty = tmp_path / "no_tables"
+    empty.mkdir()
+    monkeypatch.setattr(kt, "TABLE_DIR", empty)
+
+
+def test_the_replay_prints_the_counts_as_before_then_the_events_refused_for_a_reason_of_their_own(scratch, no_tables):
     """On a series with no table (the scorer's), so the console lines of the matcher are compared one for one:
     km.console_lines(res) prints exactly as before, and the events line comes after it, naming the NO_FIT event and
     not the event outside the window."""

@@ -1,6 +1,6 @@
 # docs/ — the index
 
-Every file under `docs/` (`git ls-files docs`), one line each: what it is, its kind, and the lane or Issue it serves
+Every file under `docs/` (`git ls-files docs`) except the per-PR ledger entries (see docs/ledger/ below), one line each: what it is, its kind, and the lane or Issue it serves
 (ARCHITECT 2026-11-06, addendum 276 item 3, PR B). Each description is read from the file's own head. The lane or
 Issue comes from the file itself, from docs/roadmap.json, or from the commit that added it
 (`git log --diff-filter=A -- <path>`). An Issue number appears only where the file or that commit names one. This
@@ -29,6 +29,7 @@ Kinds: **live runbook** (steps or a reference read today); **spec** (a declarati
 
 ## docs/specs/
 
+- `docs/specs/availability-graph-candidates.md`: the availability record's graph projection: the one-page comparison of the embedded Cypher candidates (licence, maintenance state as read 2026-11-11 and 11-12, Python binding, Cypher dialect, file format) and what the pick requires (addendum 344 item 3). The architect's pick is recorded on it: LadybugDB, `ladybug` 0.22.3, host-only (addendum 347 item 5). Its 'after the pick' note gives the node shape the engine needs (addenda 378 item 4, 379 item 2). It installs nothing. **spec**. Lane availability-record (#830), addendum 252 item 4; the rebuild that follows the pick is #943.
 - `docs/specs/availability-record.md`: the availability record: two append-only tables, the writer, the read path, `availability`, and the nflverse depth-chart feed (section 9). **spec**. Lane availability-record (#830), addendum 252.
 - `docs/specs/cockpit-v04-pnl-organ.md`: Cockpit v0.4, the P&L / self-grading organ, committed verbatim from the 2026-09-26 rulings (policy version v1.1). **spec**. PR #30; rulings on #61 (commit 2026-09-28).
 - `docs/specs/desk-policy-v1.2.md`: Desk policy v1.2 (the unit is a fraction of the pool) and the early-entry arm (addendum 283). **spec**. #732 (addendum 179).
@@ -82,6 +83,7 @@ run's files arrive on `main` as the laptop wrote them (each one's adding commit 
 - `docs/registry/ids/mlb-pitchers-v1.txt`: mlb-pitchers-v1's scored ids, written by `python cli.py mlb-pitchers-gate`. **record**. #507.
 - `docs/registry/ids/mlb-pitchers-v1.cohort.txt`: mlb-pitchers-v1's frozen test cohort, written by the freeze (`src/walters/mlb_pitchers_gate.py` `freeze`). **record**. #507.
 - `docs/registry/ids/ncaa-elo-v1r.txt`: ncaa-elo-v1r's scored ids, written by `python cli.py ncaa-v1r-gate`. **record**. #79.
+- `docs/registry/ids/ncaa-elo-v2.txt`: ncaa-elo-v2's scored ids from the one run, both reads (1,096: 562 from the gate on 2026, 534 from the D10 second read on 2023), written by `record_run()` from `python cli.py ncaa-gate --id ncaa-elo-v2`. **record**. Lane ncaa (#79).
 - `docs/registry/ids/nfl-elo-v2.txt`: nfl-elo-v2's scored ids, written by `python cli.py nfl-v2-gate`. **record**. Lane nfl-v2 (#783).
 - `docs/registry/ids/nhl-v6.txt`: nhl-v6's scored ids, written by `record_run()` from `python cli.py nhl-backtest`. **record**. #153.
 - `docs/registry/ids/nhl-v7.txt`: nhl-v7's scored ids, written by `record_run()` from `python cli.py nhl-backtest`. **record**. #153.
@@ -90,42 +92,16 @@ run's files arrive on `main` as the laptop wrote them (each one's adding commit 
 - `docs/registry/ids/soccer-expansion-v1.cohort.txt`: soccer-expansion-v1's frozen confirmation cohort (60 PD fixtures), written by `python cli.py soccer-expansion-confirm --freeze-cohort`. **record**. Lane pd (#322).
 - `docs/registry/mlb-pitchers-v1.started.json`: mlb-pitchers-v1's run reservation, written by `python cli.py mlb-pitchers-gate`. **record**. #507.
 - `docs/registry/ncaa-elo-v1r.started.json`: ncaa-elo-v1r's run reservation, written by `python cli.py ncaa-v1r-gate`. **record**. #79.
+- `docs/registry/ncaa-elo-v2.started.json`: ncaa-elo-v2's run reservation, kept as the record that the one run was spent (addendum 302 item 3): the architect's word, the cross-ref guard's line, the stream fingerprint and its game count, the scored set's size, the coverage by season, the frozen logistic scale, and the second read's coverage, size and baseline flag. Written by `python cli.py ncaa-gate --id ncaa-elo-v2`. **record**. Lane ncaa (#79).
 - `docs/registry/nfl-elo-v2.started.json`: nfl-elo-v2's run reservation, written by `python cli.py nfl-v2-gate`. **record**. Lane nfl-v2 (#783).
 - `docs/registry/soccer-expansion-v1.started.json`: soccer-expansion-v1's run reservation, written by `python cli.py soccer-expansion-gate`. **record**. Lane pd (#322).
 
 ## docs/ledger/
 
-`docs/ledger/entries/` holds the per-PR BACKLOG fragments (ARCHITECT-RULE 2026-10-02). A PR adds one by hand;
-`python scripts/ledger.py compile --commit` folds every entry into BACKLOG.md, newest first, and deletes it
-(docs/ledger/entries/README.md). The list below is the folder at this PR's head, so it shortens at each compile.
+`docs/ledger/entries/` holds one entry per PR since the last compile; `python scripts/ledger.py compile --commit` folds them into BACKLOG.md and deletes them, and the folder's own README has the rules (ARCHITECT 2026-11-16, addendum 420 item 1(a): no row per entry).
 
 - `docs/ledger/entries/README.md`: the folder's rules (one entry per PR, its changelog.d twin, the compile). **spec**. ARCHITECT-RULE 2026-10-02.
-- `docs/ledger/entries/2026-11-04-230-1d-soccer-v23-design.md`: BUILT, soccer-v23's design PR. **record**. Addenda 248 item 2(b), 230 item 1(d); #656, #789, #788.
-- `docs/ledger/entries/2026-11-04-244-4a-nhl-shadow-git-sha.md`: BUILT, five exports carry `git_sha`. **record**. Addenda 244 item 4(a), 249 item 2; #823.
-- `docs/ledger/entries/2026-11-04-252-availability-record-schema.md`: LANE OPENED, the availability record's schema PR. **record**. Addendum 252; lane availability-record.
-- `docs/ledger/entries/2026-11-05-252-3a-nflverse-feed.md`: BUILT, the nflverse depth-chart feed. **record**. Addenda 252 item 3(a), 258 item 2(1), 259 item 2.
-- `docs/ledger/entries/2026-11-05-256-cups-step-c-no.md`: RECORDED, cups Step C closes as a written no with one bounded probe. **record**. Addendum 256; lane cups.
-- `docs/ledger/entries/2026-11-05-261-1a-basketball-probe.md`: BUILT, the basketball source probe and lane basketball-market-only. **record**. Addenda 261 item 1(a), 264 item 4; #839.
-- `docs/ledger/entries/2026-11-05-261-2b-tennis-probe.md`: BUILT, the tennis provider probe and lane tennis-market-only. **record**. Addenda 261 item 2(b), 264 item 4; #838.
-- `docs/ledger/entries/2026-11-06-250-4-bulletins-mirror-subtree.md`: BUILT, the exports mirror's bulletins subtree. **record**. Addenda 250 item 4, 267 item 4(a); #826.
-- `docs/ledger/entries/2026-11-06-264-3-soccer-v23-s11-followup.md`: soccer-v23's section 11 follow-up. **record**. Addenda 263, 264 item 3; lane soccer-v23.
-- `docs/ledger/entries/2026-11-06-265-nfl-v2-verdict-record.md`: VERDICT, nfl_elo_v2's one run FAILED the phase-2 gate. **record**. Addendum 265; lane nfl-v2.
-- `docs/ledger/entries/2026-11-06-266-mlb-pitchers-verdict-record.md`: VERDICT, mlb-pitchers-v1's one run REJECTED. **record**. Addendum 266; lane mlb-pitchers.
-- `docs/ledger/entries/2026-11-06-269-274-records-tennis-basketball.md`: RECORDED, the tennis and basketball probe steps done. **record**. Addenda 269-274; #838, #839.
-- `docs/ledger/entries/2026-11-06-271-3-basketball-wiring.md`: BUILT, the NBA's market-only wiring. **record**. Addenda 271 items 2-3, 261 items 0 and 1(b), 272 items 3-5; #839.
-- `docs/ledger/entries/2026-11-06-276-a-readme-truth.md`: RECORDED, the repo truth pass, PR A (README.md). **record**. Addendum 276 items 2-3; #866.
-- `docs/ledger/entries/2026-11-07-276-b-docs-index.md`: RECORDED, the repo truth pass, PR B (this index, the archive, CLI.md's Cockpit sentence). **record**. Addendum 276 items 2-3.
-- `docs/ledger/entries/2026-11-07-276-c-scripts-index.md`: RECORDED, the repo truth pass, PR C (scripts/README.md, the two routine lines). **record**. Addendum 276 item 3; addendum 286 item 2(b).
-- `docs/ledger/entries/2026-11-07-284-1a-nflverse-real-rows.md`: BUILT, the nflverse real-row tests (#869). **record**. Addenda 284 item 1(a), 286 item 1; #830.
-- `docs/ledger/entries/2026-11-07-279-3a-nhl-source-probe.md`: BUILT, the NHL source probe. **record**. Addendum 279 items 3(a) and 5; lane nhl (#105).
-- `docs/ledger/entries/2026-11-07-280-281-records.md`: RECORDED, the 280 hotfix, the main ruleset, roadmap done-marks. **record**. Addenda 278, 281 item 4, 282 items 1 and 5.
-- `docs/ledger/entries/2026-11-07-280-py310-hotfix.md`: HOTFIX, main imports on Python 3.10; CI's 3.10 job. **record**. Addendum 280 item 2.
-- `docs/ledger/entries/2026-11-07-283-4-early-entry-arm-ledger.md`: BUILT, the early-entry arm's ledger attribution (#864). **record**. Addenda 283 item 4, 286 item 3; #862.
-- `docs/ledger/entries/2026-11-07-283-arm-policy-text.md`: POLICY, the early-entry arm declared. **record**. Addendum 283.
-- `docs/ledger/entries/2026-11-07-284-1b-tennis-wiring.md`: BUILT, the tennis market-only wiring (#868). **record**. Addenda 284 item 1(b), 261 items 0 and 2(c), 269 items 1-3; #838.
-- `docs/ledger/entries/2026-11-07-287-records.md`: RECORDED, the tennis wiring step done early and the undated step, the odds-payloads line, the ledger-480 records, the scripts index's re-run owed. **record**. Addenda 286 items 4(b) and 4(f), 287 items 2 and 3; #838, #871, #873.
-- `docs/ledger/entries/2026-11-07-852-mirror-top-level-links.md`: BUILT, the exports mirror's top-level link refusal. **record**. Addendum 277 item 1; #852.
-- `docs/ledger/entries/2026-11-08-289-3-host-results-tally.md`: BUILT, the host's results-tally export. **record**. Addenda 289 item 3, 248 item 2(c), 230 item 2(b); #875.
+- `docs/ledger/2026-11-14-ledger-sweep.md`: the ledger sweep of 2026-11-14: every Issue open at its push (197: the 196 open when the sweep began, and #1001, filed later the same day) in one table, with its `class:` label, the condition that would close it in the Issue's own words, whether that condition is met that day, and the evidence. The seven the architect named come first, and the Issues whose title no longer says what they are (34) come last. Read-only: it closes no Issue and moves no label. **record**. Addendum 381 item 3(ii).
 
 ## docs/discussions/
 

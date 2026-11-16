@@ -46,8 +46,10 @@ THE FENCE, as the code holds it: no sync, re-key or repair code is imported or c
 re-key and orientation paths, match_dedupe and team_merge are never loaded; the test holds it in a fresh interpreter).
 The one ingestion module loaded is src.ingestion.ncaa_cfbd, which the shared --db fence (mlb_pitchers_gate, through
 ncaa_backtest) imports for every --db receipt; nothing in it runs. The adapter is imported for _get and its
-_non_competitive rule only. Python's bytecode cache is turned off, so no __pycache__ file is made; .env is read,
-never written; nothing is written to the copy (SQLite refuses a write on mode=ro). The key is named, never printed.
+_non_competitive rule only. Run as a script (the block's use), no bytecode file is made: Python never caches the
+file it runs, and the flag at the top turns the cache off before any other import (a test runs it so and finds no
+.pyc). Imported as a module (the test does), the import itself may cache this one file before the flag runs; the test
+holds that off. .env is read, never written; nothing is written to the copy (SQLite refuses a write on mode=ro). The key is named, never printed.
 
 Exit codes: 0 every date read and every row's verdict worked out; 1 a provider error (printed after the rows already
 read; no later date is called), or a row whose verdict failed (that row is printed raw with "VERDICT FAILED" and the
@@ -365,8 +367,8 @@ def main(argv=None, echo=print) -> int:
             read += 1
             rows = data.get("response") if isinstance(data, dict) else None
             rows = rows if isinstance(rows, list) else []
-            echo(f"DATE {d}: GET games league={league} season={SEASON} date={d}: results={data.get('results')!r} "
-                 f"paging={data.get('paging')!r} rows={len(rows)}")
+            echo(red(f"DATE {d}: GET games league={league} season={SEASON} date={d}: "
+                     f"results={data.get('results')!r} paging={data.get('paging')!r} rows={len(rows)}"))
             for g in rows:
                 try:
                     f = raw_fields(g)

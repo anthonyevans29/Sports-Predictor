@@ -13,7 +13,12 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-import ncaa_listing_probe as probe  # noqa: E402
+_bytecode = sys.dont_write_bytecode
+sys.dont_write_bytecode = True                       # Codex on #1039: importing must not cache the probe's own .pyc
+try:
+    import ncaa_listing_probe as probe  # noqa: E402
+finally:
+    sys.dont_write_bytecode = _bytecode              # the probe sets the flag at import; the session's own stands
 
 KEY = "INVENTED-KEY-VALUE-7f3a"
 
@@ -309,3 +314,56 @@ def test_the_stored_row_season_reads_as_season_year(season, label):
             "holders": {"9": [{"id": 7, "season": season, "status": "SCHEDULED", "utc_date": "x"}]}, "prev": {}}
     f = probe.raw_fields(row(9, 101, 102))
     assert probe.our_side(f, look) == [f"stored as match 7 (season {season}{label}, SCHEDULED, x)"]
+
+
+def test_provider_metadata_line_is_redacted(net):
+    """Codex on #1039 (P2): the provider's own results/paging metadata goes through the same redactor as the rows."""
+    import requests
+
+    def echoing_get(url, headers=None, params=None, timeout=None):
+        net["calls"].append({"url": url})
+        return FakeResp(200, {"errors": [], "results": 0, "paging": {"echo": headers.get("x-apisports-key")},
+                              "response": []})
+
+    requests.get = echoing_get                       # the fixture's monkeypatch restores the real one
+    code, out = run(["--date", "2091-11-21"])
+    assert code == 0 and KEY not in out
+    assert "paging={'echo': '<API_AMERICAN_FOOTBALL_KEY>'}" in out
+
+
+def _repo_pycs(prefix: Path) -> list[str]:
+    """The .pyc files a run wrote for files of this repo. PYTHONPYCACHEPREFIX mirrors each source's absolute path under
+    the prefix and receives every cache write, so a write cannot hide in a __pycache__ that already exists. Python's
+    own start-up modules (and __future__, which must be the file's first import) are outside the repo and not counted:
+    without a prefix their caches already sit in the system's folders."""
+    root = prefix / str(ROOT.resolve()).lstrip("/")
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*.pyc")) if root.exists() else []
+
+
+def _script_env(tmp_path, prefix):
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+    env.update({"PYTHONPYCACHEPREFIX": str(prefix), "API_AMERICAN_FOOTBALL_KEY": KEY,
+                "DATABASE_URL": f"sqlite:///{tmp_path / 'never.db'}"})
+    return env
+
+
+def test_run_as_a_script_makes_no_bytecode_file(tmp_path):
+    """Codex on #1039 (P2): run as the block runs it (no -B), with the --db fence's imports pulled in and a refusal
+    before any call, no .pyc of the repo is written."""
+    prefix = tmp_path / "pyc"
+    res = subprocess.run([sys.executable, "scripts/ncaa_listing_probe.py", "--date", "2091-11-21",
+                          "--db", str(tmp_path / "absent.db")], cwd=ROOT, env=_script_env(tmp_path, prefix),
+                         capture_output=True, text=True)
+    assert res.returncode == 2 and "provider calls made: 0" in res.stdout, res.stdout + res.stderr
+    assert _repo_pycs(prefix) == []
+    assert not (tmp_path / "never.db").exists()
+
+
+def test_the_bytecode_check_would_see_a_write(tmp_path):
+    """The control: the same imports WITHOUT the probe's flag do write the repo's .pyc files under the prefix, so the
+    test above can fail."""
+    prefix = tmp_path / "pyc"
+    subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, '.'); "
+                    "from src.walters import intl_shadow, mlb_pitchers_gate"], cwd=ROOT,
+                   env=_script_env(tmp_path, prefix), check=True, capture_output=True, text=True)
+    assert "src/walters/mlb_pitchers_gate.cpython-%d%d.pyc" % sys.version_info[:2] in _repo_pycs(prefix)

@@ -1165,3 +1165,86 @@ def test_944_a_sigterm_during_the_post_commit_cleanup_is_still_a_success(fresh_d
         signal.signal(signal.SIGTERM, original)
     line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
     assert line["ok"] is True
+
+
+# ---- the peak line (ARCHITECT 2026-11-16 09:12 ET, addendum 407 item 3; #1010) ----------------------------------------
+
+def test_407_3_the_cgroup_peak_is_read_from_the_processs_own_cgroup(tmp_path):
+    """407 item 3: "cgroup_peak_bytes read while the unit still runs from the directory _cgroup_limit already reads
+    (memory.peak on v2, memory.max_usage_in_bytes on v1, null where neither exists) and cgroup_peak_from naming the
+    file"; (b) "A file that cannot be read is null with its reason in the line". The process's OWN cgroup, never a
+    parent's: a slice's peak counts other units."""
+    root = tmp_path / "cg"
+    unit = root / "system.slice" / "sp-availability-graph.service"
+    unit.mkdir(parents=True)
+    me = tmp_path / "self_cgroup"
+    me.write_text("0::/system.slice/sp-availability-graph.service\n")
+    (root / "system.slice" / "memory.peak").write_text("9999999999\n")          # the slice's: never read
+    got = g._cgroup_peak(root, me)
+    assert got[0] is None and got[1] is None and "memory.peak" in got[2] and str(unit) in got[2]
+    (unit / "memory.peak").write_text("1073741824\n")
+    assert g._cgroup_peak(root, me) == (1073741824, str(unit / "memory.peak"), None)
+    (unit / "memory.peak").write_text("max\n")
+    got = g._cgroup_peak(root, me)
+    assert got[0] is None and "'max' is not a byte count" in got[2]
+    # cgroup v1: the memory controller's own directory
+    v1 = root / "memory" / "a" / "b"
+    v1.mkdir(parents=True)
+    (v1 / "memory.max_usage_in_bytes").write_text("536870912\n")
+    me.write_text("4:memory:/a/b\n1:cpu:/a/b\n")
+    assert g._cgroup_peak(root, me) == (536870912, str(v1 / "memory.max_usage_in_bytes"), None)
+    # no memory cgroup, and no /proc/self/cgroup: null with the reason
+    me.write_text("1:cpu:/a/b\n")
+    assert g._cgroup_peak(root, me)[:2] == (None, None) and "no memory cgroup" in g._cgroup_peak(root, me)[2]
+    got = g._cgroup_peak(root, tmp_path / "absent")
+    assert got[:2] == (None, None) and "cannot be read" in got[2]
+
+
+def test_407_3_the_peak_is_on_the_line_of_a_built_graph(fresh_db, tmp_path, monkeypatch):
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+    _fake_build(monkeypatch)
+    monkeypatch.setattr(g, "_cgroup_peak", lambda: (1610612736, "/sys/fs/cgroup/x/memory.peak", None))
+    r = g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    line = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])
+    assert r["ok"] is True and line["peak"] == r["peak"]
+    p = line["peak"]
+    assert isinstance(p["process_rss_kib"], int) and p["process_rss_kib"] > 0
+    assert isinstance(p["children_rss_kib"], int) and p["children_rss_kib"] > 0       # the staging child, waited for
+    assert (p["cgroup_peak_bytes"], p["cgroup_peak_from"]) == (1610612736, "/sys/fs/cgroup/x/memory.peak")
+    assert "cgroup_peak_why" not in p
+
+
+def test_407_3_the_peak_is_on_the_line_of_a_failed_run_and_never_fails_one(fresh_db, tmp_path, monkeypatch):
+    """407 item 3: "on success and on failure alike"; (b) "never a failed run: the graph builds whether or not its
+    peak can be measured". A child killed as MemoryMax kills it: the line still carries the peak, the child's
+    included; a peak reader that raises leaves the run's own outcome as it was, the reason on the line."""
+    import signal
+    _history_b()
+    copy = _copy(fresh_db, tmp_path / "backups")
+    out = tmp_path / "graph"
+    out.mkdir()
+
+    def killed(*a, **k):
+        os.kill(os.getpid(), signal.SIGKILL)
+    monkeypatch.setattr(g, "_stage", killed)
+    monkeypatch.setattr(g, "_cgroup_peak", lambda: (None, None, "no memory cgroup in /proc/self/cgroup"))
+    with pytest.raises(RuntimeError, match=r"no answer \(exit -9\)"):
+        g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    p = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])["peak"]
+    assert isinstance(p["process_rss_kib"], int) and isinstance(p["children_rss_kib"], int)
+    assert p["cgroup_peak_bytes"] is None and p["cgroup_peak_from"] is None
+    assert p["cgroup_peak_why"] == "no memory cgroup in /proc/self/cgroup"
+    # a reader that raises: the build still succeeds, the reason on its line
+    monkeypatch.undo()
+    _fake_build(monkeypatch)
+
+    def boom():
+        raise PermissionError("denied")
+    monkeypatch.setattr(g, "_cgroup_peak", boom)
+    r = g.rebuild(out / g.GRAPH_NAME, copy=copy, lb=object())
+    assert r["ok"] is True
+    p = json.loads((out / g.RECEIPTS).read_text().splitlines()[-1])["peak"]
+    assert p["cgroup_peak_bytes"] is None and p["cgroup_peak_why"] == "PermissionError: denied"

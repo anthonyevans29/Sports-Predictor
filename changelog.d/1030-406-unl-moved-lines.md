@@ -1,4 +1,4 @@
-## 2026-11-16 (#000: 406-unl-moved-lines — lane unl's confirmation record and earliest_live moved 2026-11-17 -> 2026-11-19, two moved lines (ARCHITECT, addendum 406 item 1); addenda 406 and 407 recorded)
+## 2026-11-16 (#1030: 406-unl-moved-lines — lane unl's confirmation record and earliest_live moved 2026-11-17 -> 2026-11-19, two moved lines (ARCHITECT, addendum 406 item 1); addenda 406 and 407 recorded)
 - **docs/roadmap.json, lane unl (#220):**
   - the confirmation record step: due 2026-11-19 (was 2026-11-17);
   - earliest_live: 2026-11-19 (was 2026-11-17);

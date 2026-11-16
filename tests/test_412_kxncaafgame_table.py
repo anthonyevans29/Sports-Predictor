@@ -108,3 +108,14 @@ def test_412_3_d_with_no_table_the_scorer_places_gtuga_on_louisiana_tech_at_geor
     res = km.place(ev, [half], now=now, lo=now - timedelta(days=1), hi=now + timedelta(days=2))
     assert {k: mk["ticker"].rsplit("-", 1)[1] for k, mk in res.placed.items()} == {(33592, "HOME"): "UGA",
                                                                                   (33592, "AWAY"): "GT"}
+
+
+def test_the_history_paths_hold_kxncaafgame_once_its_table_is_declared():
+    """412 item 3(b): every kalshi-history path that reads refuse_held_series or refuse_declared_series (run_history,
+    place-held's _ruled_target, place-chain's _plan_chain, place-chain --list's list_chains) refuses the series from
+    the merge, by TABLE_HELD and the file's name (387 item 3; 390's ruling: the history paths keep refusing)."""
+    from src.ingestion import kalshi_history as kh
+    for hold in (kh.refuse_held_series, kh.refuse_declared_series):
+        with pytest.raises(ValueError) as e:
+            hold("KXNCAAFGAME")
+        assert str(e.value) == kh.TABLE_HELD.format(series="KXNCAAFGAME", file="KXNCAAFGAME.json")

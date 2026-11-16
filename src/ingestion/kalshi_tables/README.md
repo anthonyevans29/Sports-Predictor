@@ -14,8 +14,11 @@ other name (addenda 393 item 2 and 394 item 1).
 PR one of 387 item 3 was the machinery and no data; each table arrives as data in a PR of its own, from the
 architect's read of the proposer's console (`python cli.py kalshi-table-propose`). Every line is read by the architect
 before it is data (387 item 3(e)).
-KXNCAAFGAME, live on the host, stays without a table until its own is declared and a replay shows its placements
-identical to main's but for removals, each removal a named gap of the table (387 item 3(f)).
+`KXNCAAFGAME.json`, 264 lines: every name of the series' open markets of 2026-11-16, each proved by the architect's
+reading on one stored game against its event's other name (ARCHITECT 2026-11-16, addendum 412 item 2; 236 the
+proposer proposed, 28 it marked). KXNCAAFGAME is live on the host: this table is declared only beside a replay that
+shows its placements against the scorer's on the SAME kept markets, each difference read by name (387 item 3(f);
+412 item 3(c)).
 
 The file, strict (any other field, a name twice, two names that differ only by case, or an id that is not a string
 refuses the whole table, and every event of the series is then refused, never matched by the scorer):

@@ -24,11 +24,11 @@
         {
           "what": "the confirmation record, by the architect's block on the laptop from the host's pulled copy (addendum 346)",
           "owner": "operator",
-          "due": "2026-11-17",
+          "due": "2026-11-19",
           "done": null
         }
       ],
-      "earliest_live": "2026-11-17",
+      "earliest_live": "2026-11-19",
       "live_needs": "CONFIRMED, computed by the registry on the cohort of record. Then the INTL Desk policy v0 as built (#325): half units until 30 INTL calls are graded, UNL only.",
       "vs_close": "not read",
       "moved": [
@@ -55,6 +55,22 @@
           "now": "2026-11-17",
           "why": "the provider moved cohort fixture 41643 (CNL, Cuba v Grenada) from 2026-11-11T21:00Z to 2026-11-16T20:00Z, read on the host 2026-11-12T00:27Z (59 of 60 labelled, 1 scheduled); a pending cohort fixture leaves the confirmation read incomplete and a rescheduled one is not unscoreable, so nothing is substituted and the frozen cohort is untouched (addendum 347 item 1)",
           "ruling": "ARCHITECT 2026-11-11 19:50 ET, addendum 347 item 2 (MOVED LINE, lane unl, verbatim in why; one line per moved date: the fixture step, the record step and earliest_live; the record step's wording changes with it, as ruled, and this line names the step by its wording on the base; 346 item 5's one-day move is superseded)"
+        },
+        {
+          "moved_on": "2026-11-16",
+          "which": "the confirmation record, by the architect's block on the laptop from the host's pulled copy (addendum 346)",
+          "was": "2026-11-17",
+          "now": "2026-11-19",
+          "why": "the record is an operator step by the architect's block on the laptop (346), and the operator travels on 2026-11-17 and 2026-11-18 (his word, 2026-11-16 09:10 ET: 'let's do it Thursday'); the 60th cohort fixture (41643, Cuba v Grenada) kicks off 2026-11-16T20:00Z as moved by 347; the frozen cohort, the bar and the read are untouched, and nothing is run before 60 of 60 are labelled",
+          "ruling": "ARCHITECT 2026-11-16, addendum 406 item 1 (MOVED LINE, lane unl; two dates, two lines; the fixture step keeps 2026-11-16)"
+        },
+        {
+          "moved_on": "2026-11-16",
+          "which": "earliest_live",
+          "was": "2026-11-17",
+          "now": "2026-11-19",
+          "why": "the record is an operator step by the architect's block on the laptop (346), and the operator travels on 2026-11-17 and 2026-11-18 (his word, 2026-11-16 09:10 ET: 'let's do it Thursday'); the 60th cohort fixture (41643, Cuba v Grenada) kicks off 2026-11-16T20:00Z as moved by 347; the frozen cohort, the bar and the read are untouched, and nothing is run before 60 of 60 are labelled",
+          "ruling": "ARCHITECT 2026-11-16, addendum 406 item 1 (MOVED LINE, lane unl; two dates, two lines; the fixture step keeps 2026-11-16)"
         }
       ]
     },

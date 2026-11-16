@@ -1,0 +1,11 @@
+## 2026-11-16 (#1030: 406-unl-moved-lines — lane unl's confirmation record and earliest_live moved 2026-11-17 -> 2026-11-19, two moved lines (ARCHITECT, addendum 406 item 1); addenda 406 and 407 recorded)
+- **docs/roadmap.json, lane unl (#220):**
+  - the confirmation record step: due 2026-11-19 (was 2026-11-17);
+  - earliest_live: 2026-11-19 (was 2026-11-17);
+  - one moved line for each, why and ruling verbatim from 406 item 1(c)-(d);
+  - the fixture step keeps 2026-11-16, and no bar moves (406 item 1(e)).
+- **Records:** addenda 406 and 407 verbatim in docs/ledger/entries/2026-11-16-406-407-records.md, with what DEV 1 did:
+  - #1020's line;
+  - #1029 opened, with its two facts;
+  - the Desk-fills fact on #609;
+  - #990 closed on 407 item 2(a).

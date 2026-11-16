@@ -1,0 +1,14 @@
+## 2026-11-16 (#1036: 412-kxncaafgame-table — KXNCAAFGAME's name table, as data (ARCHITECT 2026-11-16, addendum 412 items 2 and 3; #955))
+- **src/ingestion/kalshi_tables/KXNCAAFGAME.json (new):** the 264 ruled lines, each name | key | id, copied from the ruled file only (sha256 f46a6317…).
+  - In KXNCAAMBGAME.json's form, in name order.
+  - `ruled` names 412 item 2.
+  - The strict loader accepts it.
+  - No code changes.
+- **tests/test_412_kxncaafgame_table.py (new):**
+  - pinned to the count (264) and the file's sha256 (0698c81d7c05);
+  - the lines 412 names, as ruled;
+  - KXNCAAFGAME-26NOV28GTUGA: the scorer's fit, and NO_FIT under the table;
+  - the history paths' hold refusing the series.
+- **Four scorer test files:** each reads an empty table folder (392's precedent). No assertion changes.
+- **The folder's README** names the 264.
+- **Merge:** held until the architect's word, after his baseline replay (412 item 3(c)).

@@ -261,6 +261,9 @@ class Proposal:
     top: float
     top_teams: list        # [team name] scoring the top side_score
     marks: list            # [mark text]
+    # 392 item 5 (ruled 408 item 5(a)): the marked section's reading aids, printed beside a hand line
+    seen: list = field(default_factory=list)       # [(event ticker, the event's other name)], the markets' order
+    top_ids: list = field(default_factory=list)    # [(team id, team name, provider id under --key or None)]
 
     @property
     def proposed(self) -> bool:
@@ -268,25 +271,40 @@ class Proposal:
 
 
 def names_of(markets: list, is_tie=None) -> dict:
-    """{name: events} of every name the matcher would look up: each event's two names, where its pair forms
-    (kalshi_match._pair, as place() reads it)."""
+    """{name: [(event ticker, the event's other name), ...]} of every name the matcher would look up: each event's
+    two names, where its pair forms (kalshi_match._pair, as place() reads it), in the markets' order. The count of a
+    name's events is the length of its list (addendum 392 item 5, ruled 408 item 5(a): "per name each event's ticker
+    with the other name")."""
     from src.ingestion import kalshi_match as km
     is_tie = is_tie or (lambda m: False)
     by_event: dict = {}
     for mk in markets:
         by_event.setdefault(km.event_of(mk), []).append(mk)
     out: dict = {}
-    for mks in by_event.values():
+    for ev, mks in by_event.items():
         names, unformed = km._pair(mks, mks[0], is_tie)
         if unformed or len(names) != 2:
             continue
-        for n in names:
-            out[n] = out.get(n, 0) + 1
+        for n, other in ((names[0], names[1]), (names[1], names[0])):
+            out.setdefault(n, []).append((ev, other))
     return out
 
 
+def _provider_id(t, key: str, teams) -> str | None:
+    """The team's one provider id under `key` (its own, else the one id a merge recorded), or None where it has
+    none, more than one, or one that another stored team also answers to."""
+    from src.ingestion.team_merge import source_ids
+    ids = source_ids(t.external_ids, key)
+    own = (t.external_ids or {}).get(key)
+    pid = str(own) if own is not None else (next(iter(ids)) if len(ids) == 1 else None)
+    if pid is None or sum(1 for u in teams if pid in source_ids(u.external_ids, key)) != 1:
+        return None
+    return pid
+
+
 def propose(names: dict, teams, key: str) -> list:
-    """One Proposal per name (sorted by name). Pure: `teams` are objects with id, name and external_ids."""
+    """One Proposal per name (sorted by name). Pure: `teams` are objects with id, name and external_ids. `names`:
+    names_of's {name: [(event ticker, other name)]}, or {name: count} where no event is at hand."""
     from src.ingestion import kalshi_match as km
     from src.ingestion.team_merge import source_ids
 
@@ -310,9 +328,11 @@ def propose(names: dict, teams, key: str) -> list:
                 elif sum(1 for u in teams if pid in source_ids(u.external_ids, key)) != 1:
                     why = f"{key} {pid} answers to two or more stored teams"
                 whole.append((t.id, t.name, pid, why))
-        scores = [(km.side_score(name, t.name or ""), t.name) for t in teams]
+        scores = [(km.side_score(name, t.name or ""), t) for t in teams]
         top = max((s for s, _ in scores), default=0.0)
-        top_teams = sorted(n for s, n in scores if s == top and top > 0)
+        top_rows = sorted((t for s, t in scores if s == top and top > 0), key=lambda t: (t.name or "", t.id))
+        top_teams = [t.name for t in top_rows]
+        top_ids = [(t.id, t.name, _provider_id(t, key, teams)) for t in top_rows]
         marks = []
         dropped = sorted(set(dropped_marks(name)) | {m for _, tn, _, _ in whole for m in dropped_marks(tn or "")})
         if dropped:
@@ -330,5 +350,7 @@ def propose(names: dict, teams, key: str) -> list:
         twins = sorted(n for n in by_fold[name.casefold()] if n != name)
         if twins:
             marks.append(f"{MARK_CASE}: {', '.join(twins)}")
-        out.append(Proposal(name, names[name], whole, top, top_teams, marks))
+        v = names[name]
+        seen = list(v) if isinstance(v, (list, tuple)) else []
+        out.append(Proposal(name, len(seen) if seen else int(v), whole, top, top_teams, marks, seen, top_ids))
     return out

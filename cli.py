@@ -9308,11 +9308,14 @@ def kalshi_table_propose_cmd(series, from_file, key, db_path):
     click.echo("  a whole read: a stored team whose name has the same words as the name under kalshi_match.norm_tokens, "
                "no more and no fewer · every line is read by the architect before it is data (387 item 3(e))")
     click.echo(f"--- MARKED FOR HAND READING ({len(hand)}), read first: name | events | marks | whole reads | top score: "
-               "teams")
+               f"teams (team id, {key} id); then each event's ticker v the other name")
     for p in hand:
         whole = " ; ".join(f"{tn} (team {tid}, {key} {pid or '-'})" for tid, tn, pid, _ in p.whole) or "-"
         click.echo(f"  {p.name} | {p.events} | {' · '.join(p.marks)} | {whole} | {p.top:g}: "
-                   + (" ; ".join(p.top_teams) or "-"))
+                   + (" ; ".join(f"{tn} (team {tid}, {key} {pid or '-'})" for tid, tn, pid in p.top_ids) or "-"))
+        # 392 item 5 (ruled 408 item 5(a)): each event of the name, with its other name, so the opponent can prove
+        # the team without a second read
+        click.echo("      events: " + ("; ".join(f"{ev} v {other}" for ev, other in p.seen) or "-"))
     click.echo(f"--- PROPOSED ({len(machine)}): name | events | team | our team id | {key} id")
     for p in machine:
         tid, tn, pid, _ = p.whole[0]

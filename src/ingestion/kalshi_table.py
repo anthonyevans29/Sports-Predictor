@@ -263,7 +263,7 @@ class Proposal:
     marks: list            # [mark text]
     # 392 item 5 (ruled 408 item 5(a)): the marked section's reading aids, printed beside a hand line
     seen: list = field(default_factory=list)       # [(event ticker, the event's other name)], the markets' order
-    top_ids: list = field(default_factory=list)    # [(team id, team name, provider id under --key or None)]
+    top_ids: list = field(default_factory=list)    # [(team id, team name, provider id or None, note or None)]
 
     @property
     def proposed(self) -> bool:
@@ -290,16 +290,25 @@ def names_of(markets: list, is_tie=None) -> dict:
     return out
 
 
-def _provider_id(t, key: str, teams) -> str | None:
-    """The team's one provider id under `key` (its own, else the one id a merge recorded), or None where it has
-    none, more than one, or one that another stored team also answers to."""
+def _provider_id(t, key: str, teams) -> tuple[str | None, str | None]:
+    """(the team's provider id under `key`, a note or None) for the hand-reading aid: its own id, else the one id a
+    merge recorded. Never hidden (Codex P2 on #1033): an id another stored team also answers to is given with the
+    note naming that team; a team with several ids and no own one gets None and the note listing them; none at all,
+    (None, None)."""
     from src.ingestion.team_merge import source_ids
     ids = source_ids(t.external_ids, key)
     own = (t.external_ids or {}).get(key)
     pid = str(own) if own is not None else (next(iter(ids)) if len(ids) == 1 else None)
-    if pid is None or sum(1 for u in teams if pid in source_ids(u.external_ids, key)) != 1:
-        return None
-    return pid
+    if pid is None:
+        return None, (f"ids {', '.join(sorted(ids))}" if ids else None)
+    others = sorted(u.id for u in teams if u.id != t.id and pid in source_ids(u.external_ids, key))
+    return pid, (f"also held by team {', '.join(str(o) for o in others)}" if others else None)
+
+
+def top_id_text(entry, key: str) -> str:
+    """One top-score team as the marked section prints it: name (team id, key id or '-'[, its note])."""
+    tid, name, pid, note = entry
+    return f"{name} (team {tid}, {key} {pid or '-'}" + (f", {note}" if note else "") + ")"
 
 
 def propose(names: dict, teams, key: str) -> list:
@@ -332,7 +341,7 @@ def propose(names: dict, teams, key: str) -> list:
         top = max((s for s, _ in scores), default=0.0)
         top_rows = sorted((t for s, t in scores if s == top and top > 0), key=lambda t: (t.name or "", t.id))
         top_teams = [t.name for t in top_rows]
-        top_ids = [(t.id, t.name, _provider_id(t, key, teams)) for t in top_rows]
+        top_ids = [(t.id, t.name, *_provider_id(t, key, teams)) for t in top_rows]
         marks = []
         dropped = sorted(set(dropped_marks(name)) | {m for _, tn, _, _ in whole for m in dropped_marks(tn or "")})
         if dropped:

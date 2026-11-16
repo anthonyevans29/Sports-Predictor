@@ -54,7 +54,7 @@ def test_propose_keeps_the_events_and_each_top_teams_ids_and_still_takes_a_bare_
     (p,) = kt.propose(names, teams, KEY)
     assert p.events == 1 and p.seen == [("KXNCAAMBGAME-26NOV17GBUWFL", "West Florida")]
     assert p.top == 2.0 and p.top_teams == ["Green Bay Phoenix", "Wisc. Green Bay"]
-    assert p.top_ids == [(17, "Green Bay Phoenix", None), (16, "Wisc. Green Bay", "249")]
+    assert p.top_ids == [(17, "Green Bay Phoenix", None, None), (16, "Wisc. Green Bay", "249", None)]
     (q,) = kt.propose({"Green Bay": 3}, teams, KEY)                                    # the count form, unchanged
     assert q.events == 3 and q.seen == [] and q.marks == p.marks and q.top_teams == p.top_teams
 
@@ -246,3 +246,20 @@ def test_an_event_with_legs_placed_and_a_leg_refused_is_marked_in_part():
     assert kr.refused_events_lines(res, mks) == [
         "  the events refused, by reason (not the window, not play begun; \"in part\": the event placed other legs):",
         f"    {km.WIDE_SPREAD} (2): KXEPLGAME-26NOV22ARSTOT (in part), KXEPLGAME-26NOV22CHEMUN"]
+
+
+def test_a_shared_or_several_provider_ids_are_printed_with_their_note_never_hidden():
+    """Codex P2 on #1033: a top-score team whose provider id another stored team also holds keeps that id in the
+    hand-reading aid, annotated, so the reader sees the ambiguity; a team with several ids lists them."""
+    teams = [NS(id=16, name="Wisc. Green Bay", external_ids={KEY: "249"}),
+             NS(id=20, name="Green Bay Old Row", external_ids={KEY: "900", f"{KEY}_also": ["249"]}),
+             NS(id=21, name="Green Bay Two Ids", external_ids={f"{KEY}_also": ["301", "302"]}),
+             NS(id=17, name="Green Bay Phoenix", external_ids={})]
+    (p,) = kt.propose({"Green Bay": [("KXNCAAMBGAME-26NOV17GBUWFL", "West Florida")]}, teams, KEY)
+    assert p.top_ids == [(20, "Green Bay Old Row", "900", None),
+                         (17, "Green Bay Phoenix", None, None),
+                         (21, "Green Bay Two Ids", None, "ids 301, 302"),
+                         (16, "Wisc. Green Bay", "249", "also held by team 20")]
+    assert kt.top_id_text(p.top_ids[3], KEY) == "Wisc. Green Bay (team 16, api_basketball 249, also held by team 20)"
+    assert kt.top_id_text(p.top_ids[2], KEY) == "Green Bay Two Ids (team 21, api_basketball -, ids 301, 302)"
+    assert kt.top_id_text(p.top_ids[1], KEY) == "Green Bay Phoenix (team 17, api_basketball -)"

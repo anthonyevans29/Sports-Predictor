@@ -128,6 +128,34 @@ def _main_legs(s, comp_id: int, market: str, before: datetime | None = None) -> 
     return {"at": last, "legs": legs, "untickered": untickered}
 
 
+def refused_events_lines(res, markets: list) -> list[str]:
+    """ARCHITECT 2026-11-16, addendum 408 item 5(b) (403 item 4): one line per refusal reason other than the window
+    and play begun (the matcher's OUTSIDE_WINDOW and IN_PLAY), listing that reason's event tickers, from res.why
+    (market ticker -> reason), so an event refused for want of a fit is named, not found by elimination. Read-only:
+    kalshi_match.console_lines is not changed, so no sync's console changes."""
+    from src.ingestion import kalshi_match as km
+    not_named = {km.OUTSIDE_WINDOW, km.IN_PLAY}
+    ev_of = {mk.get("ticker"): km.event_of(mk) for mk in markets}
+    by_reason: dict[str, list[str]] = {}
+    for ticker, reason in res.why.items():
+        if reason in not_named:
+            continue
+        ev = ev_of.get(ticker) or km.event_of({"ticker": ticker})
+        evs = by_reason.setdefault(reason, [])
+        if ev not in evs:
+            evs.append(ev)
+    if not by_reason:
+        return []
+    # place() refuses NO_PRICE, WIDE_SPREAD, YES_UNKNOWN, BEHIND and TWO_CLAIMS one market at a time, so an event can
+    # place some legs and have another refused: it is listed under its reason and marked "in part" (pre-PR review)
+    placed = {km.event_of(mk) for mk in res.placed.values()}
+    out = ['  the events refused, by reason (not the window, not play begun; "in part": the event placed other legs):']
+    for reason in sorted(by_reason, key=lambda r: (-len(by_reason[r]), r)):
+        evs = sorted(by_reason[reason])
+        out.append(f"    {reason} ({len(evs)}): " + ", ".join(f"{e} (in part)" if e in placed else e for e in evs))
+    return out
+
+
 def replay(payload: dict, progress=print) -> dict:
     """Place every kept series' markets with the new module on the stored games (read-only) and compare with main's
     last sync. Stores nothing. Returns per-series results; prints the console."""
@@ -188,6 +216,8 @@ def replay(payload: dict, progress=print) -> dict:
             progress(f"{head} · {len(mks)} open markets · {len(games)} stored games on the events' days")
             progress(f"  new: placed {len(res.placed)} · refused {sum(res.refused.values())}")
             for ln in km.console_lines(res):
+                progress(ln)
+            for ln in refused_events_lines(res, mks):
                 progress(ln)
             # The newest legs main stored, by capture time. A sync that stored nothing leaves no row, so these can be
             # an older run's: the age is printed and an old capture flagged, never presented as this morning's (Codex

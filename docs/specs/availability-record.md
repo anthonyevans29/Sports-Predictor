@@ -1005,6 +1005,11 @@ ids ride along as columns, each from the latest assertion that carries one.
 - The line names the record's assertions (a COUNT on the copy) beside the graph's assertion nodes, and a build whose two
   counts differ fails (379 item 2). The count is taken in the parent BEFORE the walk starts and written on the line
   then, so a night that dies in the walk (the child taken by MemoryMax) names the size it died at (386 item 1; #1010).
+- Every line carries the run's `peak` (407 item 3; #1010): `process_rss_kib` (the parent's `RUSAGE_SELF` ru_maxrss),
+  `children_rss_kib` (`RUSAGE_CHILDREN`, the staging child once waited for), and `cgroup_peak_bytes` with
+  `cgroup_peak_from`, the process's own cgroup's peak read while the unit runs (`memory.peak` on v2,
+  `memory.max_usage_in_bytes` on v1; RSS plus page cache, as MemoryMax counts it). A part that cannot be read is null
+  with its reason (`cgroup_peak_why`, `rusage_why`); the graph builds whether or not its peak can be measured.
 - Timestamps are naive UTC (the engine drops an offset without converting it, so the rebuild converts first).
 
 **The copy (347 item 5(b)).** `--backup-dir DIR`: the newest daily `.backup` copy (`sports_YYYY-MM-DD[_HHMMSS].db`,

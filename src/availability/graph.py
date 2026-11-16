@@ -193,6 +193,63 @@ def _cgroup_limit(cgroup_root: Path = Path("/sys/fs/cgroup"), self_cgroup: Path 
     return min(found) if found else None
 
 
+def _cgroup_peak(cgroup_root: Path = Path("/sys/fs/cgroup"), self_cgroup: Path = Path("/proc/self/cgroup")):
+    """(bytes or None, the file read or None, why or None): the peak memory of THIS process's own cgroup, read while
+    it runs (ARCHITECT 2026-11-16, addendum 407 item 3; #1010). The directory _cgroup_limit reads, the process's own
+    and never a parent's (a slice's peak counts other units): cgroup v2 <root>/<path>/memory.peak (kernel 5.19+), v1
+    <root>/memory/<path>/memory.max_usage_in_bytes. RSS plus page cache, as MemoryMax counts it. A file that cannot
+    be read is None with the reason, never an error (407 item 3(b))."""
+    try:
+        lines = self_cgroup.read_text().splitlines()
+    except OSError as e:
+        return None, None, f"{self_cgroup} cannot be read ({e.strerror or e})"
+    tried = []
+    for line in lines:
+        parts = line.split(":", 2)
+        if len(parts) != 3:
+            continue
+        _, controllers, path = parts
+        rel = Path(path.lstrip("/"))
+        if controllers == "":
+            f = cgroup_root / rel / "memory.peak"
+        elif "memory" in controllers.split(","):
+            f = cgroup_root / "memory" / rel / "memory.max_usage_in_bytes"
+        else:
+            continue
+        try:
+            v = f.read_text().strip()
+        except OSError as e:
+            tried.append(f"{f} cannot be read ({e.strerror or e})")
+            continue
+        if not v.isdigit():
+            tried.append(f"{f}: {v!r} is not a byte count")
+            continue
+        return int(v), str(f), None
+    return None, None, ("; ".join(tried) if tried else f"no memory cgroup in {self_cgroup}")
+
+
+def _peak() -> dict:
+    """The run's "peak" (407 item 3): the parent's peak RSS (RUSAGE_SELF), the staging child's once it is waited for
+    (RUSAGE_CHILDREN; ru_maxrss is KiB on Linux), and the unit cgroup's own peak (_cgroup_peak). Each part that
+    cannot be read is None with its reason; this never raises (the graph builds whether or not its peak can be
+    measured, 407 item 3(b))."""
+    out: dict = {}
+    try:
+        import resource
+        out["process_rss_kib"] = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        out["children_rss_kib"] = int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+    except Exception as e:  # noqa: BLE001 - a measure, never a failure
+        out.update(process_rss_kib=None, children_rss_kib=None, rusage_why=f"{type(e).__name__}: {e}"[:200])
+    try:
+        n, where, why = _cgroup_peak()
+    except Exception as e:  # noqa: BLE001 - a measure, never a failure
+        n, where, why = None, None, f"{type(e).__name__}: {e}"[:200]
+    out.update(cgroup_peak_bytes=n, cgroup_peak_from=where)
+    if why is not None:
+        out["cgroup_peak_why"] = why[:300]
+    return out
+
+
 def memory_limit() -> tuple[int, str]:
     """(bytes, where): the memory limit the rebuild runs under (rule (1) above): the smaller of its cgroup's and the
     unit's MemoryMax (a looser cgroup limit never inflates the pool past the unit's)."""
@@ -773,6 +830,8 @@ def rebuild(out: Path, copy: Path | None = None, backup_dir: Path | None = None,
             signal.signal(signal.SIGTERM, lambda signum, frame: deferred.append(signum))
         shutil.rmtree(stage, ignore_errors=True)
         receipt["seconds"] = round(time.monotonic() - t0, 1)
+        # ARCHITECT 2026-11-16, addendum 407 item 3 (#1010): the run's peak, on every line, read while the unit runs
+        receipt["peak"] = _peak()
         receipt_error = append_receipt(out, receipt)
         if receipt_error:
             receipt["receipt_error"] = receipt_error

@@ -155,6 +155,24 @@ def test_the_ugaala_split_before_and_after(copy, capsys):
             "stored on ANOTHER game: placed on match 32738 HOME on both names") in b
 
 
+def test_under_the_repo_s_declared_table_the_receipt_refuses_every_kxncaafgame_leg_table_unread(copy, capsys,
+                                                                                                    monkeypatch):
+    """Codex on #1036 (P2, escalated to the architect, 412 item 3(b)): the receipt places through
+    kalshi_history.place_events, which passes km.place no tables (the history paths' own placement, held for a
+    declared series). With the repo's own folder, KXNCAAFGAME declared (ARCHITECT 2026-11-16, addendum 412 item 2),
+    every KXNCAAFGAME leg's AFTER is refused TABLE_UNREAD: nothing is placed by the scorer and nothing is written. What
+    the receipt should place for a declared series is the architect's to rule; this pins what it does until then."""
+    from src.ingestion import kalshi_match as km
+    from src.ingestion import kalshi_table as kt
+    monkeypatch.setattr(kt, "TABLE_DIR", ROOT / "src" / "ingestion" / "kalshi_tables")
+    assert "KXNCAAFGAME" in kt.declared()
+    rc, out = _run(capsys, "--db", copy)
+    assert rc == 0, out
+    b = _block(out, "UGAALA")
+    assert (f"    {EV}UGAALA-UGA (Georgia): refused: {km.TABLE_UNREAD} · kalshi-history stored: match 32738 AWAY") in b, b
+    assert not any("placed on match" in ln for ln in b), b
+
+
 def test_32763_and_the_own_legs_of_scstchso(copy, capsys):
     rc, out = _run(capsys, "--db", copy)
     b = _block(out, "SCSTCHSO")

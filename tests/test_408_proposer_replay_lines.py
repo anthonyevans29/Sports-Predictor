@@ -135,7 +135,7 @@ def test_refused_events_lines_names_each_reasons_events_and_leaves_the_window_an
                "KXNCAAMBGAME-26NOV16CCCC-C": km.NO_PRICE}
     mks = [{"ticker": t, "event_ticker": t.rsplit("-", 1)[0]} for t in res.why]
     assert kr.refused_events_lines(res, mks) == [
-        "  the events refused, by reason (not the window, not play begun):",
+        "  the events refused, by reason (not the window, not play begun; \"in part\": the event placed other legs):",
         f"    {km.NO_FIT} (2): KXNCAAMBGAME-26NOV14ULLUNCW, KXNCAAMBGAME-26NOV14UNCGCOR",
         f"    {km.NO_PRICE} (1): KXNCAAMBGAME-26NOV16CCCC"]
     only = km.Result()
@@ -211,7 +211,8 @@ def test_the_replay_prints_the_counts_as_before_then_the_events_refused_for_a_re
     assert r["placed"] == 2 and r["refused"] == {km.NO_FIT: 2, km.OUTSIDE_WINDOW: 2}, r
     i = lines.index("  refused, by reason:")
     assert lines[i:i + 3] == ["  refused, by reason:", f"       2  {km.NO_FIT}", f"       2  {km.OUTSIDE_WINDOW}"]
-    j = lines.index("  the events refused, by reason (not the window, not play begun):")
+    j = lines.index('  the events refused, by reason (not the window, not play begun; "in part": the event placed other '
+                    'legs):')
     assert j > i and lines[j + 1] == f"    {km.NO_FIT} (1): KXNCAAFGAME-26OCT10CHIGB"
     assert not any("26OCT14OHIOIOWA" in ln for ln in lines[j:j + 3])
 
@@ -229,3 +230,19 @@ def test_the_fence_console_lines_place_and_the_table_are_as_they_were():
     table = ROOT / "src" / "ingestion" / "kalshi_tables" / "KXNCAAMBGAME.json"
     assert hashlib.sha256(table.read_bytes()).hexdigest() == \
         "4abfb1db6f7d3590e2aec2cd90ac857a39526a2605e9c7fa37e3aeefe4468103"
+
+
+def test_an_event_with_legs_placed_and_a_leg_refused_is_marked_in_part():
+    """Pre-PR review (P2): place() refuses NO_PRICE, WIDE_SPREAD, YES_UNKNOWN, BEHIND and TWO_CLAIMS one market at a
+    time, so an event can place two legs while a third is refused (a soccer Tie leg wider than the guard). The event is
+    listed under its reason, as 408 item 5(b) rules, and marked "in part" so a placed event never reads as refused."""
+    from src.ingestion import kalshi_replay as kr
+    res = km.Result()
+    ev = "KXEPLGAME-26NOV22ARSTOT"
+    home, away, tie = (f"{ev}-ARS", f"{ev}-TOT", f"{ev}-TIE")
+    res.placed = {(1, "HOME"): {"ticker": home, "event_ticker": ev}, (1, "AWAY"): {"ticker": away, "event_ticker": ev}}
+    res.why = {tie: km.WIDE_SPREAD, "KXEPLGAME-26NOV22CHEMUN-TIE": km.WIDE_SPREAD}
+    mks = [{"ticker": t, "event_ticker": t.rsplit("-", 1)[0]} for t in (home, away, tie, "KXEPLGAME-26NOV22CHEMUN-TIE")]
+    assert kr.refused_events_lines(res, mks) == [
+        "  the events refused, by reason (not the window, not play begun; \"in part\": the event placed other legs):",
+        f"    {km.WIDE_SPREAD} (2): KXEPLGAME-26NOV22ARSTOT (in part), KXEPLGAME-26NOV22CHEMUN"]

@@ -146,10 +146,13 @@ def refused_events_lines(res, markets: list) -> list[str]:
             evs.append(ev)
     if not by_reason:
         return []
-    out = ["  the events refused, by reason (not the window, not play begun):"]
+    # place() refuses NO_PRICE, WIDE_SPREAD, YES_UNKNOWN, BEHIND and TWO_CLAIMS one market at a time, so an event can
+    # place some legs and have another refused: it is listed under its reason and marked "in part" (pre-PR review)
+    placed = {km.event_of(mk) for mk in res.placed.values()}
+    out = ['  the events refused, by reason (not the window, not play begun; "in part": the event placed other legs):']
     for reason in sorted(by_reason, key=lambda r: (-len(by_reason[r]), r)):
         evs = sorted(by_reason[reason])
-        out.append(f"    {reason} ({len(evs)}): {', '.join(evs)}")
+        out.append(f"    {reason} ({len(evs)}): " + ", ".join(f"{e} (in part)" if e in placed else e for e in evs))
     return out
 
 

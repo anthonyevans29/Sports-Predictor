@@ -242,3 +242,70 @@ def test_fence_no_sync_rekey_or_repair_module_loaded(tmp_path):
     loaded = json.loads(res.stdout.strip().splitlines()[-1])
     assert loaded == ["src.ingestion", "src.ingestion.ncaa_cfbd"]
     assert not (tmp_path / "never.db").exists()
+
+
+def test_a_malformed_key_never_printed_by_value(net, monkeypatch):
+    """Pre-PR review (P1): requests puts a malformed header value in InvalidHeader's text; the probe prints the key's
+    variable name in its place (414 item 3(c), the key by NAME only)."""
+    import requests
+    bad = KEY + "\n"
+    monkeypatch.setenv("API_AMERICAN_FOOTBALL_KEY", bad)
+
+    def preparing_get(url, headers=None, params=None, timeout=None):
+        net["calls"].append({"url": url})
+        requests.Request("GET", url, headers=headers, params=params).prepare()   # raises before anything is sent
+        raise AssertionError("prepare() should have refused the header")
+
+    monkeypatch.setattr(requests, "get", preparing_get)
+    code, out = run(["--date", "2091-11-21"])
+    assert code == 1
+    assert KEY not in out and repr(bad)[1:-1] not in out
+    assert "PROVIDER ERROR: InvalidHeader:" in out and "<API_AMERICAN_FOOTBALL_KEY>" in out
+
+
+def test_redactor_forms():
+    red = probe.redactor("K", {"K": " ab\r\n"})
+    assert red("v=' ab\\r\\n' and ab and b' ab\\r\\n'") == "v='<K>' and <K> and b'<K>'"
+    assert probe.redactor(None, {})("unchanged") == "unchanged"
+
+
+def test_a_sidecar_check_that_cannot_stat_refuses(tmp_path, net):
+    """Pre-PR review (P2): ENAMETOOLONG on '<name>-journal' (a 250-byte copy name) is a refusal, exit 2, never a
+    traceback (intl_shadow.copy_sidecars leaves the wording to its caller)."""
+    db = make_copy(tmp_path / "copy.db").rename(tmp_path / ("c" * 247 + ".db"))   # SQLite cannot create it there
+    code, out = run(["--date", "2091-11-21", "--db", str(db)])
+    assert code == 2
+    assert "cannot check for a -wal, -shm or -journal beside the copy" in out and "provider calls made: 0" in out
+    assert net["calls"] == []
+
+
+def test_a_row_whose_verdict_fails_is_printed_and_the_run_goes_on(net):
+    """Pre-PR review (P2): a row the verdict cannot be worked out for (a team name that is not text) is printed raw
+    with VERDICT FAILED; the next rows and the closing count still print; exit 1."""
+    net["pages"]["2091-11-21"] = [row(9001, 101, 102, hname=12345), row(9002, 101, 102)]
+    code, out = run(["--date", "2091-11-21"])
+    assert code == 1
+    lines = out.splitlines()
+    assert any(ln.startswith("  game=9001 ") and "home=101 12345" in ln and "VERDICT FAILED (TypeError" in ln
+               for ln in lines)
+    assert any(ln.startswith("  game=9002 ") and ln.endswith("-> kept by the parse") for ln in lines)
+    assert lines[-1] == ("NCAA-LISTING-PROBE: dates read 1 of 1; provider calls made: 1 HTTP GET(s); 1 row(s) whose "
+                         "verdict failed, each printed on its line; exit 1 (a row verdict failed)")
+
+
+@pytest.mark.parametrize("argv", [["--dates", "2091-11-21"], ["--date"], ["--date", "2091-11-21", "--bogus"]])
+def test_a_bad_command_line_is_a_refusal_with_the_count(net, argv):
+    """Pre-PR review (nit): argparse's own errors print the REFUSED line with the call count, exit 2."""
+    code, out = run(argv)
+    assert code == 2 and out.startswith("NCAA-LISTING-PROBE REFUSED: ") and out.endswith("provider calls made: 0")
+    assert net["calls"] == []
+
+
+@pytest.mark.parametrize("season,label", [("2026", ""), ("2026/27", ""), ("2025", ", another season"),
+                                          ("20261", ", season unknown"), ("", ", season unknown"),
+                                          (None, ", season unknown")])
+def test_the_stored_row_season_reads_as_season_year(season, label):
+    look = {"teams": {"101": [(1, "A")], "102": [(2, "B")]},
+            "holders": {"9": [{"id": 7, "season": season, "status": "SCHEDULED", "utc_date": "x"}]}, "prev": {}}
+    f = probe.raw_fields(row(9, 101, 102))
+    assert probe.our_side(f, look) == [f"stored as match 7 (season {season}{label}, SCHEDULED, x)"]

@@ -7,4 +7,9 @@
   - The key is named, never printed. A provider error prints, stops and exits 1. A refusal exits 2 before any call.
   - The fence: no sync, re-key or repair module is loaded (a test holds it in a fresh interpreter); no bytecode file; the copy is opened mode=ro&immutable=1.
   - The test runs on invented rows only (414 item 3(d)).
+  - A pre-PR adversarial review found four defects, all fixed with tests:
+    - the key's value could print inside a requests InvalidHeader message (P1);
+    - a sidecar stat error escaped as a traceback;
+    - a row whose verdict raised stopped the run;
+    - argparse's own errors printed no call count.
 - **Next:** the architect's block of Thursday 2026-11-19, for 2026-11-21, 2026-11-27 and 2026-11-28 against that morning's copy (three calls). The ruling on #1038 follows it (414 item 4(a)).

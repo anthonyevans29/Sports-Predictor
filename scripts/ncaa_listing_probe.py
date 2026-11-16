@@ -33,7 +33,8 @@ THE TABLE (DEV 1's answers to 413 item 2(a) on #1035), the drops checked per row
      api_american_football id, or one a merge recorded on it under "api_american_football_also").
 Every reason that applies is printed; the first is the one the sync stops at. With --db, every row also says which
 stored NCAA match holds its provider id ("stored as match N", with that row's season, status and kickoff, and "another
-season" when its season is not 2026), or NOT STORED; NOT STORED also names a stored match that holds the id as a
+season" when its season's year is not 2026, or "season unknown" when it has none, as service.season_year reads it), or
+NOT STORED; NOT STORED also names a stored match that holds the id as a
 previous one ("api_american_football_prev"). A row with no game id has no id to look up. Drops #4 (a team /teams
 omits) and #5, #7 to #9 need the teams listing or the sync's own state, which this probe does not read.
 
@@ -48,8 +49,10 @@ ncaa_backtest) imports for every --db receipt; nothing in it runs. The adapter i
 _non_competitive rule only. Python's bytecode cache is turned off, so no __pycache__ file is made; .env is read,
 never written; nothing is written to the copy (SQLite refuses a write on mode=ro). The key is named, never printed.
 
-Exit codes: 0 every date read; 1 a provider error (printed after the rows already read; no later date is called);
-2 refused before any call (the dates, the key, or the copy).
+Exit codes: 0 every date read and every row's verdict worked out; 1 a provider error (printed after the rows already
+read; no later date is called), or a row whose verdict failed (that row is printed raw with "VERDICT FAILED" and the
+run goes on); 2 refused before any call (the command line, the dates, the key, or the copy). Every exit prints the
+count of provider calls made. An exception's text is printed with the key's value replaced by its variable's name.
 
     python3 scripts/ncaa_listing_probe.py --date 2026-11-21 --date 2026-11-27 --date 2026-11-28 --db /path/to/copy.db
 """
@@ -62,6 +65,7 @@ sys.dont_write_bytecode = True                       # 414 item 3(c): no file ma
 import argparse
 import json
 import os
+import re
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
@@ -77,6 +81,7 @@ SEASON = 2026
 MAX_DATES = 7
 KEY_NAMES = ("API_AMERICAN_FOOTBALL_KEY", "API_FOOTBALL_KEY")   # the adapter's own order
 OK, PROVIDER_ERROR, REFUSED = 0, 1, 2
+_SEASON_YEAR = re.compile(r"(\d{4})(?!\d)")         # service._SEASON_YEAR, matched at the start as season_year does
 
 
 def parse_dates(raw: list[str] | None) -> tuple[list[str], str | None]:
@@ -121,7 +126,7 @@ def read_copy(db: str) -> tuple[dict, str]:
     from src.walters import mlb_pitchers_gate as mp
 
     path = mp.check_db(db)
-    sides = intl_shadow.copy_sidecars(path)
+    sides = _sidecars(intl_shadow, mp, path, db)
     if sides:
         raise mp.GateRefused(f"--db {db} has {', '.join(sides)} beside it: not a fresh .backup copy; immutable=1 "
                              "would ignore it and read a stale file; take a fresh .backup copy")
@@ -155,7 +160,7 @@ def read_copy(db: str) -> tuple[dict, str]:
         raise mp.GateRefused(f"--db {db}: cannot be read as the schema the probe needs ({type(err).__name__}: {why})")
     finally:
         con.close()
-    sides = intl_shadow.copy_sidecars(path)          # one appearing during the read can hold pages immutable ignored
+    sides = _sidecars(intl_shadow, mp, path, db)     # one appearing during the read can hold pages immutable ignored
     if sides:
         raise mp.GateRefused(f"--db {db}: {', '.join(sides)} appeared beside the copy during the read; take a fresh "
                              ".backup copy")
@@ -163,6 +168,23 @@ def read_copy(db: str) -> tuple[dict, str]:
     text = (f"--db {path} (a .backup copy, opened {mp.COPY_URI_QUERY.lstrip('?')}): NCAA competition id {comp_id}, "
             f"{n_rows} stored matches, {len(holders)} provider ids held, {len(teams)} team provider ids")
     return look, text
+
+
+def _sidecars(intl_shadow, mp, path, db) -> list[str]:
+    """intl_shadow.copy_sidecars, its OSError (other than "no such file", e.g. ENAMETOOLONG on a long copy name) worded
+    as this probe's refusal, as its docstring asks each caller to do: never a traceback, never read as absent."""
+    try:
+        return intl_shadow.copy_sidecars(path)
+    except OSError as e:
+        raise mp.GateRefused(f"--db {db}: cannot check for a -wal, -shm or -journal beside the copy "
+                             f"({e.strerror or e})") from None
+
+
+def season_year(season) -> int | None:
+    """The leading four-digit year of a stored season string, as service.season_year reads it (its pattern, not its
+    import: the probe loads no sync code). "2026" and "2026/27" read 2026; "20261", "" and None read unknown."""
+    m = _SEASON_YEAR.match(str(season).strip()) if season is not None else None
+    return int(m.group(1)) if m else None
 
 
 def _ext(raw) -> dict:
@@ -226,7 +248,8 @@ def our_side(f: dict, look: dict | None) -> list[str]:
         return out
     held = look["holders"].get(str(f["id"]), [])
     for m in held:
-        other = "" if str(m["season"]).split("/")[0].strip()[:4] == str(SEASON) else ", another season"
+        sy = season_year(m["season"])
+        other = "" if sy == SEASON else (", season unknown" if sy is None else ", another season")
         out.append(f"stored as match {m['id']} (season {m['season']}{other}, {m['status']}, {m['utc_date']})")
     if not held:
         back = look["prev"].get(str(f["id"]), [])
@@ -263,12 +286,43 @@ def counted_requests():
         requests.get = real
 
 
+class _ArgError(Exception):
+    pass
+
+
+class _Parser(argparse.ArgumentParser):
+    """A command-line error is a refusal like any other: printed with the call count (0), exit 2, no usage dump."""
+
+    def error(self, message):
+        raise _ArgError(message)
+
+
+def redactor(name: str | None, env=None):
+    """A function that replaces the key's value, raw and as repr shows it, with its variable's name (414 item 3(c): the
+    key by NAME only, in an exception's text too: requests puts a malformed header value in InvalidHeader's message)."""
+    env = os.environ if env is None else env
+    value = env.get(name) if name else None
+    if not value:
+        return lambda s: s
+    forms = sorted({value, value.strip(), repr(value)[1:-1], repr(value.encode())[2:-1]} - {""}, key=len, reverse=True)
+
+    def red(s: str) -> str:
+        for v in forms:
+            s = s.replace(v, f"<{name}>")
+        return s
+    return red
+
+
 def main(argv=None, echo=print) -> int:
-    ap = argparse.ArgumentParser(description="414 item 3: the provider's raw NCAA listing for given dates, read-only")
+    ap = _Parser(description="414 item 3: the provider's raw NCAA listing for given dates, read-only")
     ap.add_argument("--date", action="append", help="YYYY-MM-DD; repeat for each date, at most seven a run")
     ap.add_argument("--db", default=None, help="an optional .backup copy outside the repo's data/, opened "
                                                "mode=ro&immutable=1")
-    a = ap.parse_args(argv)
+    try:
+        a = ap.parse_args(argv)
+    except _ArgError as err:
+        echo(f"{TAG} REFUSED: {err}; provider calls made: 0")
+        return REFUSED
     dates, why = parse_dates(a.date)
     if why:
         echo(f"{TAG} REFUSED: {why}; provider calls made: 0")
@@ -297,14 +351,15 @@ def main(argv=None, echo=print) -> int:
          f"_get retries once on a 429); key: {name} (by name)")
     echo(db_text)
     adapter = APIAmericanFootballAdapter()
-    code, read = OK, 0
+    red = redactor(name)
+    code, read, failed = OK, 0, 0
     with counted_requests() as box:
         for d in dates:
             params = {"league": league, "season": SEASON, "date": d}
             try:
                 data = adapter._get("games", params)
             except Exception as err:                 # noqa: BLE001 - any provider failure: print and stop
-                echo(f"DATE {d}: PROVIDER ERROR: {type(err).__name__}: {err}; no later date is called")
+                echo(red(f"DATE {d}: PROVIDER ERROR: {type(err).__name__}: {err}; no later date is called"))
                 code = PROVIDER_ERROR
                 break
             read += 1
@@ -313,10 +368,27 @@ def main(argv=None, echo=print) -> int:
             echo(f"DATE {d}: GET games league={league} season={SEASON} date={d}: results={data.get('results')!r} "
                  f"paging={data.get('paging')!r} rows={len(rows)}")
             for g in rows:
-                f = raw_fields(g)
-                echo(row_line(f, our_side(f, look)))
+                try:
+                    f = raw_fields(g)
+                except Exception as err:             # noqa: BLE001 - a row this probe cannot read: shown, not lost
+                    failed += 1
+                    echo(red(f"  row unreadable ({type(err).__name__}: {err}): {g!r}"))
+                    continue
+                try:
+                    verdict = our_side(f, look)
+                except Exception as err:             # noqa: BLE001 - the row is printed; its verdict names the failure
+                    failed += 1
+                    verdict = [f"VERDICT FAILED ({type(err).__name__}: {err}); the sync's own parse may raise on this row"]
+                echo(red(row_line(f, verdict)))
+    if failed and code == OK:
+        code = PROVIDER_ERROR
+    tail = []
+    if failed:
+        tail.append(f"{failed} row(s) whose verdict failed, each printed on its line")
+    if code != OK:
+        tail.append("exit 1 (" + ("a provider error" if read < len(dates) else "a row verdict failed") + ")")
     echo(f"{TAG}: dates read {read} of {len(dates)}; provider calls made: {box['n']} HTTP GET(s)"
-         + ("" if code == OK else "; exit 1 (a provider error)"))
+         + "".join(f"; {x}" for x in tail))
     return code
 
 

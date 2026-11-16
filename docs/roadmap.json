@@ -527,6 +527,21 @@
           "what": "the STALE_BOOK_H NFL re-read as already dated, and the written declaration or no on any sourced feed",
           "owner": "architect",
           "due": "2026-11-16",
+          "done": {
+            "date": "2026-11-16",
+            "receipt": "addendum 415"
+          }
+        },
+        {
+          "what": "the quarterback agreement receipt, read-only, on the availability record: for every 2026 NFL game that kicked off after the feed's first load on our clock, the depth chart's first quarterback as of 24 h before kickoff and as of kickoff, each beside the game's starter read post hoc (the most pass attempts, the QB probe's rule), with the counts of agree, differ and no row; and the same two reads on nflverse's own load times for the 2025 season, labelled as the source's clock. It prints counts and judges nothing; no threshold exists and none is to be suggested",
+          "owner": "code",
+          "due": "2026-12-15",
+          "done": null
+        },
+        {
+          "what": "my ruling on that receipt: the quarterback term written into the 2027 candidate's declaration as a named input with its as-of rule, or a written no",
+          "owner": "architect",
+          "due": "2027-02-16",
           "done": null
         }
       ],

@@ -955,23 +955,35 @@ def test_the_real_roadmap_records_the_quarterback_probe_done():
     """Addendum 62 item 4: lane nfl-qb, its first step, done on 2026-10-13, receipt "PR #489 merged at 7e6e88c".
     Addendum 157 item 10: the operator's run is done on 2026-10-23, its receipt the Summary lines on #427. No date
     moves; the print reads the lane's next step as the architect's ruling, due 2026-11-02. Addendum 209 marks that step done
-    and appends the 11-13 and 11-16 steps."""
+    and appends the 11-13 and 11-16 steps. Addendum 415 item 4 marks the 11-16 step done and appends the 2026-12-15 and
+    2027-02-16 steps."""
     lane = _lane(_real(), "nfl-qb")
     assert lane["steps"][0]["done"] == {"date": "2026-10-13", "receipt": "PR #489 merged at 7e6e88c"}
     assert lane["steps"][1]["done"]["date"] == "2026-10-23" and "#427" in lane["steps"][1]["done"]["receipt"]
     # ARCHITECT 2026-11-02 08:30 ET, addendum 209 item 4: the 11-02 step done with the written no ("addendum 209");
     # two steps appended, 11-13 (operator, the sourcing decision) and 11-16 (architect); no date moves.
     assert lane["steps"][2]["done"] == {"date": "2026-11-02", "receipt": "addendum 209"}
+    # ARCHITECT 2026-11-16 12:55 ET, addendum 415 item 4: the 11-16 step done ("addendum 415"); two steps appended,
+    # 2026-12-15 (code, the quarterback agreement receipt) and 2027-02-16 (architect, the ruling on it); no date moves.
     assert [st["due"] for st in lane["steps"]] == ["2026-10-21", "2026-10-23", "2026-11-02", "2026-11-13",
-                                                  "2026-11-16"] and lane["moved"] == []
-    assert [st["owner"] for st in lane["steps"][3:]] == ["operator", "architect"]
+                                                  "2026-11-16", "2026-12-15", "2027-02-16"] and lane["moved"] == []
+    assert [st["owner"] for st in lane["steps"][3:]] == ["operator", "architect", "code", "architect"]
     # ARCHITECT 2026-11-13 16:40 ET, addendum 375 item 3(b): "lane nfl-qb: the 11-13 sourcing step done on item 1(vi);
-    # the 11-16 step stands." The next step is the architect's 11-16.
+    # the 11-16 step stands."
     assert lane["steps"][3]["done"]["date"] == "2026-11-13" and "addendum 375 item 1(vi)" in lane["steps"][3]["done"]["receipt"]
+    assert lane["steps"][4]["done"] == {"date": "2026-11-16", "receipt": "addendum 415"}
+    assert lane["steps"][5]["what"].startswith("the quarterback agreement receipt, read-only, on the availability record:")
+    assert lane["steps"][5]["what"].endswith("It prints counts and judges nothing; no threshold exists and none is to "
+                                             "be suggested")
+    assert lane["steps"][6]["what"] == ("my ruling on that receipt: the quarterback term written into the 2027 "
+                                        "candidate's declaration as a named input with its as-of rule, or a written no")
+    assert all(st["done"] is None for st in lane["steps"][5:])
+    assert lane["earliest_live"] is None and lane["state"] == "to declare"
+    # The next step is the code step of 12-15.
     nx = rm.next_step(lane)
-    assert nx[0] == 5 and nx[1]["owner"] == "architect" and nx[1]["due"] == "2026-11-16"
-    lines, _ = rm.report(date(2026, 11, 2))
-    assert f"  next: {lane['steps'][4]['what']} · architect · due 2026-11-16 · in 14 days" in lines
+    assert nx[0] == 6 and nx[1]["owner"] == "code" and nx[1]["due"] == "2026-12-15"
+    lines, _ = rm.report(date(2026, 11, 16))
+    assert f"  next: {lane['steps'][5]['what']} · code · due 2026-12-15 · in 29 days" in lines
 
 
 def test_a_done_milestone_prints_done_and_is_never_overdue(tmp_path, monkeypatch):

@@ -19,7 +19,10 @@
           "what": "the 60th cohort fixture (41643, kickoff 2026-11-11T21:00Z) is played",
           "owner": "calendar",
           "due": "2026-11-16",
-          "done": null
+          "done": {
+            "date": "2026-11-16",
+            "receipt": "addendum 422 item 3 (the host's unl_shadow of 2026-11-17T07:20Z): written by intl-daily on 482de3fd (v1.6.9), it reads \"PASS — confirmation 60/60\"; the 60th cohort fixture (41643) played and counted. The kickoff first scheduled was 2026-11-11T21:00Z (this step's text, not edited); the game was played 2026-11-16T20:00Z (ARCHITECT 2026-11-17 05:56 ET)"
+          }
         },
         {
           "what": "the confirmation record, by the architect's block on the laptop from the host's pulled copy (addendum 346)",

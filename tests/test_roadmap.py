@@ -65,7 +65,7 @@ def test_the_print_on_the_ruled_day_lists_each_lane_in_order_with_its_next_step(
     i = lines.index(next(h for h in heads if h.startswith(first["title"])))
     assert lines[i] == (f"{first['title']} · #{first['issue']} · {first['state']} · earliest live "
                         f"{first['earliest_live'] or 'not set'} · vs close: {first['vs_close']}")
-    nxt = first["steps"][0]
+    nxt = next(st for st in first["steps"] if st["done"] is None)     # the first step not done (addendum 422 item 3 done-marked unl's first)
     days = (date.fromisoformat(nxt["due"]) - date(2026, 10, 13)).days     # read from the file: its dates move by ruling
     assert lines[i + 1] == f"  next: {nxt['what']} · {nxt['owner']} · due {nxt['due']} · in {days} days"
     # done since addendum 168 item 5 (the H2 cutover, 2026-10-26 13:45:11Z): the line says done whatever the day

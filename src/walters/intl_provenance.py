@@ -90,7 +90,7 @@ def receipt(s, export_dirs) -> dict:
     mu = sum(g.hg + g.ag for g in train) / (2 * len(train)) if train else None
     calls = sh.calls_from_files(files, label=lambda f: str(f))
 
-    snapshot, changed, missing, moved = [], [], [], []
+    snapshot, changed, missing, moved, reingested = [], [], [], [], []
     for mid in ids:
         mv = stored.get(mid)
         v = venue.get(mid)
@@ -111,18 +111,21 @@ def receipt(s, export_dirs) -> dict:
             missing.append(mid)
         if v is not None and row["flag"] != row["provider_flag"]:
             moved.append(mid)
-        if c is not None and mv is not None and (
-                row["saved_flag"] != row["flag"]
-                or (row["flag_at"] and row["exported_at"] and row["flag_at"] > row["exported_at"])):
-            changed.append(row)
+        if c is not None and mv is not None:
+            if row["saved_flag"] != row["flag"]:        # 159 item 2: "whose stored flag changed after" the file
+                changed.append(row)
+            elif row["flag_at"] and row["exported_at"] and row["flag_at"] > row["exported_at"]:
+                reingested.append(mid)                  # the row re-derived after the file, its flag unchanged
+
     for row in changed:
         p = c_saved = None
         if mu is not None and row["exported_at"] is not None:
             model = ie.IntlElo(mu=mu, c_mult=c_mult, k_mult=k_mult)
-            for g in games:
+            for g in games:                             # the stream as the file's run could have walked it
                 if g.kickoff >= row["exported_at"]:
                     break
-                model.update(g)
+                if g.id != row["id"]:                   # never the fixture's own result before it is priced
+                    model.update(g)
             p = model.probs(ie.Game(row["id"], row["code"], row["season"], row["kickoff"], row["home"], row["away"],
                                     0, 0, row["flag"]))
             pr = calls[row["id"]].get("prediction") or {}
@@ -135,7 +138,8 @@ def receipt(s, export_dirs) -> dict:
     return {"cohort_state": co["state"], "n_games": co["n_games"], "n_cohort": len(ids), "snapshot": snapshot,
             "mu": mu, "c_mult": c_mult, "k_mult": k_mult, "changed": changed, "material": material,
             "max_diff": max((r["diff"] for r in changed if r["diff"] is not None), default=None),
-            "missing": missing, "moved_by_override": moved, "files": len(files), "folders": folders}
+            "missing": missing, "moved_by_override": moved, "reingested": reingested, "files": len(files),
+            "folders": folders}
 
 
 def lines(r: dict) -> list[str]:
@@ -174,6 +178,9 @@ def lines(r: dict) -> list[str]:
                  + (f" · ingested {x['flag_at']:%Y-%m-%d %H:%M}Z" if x["flag_at"] else "")
                  + (f" · replayed {rp[0]:.4f}/{rp[1]:.4f}/{rp[2]:.4f} vs saved {sv[0]}/{sv[1]}/{sv[2]} · |diff| "
                     f"{x['diff']:.6f}" if rp is not None and x["diff"] is not None else " · not replayed"))
+    if r["reingested"]:
+        L.append(f"  re-derived after the pre-kickoff file, flag unchanged (not a change; not replayed): "
+                 f"{len(r['reingested'])} — " + ", ".join(map(str, r["reingested"])))
     if r["missing"]:
         L.append(f"  MISSING shadow files ({len(r['missing'])}): " + ", ".join(map(str, r["missing"])))
     if r["material"]:

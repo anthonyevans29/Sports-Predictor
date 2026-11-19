@@ -271,3 +271,49 @@ def test_the_command_on_a_copy_and_on_the_store_writes_nothing(world, tmp_path):
     assert us.copy_sha256(copy) == sha_copy and us.copy_sha256(f) == sha_store
     out = CliRunner().invoke(cli, ["unl-provenance-receipt", "--export-dir", str(host / "latest")])
     assert out.exit_code == 2 and out.output.startswith(f"REFUSED: --export-dir {host / 'latest'}: a latest/ folder")
+
+
+def _touch_row(mid, derived_at, rule=None):
+    from src.db.database import session_scope
+    from src.db.schema import IntlMatchVenue
+    with session_scope() as s:
+        v = s.get(IntlMatchVenue, mid)
+        v.derived_at = derived_at
+        if rule is not None:
+            v.rule = rule
+
+
+def test_a_row_re_derived_after_its_file_with_the_flag_unchanged_is_not_a_change(world, tmp_path):
+    """159 item 2: "the fixtures whose stored flag changed after their pre-kickoff shadow file was written". The ingest
+    and --apply move derived_at on a rule-only change too (PR ONE); such a row is said apart, never replayed, never sent
+    to the architect (my review of PR TWO, P2)."""
+    ids, _ = world
+    laptop, host = _exports(tmp_path, ids)
+    _touch_row(ids["c2"], datetime(2096, 2, 10), rule=R + " · re-derived")     # c2's file priced home; still home
+    from src.db.database import readonly_scope
+    with readonly_scope() as s:
+        r = ip.receipt(s, [str(laptop), str(host)])
+    assert [x["id"] for x in r["changed"]] == [ids["c1"]] and r["reingested"] == [ids["c2"]]
+    text = "\n".join(ip.lines(r))
+    assert (f"re-derived after the pre-kickoff file, flag unchanged (not a change; not replayed): 1 — {ids['c2']}"
+            in text)
+    assert "CHANGED AFTER THE PRE-KICKOFF FILE: 1 " in text and "TO THE ARCHITECT: 1 material" in text
+
+
+def test_the_replay_never_walks_the_fixtures_own_result_before_pricing_it(world, tmp_path):
+    """A stored kickoff moved before the file's exported_at (the file kept the old time): the replay walks the stream
+    before the file, never the fixture's own game (my review of PR TWO, P2)."""
+    from src.db.database import readonly_scope, session_scope
+    from src.db.schema import Match
+    ids, _ = world
+    laptop, host = _exports(tmp_path, ids)
+    with session_scope() as s:
+        s.get(Match, ids["c1"]).utc_date = datetime(2096, 2, 1, 6)             # before the file's 09:00
+    with readonly_scope() as s:
+        before = ip.receipt(s, [str(laptop), str(host)])["changed"][0]["replayed"]
+    with session_scope() as s:
+        m = s.get(Match, ids["c1"])
+        m.home_score, m.away_score = 0, 3                                       # its own result, reversed
+    with readonly_scope() as s:
+        after = ip.receipt(s, [str(laptop), str(host)])["changed"][0]["replayed"]
+    assert before == after

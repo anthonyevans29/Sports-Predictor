@@ -24,7 +24,11 @@ keyed by venue id, with the evidence line and the ruling date, applied by the ve
 (never a hand edit of rows; the override is code, reviewed, and the re-derivation is receipted per row changed)"):
 VENUE_COUNTRY_OVERRIDES below, one entry per venue id, each with its country, its ruling, its ruling date and its
 evidence line. derive() is the one derivation: sync() (the daily ingest on the host, chain intl-daily) and rederive()
-(`intl-venue-override`) both call it, so no run after the tag can put the provider's flag back on a row it touches.
+(`intl-venue-override`) both call it. The FIRST change of a stored row's flag is the receipted, guarded
+`intl-venue-override --apply`'s alone (160 item 2: "the re-derivation is receipted per row changed"; 160 item 3's stop;
+426 item 5(b): "--apply only by my block on the host after the tag"): until a stored row carries the override's rule,
+sync() derives it as main did and counts it `override_pending_apply`; once --apply has written it, sync() keeps it, so
+no daily run puts the provider's flag back. A row the ingest creates is derived under the override at once.
 The stored venue_country stays the provider's ("law 4 kept: the stored value is the provider's; the correction is
 explicit and keyed"); the row's `rule` names the override it was derived under, so the flag from the provider's country
 alone stays computable (provider_flag) for the read reported both ways (160 item 3; 161 item 2). resolve() and
@@ -90,6 +94,14 @@ def derive(vid, venue_country, home_country) -> tuple[bool | None, str]:
         flag = None if o["country"] is None else provider_flag(o["country"], home_country)
         return flag, f"{NEUTRAL_V3_RULE} · {override_note(vid)}"
     return provider_flag(venue_country, home_country), NEUTRAL_V3_RULE
+
+
+def _pending_apply(vid, stored_rule: str | None, derived_rule: str) -> bool:
+    """A STORED row whose derivation the override table changes and that `intl-venue-override --apply` has not yet
+    re-derived: its venue is in the table, or its stored rule names an override (a lapsed or replaced entry), and its
+    stored rule is not the one derive() gives now. sync() leaves its flag to the receipted --apply."""
+    at_override = (vid is not None and vid in VENUE_COUNTRY_OVERRIDES) or OVERRIDE_TAG in (stored_rule or "")
+    return at_override and stored_rule != derived_rule
 
 
 def _slug(country: str) -> str:
@@ -176,9 +188,20 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
             vc = venue_country.get(vid) if vid is not None else None
             flag, rule = derive(vid, vc, hc)                 # addendum 160 item 2: the keyed override, if any
             r = s.get(IntlMatchVenue, mid)
-            if r is None:
-                r = IntlMatchVenue(match_id=mid, rule=rule)
-            elif (r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule) != (vid, vc, hc, flag, rule):
+            existing = r is not None
+            if not existing:
+                r = IntlMatchVenue(match_id=mid, rule=rule)      # a new row: no stored flag to move
+            elif _pending_apply(vid, r.rule, rule):
+                # A stored row the override would move, not yet re-derived by `intl-venue-override --apply`: the
+                # first change of a stored flag is the receipted, guarded --apply's alone (160 item 2: "the
+                # re-derivation is receipted per row changed"; 160 item 3's stop; 426 item 5(b): "--apply only by my
+                # block on the host after the tag"). Until then the daily run derives it as main did (the provider's
+                # country), or, for a row already under another or a lapsed override, keeps its flag and rule.
+                flag, rule = ((provider_flag(vc, hc), NEUTRAL_V3_RULE) if OVERRIDE_TAG not in (r.rule or "")
+                              else (r.neutral_v3, r.rule))
+                out["override_pending_apply"] += 1
+            if existing and (r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule) != (
+                    vid, vc, hc, flag, rule):
                 r.derived_at = utc_now_naive()               # the flag's ingest time moves only when the row does
             r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule = vid, vc, hc, flag, rule
             s.add(r)
@@ -234,13 +257,24 @@ def rederive(apply: bool = False, cohort_ids: set[int] | None = None, s=None) ->
                               "nothing written")
     if s is not None:
         return _rederive(s, False, cohort_ids)
-    from src.db.database import session_scope
-    with session_scope() as s2:
-        try:
-            return _rederive(s2, apply, cohort_ids)
-        except BaseException:
-            s2.rollback()
-            raise
+    from sqlalchemy.exc import DBAPIError
+
+    from src.db import database as dbm
+    try:
+        if not apply:                                    # the dry run reads mode=ro: nothing created, nothing written
+            with dbm.readonly_scope() as s2:
+                return _rederive(s2, False, cohort_ids)
+        dbm._readonly_engine().dispose()                 # --apply: the app's database file must exist (never created)
+        with dbm.session_scope() as s2:
+            try:
+                return _rederive(s2, True, cohort_ids)
+            except BaseException:
+                s2.rollback()
+                raise
+    except dbm.ReadOnlyRefused as e:
+        raise OverrideRefused(f"{str(e).removeprefix('REFUSED: ')}; nothing read, nothing written") from None
+    except DBAPIError as e:
+        raise OverrideRefused(f"the app's database could not be read ({e.orig!r}); nothing written") from None
 
 
 def _rederive(s, apply: bool, cohort_ids: set[int] | None) -> dict:

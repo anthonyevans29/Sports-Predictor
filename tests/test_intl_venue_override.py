@@ -12,13 +12,16 @@ Pins, each on a throwaway DB of its own (the app's engine pointed at it):
 - derive(): Andorra at home at 2618 is home; at 3989 Spain's own game is home, Ukraine's and Finland's are neutral (428
   item 2(c)'s two changes); any other venue keeps the provider's country; the stored venue_country stays the provider's
   and the rule names the override;
-- the one derivation: sync() (the host's daily ingest) and rederive() give the same flag, so a daily run after the tag
-  never puts the provider's flag back; derived_at moves only when a row does;
+- the one derivation: sync() (the host's daily ingest) and rederive() both call derive(); the FIRST change of a stored
+  flag is --apply's alone (a daily run before it leaves the row as main derives it, counted override_pending_apply, and
+  the dry run still receipts it with the stop), and after --apply the daily run never puts the provider's flag back; a
+  new row is derived under the override at once; derived_at moves only when a row does;
 - the re-derivation: a dry run writes nothing; --apply writes; a second run changes nothing; the receipt lists every
   changed row with its flag before and after, by competition-season, the cohort fixtures named; STOP above two, and
   --apply refused then (and when the cohort cannot be read), nothing written; a lapsed override reverts;
 - resolve() and intl_venue_resolved are untouched (429 item 1(d));
 - the command: --db reads a .backup copy under 346's fence and leaves it byte for byte; --apply with --db is refused;
+  the dry run reads the app's database mode=ro, and a missing database is refused, never created (dry run or --apply);
   --provider-check asks the provider by id and reads no database."""
 import inspect
 import json
@@ -215,32 +218,104 @@ def _sync_world(tmp_path, venue_files: dict, fixtures: list):
     return str(save), str(vd)
 
 
-def test_sync_applies_the_override_and_agrees_with_rederive_so_the_daily_run_never_puts_the_flag_back(fresh_db,
-                                                                                                        tmp_path):
-    ids = _world([("and", "Andorra", "Spain", None, None, None, "v3"),
-                  ("esp", "Spain", "Andorra", None, None, None, "v3"),
-                  ("esp3989", "Spain", "Iceland", None, None, None, "v3"),
-                  ("ukr3989", "Ukraine", "Iceland", None, None, None, "v3")])
-    # the shape the code reads on the host (#276, 428 item 2(e)): one dictionary across the saved country answers,
-    # the later country (alphabetically) writing last
-    save, vd = _sync_world(tmp_path,
-                           {"Andorra": [], "Iceland": [],
-                            "Spain": [{"id": 2618, "country": "Spain"}, {"id": 501, "country": "Spain"},
-                                      {"id": 3989, "country": "Spain"}],
-                            "Ukraine": [{"id": 3989, "country": "Ukraine"}]},
-                           [(880_000, 2618), (880_001, 501), (880_002, 3989), (880_003, 3989)])
+def _new_match(home, away, i):
+    """A stored match with NO intl_match_venue row yet (the ingest creates it)."""
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, MatchStatus, Sport, Team
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.code == "UNL")).scalars().first()
+        teams = {t.area: t for t in s.execute(select(Team)).scalars()}
+        for area in (home, away):
+            if area not in teams:
+                teams[area] = Team(sport=Sport.SOCCER, name=area, area=area)
+                s.add(teams[area])
+        s.flush()
+        m = Match(sport=Sport.SOCCER, competition_id=comp.id, season="2026/27", utc_date=datetime(2026, 11, 1 + i, 18),
+                  status=MatchStatus.SCHEDULED, home_team_id=teams[home].id, away_team_id=teams[away].id,
+                  external_ids={"api_football": str(890_000 + i)})
+        s.add(m)
+        s.flush()
+        return m.id
+
+
+# the shape the code reads on the host (#276, 428 item 2(e)): one dictionary across the saved country answers, the
+# later country (alphabetically) writing last; venue 501 is an ordinary Spanish ground
+HOST_ANSWERS = {"Andorra": [], "Iceland": [],
+                "Spain": [{"id": 2618, "country": "Spain"}, {"id": 501, "country": "Spain"},
+                          {"id": 3989, "country": "Spain"}],
+                "Ukraine": [{"id": 3989, "country": "Ukraine"}]}
+
+
+def test_the_daily_sync_never_moves_a_stored_flag_before_apply_and_never_puts_it_back_after(fresh_db, tmp_path):
+    """160 item 2 ("the re-derivation is receipted per row changed"), 160 item 3 (the stop) and 426 item 5(b)
+    ("--apply only by my block on the host after the tag") with 429 item 1(d) (the override inside sync(), derive()
+    the one derivation): the host's daily intl-venue-sync, running before the architect's --apply, leaves every STORED
+    row the override would move as main derives it, counted "override_pending_apply"; the receipted dry run still
+    lists them, cohort fixtures named and the stop said; once --apply has written them, the daily run keeps them."""
+    rows = [("and", "Andorra", "Spain", 2618, "Spain", True, R),
+            ("esp", "Spain", "Andorra", 501, "Spain", False, R),
+            ("esp3989", "Spain", "Iceland", 3989, "Ukraine", True, R),
+            ("ukr3989", "Ukraine", "Iceland", 3989, "Ukraine", False, R)]
+    ids = _world(rows)
+    save, vd = _sync_world(tmp_path, HOST_ANSWERS, [(880_000 + i, r[3]) for i, r in enumerate(rows)])
+    before, stamp0 = _v3(ids), _stamps(ids)
     r = iv.sync(save, venues_dir=vd)
-    assert r["calls"] == 0 and r["neutral_v3"]["venue_country_override"] == 3
-    got = _v3(ids)
-    assert got["and"][0] is False and got["and"][1] == "Spain" and iv.OVERRIDE_TAG in got["and"][2]
-    assert got["esp"] == (False, "Spain", R)
-    assert got["esp3989"][0] is False and got["esp3989"][1] == "Ukraine"     # stored as served; derived as ruled
-    assert got["ukr3989"][0] is True and got["ukr3989"][1] == "Ukraine"     # Ukraine's game there: neutral
-    stamp = _stamps(ids)
-    re = iv.rederive(apply=False, cohort_ids=set())                            # the one derivation: nothing to change
+    assert r["calls"] == 0 and r["neutral_v3"]["override_pending_apply"] == 3
+    assert "venue_country_override" not in r["neutral_v3"]
+    assert _v3(ids) == before and _stamps(ids) == stamp0                     # nothing moved before --apply
+    cohort = {ids["and"], ids["esp3989"], ids["ukr3989"]}
+    dry = iv.rederive(apply=False, cohort_ids=cohort)
+    assert len(dry["flag_changed"]) == 3 and dry["cohort_moving"] == 3      # still receipted, the stop still said
+    assert "STOP: 3 cohort fixtures move" in "\n".join(iv.rederive_lines(dry))
+    with pytest.raises(iv.OverrideRefused):
+        iv.rederive(apply=True, cohort_ids=cohort)
+    assert _v3(ids) == before
+
+    done = iv.rederive(apply=True, cohort_ids=set())                         # the architect's block
+    assert done["applied"] is True and len(done["flag_changed"]) == 3
+    got, stamp1 = _v3(ids), _stamps(ids)
+    assert got["and"][0] is False and got["esp3989"][0] is False and got["ukr3989"][0] is True
+    assert got["esp3989"][1] == "Ukraine"                                    # stored as served; derived as ruled
+    assert got["esp"] == before["esp"]
+    r = iv.sync(save, venues_dir=vd)                                         # the next morning's run
+    assert r["neutral_v3"]["venue_country_override"] == 3 and "override_pending_apply" not in r["neutral_v3"]
+    assert _v3(ids) == got and _stamps(ids) == stamp1                        # nothing put back, derived_at kept
+    re = iv.rederive(apply=False, cohort_ids=set())                          # the one derivation: nothing to change
     assert re["flag_changed"] == [] and re["rule_only"] == 0 and re["unchanged"] == 3
-    iv.sync(save, venues_dir=vd)                                               # the next morning's run
-    assert _v3(ids) == got and _stamps(ids) == stamp                           # nothing moved, derived_at kept
+
+
+def test_the_daily_sync_derives_a_new_row_at_an_overridden_venue_as_ruled(fresh_db, tmp_path):
+    """A new row has no stored flag to move: the ingest derives it under the override at once (a fixture first stored
+    after the tag; every cohort fixture already has its row, 427 item 2(a))."""
+    ids = _world([("old", "Andorra", "Latvia", 2618, "Spain", True, R),
+                  ("esp", "Spain", "Andorra", 501, "Spain", False, R)])    # Spain at home: Spain's answer is read
+    new = _new_match("Andorra", "Malta", 0)
+    save, vd = _sync_world(tmp_path, HOST_ANSWERS, [(880_000, 2618), (880_001, 501), (890_000, 2618)])
+    r = iv.sync(save, venues_dir=vd)
+    assert r["neutral_v3"]["override_pending_apply"] == 1 and r["neutral_v3"]["venue_country_override"] == 1
+    got = _v3({**ids, "new": new})
+    assert got["old"] == (True, "Spain", R)                                  # stored: pending --apply
+    assert got["new"][0] is False and got["new"][1] == "Spain" and iv.OVERRIDE_TAG in got["new"][2]
+
+
+def test_a_dry_run_or_apply_on_a_missing_database_refuses_and_creates_nothing(tmp_path, monkeypatch):
+    """The dry run reads mode=ro (readonly_scope, #706): a missing file is refused, never created (law 5; the
+    2026-10-06 incident); --apply checks the file before it opens a writer."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+    missing = tmp_path / "sub" / "sports.db"
+    eng = create_engine(f"sqlite:///{missing}", future=True)
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True))
+    for apply in (False, True):
+        with pytest.raises(iv.OverrideRefused, match="no DB file at .* never creates one; nothing read, nothing "
+                                                     "written"):
+            iv.rederive(apply=apply, cohort_ids=set())
+    out = _run([])
+    assert out.exit_code == 2 and out.output.startswith("REFUSED: no DB file at")
+    assert not missing.exists() and not missing.parent.exists()
 
 
 def test_sync_moves_derived_at_only_when_the_row_changes(fresh_db, tmp_path):

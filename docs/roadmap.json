@@ -19,16 +19,19 @@
           "what": "the 60th cohort fixture (41643, kickoff 2026-11-11T21:00Z) is played",
           "owner": "calendar",
           "due": "2026-11-16",
-          "done": null
+          "done": {
+            "date": "2026-11-16",
+            "receipt": "addendum 422 item 3 (the host's unl_shadow of 2026-11-17T07:20Z): written by intl-daily on 482de3fd (v1.6.9), it reads \"PASS — confirmation 60/60\"; the 60th cohort fixture (41643) played and counted. The kickoff first scheduled was 2026-11-11T21:00Z (this step's text, not edited); the game was played 2026-11-16T20:00Z (ARCHITECT 2026-11-17 05:56 ET)"
+          }
         },
         {
           "what": "the confirmation record, by the architect's block on the laptop from the host's pulled copy (addendum 346)",
           "owner": "operator",
-          "due": "2026-11-19",
+          "due": "2026-12-01",
           "done": null
         }
       ],
-      "earliest_live": "2026-11-19",
+      "earliest_live": "2026-12-01",
       "live_needs": "CONFIRMED, computed by the registry on the cohort of record. Then the INTL Desk policy v0 as built (#325): half units until 30 INTL calls are graded, UNL only.",
       "vs_close": "not read",
       "moved": [
@@ -71,6 +74,22 @@
           "now": "2026-11-19",
           "why": "the record is an operator step by the architect's block on the laptop (346), and the operator travels on 2026-11-17 and 2026-11-18 (his word, 2026-11-16 09:10 ET: 'let's do it Thursday'); the 60th cohort fixture (41643, Cuba v Grenada) kicks off 2026-11-16T20:00Z as moved by 347; the frozen cohort, the bar and the read are untouched, and nothing is run before 60 of 60 are labelled",
           "ruling": "ARCHITECT 2026-11-16, addendum 406 item 1 (MOVED LINE, lane unl; two dates, two lines; the fixture step keeps 2026-11-16)"
+        },
+        {
+          "moved_on": "2026-11-19",
+          "which": "the confirmation record, by the architect's block on the laptop from the host's pulled copy (addendum 346)",
+          "was": "2026-11-19",
+          "now": "2026-12-01",
+          "why": "the verdict and the record stand on the corrected venue flags, with the read reported both ways (addendum 160 item 3; addendum 161 item 2), and neither the keyed venue-country override (160 item 2) nor the both-ways read (159 item 2; #336) is on main: both sit on reference branches of 2026-10-23, never merged, and the record was planned without them (the architect's miss, addendum 426 item 3); the cohort, the plan and the bar untouched",
+          "ruling": "ARCHITECT 2026-11-19 08:36 ET, addendum 426 item 3(e) (MOVED LINE, lane unl; two dates, two lines; the step's wording does not change; the lane's state stays confirming)"
+        },
+        {
+          "moved_on": "2026-11-19",
+          "which": "earliest_live",
+          "was": "2026-11-19",
+          "now": "2026-12-01",
+          "why": "the verdict and the record stand on the corrected venue flags, with the read reported both ways (addendum 160 item 3; addendum 161 item 2), and neither the keyed venue-country override (160 item 2) nor the both-ways read (159 item 2; #336) is on main: both sit on reference branches of 2026-10-23, never merged, and the record was planned without them (the architect's miss, addendum 426 item 3); the cohort, the plan and the bar untouched",
+          "ruling": "ARCHITECT 2026-11-19 08:36 ET, addendum 426 item 3(e) (MOVED LINE, lane unl; two dates, two lines; the step's wording does not change; the lane's state stays confirming)"
         }
       ]
     },
@@ -527,6 +546,21 @@
           "what": "the STALE_BOOK_H NFL re-read as already dated, and the written declaration or no on any sourced feed",
           "owner": "architect",
           "due": "2026-11-16",
+          "done": {
+            "date": "2026-11-16",
+            "receipt": "addendum 415"
+          }
+        },
+        {
+          "what": "the quarterback agreement receipt, read-only, on the availability record: for every 2026 NFL game that kicked off after the feed's first load on our clock, the depth chart's first quarterback as of 24 h before kickoff and as of kickoff, each beside the game's starter read post hoc (the most pass attempts, the QB probe's rule), with the counts of agree, differ and no row; and the same two reads on nflverse's own load times for the 2025 season, labelled as the source's clock. It prints counts and judges nothing; no threshold exists and none is to be suggested",
+          "owner": "code",
+          "due": "2026-12-15",
+          "done": null
+        },
+        {
+          "what": "my ruling on that receipt: the quarterback term written into the 2027 candidate's declaration as a named input with its as-of rule, or a written no",
+          "owner": "architect",
+          "due": "2027-02-16",
           "done": null
         }
       ],

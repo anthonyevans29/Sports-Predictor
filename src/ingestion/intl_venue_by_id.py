@@ -127,7 +127,7 @@ def fetch(vids, out_dir, max_calls: int = DEFAULT_CAP, client=None, plan_only: b
     if plan_only:
         r["not_asked"] = need
         return r
-    if need and client is None:
+    if need and client is None and max_calls > 0:            # a zero cap asks nothing: no provider needed
         try:
             client = _client()
         except ValueError as err:
@@ -150,13 +150,28 @@ def fetch(vids, out_dir, max_calls: int = DEFAULT_CAP, client=None, plan_only: b
             break
         r["calls"] += 1
         try:
-            answer_path(out_dir, v).write_text(json.dumps(payload))   # kept BEFORE it is used (a re-run replays it)
+            _keep(answer_path(out_dir, v), payload)       # kept BEFORE it is used (a re-run replays it)
         except OSError as err:
             r["not_asked"] = need[i:]
             r["stopped"] = f"the answer for venue {v} could not be kept ({err}); it is asked again on a re-run"
             break
         r["answers"][v] = payload
     return r
+
+
+def _keep(path: Path, payload) -> None:
+    """Write one answer atomically: a temporary file beside it, then a rename. A write that fails leaves no file at the
+    answer's path (the temporary one is removed), so a re-run asks the id again and never reads a partial answer."""
+    tmp = path.with_name(path.name + ".part")
+    try:
+        tmp.write_text(json.dumps(payload))
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def _client():

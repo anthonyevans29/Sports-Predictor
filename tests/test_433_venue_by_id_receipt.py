@@ -262,3 +262,38 @@ def test_a_wrong_fixtures_dir_is_refused_before_any_call(world, provider, tmp_pa
         out = _run(["--db", str(copy), "--out-dir", str(tmp_path / "o"), "--fixtures-dir", str(d)])
         assert out.exit_code == 2 and "REFUSED: --fixtures-dir" in out.output, out.output
     assert provider.calls == [] and not (tmp_path / "o").exists()
+
+
+def test_a_zero_cap_asks_nothing_and_needs_no_provider(world, monkeypatch, tmp_path):
+    """Codex on #1057 (P2): --max-calls 0 with ids to ask is an incomplete run (exit 3), never a refusal for want of a
+    provider key; the client is not even constructed."""
+    copy, _ = world
+
+    def no_provider():
+        raise ValueError("API_FOOTBALL_KEY is not set")
+
+    monkeypatch.setattr(vb, "_client", no_provider)
+    out = _run(["--db", str(copy), "--out-dir", str(tmp_path / "z"), "--max-calls", "0"])
+    assert out.exit_code == 3, out.output
+    assert "INCOMPLETE: 5 ids not yet asked" in out.output and "STOPPED: the call cap (0) reached" in out.output
+
+
+def test_a_failed_write_leaves_no_partial_answer(world, provider, monkeypatch, tmp_path):
+    """Codex on #1057 (P2): a write that fails part-way leaves nothing at the answer's path, so a re-run asks again."""
+    copy, _ = world
+    out_dir = tmp_path / "w"
+    real = Path.write_text
+
+    def half_then_fail(self, data, *a, **k):
+        if self.name == "venue_id_9501.json.part":
+            real(self, data[:5], *a, **k)                                      # a partial file on disk, then
+            raise OSError(28, "No space left on device")                       # the disk fills
+        return real(self, data, *a, **k)
+
+    monkeypatch.setattr(Path, "write_text", half_then_fail)
+    out = _run(["--db", str(copy), "--out-dir", str(out_dir)])
+    assert out.exit_code == 3 and "the answer for venue 9501 could not be kept" in out.output
+    assert sorted(p.name for p in out_dir.iterdir()) == ["venue_id_9316.json", "venue_id_9392.json"]
+    monkeypatch.setattr(Path, "write_text", real)
+    again = _run(["--db", str(copy), "--out-dir", str(out_dir)])
+    assert again.exit_code == 0 and "COMPLETE" in again.output                 # 9501 asked again, nothing partial read

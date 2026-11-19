@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import socket
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from click.testing import CliRunner
@@ -571,15 +571,17 @@ def test_a_moved_line_that_does_not_match_the_move_fails(bad):
 
 def test_an_earliest_live_moved_needs_its_line_and_passes_with_it():
     lane = _lane(_real(), "unl")
-    base, head = _base_head(lambda d: _lane(d, "unl").__setitem__("earliest_live", "2026-11-20"))
+    # one day after the file's own date, so the move stays after the last step's due (addendum 426 item 3(e))
+    later = (date.fromisoformat(lane["earliest_live"]) + timedelta(days=1)).isoformat()
+    base, head = _base_head(lambda d: _lane(d, "unl").__setitem__("earliest_live", later))
     assert rm.check_moves(base, head) == [
-        f"lane 'unl': earliest_live {lane['earliest_live']} -> 2026-11-20 has no moved line on the head "
-        f"(which 'earliest_live', was {lane['earliest_live']!r}, now \"2026-11-20\")"]
+        f"lane 'unl': earliest_live {lane['earliest_live']} -> {later} has no moved line on the head "
+        f"(which 'earliest_live', was {lane['earliest_live']!r}, now \"{later}\")"]
 
     def edit(d):
         ln = _lane(d, "unl")
-        ln["moved"].append(_mv("earliest_live", ln["earliest_live"], "2026-11-20"))
-        ln["earliest_live"] = "2026-11-20"
+        ln["moved"].append(_mv("earliest_live", ln["earliest_live"], later))
+        ln["earliest_live"] = later
     base, head = _base_head(edit)
     assert rm.validate(head) == [] and rm.check_moves(base, head) == []
 

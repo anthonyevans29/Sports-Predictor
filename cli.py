@@ -2090,6 +2090,97 @@ def intl_venue_resolve_cmd(save_dir, venues_dir, aliases_path, plan_only, max_ca
     click.echo(f"  RULE: {iv.RESOLVE_RULE}")
 
 
+@cli.command("intl-venue-override")
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5; addendum 346's fence, as intl-elo-confirm "
+                   "--db): the dry run reads the copy, opened mode=ro + immutable=1, never created, refused under "
+                   "data/, as the app's configured database, when missing, or with a -wal/-shm/-journal beside it; "
+                   "its path and sha256 are printed. Never with --apply.")
+@click.option("--apply", "apply_", is_flag=True,
+              help="Write the re-derived neutral_v3 to the app's database (on the host, by the architect's block, "
+                   "after the tag and a .backup). Refused with --db, when the confirmation cohort cannot be read, and "
+                   "when more than two cohort fixtures move. Without it nothing is written: the receipt only.")
+@click.option("--provider-check", is_flag=True,
+              help="Only ask the provider's /venues?id for every overridden venue id (one call each) and print its "
+                   "answer as served, with the keys it serves; saves nothing, reads no database.")
+def intl_venue_override_cmd(db, apply_, provider_check):
+    """VENUE-COUNTRY OVERRIDE (ARCHITECT 2026-10-23, addendum 160 item 2; built from #276 by addenda 426 item 5 and
+    429 item 1): re-derives neutral_v3 for every intl_match_venue row at a venue id in
+    intl_venues.VENUE_COUNTRY_OVERRIDES (2618 -> Andorra, 160 item 2; 3989 -> Spain, 428 item 2(c)), or under an
+    override no longer in the table, from the row's stored venue and home countries (nothing fetched), and prints the
+    receipt: every row whose neutral_v3 changes, with its flag before and after, by competition-season, the
+    confirmation cohort's fixtures among them named (more than two: STOP, to the architect). The stored venue_country
+    stays the provider's; the rule names the override. A DRY RUN unless --apply."""
+    from src.ingestion import intl_venues as iv
+
+    if provider_check:
+        if apply_ or db:
+            click.echo("REFUSED: --provider-check only asks the provider (two calls); run it on its own. Nothing read, "
+                       "nothing written.")
+            raise SystemExit(2)
+        from src.adapters.api_football import APIFootballAdapter
+        try:
+            client = APIFootballAdapter()
+        except ValueError as e:
+            click.echo(f"REFUSED: {e}")
+            raise SystemExit(2)
+        for vid in sorted(iv.VENUE_COUNTRY_OVERRIDES):
+            served = (client._get("venues", {"id": vid}) or {}).get("response") or []
+            keys = sorted({k for v in served for k in v})
+            click.echo(f"PROVIDER /venues?id={vid} (as served, today; nothing saved): "
+                       + ("; ".join(f"id {v.get('id')} · {v.get('name')} · {v.get('city')} · {v.get('country')}"
+                                    for v in served) or "nothing served")
+                       + (f" · keys served: {', '.join(keys)}" if keys else ""))
+        return
+    try:
+        if db is None:
+            r = iv.rederive(apply=apply_)
+        else:
+            if apply_:
+                raise iv.OverrideRefused("--apply writes the app's database and never a copy: --apply with --db is "
+                                         "refused; nothing read, nothing written")
+            from sqlalchemy.exc import DBAPIError as _DBAPIError
+
+            from src.walters import intl_shadow as us
+            from src.walters import mlb_pitchers_gate as _mpg
+            try:
+                copy = us.check_copy(db)
+                try:
+                    sha_before = us.copy_sha256(copy)
+                except OSError as err:
+                    raise iv.OverrideRefused(f"--db {copy}: the copy could not be hashed ({err!r}); nothing read, "
+                                             "nothing written")
+                click.echo(f"--db {copy} · sha256 {sha_before} · a .backup copy, opened "
+                           f"{_mpg.COPY_URI_QUERY.lstrip('?')} (the app's database is not read)")
+                try:
+                    with _mpg.readonly_session(copy) as _s:
+                        r = iv.rederive(s=_s)
+                        try:                                   # only the two checks after the read (#940 item 2)
+                            sha_after = us.copy_sha256(copy)
+                            sides_after = us.copy_sidecars(copy)
+                        except OSError as err:
+                            raise iv.OverrideRefused(f"--db {copy}: the copy could not be re-read after the read "
+                                                     f"({err!r})")
+                except _DBAPIError as err:
+                    raise iv.OverrideRefused(f"--db {copy}: the copy could not be read ({err.orig!r})")
+            except us.ShadowRefused as e:
+                raise iv.OverrideRefused(str(e)) from None
+            if sides_after:
+                raise iv.OverrideRefused(f"--db {copy} changed during the read: {', '.join(sides_after)} appeared "
+                                         "beside it, which immutable=1 ignores; the receipt is not tied to the copy")
+            if sha_after != sha_before:
+                raise iv.OverrideRefused(f"--db {copy} changed during the read (sha256 {sha_before[:16]}… before, "
+                                         f"{sha_after[:16]}… after): the receipt is not tied to the printed copy")
+    except iv.OverrideRefused as e:
+        if e.result is not None:                       # the rows it would have changed, written nowhere
+            for line in iv.rederive_lines(e.result):
+                click.echo(line)
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    for line in iv.rederive_lines(r):
+        click.echo(line)
+
+
 @cli.command("intl-elo-backtest")
 @click.option("--preflight", is_flag=True, help="Data checks only (stream, splits, RULE CHECK); scores nothing, records nothing.")
 @click.option("--candidate", type=click.Choice(["v1", "v2"]), default="v1", show_default=True,

@@ -1,0 +1,8 @@
+## 2026-11-19 (#000: 431-records — addendum 431 recorded: #1054 merge-ready and the day's compare CLEAN; Dev 2's #1055 amended for games still to come)
+- **Records:** addendum 431 verbatim in docs/ledger/entries/2026-11-19-431-records.md.
+  - #1054 is merge-ready at 9a43f48d. The day's compare, laptop against host, is CLEAN: fixtures_NHL identical, 26 rows each.
+  - Dev 2's items, recorded only:
+    - #1055 is confirmed for played games. A stored row whose fixture has not kicked off is derived at once by sync().
+    - #1055 does not merge before v1.6.10 is cut.
+    - The two stored countries' cause is settled by the host's saved answers, and nothing beyond venues 2618 and 3989 enters the record's inputs until declared.
+    - #1036 brings main in once tonight.

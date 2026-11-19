@@ -284,6 +284,39 @@ def test_the_daily_sync_never_moves_a_stored_flag_before_apply_and_never_puts_it
     assert re["flag_changed"] == [] and re["rule_only"] == 0 and re["unchanged"] == 3
 
 
+@pytest.mark.parametrize("change", ["lapsed", "entry_edited", "venue_moved"])
+def test_a_row_apply_wrote_keeps_its_flag_and_rule_through_the_daily_sync_until_the_next_apply(fresh_db, tmp_path,
+                                                                                               monkeypatch, change):
+    """After --apply, a later PR that removes or edits the entry, or the provider moving the fixture off the venue,
+    never lets the daily run put the provider's flag back: the row keeps the flag and rule --apply wrote, counted
+    override_pending_apply, and only the next receipted --apply moves it (the dry run lists it)."""
+    rows = [("and", "Andorra", "Latvia", 2618, "Spain", True, R),
+            ("esp", "Spain", "Andorra", 501, "Spain", False, R)]                # Spain at home: Spain's answer read
+    ids = _world(rows)
+    iv.rederive(apply=True, cohort_ids=set())
+    applied, stamp = _v3(ids)["and"], _stamps(ids)["and"]
+    assert applied[0] is False and iv.OVERRIDE_TAG in applied[2]
+    venue = 2618
+    if change == "lapsed":
+        monkeypatch.setattr(iv, "VENUE_COUNTRY_OVERRIDES", {})
+    elif change == "entry_edited":
+        monkeypatch.setitem(iv.VENUE_COUNTRY_OVERRIDES, 2618, {**iv.VENUE_COUNTRY_OVERRIDES[2618], "ruled": "2027-01-01"})
+    else:
+        venue = 501
+    save, vd = _sync_world(tmp_path, HOST_ANSWERS, [(880_000, venue), (880_001, 501)])
+    r = iv.sync(save, venues_dir=vd)
+    assert r["neutral_v3"]["override_pending_apply"] == 1
+    got = _v3(ids)["and"]
+    assert (got[0], got[2]) == (applied[0], applied[2])                     # the flag and rule --apply wrote
+    dry = iv.rederive(apply=False, cohort_ids=set())
+    assert dry["rows_read"] == 1 and dry["unchanged"] == 0                  # the next --apply receipts it
+    # lapsed: the provider's Spain at 2618 is neutral for Andorra; moved: 501 is a Spanish ground, neutral for Andorra;
+    # edited: the flag stays home and only the rule text changes
+    expect = {"lapsed": True, "entry_edited": False, "venue_moved": True}[change]
+    assert [x["after"] for x in dry["flag_changed"]] == ([] if expect is False else [expect])
+    assert dry["rule_only"] == (1 if expect is False else 0)
+
+
 def test_the_daily_sync_derives_a_new_row_at_an_overridden_venue_as_ruled(fresh_db, tmp_path):
     """A new row has no stored flag to move: the ingest derives it under the override at once (a fixture first stored
     after the tag; every cohort fixture already has its row, 427 item 2(a))."""

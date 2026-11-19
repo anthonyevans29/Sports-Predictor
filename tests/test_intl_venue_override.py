@@ -14,8 +14,9 @@ Pins, each on a throwaway DB of its own (the app's engine pointed at it):
   and the rule names the override;
 - the one derivation: sync() (the host's daily ingest) and rederive() both call derive(); the FIRST change of a stored
   flag is --apply's alone (a daily run before it leaves the row as main derives it, counted override_pending_apply, and
-  the dry run still receipts it with the stop), and after --apply the daily run never puts the provider's flag back; a
-  new row is derived under the override at once; derived_at moves only when a row does;
+  the dry run still receipts it with the stop), and after --apply the daily run never puts the provider's flag back
+  (for a PLAYED fixture, 431 item 2(a)); a fixture still to come, and a new row, are derived under the table at once,
+  counted on a line of their own (431 item 2(c)-(d)); derived_at moves only when a row does;
 - the re-derivation: a dry run writes nothing; --apply writes; a second run changes nothing; the receipt lists every
   changed row with its flag before and after, by competition-season, the cohort fixtures named; STOP above two, and
   --apply refused then (and when the cohort cannot be read), nothing written; a lapsed override reverts;
@@ -315,6 +316,103 @@ def test_a_row_apply_wrote_keeps_its_flag_and_rule_through_the_daily_sync_until_
     expect = {"lapsed": True, "entry_edited": False, "venue_moved": True}[change]
     assert [x["after"] for x in dry["flag_changed"]] == ([] if expect is False else [expect])
     assert dry["rule_only"] == (1 if expect is False else 0)
+
+
+CLOCK = datetime(2026, 11, 19, 12)                      # the run's clock in 431 item 2's tests
+
+
+def _kickoff(mid, when):
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    with session_scope() as s:
+        s.get(Match, mid).utc_date = when
+
+
+def test_431_a_fixture_still_to_come_is_derived_at_once_and_a_played_one_waits_for_apply(fresh_db, tmp_path):
+    """ARCHITECT 2026-11-19, addendum 431 item 2(c): "a stored row whose fixture has NOT kicked off (its stored kickoff
+    after the run's clock) is derived by derive() at once in sync(), as a new row is, whatever its stored rule: no
+    pending, no hand step [...] sync() counts those rows on a line of their own. A row with no stored kickoff is
+    treated as played. For played rows nothing changes". 2(d): the architect's case of (b) (a future Andorra home
+    fixture stored with no venue, --apply run, then the saved fixtures name 2618); a stored future row at 2618 under
+    the provider's flag before any --apply; a played row beside it."""
+    rows = [("b_case", "Andorra", "Malta", None, None, None, R),               # stored months ahead, no venue yet
+            ("future", "Andorra", "Latvia", 2618, "Spain", True, R),           # the provider's flag, before --apply
+            ("played", "Andorra", "Moldova", 2618, "Spain", True, R),
+            ("esp", "Spain", "Andorra", 501, "Spain", False, R)]                # Spain at home: Spain's answer read
+    ids = _world(rows)
+    _kickoff(ids["b_case"], datetime(2026, 12, 1, 18))
+    _kickoff(ids["future"], datetime(2026, 12, 2, 18))
+    iv.rederive(apply=True, cohort_ids=set())                                  # --apply: the b-case has no venue yet
+    assert _v3(ids)["b_case"] == (None, None, R)
+    from src.db.database import session_scope
+    from src.db.schema import IntlMatchVenue
+    with session_scope() as s:                       # the two at 2618 stand as "before any --apply" (431 item 2(d))
+        for k in ("future", "played"):
+            v = s.get(IntlMatchVenue, ids[k])
+            v.neutral_v3, v.rule = True, R
+    save, vd = _sync_world(tmp_path, HOST_ANSWERS,
+                           [(880_000, 2618), (880_001, 2618), (880_002, 2618), (880_003, 501)])
+    r = iv.sync(save, venues_dir=vd, now=CLOCK)
+    got = _v3(ids)
+    assert got["b_case"][0] is False and iv.OVERRIDE_TAG in got["b_case"][2]   # (b): corrected by the daily run
+    assert got["future"][0] is False and iv.OVERRIDE_TAG in got["future"][2]   # corrected by the daily run
+    assert got["played"] == (True, "Spain", R)                                 # untouched until --apply
+    assert r["override_to_come"] == 2 and r["neutral_v3"]["override_pending_apply"] == 1
+    dry = iv.rederive(apply=False, cohort_ids=set())
+    assert [x["match_id"] for x in dry["flag_changed"]] == [ids["played"]]     # the played row waits for --apply
+
+
+def test_431_a_row_with_no_stored_kickoff_is_treated_as_played():
+    """431 item 2(c): "A row with no stored kickoff is treated as played." The decision sync() takes per row."""
+    assert iv._to_come(None, CLOCK) is False
+    assert iv._to_come(CLOCK, CLOCK) is False                                   # kicked off at the run's clock
+    assert iv._to_come(datetime(2026, 11, 19, 12, 1), CLOCK) is True
+    assert iv._to_come(datetime(2026, 11, 19, 11, 59), CLOCK) is False
+
+
+@pytest.mark.parametrize("stage", ["future", "played"])
+def test_431_under_a_lapsed_entry_the_future_row_follows_the_table_at_once_and_the_played_row_waits(fresh_db,
+                                                                                                    tmp_path,
+                                                                                                    monkeypatch,
+                                                                                                    stage):
+    """431 item 2(d): "the same three for a lapsed entry". After --apply, the 2618 entry is removed: a fixture still
+    to come is derived at once by the table as it now stands (the provider's country); a played one keeps what --apply
+    wrote until the next --apply receipts it; a future fixture stored with no venue and then given 2618 takes the
+    provider's flag as any ordinary venue does."""
+    ids = _world([("row", "Andorra", "Latvia", 2618, "Spain", True, R),
+                  ("b_case", "Andorra", "Malta", None, None, None, R),
+                  ("esp", "Spain", "Andorra", 501, "Spain", False, R)])
+    if stage == "future":
+        _kickoff(ids["row"], datetime(2026, 12, 2, 18))
+    _kickoff(ids["b_case"], datetime(2026, 12, 1, 18))
+    iv.rederive(apply=True, cohort_ids=set())
+    applied = _v3(ids)["row"]
+    assert applied[0] is False and iv.OVERRIDE_TAG in applied[2]
+    monkeypatch.setattr(iv, "VENUE_COUNTRY_OVERRIDES", {})                      # the entry lapses
+    save, vd = _sync_world(tmp_path, HOST_ANSWERS, [(880_000, 2618), (880_001, 2618), (880_002, 501)])
+    r = iv.sync(save, venues_dir=vd, now=CLOCK)
+    got = _v3(ids)
+    assert got["b_case"] == (True, "Spain", R)                                  # ordinary: the provider's flag
+    if stage == "future":
+        assert got["row"] == (True, "Spain", R) and r["override_to_come"] == 1
+        assert "override_pending_apply" not in r["neutral_v3"]
+    else:
+        assert (got["row"][0], got["row"][2]) == (applied[0], applied[2]) and r["override_to_come"] == 0
+        assert r["neutral_v3"]["override_pending_apply"] == 1
+
+
+def test_431_the_daily_console_prints_the_rows_still_to_come_on_a_line_of_their_own(fresh_db, tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from cli import cli
+    ids = _world([("future", "Andorra", "Latvia", 2618, "Spain", True, R),
+                  ("esp", "Spain", "Andorra", 501, "Spain", False, R)])
+    _kickoff(ids["future"], datetime(2099, 1, 1))
+    save, vd = _sync_world(tmp_path, HOST_ANSWERS, [(880_000, 2618), (880_001, 501)])
+    out = CliRunner().invoke(cli, ["intl-venue-sync", "--from-dir", save, "--venues-dir", vd])
+    assert out.exit_code == 0, out.output
+    assert ("  venue-country override, fixtures still to come derived under it at once (no --apply): 1"
+            in out.output.splitlines())
 
 
 def test_the_daily_sync_derives_a_new_row_at_an_overridden_venue_as_ruled(fresh_db, tmp_path):

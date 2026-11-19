@@ -24,11 +24,13 @@ keyed by venue id, with the evidence line and the ruling date, applied by the ve
 (never a hand edit of rows; the override is code, reviewed, and the re-derivation is receipted per row changed)"):
 VENUE_COUNTRY_OVERRIDES below, one entry per venue id, each with its country, its ruling, its ruling date and its
 evidence line. derive() is the one derivation: sync() (the daily ingest on the host, chain intl-daily) and rederive()
-(`intl-venue-override`) both call it. The FIRST change of a stored row's flag is the receipted, guarded
-`intl-venue-override --apply`'s alone (160 item 2: "the re-derivation is receipted per row changed"; 160 item 3's stop;
-426 item 5(b): "--apply only by my block on the host after the tag"): until a stored row carries the override's rule,
-sync() derives it as main did and counts it `override_pending_apply`; once --apply has written it, sync() keeps it, so
-no daily run puts the provider's flag back. A row the ingest creates is derived under the override at once.
+(`intl-venue-override`) both call it. For a PLAYED fixture the FIRST change of a stored row's flag is the receipted,
+guarded `intl-venue-override --apply`'s alone (160 item 2: "the re-derivation is receipted per row changed"; 160 item
+3's stop; 426 item 5(b); confirmed by 431 item 2(a)): until such a row carries the override's rule, sync() derives it
+as main did and counts it `override_pending_apply`; once --apply has written it, sync() keeps it, so no daily run puts
+the provider's flag back. A fixture STILL TO COME (its stored kickoff after the run's clock) is derived by derive() at
+once, whatever its stored rule, and counted on a line of its own, as a row the ingest creates is (431 item 2(c): "A
+flag set before the kickoff is an input, not a correction of history"); a row with no stored kickoff is played.
 The stored venue_country stays the provider's ("law 4 kept: the stored value is the provider's; the correction is
 explicit and keyed"); the row's `rule` names the override it was derived under, so the flag from the provider's country
 alone stays computable (provider_flag) for the read reported both ways (160 item 3; 161 item 2). resolve() and
@@ -104,6 +106,12 @@ def _pending_apply(vid, stored_rule: str | None, derived_rule: str) -> bool:
     return at_override and stored_rule != derived_rule
 
 
+def _to_come(kickoff, clock) -> bool:
+    """The fixture has not kicked off: its stored kickoff is after the run's clock. A row with no stored kickoff is
+    treated as played (ARCHITECT 2026-11-19, addendum 431 item 2(c))."""
+    return kickoff is not None and kickoff > clock
+
+
 def _slug(country: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", country.casefold()).strip("_")
 
@@ -124,7 +132,9 @@ def fixture_venues(save_dir: str) -> dict[str, int | None]:
 
 
 def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, max_calls: int = 230,
-         root: str | None = None, client=None) -> dict:
+         root: str | None = None, client=None, now=None) -> dict:
+    """`now`: the run's clock (default utc_now_naive()), read once: a fixture whose stored kickoff is after it has not
+    kicked off (ARCHITECT 2026-11-19, addendum 431 item 2(c))."""
     from sqlalchemy import select
 
     from src.db.database import session_scope
@@ -145,11 +155,11 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
         for m in s.execute(select(Match).where(Match.competition_id.in_(comps))).scalars():
             sid = (m.external_ids or {}).get("api_football")
             if sid in fv:
-                rows.append((m.id, fv[sid], area.get(m.home_team_id)))
+                rows.append((m.id, fv[sid], area.get(m.home_team_id), m.utc_date))
         s.rollback()
-    countries = sorted({c for _, _, c in rows if c})
-    plan = {"matches": len(rows), "with_venue_id": sum(1 for _, v, _ in rows if v is not None),
-            "home_country_known": sum(1 for _, _, c in rows if c), "calls": len(countries), "countries": countries}
+    countries = sorted({c for _, _, c, _ in rows if c})
+    plan = {"matches": len(rows), "with_venue_id": sum(1 for _, v, _, _ in rows if v is not None),
+            "home_country_known": sum(1 for _, _, c, _ in rows if c), "calls": len(countries), "countries": countries}
     if plan_only:
         return {"plan": plan}
     if venues_dir:
@@ -182,9 +192,10 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
                 venue_country[v["id"]] = v.get("country")
     if venue_country and not {"id", "country"} <= set(keys):
         raise VenueError("REFUSED (law 1): /venues response lacks id/country; keys served: " + ", ".join(sorted(keys)))
-    out = Counter()
+    out, out_future = Counter(), 0
     with session_scope() as s:
-        for mid, vid, hc in rows:
+        clock = now or utc_now_naive()
+        for mid, vid, hc, kickoff in rows:
             vc = venue_country.get(vid) if vid is not None else None
             flag, rule = derive(vid, vc, hc)                 # addendum 160 item 2: the keyed override, if any
             r = s.get(IntlMatchVenue, mid)
@@ -192,14 +203,21 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
             if not existing:
                 r = IntlMatchVenue(match_id=mid, rule=rule)      # a new row: no stored flag to move
             elif _pending_apply(vid, r.rule, rule):
-                # A stored row the override would move, not yet re-derived by `intl-venue-override --apply`: the
-                # first change of a stored flag is the receipted, guarded --apply's alone (160 item 2: "the
-                # re-derivation is receipted per row changed"; 160 item 3's stop; 426 item 5(b): "--apply only by my
-                # block on the host after the tag"). Until then the daily run derives it as main did (the provider's
-                # country), or, for a row already under another or a lapsed override, keeps its flag and rule.
-                flag, rule = ((provider_flag(vc, hc), NEUTRAL_V3_RULE) if OVERRIDE_TAG not in (r.rule or "")
-                              else (r.neutral_v3, r.rule))
-                out["override_pending_apply"] += 1
+                if _to_come(kickoff, clock):
+                    # A fixture still to come: derived by derive() at once, as a new row is, whatever its stored
+                    # rule (ARCHITECT 2026-11-19, addendum 431 item 2(c): "A flag set before the kickoff is an input,
+                    # not a correction of history"); counted on a line of its own.
+                    out_future += 1
+                else:
+                    # A PLAYED stored row (or one with no stored kickoff) the override would move, not yet
+                    # re-derived by `intl-venue-override --apply`: the first change of its flag is the receipted,
+                    # guarded --apply's alone (160 item 2: "the re-derivation is receipted per row changed"; 160 item
+                    # 3's stop; 426 item 5(b); confirmed by 431 item 2(a)). Until then the daily run derives it as
+                    # main did (the provider's country), or, for a row already under another or a lapsed override,
+                    # keeps its flag and rule.
+                    flag, rule = ((provider_flag(vc, hc), NEUTRAL_V3_RULE) if OVERRIDE_TAG not in (r.rule or "")
+                                  else (r.neutral_v3, r.rule))
+                    out["override_pending_apply"] += 1
             if existing and (r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule) != (
                     vid, vc, hc, flag, rule):
                 r.derived_at = utc_now_naive()               # the flag's ingest time moves only when the row does
@@ -211,7 +229,7 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
             if vid is not None and vid not in venue_country:
                 out["venue_not_in_any_queried_country"] += 1
     return {"plan": plan, "calls": calls, "venue_keys": dict(keys), "venues_resolved": len(venue_country),
-            "neutral_v3": dict(out)}
+            "neutral_v3": dict(out), "override_to_come": out_future}
 
 
 def _cohort_ids(s) -> tuple[set[int] | None, str]:

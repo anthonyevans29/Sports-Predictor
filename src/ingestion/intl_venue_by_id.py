@@ -161,14 +161,25 @@ def fetch(vids, out_dir, max_calls: int = DEFAULT_CAP, client=None, plan_only: b
 
 def _keep(path: Path, payload) -> None:
     """Write one answer atomically: a temporary file beside it, then a rename. A write that fails leaves no file at the
-    answer's path (the temporary one is removed), so a re-run asks the id again and never reads a partial answer."""
+    answer's path (the temporary one is removed), so a re-run asks the id again and never reads a partial answer.
+
+    The temporary file is CREATED EXCLUSIVELY AND FOLLOWS NO LINK (O_CREAT | O_EXCL | O_NOFOLLOW): an entry already at
+    its path, a symlink or a hard link or a leftover, is refused and left exactly as it is, never written through, so no
+    link can turn this write into one under data/ (ARCHITECT 2026-11-19, addendum 434 item 1(a); #1058 item 1)."""
     tmp = path.with_name(path.name + ".part")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     try:
-        tmp.write_text(json.dumps(payload))
+        fd = os.open(tmp, flags, 0o644)
+    except FileExistsError:
+        raise OSError(f"an entry already sits at {tmp} (a link or a leftover): not followed, not written, not removed; "
+                      "look at it, remove it by hand, and re-run") from None
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(json.dumps(payload))
         os.replace(tmp, path)
     except OSError:
         try:
-            tmp.unlink()
+            tmp.unlink()                              # ours: created exclusively above
         except OSError:
             pass
         raise

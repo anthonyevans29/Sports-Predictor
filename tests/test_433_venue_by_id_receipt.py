@@ -283,18 +283,47 @@ def test_a_failed_write_leaves_no_partial_answer(world, provider, monkeypatch, t
     """Codex on #1057 (P2): a write that fails part-way leaves nothing at the answer's path, so a re-run asks again."""
     copy, _ = world
     out_dir = tmp_path / "w"
-    real = Path.write_text
+    import os as _os
+    real_replace = _os.replace
 
-    def half_then_fail(self, data, *a, **k):
-        if self.name == "venue_id_9501.json.part":
-            real(self, data[:5], *a, **k)                                      # a partial file on disk, then
-            raise OSError(28, "No space left on device")                       # the disk fills
-        return real(self, data, *a, **k)
+    def fail_9501(src, dst):
+        if str(dst).endswith("venue_id_9501.json"):                           # the .part is written, then
+            raise OSError(28, "No space left on device")                       # the disk fills before the rename
+        return real_replace(src, dst)
 
-    monkeypatch.setattr(Path, "write_text", half_then_fail)
+    monkeypatch.setattr(vb.os, "replace", fail_9501)
     out = _run(["--db", str(copy), "--out-dir", str(out_dir)])
     assert out.exit_code == 3 and "the answer for venue 9501 could not be kept" in out.output
     assert sorted(p.name for p in out_dir.iterdir()) == ["venue_id_9316.json", "venue_id_9392.json"]
-    monkeypatch.setattr(Path, "write_text", real)
+    monkeypatch.setattr(vb.os, "replace", real_replace)
     again = _run(["--db", str(copy), "--out-dir", str(out_dir)])
     assert again.exit_code == 0 and "COMPLETE" in again.output                 # 9501 asked again, nothing partial read
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "leftover"])
+def test_an_entry_already_at_the_temporary_path_is_refused_never_written_through(world, provider, tmp_path, kind):
+    """ARCHITECT 2026-11-19, addendum 434 item 1(a): "#1058 ITEM 1 IS FIXED IN #1057 BEFORE IT MERGES. A temporary file
+    that a link already at its path could turn into a write under data/ is law 5's ground [...] Create the file
+    exclusively, following no link, or refuse an entry already there; one test." The target stands for a file under
+    data/: it is never truncated or written, the entry is left as it was, and the run stops there (exit 3)."""
+    import os as _os
+    copy, _ = world
+    out_dir = tmp_path / "logs" / "venue_by_id"
+    out_dir.mkdir(parents=True)
+    target = tmp_path / "data_stand_in" / "sports.db"
+    target.parent.mkdir()
+    target.write_bytes(b"precious")
+    entry = out_dir / "venue_id_9316.json.part"                              # the first id asked
+    if kind == "symlink":
+        entry.symlink_to(target)
+    elif kind == "hardlink":
+        _os.link(target, entry)
+    else:
+        entry.write_text("stale")
+    out = _run(["--db", str(copy), "--out-dir", str(out_dir)])
+    assert out.exit_code == 3, out.output
+    assert f"an entry already sits at {entry}" in out.output and "not followed, not written, not removed" in out.output
+    assert target.read_bytes() == b"precious"                                 # never written through
+    assert _os.path.lexists(entry) and not (out_dir / "venue_id_9316.json").exists()
+    if kind == "symlink":
+        assert entry.is_symlink()

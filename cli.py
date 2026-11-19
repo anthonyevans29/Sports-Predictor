@@ -2090,6 +2090,80 @@ def intl_venue_resolve_cmd(save_dir, venues_dir, aliases_path, plan_only, max_ca
     click.echo(f"  RULE: {iv.RESOLVE_RULE}")
 
 
+@cli.command("intl-venue-by-id")
+@click.option("--db", "db", required=True,
+              help="A .backup copy of the database OUTSIDE data/ (law 5; addendum 346's fence, as intl-elo-confirm "
+                   "--db): opened mode=ro + immutable=1, never created, refused under data/, as the app's configured "
+                   "database, when missing, or with a -wal/-shm/-journal beside it; its path and sha256 are printed.")
+@click.option("--out-dir", default="logs/venue_by_id", show_default=True,
+              help="Where each by-id answer is kept (venue_id_<id>.json, written before it is used) and replayed on a "
+                   "re-run; never under data/.")
+@click.option("--max-calls", default=700, show_default=True, type=click.IntRange(min=0),
+              help="Provider calls this run at most; the run stops at the cap and a re-run continues from the kept "
+                   "answers.")
+@click.option("--plan", "plan_only", is_flag=True, help="Print the ids, the kept answers and the calls needed; call "
+              "nothing.")
+@click.option("--fixtures-dir", default=None,
+              help="Optional: the intl-sync --save folder (fixtures_*.json); prints, for each differing id, the "
+                   "grounds (name, city) the saved fixtures name for it, and the stored ids named under two or more.")
+def intl_venue_by_id_cmd(db, out_dir, max_calls, plan_only, fixtures_dir):
+    """THE BY-ID VENUE RECEIPT (ARCHITECT 2026-11-19, addendum 433 item 4), read-only: for every venue id stored on a
+    copy, the provider's answer by id (/venues?id=<id>, one call each, kept under --out-dir, capped, resumable), and
+    counts: ids whose by-id country agrees with the stored country, differs, or is not served; for each id that
+    differs, its stored games by home country with the flag now and the flag under the by-id country, the cohort
+    fixtures among them named. Reads no score and no result, writes no row, prints no log-loss. Exit 0 complete, 3
+    incomplete (the cap or a failed call: re-run to continue), 2 refused."""
+    from sqlalchemy.exc import DBAPIError as _DBAPIError
+
+    from src.ingestion import intl_venue_by_id as vb
+    from src.walters import intl_shadow as us
+    from src.walters import mlb_pitchers_gate as _mpg
+
+    try:
+        out = vb.check_out_dir(out_dir)
+        copy = us.check_copy(db)
+        try:
+            sha_before = us.copy_sha256(copy)
+        except OSError as err:
+            raise vb.ByIdRefused(f"--db {copy}: the copy could not be hashed ({err!r}); nothing read, nothing written")
+        click.echo(f"--db {copy} · sha256 {sha_before} · a .backup copy, opened {_mpg.COPY_URI_QUERY.lstrip('?')} "
+                   "(the app's database is not read)")
+        try:
+            with _mpg.readonly_session(copy) as _s:
+                stored = vb.stored_venues(_s)
+                try:                                       # only the two checks after the read (#940 item 2)
+                    sha_after = us.copy_sha256(copy)
+                    sides_after = us.copy_sidecars(copy)
+                except OSError as err:
+                    raise vb.ByIdRefused(f"--db {copy}: the copy could not be re-read after the read ({err!r})")
+        except _DBAPIError as err:
+            raise vb.ByIdRefused(f"--db {copy}: the copy could not be read ({err.orig!r})")
+        if sides_after:
+            raise vb.ByIdRefused(f"--db {copy} changed during the read: {', '.join(sides_after)} appeared beside it, "
+                                 "which immutable=1 ignores")
+        if sha_after != sha_before:
+            raise vb.ByIdRefused(f"--db {copy} changed during the read (sha256 {sha_before[:16]}… before, "
+                                 f"{sha_after[:16]}… after)")
+        cohort, cohort_why = vb.cohort_ids()
+        fetched = vb.fetch(stored, out, max_calls=max_calls, plan_only=plan_only)
+    except us.ShadowRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    except vb.ByIdRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    if plan_only:
+        click.echo(f"INTL-VENUE-BY-ID ({vb.RULING}) · PLAN, nothing called · stored venue ids {len(stored)} · answers "
+                   f"kept under {out} {fetched['kept_before']} · calls needed {fetched['need']} (cap {max_calls})")
+        return
+    grounds = vb.grounds_from_fixtures(fixtures_dir) if fixtures_dir else None
+    r = vb.classify(stored, fetched, cohort, grounds)
+    for line in vb.lines(r, fetched, out, max_calls, cohort_why):
+        click.echo(line)
+    if r["not_asked"]:
+        raise SystemExit(3)
+
+
 @cli.command("intl-elo-backtest")
 @click.option("--preflight", is_flag=True, help="Data checks only (stream, splits, RULE CHECK); scores nothing, records nothing.")
 @click.option("--candidate", type=click.Choice(["v1", "v2"]), default="v1", show_default=True,

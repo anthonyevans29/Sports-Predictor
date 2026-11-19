@@ -413,6 +413,37 @@ def test_431_the_daily_console_prints_the_rows_still_to_come_on_a_line_of_their_
     assert out.exit_code == 0, out.output
     assert ("  venue-country override, fixtures still to come derived under it at once (no --apply): 1"
             in out.output.splitlines())
+    assert "  venue-country override, played fixtures pending intl-venue-override --apply: 0" in out.output.splitlines()
+
+
+def test_431_the_daily_console_prints_both_counts_at_zero_too(fresh_db, tmp_path):
+    """A run that counted none says 0 (law 2): it reads apart from a build without the count (my review, P2)."""
+    from click.testing import CliRunner
+
+    from cli import cli
+    _world([("isr", "Israel", "Belgium", 77, "Hungary", True, R)])
+    save, vd = _sync_world(tmp_path, {"Israel": [{"id": 77, "country": "Hungary"}]}, [(880_000, 77)])
+    out = CliRunner().invoke(cli, ["intl-venue-sync", "--from-dir", save, "--venues-dir", vd])
+    assert out.exit_code == 0, out.output
+    lines = out.output.splitlines()
+    assert "  venue-country override, fixtures still to come derived under it at once (no --apply): 0" in lines
+    assert "  venue-country override, played fixtures pending intl-venue-override --apply: 0" in lines
+
+
+@pytest.mark.parametrize("now, to_come", [(datetime(2026, 9, 1), True), (datetime(2100, 1, 1), False)])
+def test_431_the_run_clock_alone_decides_through_sync(fresh_db, tmp_path, now, to_come):
+    """The run's clock passed to sync() decides, never the wall clock (my review, P2): the same stored row, kickoff
+    2026-10-02, is still to come at a clock of 2026-09-01 (corrected at once) and played at 2100-01-01 (pending)."""
+    ids = _world([("row", "Andorra", "Latvia", 2618, "Spain", True, R),
+                  ("esp", "Spain", "Andorra", 501, "Spain", False, R)])
+    save, vd = _sync_world(tmp_path, HOST_ANSWERS, [(880_000, 2618), (880_001, 501)])
+    r = iv.sync(save, venues_dir=vd, now=now)
+    got = _v3(ids)["row"]
+    if to_come:
+        assert got[0] is False and r["override_to_come"] == 1 and "override_pending_apply" not in r["neutral_v3"]
+    else:
+        assert got == (True, "Spain", R) and r["override_to_come"] == 0
+        assert r["neutral_v3"]["override_pending_apply"] == 1
 
 
 def test_the_daily_sync_derives_a_new_row_at_an_overridden_venue_as_ruled(fresh_db, tmp_path):

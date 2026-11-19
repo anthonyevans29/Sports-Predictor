@@ -2032,9 +2032,12 @@ def intl_venue_sync_cmd(save_dir, venues_dir, plan_only, max_calls):
     click.echo(f"  provider calls this run {r['calls']} · venues resolved {r['venues_resolved']} · /venues keys "
                "(law 1): " + ", ".join(sorted(r["venue_keys"])))
     click.echo("  neutral_v3: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral_v3"].items())))
-    if r.get("override_to_come"):                     # ARCHITECT 2026-11-19, addendum 431 item 2(c)
-        click.echo(f"  venue-country override, fixtures still to come derived under it at once (no --apply): "
-                   f"{r['override_to_come']}")
+    # ARCHITECT 2026-11-19, addendum 431 item 2(c): "sync() counts those rows on a line of their own" (printed at 0
+    # too, so a run that counted none reads apart from a build without the count; law 2)
+    click.echo(f"  venue-country override, fixtures still to come derived under it at once (no --apply): "
+               f"{r['override_to_come']}")
+    click.echo(f"  venue-country override, played fixtures pending intl-venue-override --apply: "
+               f"{r['neutral_v3'].get('override_pending_apply', 0)}")
     click.echo(f"  RULE: {iv.NEUTRAL_V3_RULE}")
 
 

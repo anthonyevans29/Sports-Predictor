@@ -142,13 +142,13 @@ def fetch(vids, out_dir, max_calls: int = DEFAULT_CAP, client=None, plan_only: b
             r["not_asked"] = need[i:]
             r["stopped"] = f"the call cap ({max_calls}) reached"
             break
+        r["calls"] += 1                                  # every attempt counts, a failed one too (the cap and the receipt)
         try:
             payload = client._get("venues", {"id": v})
         except Exception as err:  # noqa: BLE001 - stop where it failed; what is kept stays kept
             r["not_asked"] = need[i:]
             r["stopped"] = f"the call for venue {v} failed ({type(err).__name__}: {err})"
             break
-        r["calls"] += 1
         try:
             _keep(answer_path(out_dir, v), payload)       # kept BEFORE it is used (a re-run replays it)
         except OSError as err:

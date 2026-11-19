@@ -164,6 +164,7 @@ def test_a_failed_call_stops_where_it_failed_and_keeps_what_was_kept(world, prov
     out = _run(["--db", str(copy), "--out-dir", str(out_dir)])
     assert out.exit_code == 3
     assert "  STOPPED: the call for venue 9501 failed (RuntimeError: HTTP 500); re-run to continue" in out.output
+    assert "provider calls this run 3 (cap 700)" in out.output                 # the failed attempt counted (Codex P2)
     assert sorted(p.name for p in out_dir.iterdir()) == ["venue_id_9316.json", "venue_id_9392.json"]
 
 

@@ -1,0 +1,8 @@
+## 2026-11-19 (#000: 434-records — addendum 434 recorded: no soccer injuries feed before soccer-v23's run of 2026-11-27; Dev 2's order of work through 11-27; tomorrow's order)
+- **Records:** addendum 434 verbatim in docs/ledger/entries/2026-11-19-434-records.md.
+  - **#1052 item (e) ruled:** no soccer injuries feed is written before soccer-v23's run of 2026-11-27 and the ruling on its attrs mapping. The other rulings and the guard's drop-and-recreate come after the run.
+  - **Dev 2, recorded only:**
+    - #1057 takes #1058 item 1's fix before it merges, then merges after v1.6.10 with #1056.
+    - The order of work through 11-27: #1036, then soccer-v23 (its list on #656 and a dormant shadow export), then the leagues answer by 11-23, then the venue derivation.
+  - **Read, no ruling yet:** #1053 is read, and the laptop's pull job is read in tomorrow's morning block. #1050 and #1051 are read; #1051 goes with the inferred layer's ruling due 12-03.
+  - **Tomorrow's order:** morning routine, college baseline, #1036, replay, v1.6.10, compare, then #1056 and #1057.

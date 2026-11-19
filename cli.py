@@ -2145,6 +2145,10 @@ def intl_venue_by_id_cmd(db, out_dir, max_calls, plan_only, fixtures_dir):
             raise vb.ByIdRefused(f"--db {copy} changed during the read (sha256 {sha_before[:16]}… before, "
                                  f"{sha_after[:16]}… after)")
         cohort, cohort_why = vb.cohort_ids()
+        grounds, fixtures_read = None, None
+        if fixtures_dir:                                   # read and checked before any call
+            grounds, n_files, n_fixtures = vb.grounds_from_fixtures(fixtures_dir)
+            fixtures_read = (n_files, n_fixtures)
         fetched = vb.fetch(stored, out, max_calls=max_calls, plan_only=plan_only)
     except us.ShadowRefused as e:
         click.echo(f"REFUSED: {e}")
@@ -2156,9 +2160,8 @@ def intl_venue_by_id_cmd(db, out_dir, max_calls, plan_only, fixtures_dir):
         click.echo(f"INTL-VENUE-BY-ID ({vb.RULING}) · PLAN, nothing called · stored venue ids {len(stored)} · answers "
                    f"kept under {out} {fetched['kept_before']} · calls needed {fetched['need']} (cap {max_calls})")
         return
-    grounds = vb.grounds_from_fixtures(fixtures_dir) if fixtures_dir else None
     r = vb.classify(stored, fetched, cohort, grounds)
-    for line in vb.lines(r, fetched, out, max_calls, cohort_why):
+    for line in vb.lines(r, fetched, out, max_calls, cohort_why, fixtures_read):
         click.echo(line)
     if r["not_asked"]:
         raise SystemExit(3)

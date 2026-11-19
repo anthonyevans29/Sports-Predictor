@@ -120,11 +120,11 @@ def test_the_counts_the_differing_ids_and_the_copy_byte_for_byte(world, provider
                     "COMPLETE · the confirmation cohort: frozen (1 ids)")
     assert L[2] == (f"  stored venue ids on the copy 5 (rows with a venue id 6) · answers kept under {out_dir}: 0 "
                     "before this run · provider calls this run 5 (cap 700)")
-    assert ("  by-id country: agrees 1 · differs 2 · not served 1 · served under more than one country 1 · not yet "
-            "asked 0") in L
+    assert ("  by-id country: agrees 1 · differs 2 · stored country unknown 0 · served without a country 0 · not "
+            "served 1 · served under more than one country 1 · not yet asked 0") in L
     assert "  keys served by id (law 1): capacity, city, country, id, name" in L
-    assert (f"  games at a differing id whose flag changes under the by-id country: 3 · cohort fixtures at a differing "
-            f"id: 1 — {ids['chi']}") in L
+    assert (f"  games whose known flag flips under the by-id country: 3 · games whose unknown flag becomes known: 0 · "
+            f"cohort fixtures at those ids: 1 — {ids['chi']}") in L
     assert "    venue 9392: stored USA -> by id Costa Rica (G392, San Jose) · 2 stored games" in L
     assert "      home Costa Rica: 2 · flag now neutral 2 · under the by-id country home 2" in L
     assert f"      home Chile: 1 · flag now neutral 1 · under the by-id country home 1 · COHORT {ids['chi']}" in L
@@ -187,6 +187,7 @@ def test_the_saved_fixtures_name_the_grounds_of_an_id(world, provider, tmp_path)
     out = _run(["--db", str(copy), "--out-dir", str(tmp_path / "f"), "--fixtures-dir", str(save)])
     assert out.exit_code == 0, out.output
     L = out.output.splitlines()
+    assert "  saved fixtures read: 1 files, 3 fixtures with a venue id" in L
     assert "  stored ids the saved fixtures name under two or more grounds: 1 — 9392" in L
     assert "      the saved fixtures name it: G392, San Jose; Other, Miami" in L
     assert "      the saved fixtures name it: G316, Santiago" in L
@@ -194,7 +195,13 @@ def test_the_saved_fixtures_name_the_grounds_of_an_id(world, provider, tmp_path)
 
 def test_refusals_data_dir_and_missing_copy_nothing_called(world, provider, tmp_path):
     with pytest.raises(vb.ByIdRefused, match="under data/"):
-        vb.check_out_dir(tmp_path / "data" / "x", root=str(tmp_path))
+        vb.check_out_dir(tmp_path / "data" / "x", data_dirs=[tmp_path / "data"])
+    (tmp_path / "data").mkdir()
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "data" / "backups").symlink_to(tmp_path / "elsewhere")          # a folder data/ links to
+    with pytest.raises(vb.ByIdRefused, match="a folder data/ links to"):
+        vb.check_out_dir(tmp_path / "elsewhere" / "x", data_dirs=[tmp_path / "data"])
+    assert vb.check_out_dir(tmp_path / "logs" / "x", data_dirs=[tmp_path / "data"]) == tmp_path / "logs" / "x"
     out = _run(["--db", str(tmp_path / "missing.db"), "--out-dir", str(tmp_path / "o")])
     assert out.exit_code == 2 and out.output.startswith("REFUSED:") and provider.calls == []
     assert not (tmp_path / "missing.db").exists()
@@ -205,3 +212,53 @@ def test_the_receipt_reads_no_score_and_no_result():
     for word in ("home_score", "away_score", "score_90", "result_90", "outcome", "ll3", "log_loss"):
         assert word not in src, word
     assert "from src.db.schema import IntlMatchVenue" in src and "Match," not in src
+
+
+def _classify(stored, answers, cohort=None):
+    return vb.classify(stored, {"answers": answers, "not_asked": [], "calls": 0, "kept_before": 0, "stopped": None},
+                       cohort)
+
+
+def test_a_stored_country_unknown_is_its_own_count_never_a_disagreement():
+    """Law 4: an id intl-venue-sync stored with no country (no /venues?country answer listed it) is labelled, never
+    read as "differs"; its unknown flags becoming known are counted apart from known flags that flip (my review, P2)."""
+    stored = {1: [(10, None, "Spain", None)], 2: [(20, "France", "France", False)],
+              3: [(30, "USA", "Costa Rica", True)]}
+    answers = {1: {"response": [{"id": 1, "country": "Spain"}]}, 2: {"response": [{"id": 2, "country": "France"}]},
+               3: {"response": [{"id": 3, "country": "Costa Rica"}]}}
+    r = _classify(stored, answers)
+    assert r["agrees"] == [2] and [d["venue_id"] for d in r["differs"]] == [3]
+    assert [d["venue_id"] for d in r["stored_unknown"]] == [1]
+    assert r["games_flipping"] == 1 and r["games_unknown_to_known"] == 1
+    text = "\n".join(vb.lines(r, {"kept_before": 0, "calls": 0, "stopped": None}, "o", 700, "frozen (0 ids)"))
+    assert "differs 1 · stored country unknown 1 ·" in text
+    assert "  STORED COUNTRY UNKNOWN (1; no /venues?country answer listed the id):" in text
+    assert "    venue 1: stored unknown -> by id Spain" in text
+
+
+def test_an_id_served_without_a_country_is_not_not_served():
+    stored = {4: [(40, "Peru", "Peru", False)], 5: [(50, "Peru", "Peru", False)]}
+    answers = {4: {"response": [{"id": 4, "country": None, "name": "X", "city": "Lima"}]}, 5: {"response": []}}
+    r = _classify(stored, answers)
+    assert r["served_no_country"] == [4] and r["not_served"] == [5]
+    text = "\n".join(vb.lines(r, {"kept_before": 0, "calls": 0, "stopped": None}, "o", 700, "frozen (0 ids)"))
+    assert "  SERVED BY ID WITHOUT A COUNTRY (1): 4" in text and "  NOT SERVED BY ID (1): 5" in text
+
+
+def test_a_cohort_not_read_is_said_never_a_measured_zero():
+    stored = {3: [(30, "USA", "Costa Rica", True)]}
+    r = _classify(stored, {3: {"response": [{"id": 3, "country": "Costa Rica"}]}}, cohort=None)
+    text = "\n".join(vb.lines(r, {"kept_before": 0, "calls": 0, "stopped": None}, "o", 700,
+                              "not read: RegistryError: x"))
+    assert "cohort fixtures at those ids: NOT READ (not read: RegistryError: x)" in text
+    assert "cohort fixtures at those ids: 0" not in text
+
+
+def test_a_wrong_fixtures_dir_is_refused_before_any_call(world, provider, tmp_path):
+    copy, _ = world
+    empty = tmp_path / "empty_save"
+    empty.mkdir()
+    for d, why in ((tmp_path / "nowhere", "not a directory"), (empty, "no fixtures_\\*.json")):
+        out = _run(["--db", str(copy), "--out-dir", str(tmp_path / "o"), "--fixtures-dir", str(d)])
+        assert out.exit_code == 2 and "REFUSED: --fixtures-dir" in out.output, out.output
+    assert provider.calls == [] and not (tmp_path / "o").exists()

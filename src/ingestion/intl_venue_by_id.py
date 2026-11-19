@@ -57,15 +57,24 @@ def answer_path(out_dir, vid) -> Path:
     return Path(out_dir) / f"venue_id_{int(vid)}.json"
 
 
-def check_out_dir(out_dir, root: str | None = None) -> Path:
-    """The answers' folder, never under the repo's data/ (law 5)."""
-    root = root or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    p = Path(out_dir)
-    data = Path(root, "data").resolve()
-    rp = p.resolve()
-    if rp == data or data in rp.parents:
-        raise ByIdRefused(f"--out-dir {out_dir}: under data/ (law 5); nothing read, nothing written")
-    return p
+def check_out_dir(out_dir, data_dirs=None) -> Path:
+    """The answers' folder, never under the repo's data/ (law 5), by the same keys --db's fence uses
+    (mlb_pitchers_gate._data_dirs: this checkout's data/ and, from a worktree, the main checkout's; and every folder a
+    data/ links to). `data_dirs`: given in tests."""
+    from src.walters import mlb_pitchers_gate as mp
+    tgt = Path(out_dir).expanduser().resolve()
+    try:
+        for data in (data_dirs if data_dirs is not None else mp._data_dirs()):
+            data = Path(data).resolve()
+            if tgt == data or data in tgt.parents:
+                raise ByIdRefused(f"--out-dir {out_dir}: under data/ ({data}; law 5); nothing read, nothing written")
+            for d in mp._data_tree(data)[1]:
+                if tgt == d or d in tgt.parents:
+                    raise ByIdRefused(f"--out-dir {out_dir}: under {d}, a folder data/ links to (law 5); nothing "
+                                      "read, nothing written")
+    except mp.GateRefused as e:
+        raise ByIdRefused(f"{e}; nothing written") from None
+    return Path(out_dir)
 
 
 def stored_venues(s) -> dict[int, list[tuple]]:
@@ -124,7 +133,10 @@ def fetch(vids, out_dir, max_calls: int = DEFAULT_CAP, client=None, plan_only: b
         except ValueError as err:
             raise ByIdRefused(f"{err}; {len(need)} ids not yet asked; nothing written") from None
     if need:
-        out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as err:
+            raise ByIdRefused(f"--out-dir {out_dir}: cannot be made ({err}); nothing asked") from None
     for i, v in enumerate(need):
         if r["calls"] >= max_calls:
             r["not_asked"] = need[i:]
@@ -137,7 +149,12 @@ def fetch(vids, out_dir, max_calls: int = DEFAULT_CAP, client=None, plan_only: b
             r["stopped"] = f"the call for venue {v} failed ({type(err).__name__}: {err})"
             break
         r["calls"] += 1
-        answer_path(out_dir, v).write_text(json.dumps(payload))   # kept BEFORE it is used (a re-run replays it)
+        try:
+            answer_path(out_dir, v).write_text(json.dumps(payload))   # kept BEFORE it is used (a re-run replays it)
+        except OSError as err:
+            r["not_asked"] = need[i:]
+            r["stopped"] = f"the answer for venue {v} could not be kept ({err}); it is asked again on a re-run"
+            break
         r["answers"][v] = payload
     return r
 
@@ -152,21 +169,62 @@ def _served(payload, vid) -> list[dict]:
     return [x for x in (payload or {}).get("response") or [] if isinstance(x, dict) and x.get("id") == vid]
 
 
-def grounds_from_fixtures(fixtures_dir) -> dict[int, set[tuple]]:
-    """venue id -> the distinct (name, city) the saved /fixtures files name for it (fixture.venue, as served)."""
+def grounds_from_fixtures(fixtures_dir) -> tuple[dict[int, set[tuple]], int, int]:
+    """(venue id -> the distinct (name, city) the saved /fixtures files name for it (fixture.venue, as served), files
+    read, fixtures with a venue id). A folder that is not one, holds no fixtures_*.json, or holds one that cannot be
+    read is refused (ByIdRefused), never read as "no saved fixture"."""
+    import glob
+
     from src.ingestion import intl_venues as iv
+    d = Path(fixtures_dir)
+    if not d.is_dir():
+        raise ByIdRefused(f"--fixtures-dir {fixtures_dir}: not a directory; nothing asked")
+    files = sorted(glob.glob(os.path.join(str(d), "fixtures_*.json")))
+    if not files:
+        raise ByIdRefused(f"--fixtures-dir {fixtures_dir}: no fixtures_*.json (the intl-sync --save folder); nothing "
+                          "asked")
+    try:
+        venues = iv.fixture_venue_fields(str(d))
+    except (OSError, ValueError) as err:
+        raise ByIdRefused(f"--fixtures-dir {fixtures_dir}: a saved file cannot be read ({err}); nothing asked") from None
     out: dict[int, set[tuple]] = defaultdict(set)
-    for v in iv.fixture_venue_fields(str(fixtures_dir)).values():
+    n = 0
+    for v in venues.values():
         if v.get("id") is not None:
             out[int(v["id"])].add((v.get("name"), v.get("city")))
-    return dict(out)
+            n += 1
+    return dict(out), len(files), n
+
+
+def _detail(rows, byid, cohort) -> tuple[dict, int, int]:
+    """A differing (or stored-unknown) id's stored games by home country: the flag now and under the by-id country,
+    the cohort fixtures named. (by_home, known flags that flip, unknown flags that become known)."""
+    by_home: dict = defaultdict(lambda: {"n": 0, "now": Counter(), "byid": Counter(), "cohort": []})
+    flips = known = 0
+    for mid, vc, hc, flag in rows:
+        g = by_home[hc]
+        g["n"] += 1
+        after = _flag(hc, byid)
+        g["now"][_flag_text(flag)] += 1
+        g["byid"][_flag_text(after)] += 1
+        if flag is not None and after is not None and flag != after:
+            flips += 1
+        elif flag is None and after is not None:
+            known += 1
+        if cohort is not None and mid in cohort:
+            g["cohort"].append(mid)
+    return dict(by_home), flips, known
 
 
 def classify(stored: dict, fetched: dict, cohort: set[int] | None, grounds: dict | None = None) -> dict:
-    """The receipt's content: per stored venue id, the by-id answer against the stored country."""
+    """The receipt's content: per stored venue id, the by-id answer against the stored country. An id whose stored
+    rows carry no venue country at all is "stored country unknown", never a disagreement (law 4); an id served by id
+    with no country is "served without a country", never "not served"."""
     answers = fetched["answers"]
     keys = Counter()
-    out = {"agrees": [], "differs": [], "not_served": [], "several": [], "not_asked": list(fetched["not_asked"])}
+    out = {"agrees": [], "differs": [], "stored_unknown": [], "served_no_country": [], "not_served": [],
+           "several": [], "not_asked": list(fetched["not_asked"]), "games_flipping": 0, "games_unknown_to_known": 0,
+           "cohort_read": cohort is not None}
     for vid, rows in sorted(stored.items()):
         if vid not in answers:
             continue
@@ -174,39 +232,35 @@ def classify(stored: dict, fetched: dict, cohort: set[int] | None, grounds: dict
         for x in (answers[vid] or {}).get("response") or []:
             if isinstance(x, dict):
                 keys.update(x.keys())
+        if not served:
+            out["not_served"].append(vid)
+            continue
         countries = sorted({x.get("country") for x in served if x.get("country")}, key=str)
         if not countries:
-            out["not_served"].append(vid)
+            out["served_no_country"].append(vid)
             continue
         if len({_norm(c) for c in countries}) > 1:
             out["several"].append({"venue_id": vid, "countries": countries})
             continue
         byid = countries[0]
-        if all(_norm(vc) == _norm(byid) for _, vc, _, _ in rows):
+        known = [vc for _, vc, _, _ in rows if _norm(vc) is not None]
+        if known and all(_norm(vc) == _norm(byid) for vc in known):
             out["agrees"].append(vid)
             continue
-        by_home: dict = defaultdict(lambda: {"n": 0, "now": Counter(), "byid": Counter(), "cohort": [],
-                                             "changes": 0})
-        for mid, vc, hc, flag in rows:
-            g = by_home[hc]
-            g["n"] += 1
-            after = _flag(hc, byid)
-            g["now"][_flag_text(flag)] += 1
-            g["byid"][_flag_text(after)] += 1
-            g["changes"] += after != flag
-            if cohort is not None and mid in cohort:
-                g["cohort"].append(mid)
+        by_home, flips, to_known = _detail(rows, byid, cohort)
+        out["games_flipping"] += flips
+        out["games_unknown_to_known"] += to_known
         ground = served[0]
-        out["differs"].append({
-            "venue_id": vid, "stored": sorted({vc for _, vc, _, _ in rows}, key=lambda c: (c is None, str(c))),
-            "byid": byid, "byid_name": ground.get("name"), "byid_city": ground.get("city"),
-            "games": len(rows), "by_home": dict(by_home),
-            "fixture_grounds": sorted((grounds or {}).get(vid, set()), key=str) if grounds is not None else None})
+        entry = {"venue_id": vid, "stored": sorted({vc for _, vc, _, _ in rows}, key=lambda c: (c is None, str(c))),
+                 "byid": byid, "byid_name": ground.get("name"), "byid_city": ground.get("city"),
+                 "games": len(rows), "by_home": by_home,
+                 "fixture_grounds": sorted((grounds or {}).get(vid, set()), key=str) if grounds is not None else None}
+        out["differs" if known else "stored_unknown"].append(entry)
     out["keys"] = sorted(keys)
     out["stored_ids"] = len(stored)
     out["stored_rows"] = sum(len(v) for v in stored.values())
-    out["games_changing"] = sum(g["changes"] for d in out["differs"] for g in d["by_home"].values())
-    out["cohort_at_differing"] = sorted(m for d in out["differs"] for g in d["by_home"].values() for m in g["cohort"])
+    out["cohort_named"] = sorted(m for k in ("differs", "stored_unknown") for d in out[k]
+                                 for g in d["by_home"].values() for m in g["cohort"])
     if grounds is not None:
         out["two_grounds"] = sorted(v for v, gs in grounds.items() if v in stored and len(gs) > 1)
     return out
@@ -216,7 +270,21 @@ def _counter_text(c: Counter) -> str:
     return "/".join(f"{k} {c[k]}" for k in ("neutral", "home", "unknown") if c[k]) or "none"
 
 
-def lines(r: dict, fetched: dict, out_dir, cap: int, cohort_why: str) -> list[str]:
+def _entry_lines(d: dict) -> list[str]:
+    stored = ", ".join("unknown" if c is None else str(c) for c in d["stored"])
+    L = [f"    venue {d['venue_id']}: stored {stored} -> by id {d['byid']} ({d['byid_name']}, {d['byid_city']}) "
+         f"· {d['games']} stored games"]
+    for hc, g in sorted(d["by_home"].items(), key=lambda kv: (kv[0] is None, str(kv[0]))):
+        L.append(f"      home {hc or 'unknown'}: {g['n']} · flag now {_counter_text(g['now'])} · under the by-id "
+                 f"country {_counter_text(g['byid'])}"
+                 + (f" · COHORT {', '.join(map(str, g['cohort']))}" if g["cohort"] else ""))
+    if d["fixture_grounds"] is not None:
+        L.append("      the saved fixtures name it: " + ("; ".join(f"{n}, {c}" for n, c in d["fixture_grounds"])
+                                                        or "no saved fixture"))
+    return L
+
+
+def lines(r: dict, fetched: dict, out_dir, cap: int, cohort_why: str, fixtures_read: tuple | None = None) -> list[str]:
     done = not r["not_asked"]
     L = [f"INTL-VENUE-BY-ID ({RULING}) · read-only: no score, no result, no row written, no log-loss · "
          + ("COMPLETE" if done else f"INCOMPLETE: {len(r['not_asked'])} ids not yet asked")
@@ -226,31 +294,33 @@ def lines(r: dict, fetched: dict, out_dir, cap: int, cohort_why: str) -> list[st
          f"(cap {cap})"]
     if fetched["stopped"]:
         L.append(f"  STOPPED: {fetched['stopped']}; re-run to continue from the kept answers")
-    L.append(f"  by-id country: agrees {len(r['agrees'])} · differs {len(r['differs'])} · not served "
+    if fixtures_read is not None:
+        L.append(f"  saved fixtures read: {fixtures_read[0]} files, {fixtures_read[1]} fixtures with a venue id")
+    L.append(f"  by-id country: agrees {len(r['agrees'])} · differs {len(r['differs'])} · stored country unknown "
+             f"{len(r['stored_unknown'])} · served without a country {len(r['served_no_country'])} · not served "
              f"{len(r['not_served'])} · served under more than one country {len(r['several'])} · not yet asked "
              f"{len(r['not_asked'])}")
     L.append("  keys served by id (law 1): " + (", ".join(r["keys"]) or "none"))
-    L.append(f"  games at a differing id whose flag changes under the by-id country: {r['games_changing']} · cohort "
-             f"fixtures at a differing id: {len(r['cohort_at_differing'])}"
-             + (" — " + ", ".join(map(str, r["cohort_at_differing"])) if r["cohort_at_differing"] else ""))
+    cohort = (f"{len(r['cohort_named'])}" + (" — " + ", ".join(map(str, r["cohort_named"])) if r["cohort_named"] else "")
+              if r["cohort_read"] else f"NOT READ ({cohort_why})")
+    L.append(f"  games whose known flag flips under the by-id country: {r['games_flipping']} · games whose unknown "
+             f"flag becomes known: {r['games_unknown_to_known']} · cohort fixtures at those ids: {cohort}")
     if "two_grounds" in r:
         L.append(f"  stored ids the saved fixtures name under two or more grounds: {len(r['two_grounds'])}"
                  + (" — " + ", ".join(map(str, r["two_grounds"])) if r["two_grounds"] else ""))
     L.append(f"  DIFFERS ({len(r['differs'])}):")
     for d in r["differs"]:
-        stored = ", ".join("unknown" if c is None else str(c) for c in d["stored"])
-        L.append(f"    venue {d['venue_id']}: stored {stored} -> by id {d['byid']} ({d['byid_name']}, {d['byid_city']}) "
-                 f"· {d['games']} stored games")
-        for hc, g in sorted(d["by_home"].items(), key=lambda kv: (kv[0] is None, str(kv[0]))):
-            L.append(f"      home {hc or 'unknown'}: {g['n']} · flag now {_counter_text(g['now'])} · under the by-id "
-                     f"country {_counter_text(g['byid'])}"
-                     + (f" · COHORT {', '.join(map(str, g['cohort']))}" if g["cohort"] else ""))
-        if d["fixture_grounds"] is not None:
-            L.append("      the saved fixtures name it: " + ("; ".join(f"{n}, {c}" for n, c in d["fixture_grounds"])
-                                                            or "no saved fixture"))
+        L.extend(_entry_lines(d))
+    if r["stored_unknown"]:
+        L.append(f"  STORED COUNTRY UNKNOWN ({len(r['stored_unknown'])}; no /venues?country answer listed the id):")
+        for d in r["stored_unknown"]:
+            L.extend(_entry_lines(d))
     if r["several"]:
         L.append(f"  SERVED UNDER MORE THAN ONE COUNTRY ({len(r['several'])}): "
                  + "; ".join(f"{x['venue_id']} ({', '.join(x['countries'])})" for x in r["several"]))
+    if r["served_no_country"]:
+        L.append(f"  SERVED BY ID WITHOUT A COUNTRY ({len(r['served_no_country'])}): "
+                 + ", ".join(map(str, r["served_no_country"])))
     if r["not_served"]:
         L.append(f"  NOT SERVED BY ID ({len(r['not_served'])}): " + ", ".join(map(str, r["not_served"])))
     return L

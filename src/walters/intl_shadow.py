@@ -272,8 +272,14 @@ def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str 
 
 def last_calls(export_dir: str = "exports") -> dict[int, dict]:
     """match_id -> the LAST shadow row written before its kickoff."""
+    return calls_from_files(sorted(Path(export_dir).glob(f"{FILE_PREFIX}*.json")))
+
+
+def calls_from_files(files, label=lambda f: f.name) -> dict[int, dict]:
+    """last_calls over the given shadow files (in the order given; a tie on exported_at keeps the later file);
+    `label(f)` names each row's source_file. The provenance receipt reads several export folders through it."""
     out: dict[int, dict] = {}
-    for f in sorted(Path(export_dir).glob(f"{FILE_PREFIX}*.json")):
+    for f in files:
         try:
             doc = json.loads(f.read_text())
         except (OSError, ValueError):
@@ -286,7 +292,7 @@ def last_calls(export_dir: str = "exports") -> dict[int, dict]:
             if mid is None or not at or at >= ko:
                 continue
             if mid not in out or at >= out[mid]["exported_at"]:
-                out[mid] = {**r, "exported_at": at, "source_file": f.name}
+                out[mid] = {**r, "exported_at": at, "source_file": label(f)}
     return out
 
 
@@ -489,11 +495,102 @@ def copy_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _walk(games, want, train, mu: float, c_mult: float, k_mult: float) -> dict:
+    """One line of the read: predict-then-update over the whole stream, the cohort scored; the naive rates estimated
+    on THIS line's training games by THIS line's flags (ARCHITECT 2026-11-19, addendum 429 item 1(a), (A))."""
+    from src.walters import intl_elo as ie
+
+    base = ie.naive(train)
+    m = ie.IntlElo(mu=mu, c_mult=c_mult, k_mult=k_mult)
+    ll_m = ll_n = 0.0
+    scored, first, probs = [], None, {}
+    for g in games:
+        if g.id in want:
+            q = base["neutral"] if g.neutral is True else base["home"]
+            p = m.probs(g)
+            ll_m += ie.ll3(p, g.outcome)
+            ll_n += ie.ll3(q, g.outcome)
+            scored.append(g.id)
+            probs[g.id] = p
+            first = first or g.kickoff
+        m.update(g)
+    return {"ll_m": ll_m, "ll_n": ll_n, "scored": scored, "first": first, "probs": probs, "base": base}
+
+
+def naive_rates(base: dict) -> dict:
+    """The naive baseline's rates as estimated on the training stream (intl_elo.naive), printed beside each line."""
+    h, d, a = base["home"]
+    return {"home": [round(h, 4), round(d, 4), round(a, 4)], "neutral_draw": round(base["neutral"][1], 4),
+            "n_train_nonneutral": base["n_train_nonneutral"], "n_train_neutral": base["n_train_neutral"]}
+
+
+def _line_summary(w: dict, n_games: int, bar: float) -> dict:
+    from src.walters import intl_elo as ie
+    n = len(w["scored"])
+    out = {"n": n, "n_games": n_games, "bar": bar, "naive_rates": naive_rates(w["base"])}
+    if n:
+        out.update({"log_loss": w["ll_m"] / n, "naive_log_loss": w["ll_n"] / n,
+                    "reference_log_loss": w["ll_n"] / n - ie.LL_MARGIN})
+    return out
+
+
+def read_on_copy(db, fn, echo=print):
+    """fn(session) on a .backup copy under addendum 346's fence, as intl-elo-confirm --db reads it: check_copy (outside
+    data/, never the configured DB, never created, no sidecar, every COPY_TABLES table readable), the sha256 printed
+    before the read and checked after it, the sidecars checked after it (#940: only those two checks are the copy's),
+    the whole read on mlb_pitchers_gate.readonly_session (mode=ro + immutable=1). ShadowRefused on any of them."""
+    from sqlalchemy.exc import DBAPIError
+
+    from src.walters import mlb_pitchers_gate as mp
+    copy = check_copy(db)
+    try:
+        sha_before = copy_sha256(copy)
+    except OSError as err:
+        raise ShadowRefused(f"--db {copy}: the copy could not be hashed ({err!r}); nothing read, nothing written")
+    echo(f"--db {copy} · sha256 {sha_before} · a .backup copy, opened {mp.COPY_URI_QUERY.lstrip('?')} (the app's "
+         "database is not read)")
+    try:
+        with mp.readonly_session(copy) as s:
+            out = fn(s)
+            try:
+                sha_after = copy_sha256(copy)
+                sides_after = copy_sidecars(copy)
+            except OSError as err:
+                raise ShadowRefused(f"--db {copy}: the copy could not be re-read after the read ({err!r})") from None
+    except DBAPIError as err:
+        raise ShadowRefused(f"--db {copy}: the copy could not be read ({err.orig!r})") from None
+    if sides_after:
+        raise ShadowRefused(f"--db {copy} changed during the read: {', '.join(sides_after)} appeared beside it, which "
+                            "immutable=1 ignores; the receipt is not tied to the copy")
+    if sha_after != sha_before:
+        raise ShadowRefused(f"--db {copy} changed during the read (sha256 {sha_before[:16]}… before, {sha_after[:16]}… "
+                            "after): the receipt is not tied to the printed copy")
+    return out
+
+
 def confirmation_read(now: datetime | None = None, s=None) -> dict:
     """The plan's read so far: the first-60 set priced predict-then-update
     (walk-forward over the whole stream), model log-loss vs naive − 0.010.
     `s`: a session to read through (intl-elo-confirm --db: the copy's mode=ro + immutable=1 session, addendum 346); None
-    reads the app's database, as before."""
+    reads the app's database, as before.
+
+    THE READ BOTH WAYS (ARCHITECT 2026-10-23, addendum 160 item 3: "The read [...] is reported BOTH ways (stored flags;
+    corrected flags); the verdict is taken on the corrected inputs; the frozen method is untouched"; 161 item 2:
+    "'Stored' = the provider's flags as derived before any override (provider_flag); 'corrected' = the flags after
+    intl-venue-override --apply re-derives them [...] the verdict and --record stand on the corrected flags"; 429 item
+    1(a): "Each line uses its own flags throughout, the naive rates included"). The keys of the read as before are the
+    CORRECTED line (neutral_v3 as stored), which --record takes. While the override table holds an entry, `both` adds
+    the stored-flags line, from the same load in the same session (provider_flag of each row's stored venue and home
+    countries), each line whole with its naive rates, and how many cohort fixtures the two price differently with the
+    largest single difference in a probability (427 item 3(d)). `derive_mismatch`: the rows whose neutral_v3 differs
+    from intl_venues.derive() (the override not applied on this store, or lapsed): --record refuses while any is listed
+    (429 item 1(d)). With an empty table, the read is today's."""
+    from dataclasses import replace
+
+    from sqlalchemy import select
+
+    from src.db.schema import IntlMatchVenue
+    from src.ingestion import intl_venues as iv
     from src.walters import intl_elo as ie
 
     now = now or utc_now_naive()
@@ -503,35 +600,27 @@ def confirmation_read(now: datetime | None = None, s=None) -> dict:
         games, _ = ie.load(s, rule="v3")
         co = cohort(e, s)
         elig = eligible_fixtures(s, e)
-        return games, co, elig
+        venue = {v.match_id: (v.venue_id, v.venue_country, v.home_country, v.neutral_v3)
+                 for v in s.execute(select(IntlMatchVenue)).scalars()}
+        return games, co, elig, venue
 
     if s is None:
         from src.db.database import session_scope
         with session_scope() as s2:
-            games, co, elig = read(s2)
+            games, co, elig, venue = read(s2)
             s2.rollback()
     else:
-        games, co, elig = read(s)
+        games, co, elig, venue = read(s)
     status = {f["id"]: f["status"] for f in elig}
     unscoreable = {f["id"]: f["unscoreable"] for f in elig}
     train = [g for g in games if ie.TRAIN_FROM <= g.kickoff < ie.TRAIN_TO]
     if not train:
         raise ShadowRefused("no training-stream games stored: run intl-sync first")
     mu = sum(g.hg + g.ag for g in train) / (2 * len(train))
-    base = ie.naive(train)
     games = [g for g in games if g.kickoff < now]
     want = _labelled(co["ids"], games)
-    m = ie.IntlElo(mu=mu, c_mult=c_mult, k_mult=k_mult)
-    ll_m = ll_n = 0.0
-    scored, first = [], None
-    for g in games:
-        if g.id in want:
-            q = base["neutral"] if g.neutral is True else base["home"]
-            ll_m += ie.ll3(m.probs(g), g.outcome)
-            ll_n += ie.ll3(q, g.outcome)
-            scored.append(g.id)
-            first = first or g.kickoff
-        m.update(g)
+    w = _walk(games, want, train, mu, c_mult, k_mult)
+    ll_m, ll_n, scored, first = w["ll_m"], w["ll_n"], w["scored"], w["first"]
     n = len(scored)
     plan = e["confirmation_plan"]
     pending = sorted(set(co["ids"]) - set(scored))
@@ -545,7 +634,59 @@ def confirmation_read(now: datetime | None = None, s=None) -> dict:
     if n:
         out.update({"log_loss": ll_m / n, "naive_log_loss": ll_n / n,
                     "reference_log_loss": ll_n / n - ie.LL_MARGIN})
+    out["derive_mismatch"] = sorted(mid for mid, (vid, vc, hc, flag) in venue.items()
+                                    if iv.derive(vid, vc, hc)[0] != flag)
+    if iv.VENUE_COUNTRY_OVERRIDES:
+        pf = {mid: iv.provider_flag(vc, hc) for mid, (vid, vc, hc, flag) in venue.items()}
+
+        def provider(gs):
+            return [replace(g, neutral=pf[g.id]) if g.id in pf else g for g in gs]
+
+        w2 = _walk(provider(games), want, provider(train), mu, c_mult, k_mult)
+        diffs = sorted(((max(abs(a - b) for a, b in zip(w["probs"][i], w2["probs"][i])), i) for i in w["probs"]),
+                       key=lambda t: (-t[0], t[1]))
+        moved = [(d, i) for d, i in diffs if d > 1e-12]
+        out["both"] = {"corrected": _line_summary(w, plan["n_games"], plan["bar"]),
+                       "stored": _line_summary(w2, plan["n_games"], plan["bar"]),
+                       "priced_differently": len(moved), "priced_of": len(diffs),
+                       "max_diff": moved[0] if moved else (0.0, None)}
     return out
+
+
+def _line_text(x: dict) -> str:
+    nr = x["naive_rates"]
+    rates = (f"naive rates: home H/D/A {nr['home'][0]:.4f}/{nr['home'][1]:.4f}/{nr['home'][2]:.4f} over "
+             f"{nr['n_train_nonneutral']} train games, neutral draw {nr['neutral_draw']:.4f} over {nr['n_train_neutral']}")
+    head = f"{x['n']}/{x['n_games']} labelled"
+    if not x["n"]:
+        return f"{head} · {rates}"
+    return (f"{head} · log-loss {x['log_loss']:.4f} · naive {x['naive_log_loss']:.4f} · reference (naive − 0.010) "
+            f"{x['reference_log_loss']:.4f} · bar {x['bar']:.4f} · {rates}")
+
+
+def both_ways_lines(r: dict) -> list[str]:
+    """intl-elo-confirm's lines after "so far": the read both ways while the override table holds an entry (160 item 3;
+    161 item 2; 429 item 1(a): "The read prints each line whole: log-loss, naive, reference (naive − 0.010), the bar,
+    and its naive rates"; 427 item 3(d)), and the rows the override has not been applied to (429 item 1(d)'s guard).
+    Nothing when the table is empty and every row agrees with the derivation: the console is today's."""
+    L = []
+    b = r.get("both")
+    if b:
+        L.append("  BOTH WAYS (ARCHITECT 2026-10-23, addendum 160 item 3; 161 item 2; 429 item 1(a)): each line on its "
+                 "own flags throughout, its naive rates included; the verdict and --record stand on the corrected flags")
+        L.append("    corrected flags (neutral_v3 as stored, after intl-venue-override --apply): "
+                 + _line_text(b["corrected"]))
+        L.append("    stored flags (the provider's venue country alone, no override): " + _line_text(b["stored"]))
+        d, mid = b["max_diff"]
+        L.append(f"    cohort fixtures priced differently by the two: {b['priced_differently']} of {b['priced_of']} · "
+                 "largest single difference in a probability: "
+                 + (f"{d:.4f} (fixture {mid})" if mid is not None else "none"))
+    mm = r.get("derive_mismatch") or []
+    if mm:
+        L.append(f"  NOT APPLIED: {len(mm)} row(s) whose neutral_v3 differs from intl-venue-override's derivation (the "
+                 "override not applied on this store, or lapsed): " + ", ".join(map(str, mm[:12]))
+                 + (" …" if len(mm) > 12 else "") + " — --record refuses until intl-venue-override --apply has run")
+    return L
 
 
 def results_section(days: int, export_dir: str = "exports", graded: dict | None = None) -> str:

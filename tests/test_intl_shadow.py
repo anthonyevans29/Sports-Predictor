@@ -281,13 +281,24 @@ def _run(args):
     return CliRunner().invoke(cli, ["intl-elo-confirm", *args])
 
 
-def test_346_the_no_flag_read_without_db_is_unchanged_byte_for_byte(world, frozen_ok, monkeypatch):
+@pytest.fixture
+def empty_override_table(monkeypatch):
+    """ARCHITECT 2026-11-19, addendum 426 item 5(c): "A test pins that with an empty override table the read's console
+    is byte for byte today's." The 346 pins below are that pin: the venue-country override table emptied (PR ONE of
+    429 item 1(f) holds 2618 and 3989), so the read both ways adds nothing and the console is main's of 1ec357e4."""
+    from src.ingestion import intl_venues as iv
+    monkeypatch.setattr(iv, "VENUE_COUNTRY_OVERRIDES", {})
+
+
+def test_346_the_no_flag_read_without_db_is_unchanged_byte_for_byte(world, frozen_ok, monkeypatch,
+                                                                     empty_override_table):
     monkeypatch.setattr(us, "utc_now_naive", lambda: NOW)
     out = _run([])
     assert out.exit_code == 0 and out.output == pin_no_flag()
 
 
-def test_346_the_read_on_a_copy_equals_the_read_on_the_same_store(world, frozen_ok, monkeypatch, tmp_path):
+def test_346_the_read_on_a_copy_equals_the_read_on_the_same_store(world, frozen_ok, monkeypatch, tmp_path,
+                                                                   empty_override_table):
     from src.walters import mlb_pitchers_gate as mp
     copy = _copy(tmp_path)
     app = us.confirmation_read(now=NOW)

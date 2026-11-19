@@ -6311,6 +6311,47 @@ def unl_shadow_grade_cmd(days):
         print(f"             {_vs_line(b.get('vs_close'))}")
 
 
+@cli.command("unl-provenance-receipt")
+@click.option("--export-dir", "export_dirs", multiple=True, required=True,
+              help="A folder of unl_shadow_*.json files, flat or a tree of dated <YYYY-MM-DD>/ folders, never latest/ "
+                   "(232 item 2(c)); give it once per place the files sit (429 item 1(c): the laptop's exports/ and the "
+                   "mirror's host/ folder, or the kept folder under logs/).")
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5; addendum 346's fence, as intl-elo-confirm "
+                   "--db): opened mode=ro + immutable=1, never created, refused under data/, as the app's configured "
+                   "database, when missing, or with a -wal/-shm/-journal beside it; its path and sha256 are printed. "
+                   "Without it the app's database is read mode=ro.")
+def unl_provenance_receipt_cmd(export_dirs, db):
+    """UNL VENUE-INPUT PROVENANCE (ARCHITECT 2026-10-23, addendum 159 item 2; #336), read-only: the input snapshot the
+    confirmation read uses (ids, results, neutral_v3 per cohort fixture with each flag's ingest time and, where an
+    override moved it, the provider's flag beside it), the fixtures whose stored flag changed after their pre-kickoff
+    shadow file was written with the replayed vs saved probability on those, and the missing shadow files. A material
+    difference is named TO THE ARCHITECT. Runs on the laptop by the architect's block on the pulled copy (429 item
+    1(c)). Nothing written, nothing fetched."""
+    from src.walters import intl_provenance as ip
+    from src.walters import intl_shadow as us
+
+    try:
+        if db:
+            r = us.read_on_copy(db, lambda s: ip.receipt(s, list(export_dirs)), echo=click.echo)
+        else:
+            from sqlalchemy.exc import DBAPIError as _DBAPIError
+
+            from src.db.database import ReadOnlyRefused, readonly_scope
+            try:
+                with readonly_scope() as s:
+                    r = ip.receipt(s, list(export_dirs))
+            except ReadOnlyRefused as e:
+                raise us.ShadowRefused(f"{str(e).removeprefix('REFUSED: ')}; nothing read") from None
+            except _DBAPIError as e:
+                raise us.ShadowRefused(f"the app's database could not be read ({e.orig!r})") from None
+    except us.ShadowRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    for line in ip.lines(r):
+        click.echo(line)
+
+
 @cli.command("intl-elo-confirm")
 @click.option("--freeze-cohort", is_flag=True,
               help="Freeze the first 60 eligible fixture ids into the registry (once; needs >= 60 stored).")
@@ -6454,10 +6495,17 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch, db
     if r["n"]:
         click.echo(f"  so far: log-loss {r['log_loss']:.4f} · naive {r['naive_log_loss']:.4f} · reference (naive − 0.010) "
                    f"{r['reference_log_loss']:.4f} · bar {r['bar']:.4f} — not a verdict until the cohort is complete")
+    for line in us.both_ways_lines(r):                    # addendum 160 item 3, 161 item 2, 429 item 1 (empty table: none)
+        click.echo(line)
     if not record:
         return
     if not ruling:
         click.echo("REFUSED: --record needs --ruling (the architect's text, verbatim)")
+        raise SystemExit(2)
+    if r["derive_mismatch"]:                               # 429 item 1(d): the record stands on the corrected flags
+        click.echo(f"REFUSED: {len(r['derive_mismatch'])} row(s)' neutral_v3 differ from intl-venue-override's "
+                   "derivation (the override not applied on this store, or lapsed): the verdict and --record stand on "
+                   "the corrected flags (addendum 161 item 2); run intl-venue-override --apply first; nothing recorded")
         raise SystemExit(2)
     if not r["complete"]:
         click.echo("REFUSED: the read is incomplete — " + ("the cohort is not frozen (--freeze-cohort)"

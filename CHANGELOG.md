@@ -4,6 +4,173 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-11-19 (#1054: 426-430-records — addenda 426 to 430 recorded; lane unl's confirmation record and earliest_live move 2026-11-19 to 2026-12-01, the architect's miss, by two moved lines; #1050 to #1053 opened; #688 closed by ruling)
+- **Records:** addenda 426 to 430 verbatim in docs/ledger/entries/2026-11-19-426-430-records.md.
+  - #1049 merged at 7d4a3698 by the architect's block.
+  - **Lane unl:** the confirmation record does not run today. It stands on the corrected venue flags, read both ways (160 item 3, 161 item 2), and neither the venue-country override nor the both-ways read is on main.
+    - `docs/roadmap.json` gains two moved lines on lane unl, with the why verbatim from 426 item 3(e). The record step's due date and earliest_live each move from 2026-11-19 to 2026-12-01.
+    - The step's wording is unchanged and the state stays confirming. No bar moves.
+    - `tests/test_roadmap.py`'s earliest_live move test now moves the file's own date by one day instead of pinning 2026-11-20.
+  - **Today's read and the venues:** today's read on the host's copy is the stored-flags line only, and nothing is recorded on it. Venue 3989's entry is ruled Spain (428 item 2(c)): 33 flags change, none a cohort fixture.
+  - **Dev 2's lane, recorded only:** 426 items 5 and 6, 427 item 3, 428 items 2 and 5(c), and 429 item 1 (the plan ruled; the naive baseline (A)).
+  - **College football:** the 667 rows of Wednesday are the lower divisions' games and stay. A refused re-key is a second provider duplicate. #1035 now stands for three games, and the second source's gap to date is nil. Nothing is held or deduped, and Sunday on the host is unchanged.
+  - **New Issues:**
+    - #1050: four ATP rows share one kickoff minute while their markets stay open.
+    - #1051: the NHL record's T+20 eventual read is never retried; only nhl-goalie-sync reads the boxscore again, into another table.
+    - #1052: the soccer injuries feed's cost line, with zero added calls and five rulings first.
+    - #1053: the laptop's nightly pull missed at least ten nights; it is a 22:00-local LaunchAgent with no retry and no page.
+  - **#688:** closed by 429 item 3(e). The weekly hand run ends, and 430's correction is beside it.
+
+## 2026-11-17 (#1049: 424-425-records — addenda 424 and 425 recorded: the 1,231 college rows ruled the provider's Division II and III games of 2026 and kept, nothing held on Sunday; the SP_SYNC_HOLD parsing trap #1047 and the one-id-two-schools limitation #1048 opened)
+- **Records:** addenda 424 and 425 verbatim in docs/ledger/entries/2026-11-17-424-425-records.md.
+  - 424: SP_FULLSEASON_HOLD is not built. A quoted SP_SYNC_HOLD value with a trailing comment holds nothing through the file; that is opened as #1047, and until a ruling every hold line is written bare.
+  - 425: the read of Tuesday's 1,231 created rows rules them the provider's Division II and III games of 2026 to date (#1044). They stay, the host takes the listing whole on Sunday, and NCAA's line stays in the weekly list.
+  - One provider team id serving two schools is limitation #1048; the stage is answered there as stored in `matches.stage`. An old twin the orphan dry run cannot see is on #932.
+  - Nothing is deduped, retired, re-synced or held.
+
+## 2026-11-17 (#1046: 417-423-records — addenda 417 and 423 recorded: KXNCAAFGAME's ruled sha256 and #1036 held for the Saturday baseline; #1044's open point settled by two consoles and the host's Sunday pass ruled on Friday)
+- **Records:** addenda 417 and 423 verbatim in docs/ledger/entries/2026-11-17-417-423-records.md.
+  - 417 is Dev 2's lane, recorded here (the records are one lane, 420 item 3). KXNCAAFGAME.json's ruled sha256 is 0698c81d…0b903e; #1036 waits for the scorer's baseline; the history hold stands for the series; the order-dependent test is #1041.
+  - 423: #1045 merged. On #1044, the provider honours `date` and the laptop's 3,675 came from a range, so the host's only whole-listing NCAA write is Sunday 2026-11-22 06:00Z. Its ruling comes Friday, after Thursday's read. Nothing is deduped, retired or re-synced.
+
+## 2026-11-17 (#1045: 421-422-records — addenda 421 and 422 recorded: the provider's 2026 college football listing doubled overnight on the laptop (finding #1044), and the Nations League cohort's 60th fixture done-marked on the roadmap)
+- **Records:** addenda 421 and 422 verbatim in docs/ledger/entries/2026-11-17-421-422-records.md.
+  - 422 item 2 is opened as #1044 (class:finding). The code answers to item 2(d) go on that Issue by Thursday, and nothing is synced, deduped or retired.
+  - 417's record is still owed: its text has not reached DEV 1.
+- **docs/roadmap.json:** lane unl's step "the 60th cohort fixture ... is played" is done.
+  - Done date 2026-11-16; receipt addendum 422 item 3, the host's unl_shadow of 2026-11-17T07:20Z, "PASS — confirmation 60/60".
+  - The step's text is unchanged. No date, bar or moved line changes.
+- **tests/test_roadmap.py:** the ruled-day print test reads the first lane's first step not done, not its first step. With unl's first step done, the print's next line is the confirmation record step.
+
+## 2026-11-16 (#1043: 420-docs-index — the docs index without a per-entry ledger list; its four missing rows (ARCHITECT 2026-11-16, addendum 420 item 1))
+- **docs/README.md, `docs/ledger/`:** the file-by-file list of `docs/ledger/entries/` is gone, replaced by one sentence: the folder holds one entry per PR since the last compile; the compile folds them into BACKLOG.md and deletes them; the folder's README has the rules. No row per entry, now or later (420 item 1(a)). The index's opening line excepts the entries.
+- **Four rows added**, each read first (420 item 1(b)): `docs/ledger/2026-11-14-ledger-sweep.md`, `docs/registry/ids/ncaa-elo-v2.txt`, `docs/registry/ncaa-elo-v2.started.json` and `docs/specs/availability-graph-candidates.md`. Every docs file outside the entries folder now has its row.
+- **Ledger:** docs/ledger/entries/2026-11-16-420-docs-index.md, addendum 420 verbatim and what DEV 1 did, including #1035's exact read for the Thursday block.
+
+## 2026-11-16 (#1042: 418-records — the records of addendum 418; the probe's Thursday dates)
+- **Ledger:** docs/ledger/entries/2026-11-16-418-records.md, addendum 418 verbatim and what DEV 1 did: #1037, #1040 and #1039 merged by the architect's block; 416's thirty closings confirmed; the #382 cost line received, no build.
+- **scripts/README.md:** the listing probe's row records its first run: the laptop, 2026-11-16, the five dates of 418 item 2 (2026-11-21, 11-22, 11-27, 11-28 and 11-29, so a Saturday night game on the next UTC day is read too), five HTTP GETs, 180 rows, 0 dropped (419 item 2). The probe is unchanged.
+- **Addendum 419 (same PR):** docs/ledger/entries/2026-11-16-419-records.md, 419 verbatim and what DEV 1 did:
+  - the probe's laptop run recorded on #1035;
+  - #1035 relabelled class:limitation with its reopening condition;
+  - the season-width read answered on #1035 from the code: `ncaa-cfbd-coverage`, on the host, no arguments, a read-write open of a copy; one line of cost for a read-only script, not built.
+
+## 2026-11-16 (#1040: 414-416-records — the records of addenda 414, 415 and 416; lane nfl-qb's 11-16 step done)
+- **Ledger:** docs/ledger/entries/2026-11-16-414-416-records.md, with the three addenda verbatim and what DEV 1 did on each.
+  - 414: the probe opened as #1039; #1038 opened for the three silent drops.
+  - 415: the re-read and its ruling on #382 (with the cost line), #895 and #427.
+  - 416: thirty Issues closed on the ledger sweep's ruling, each closing comment quoting its sentence; #688 kept open with its label off.
+- **Roadmap (415 item 4):** lane nfl-qb's step due 2026-11-16 done (receipt "addendum 415"). Two steps appended verbatim: 2026-12-15 (code, the quarterback agreement receipt) and 2027-02-16 (architect, the ruling on it). No date moves; tests/test_roadmap.py reads the new steps.
+
+## 2026-11-16 (#1039: 414-ncaa-listing-probe — the NCAA listing probe, read-only (ARCHITECT 2026-11-16, addendum 414 item 3; #1035, #1038))
+- **New:** `scripts/ncaa_listing_probe.py`. For each date given (at most seven), one GET of the provider's college football games through the adapter's own `_get` (league 2, season 2026, that date). Each raw row is printed before any parsing, beside what our side would do with it:
+  - no date (#1), no team id (#2), all-star or exhibition (#3);
+  - with an optional `--db` copy (mode=ro&immutable=1; data/ and sidecars refused): team not in the copy (#6), the stored match holding the provider id, or NOT STORED.
+- **The fence (414 item 3(c)):** no write and no file made; provider calls counted first and last; the key by name only; a provider error prints and exits 1 after what was read; no sync, re-key or repair module is loaded.
+- **Pre-PR review (four findings, all fixed):** an exception's text is printed with the key's value replaced by its variable's name (requests' InvalidHeader carries a malformed header value); a sidecar check that cannot stat the copy refuses (exit 2) instead of a traceback; a row whose verdict fails is printed raw with VERDICT FAILED and the run goes on (exit 1); a bad command line prints the REFUSED line with the call count. A stored row's season is read as service.season_year reads it.
+- **Codex round 1 (two P2s, both fixed):** the provider's own results/paging line goes through the same redactor as the rows; run as a script, no bytecode file of the repo is written (a test runs it with PYTHONPYCACHEPREFIX and finds none; a control shows the check sees a write), and the test's own import no longer caches the probe.
+- **Tests:** tests/test_ncaa_listing_probe.py (33), on invented rows only; no network. Each test added for a finding fails without its fix.
+- **Unchanged:** every sync, the adapter and the database. Nothing runs on a schedule.
+
+## 2026-11-16 (#1037: 412-413-records — addenda 412 and 413 recorded: KXNCAAFGAME's table ruled, and the four unstored college football games found, read and answered from the code)
+- **Records:** addenda 412 and 413 verbatim in docs/ledger/entries/2026-11-16-412-413-records.md.
+  - KXNCAAFGAME's table of 264 lines is ruled, and its data PR is Dev 2's, waiting on the architect's word.
+  - The finding of four college football games Kalshi lists and we do not store is opened as #1035.
+  - On #1035: the architect's DB read (413 item 1), and DEV 1's read-only answers to 413 item 2(a)-(c).
+
+## 2026-11-16 (#1036: 412-kxncaafgame-table — KXNCAAFGAME's name table, as data (ARCHITECT 2026-11-16, addendum 412 items 2 and 3; #955))
+- **src/ingestion/kalshi_tables/KXNCAAFGAME.json (new):** the 264 ruled lines, each name | key | id, copied from the ruled file only (sha256 f46a6317…).
+  - In KXNCAAMBGAME.json's form, in name order.
+  - `ruled` names 412 item 2.
+  - The strict loader accepts it.
+  - No code changes.
+- **tests/test_412_kxncaafgame_table.py (new):**
+  - pinned to the count (264) and the file's sha256 (0698c81d7c05);
+  - the lines 412 names, as ruled;
+  - KXNCAAFGAME-26NOV28GTUGA: the scorer's fit, and NO_FIT under the table;
+  - the history paths' hold refusing the series.
+- **Four scorer test files:** each reads an empty table folder (392's precedent). No assertion changes.
+- **The folder's README** names the 264.
+- **Merge:** held until the architect's word, after his baseline replay (412 item 3(c)).
+
+## 2026-11-16 (#1034: 410-411-records — addenda 410 and 411 recorded: #1032 and #1033 merged, 408 item 5's receipts PASS, two laptop notes for the record)
+- **Records:** addenda 410 and 411 verbatim in docs/ledger/entries/2026-11-16-410-411-records.md.
+  - #1032 merged (410 item 1).
+  - #1033 merged and 408 item 5 ruled DONE on its receipts (Dev 2's lane).
+  - 411 item 4 recorded as no finding: the laptop's regenerated RESULTS.md, and NCAAMB match 59235 kept on the architect's list with #1020's residue.
+
+## 2026-11-16 (#1033: 408-proposer-replay-lines — the proposer's marked section names events and ids; the replay names refused events (ARCHITECT 2026-11-16, addendum 408 item 5; #955))
+- **kalshi-table-propose's marked section:**
+  - under each hand-read name, each event's ticker with the event's other name;
+  - beside each top-score team, its team id and its provider id under `--key` (`-` where it has none; an id another stored team also holds is shown with that team named, and several ids are listed).
+
+  `kalshi_table.names_of` keeps the events, and `propose` carries them (`Proposal.seen`, `Proposal.top_ids`). The PROPOSED section and every mark are unchanged.
+- **kalshi-replay:** after the counts by reason, one line per refusal reason other than the window and play begun names that reason's event tickers (`kalshi_replay.refused_events_lines`). An event that placed other legs is marked "in part".
+- **The fence (408 item 5(c)):** `place()`, the loader, the resolver, the table files and `kalshi_match.console_lines` are unchanged. No sync's console, placement or refusal changes.
+- **Tests:** tests/test_408_proposer_replay_lines.py (7). Six failed first; the fence test passes on main by design.
+
+## 2026-11-16 (#1032: 408-records — addenda 408 and 409 recorded: the day's compare CLEAN, #1030 and #1031 merged, the Desk-fills caveat a known limitation on #609, v1.6.9's first own runs read and #1027 closed)
+- **Records:** addendum 408 verbatim in docs/ledger/entries/2026-11-16-408-records.md.
+  - The day's compare of 2026-11-16 (item 1): CLEAN on v1.6.9's comparator. fixtures_NHL 19/19 rows, 0 diffs; skew laptop acf3d40d against host 482de3fd.
+  - #1030 merged (item 2).
+  - Item 3 recorded on #609 as the known limitation: an own single on a logged Desk call's game and side is booked system-matched. The architect rules on it with #609's design.
+  - Items 4-5 are Dev 2's.
+- **Addendum 409**, verbatim in docs/ledger/entries/2026-11-16-409-records.md:
+  - the host read at 16:30Z: v1.6.9, 839 receipt lines with 0 failing;
+  - the graph timer's first own run (10:20Z, exit 0) and the goalie step's (16:00Z, exit 0);
+  - #1027 closed on 409 item 3.
+
+## 2026-11-16 (#1031: 407-graph-peak-line — the graph rebuild's receipt line carries the run's peak (ARCHITECT 2026-11-16, addendum 407 item 3; #1010))
+- **src/availability/graph.py:** every rebuild line (success, failure and refusal) carries `peak`:
+  - `process_rss_kib` (RUSAGE_SELF);
+  - `children_rss_kib` (RUSAGE_CHILDREN, the staging child once waited for);
+  - `cgroup_peak_bytes` and `cgroup_peak_from`, the process's own cgroup read while the unit runs (memory.peak on v2, memory.max_usage_in_bytes on v1).
+
+  A part that cannot be read is null with its reason, never a failed run. `_cgroup_peak` sits beside `_cgroup_limit`.
+- **Untouched:** the build, the pool rule, the unit file and the walk. #1010 stays open.
+- **Receipt:** the real 1× build in the 1536M rig at 9efff9b7 wrote process 439,816 KiB (429.5 MiB) and cgroup 1,410,441,216 bytes (1,345 MiB). Both agree with the rig's own measures.
+- **Docs and tests:** the spec's section 11 says what the line carries. Three new tests, each failing first.
+
+## 2026-11-16 (#1030: 406-unl-moved-lines — lane unl's confirmation record and earliest_live moved 2026-11-17 -> 2026-11-19, two moved lines (ARCHITECT, addendum 406 item 1); addenda 406 and 407 recorded)
+- **docs/roadmap.json, lane unl (#220):**
+  - the confirmation record step: due 2026-11-19 (was 2026-11-17);
+  - earliest_live: 2026-11-19 (was 2026-11-17);
+  - one moved line for each, why and ruling verbatim from 406 item 1(c)-(d);
+  - the fixture step keeps 2026-11-16, and no bar moves (406 item 1(e)).
+- **Records:** addenda 406 and 407 verbatim in docs/ledger/entries/2026-11-16-406-407-records.md, with what DEV 1 did:
+  - #1020's line;
+  - #1029 opened, with its two facts;
+  - the Desk-fills fact on #609;
+  - #990 closed on 407 item 2(a).
+
+## 2026-11-15 (#1028: 402-v169-records — the v1.6.9 release record: the RELEASES.md row and entry, section O of hosting-h1.md brought to the state after the deploy and after the graph's enable, and the graph's host step done-marked (ARCHITECT, addenda 400 to 405))
+- **docs/RELEASES.md:**
+  - the v1.6.9 row: 2026-11-15 19:57:26Z, commit 482de3fd, tag object eb3becef, Release Issue #1027;
+  - the v1.6.9 entry: the tag ruling (400 item 3), step 1 (395 item 3, 399 item 1, 400 item 2), step 2 (400 item 1), the tag message read, the tag, the deploy and the state after it (402 item 1), the graph's first run and enable and the host's goalie backfill after the deploy (404 item 1; 405 item 1), what changed for the host from git, what it carries, and the release Issue.
+- **docs/specs/hosting-h1.md, section O and the graph's rows:**
+  - production v1.6.9 where the text names production;
+  - THE HELD LIST now two, sp-tennis-daily.timer and sp-ncaamb-daily.timer: the set check's `HELD=` line, its current-list sentence and the table, the graph's row moved under "Lifted" with 404 item 1(e) quoted (404 item 2(b));
+  - the graph timer stays on T11's `TIMERS_BY_BLOCK`, its class (356 item 2); no code or test changes;
+  - the schedule table's graph row and the graph's recipe block record the enable at 2026-11-15T20:01Z (404 item 1);
+  - 27 timers shipped, none added; the v1.6.9 deploy's timers line read the same counts as v1.6.8's.
+- **docs/roadmap.json:** lane availability-record, the graph projection's rebuild step done 2026-11-15, on 404 item 1, marked by 404 item 2(a). No date moves.
+  - No step names the goalie record's catch-up or the host's daily goalie step, so 405 item 2 marks none.
+- **Records:** addenda 400, 401 and 402 verbatim in docs/ledger/entries/2026-11-15-402-v169-records.md; addenda 403 (Dev 2's lane, recorded), 404 and 405 verbatim in docs/ledger/entries/2026-11-15-403-405-records.md.
+
+## 2026-11-15 (#1023: 396-kxncaambgame-hand-lines — KXNCAAMBGAME's name table gains the 60 hand-ruled lines (ARCHITECT 2026-11-15, addendum 396 item 3; addenda 393 item 2 and 394 item 1; #955))
+- **src/ingestion/kalshi_tables/KXNCAAMBGAME.json:** the 60 lines of the architect's v2 file (name | key | id, exactly as written), after the 253 and in that file's order.
+  - The 253 are untouched. 313 lines.
+  - `ruled` names both rulings.
+  - The strict loader accepts it.
+  - No code changes.
+- **tests/test_392_kxncaambgame_table.py re-pinned:**
+  - 313 lines and the new sha256;
+  - the 253 shown untouched (#1019's file to the byte);
+  - the lines the reading turned up;
+  - "UTSA" placing by its line;
+  - a name of no line refused by name.
+- **The folder's README** names the 313.
+
 ## 2026-11-15 (#1022: 395-396-records — addenda 395 to 397 recorded: #1019 merged and its first table's replay read, the second data PR's word given, the day's compare CLEAN for v1.6.9's step 1, #1018 seen, #1021 merge-ready, the cup exam's correction read declared)
 - **Records only, no code:** docs/ledger/entries/2026-11-15-395-397-records.md holds addenda 395 to 397 verbatim and what DEV 1 did with 395 items 3-4, 396 item 6 and 397.
 

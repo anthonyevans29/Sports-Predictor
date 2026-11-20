@@ -1,0 +1,1326 @@
+{
+ "series": "KXNCAAFGAME",
+ "ruled": "ARCHITECT 2026-11-16, addendum 412 item 2",
+ "lines": [
+  {
+   "name": "Abilene Christian",
+   "key": "api_american_football",
+   "id": "241"
+  },
+  {
+   "name": "Air Force",
+   "key": "api_american_football",
+   "id": "149"
+  },
+  {
+   "name": "Akron",
+   "key": "api_american_football",
+   "id": "67"
+  },
+  {
+   "name": "Alabama",
+   "key": "api_american_football",
+   "id": "106"
+  },
+  {
+   "name": "Alabama A&M",
+   "key": "api_american_football",
+   "id": "82"
+  },
+  {
+   "name": "Alabama St.",
+   "key": "api_american_football",
+   "id": "221"
+  },
+  {
+   "name": "Alcorn St.",
+   "key": "api_american_football",
+   "id": "228"
+  },
+  {
+   "name": "Appalachian St.",
+   "key": "api_american_football",
+   "id": "144"
+  },
+  {
+   "name": "Arizona",
+   "key": "api_american_football",
+   "id": "156"
+  },
+  {
+   "name": "Arizona St.",
+   "key": "api_american_football",
+   "id": "86"
+  },
+  {
+   "name": "Arkansas",
+   "key": "api_american_football",
+   "id": "127"
+  },
+  {
+   "name": "Arkansas St.",
+   "key": "api_american_football",
+   "id": "184"
+  },
+  {
+   "name": "Arkansas-Pine Bluff",
+   "key": "api_american_football",
+   "id": "237"
+  },
+  {
+   "name": "Army",
+   "key": "api_american_football",
+   "id": "177"
+  },
+  {
+   "name": "Auburn",
+   "key": "api_american_football",
+   "id": "171"
+  },
+  {
+   "name": "Austin Peay",
+   "key": "api_american_football",
+   "id": "40"
+  },
+  {
+   "name": "BYU",
+   "key": "api_american_football",
+   "id": "136"
+  },
+  {
+   "name": "Ball St.",
+   "key": "api_american_football",
+   "id": "70"
+  },
+  {
+   "name": "Baylor",
+   "key": "api_american_football",
+   "id": "118"
+  },
+  {
+   "name": "Bethune-Cookman",
+   "key": "api_american_football",
+   "id": "124"
+  },
+  {
+   "name": "Boise St.",
+   "key": "api_american_football",
+   "id": "204"
+  },
+  {
+   "name": "Boston College",
+   "key": "api_american_football",
+   "id": "142"
+  },
+  {
+   "name": "Bowling Green",
+   "key": "api_american_football",
+   "id": "154"
+  },
+  {
+   "name": "Brown",
+   "key": "api_american_football",
+   "id": "322"
+  },
+  {
+   "name": "Bryant",
+   "key": "api_american_football",
+   "id": "74"
+  },
+  {
+   "name": "Bucknell",
+   "key": "api_american_football",
+   "id": "245"
+  },
+  {
+   "name": "Buffalo",
+   "key": "api_american_football",
+   "id": "141"
+  },
+  {
+   "name": "Butler",
+   "key": "api_american_football",
+   "id": "281"
+  },
+  {
+   "name": "Cal Poly",
+   "key": "api_american_football",
+   "id": "89"
+  },
+  {
+   "name": "California",
+   "key": "api_american_football",
+   "id": "161"
+  },
+  {
+   "name": "Campbell",
+   "key": "api_american_football",
+   "id": "249"
+  },
+  {
+   "name": "Central Arkansas",
+   "key": "api_american_football",
+   "id": "214"
+  },
+  {
+   "name": "Central Connecticut St.",
+   "key": "api_american_football",
+   "id": "137"
+  },
+  {
+   "name": "Central Michigan",
+   "key": "api_american_football",
+   "id": "62"
+  },
+  {
+   "name": "Charleston Southern",
+   "key": "api_american_football",
+   "id": "213"
+  },
+  {
+   "name": "Charlotte",
+   "key": "api_american_football",
+   "id": "52"
+  },
+  {
+   "name": "Chattanooga",
+   "key": "api_american_football",
+   "id": "255"
+  },
+  {
+   "name": "Chicago St.",
+   "key": "api_american_football",
+   "id": "896"
+  },
+  {
+   "name": "Cincinnati",
+   "key": "api_american_football",
+   "id": "128"
+  },
+  {
+   "name": "Clemson",
+   "key": "api_american_football",
+   "id": "209"
+  },
+  {
+   "name": "Coastal Carolina",
+   "key": "api_american_football",
+   "id": "176"
+  },
+  {
+   "name": "Colgate",
+   "key": "api_american_football",
+   "id": "192"
+  },
+  {
+   "name": "Colorado",
+   "key": "api_american_football",
+   "id": "104"
+  },
+  {
+   "name": "Colorado St.",
+   "key": "api_american_football",
+   "id": "116"
+  },
+  {
+   "name": "Columbia",
+   "key": "api_american_football",
+   "id": "330"
+  },
+  {
+   "name": "Cornell",
+   "key": "api_american_football",
+   "id": "326"
+  },
+  {
+   "name": "Dartmouth",
+   "key": "api_american_football",
+   "id": "327"
+  },
+  {
+   "name": "Davidson",
+   "key": "api_american_football",
+   "id": "283"
+  },
+  {
+   "name": "Dayton",
+   "key": "api_american_football",
+   "id": "277"
+  },
+  {
+   "name": "Delaware",
+   "key": "api_american_football",
+   "id": "146"
+  },
+  {
+   "name": "Delaware St.",
+   "key": "api_american_football",
+   "id": "284"
+  },
+  {
+   "name": "Duke",
+   "key": "api_american_football",
+   "id": "99"
+  },
+  {
+   "name": "Duquesne",
+   "key": "api_american_football",
+   "id": "50"
+  },
+  {
+   "name": "East Carolina",
+   "key": "api_american_football",
+   "id": "120"
+  },
+  {
+   "name": "East Tennessee St.",
+   "key": "api_american_football",
+   "id": "262"
+  },
+  {
+   "name": "East Texas A&M",
+   "key": "api_american_football",
+   "id": "880"
+  },
+  {
+   "name": "Eastern Illinois",
+   "key": "api_american_football",
+   "id": "80"
+  },
+  {
+   "name": "Eastern Kentucky",
+   "key": "api_american_football",
+   "id": "95"
+  },
+  {
+   "name": "Eastern Michigan",
+   "key": "api_american_football",
+   "id": "94"
+  },
+  {
+   "name": "Eastern Washington",
+   "key": "api_american_football",
+   "id": "236"
+  },
+  {
+   "name": "Elon",
+   "key": "api_american_football",
+   "id": "173"
+  },
+  {
+   "name": "Florida",
+   "key": "api_american_football",
+   "id": "113"
+  },
+  {
+   "name": "Florida A&M",
+   "key": "api_american_football",
+   "id": "54"
+  },
+  {
+   "name": "Florida Atlantic",
+   "key": "api_american_football",
+   "id": "51"
+  },
+  {
+   "name": "Florida International",
+   "key": "api_american_football",
+   "id": "73"
+  },
+  {
+   "name": "Florida St.",
+   "key": "api_american_football",
+   "id": "49"
+  },
+  {
+   "name": "Fordham",
+   "key": "api_american_football",
+   "id": "257"
+  },
+  {
+   "name": "Fresno St.",
+   "key": "api_american_football",
+   "id": "88"
+  },
+  {
+   "name": "Furman",
+   "key": "api_american_football",
+   "id": "211"
+  },
+  {
+   "name": "Gardner-Webb",
+   "key": "api_american_football",
+   "id": "225"
+  },
+  {
+   "name": "Georgetown",
+   "key": "api_american_football",
+   "id": "279"
+  },
+  {
+   "name": "Georgia",
+   "key": "api_american_football",
+   "id": "109"
+  },
+  {
+   "name": "Georgia Southern",
+   "key": "api_american_football",
+   "id": "166"
+  },
+  {
+   "name": "Georgia St.",
+   "key": "api_american_football",
+   "id": "189"
+  },
+  {
+   "name": "Georgia Tech",
+   "key": "api_american_football",
+   "id": "208"
+  },
+  {
+   "name": "Grambling St.",
+   "key": "api_american_football",
+   "id": "185"
+  },
+  {
+   "name": "Hampton",
+   "key": "api_american_football",
+   "id": "293"
+  },
+  {
+   "name": "Harvard",
+   "key": "api_american_football",
+   "id": "321"
+  },
+  {
+   "name": "Hawai'i",
+   "key": "api_american_football",
+   "id": "59"
+  },
+  {
+   "name": "Holy Cross",
+   "key": "api_american_football",
+   "id": "223"
+  },
+  {
+   "name": "Houston",
+   "key": "api_american_football",
+   "id": "134"
+  },
+  {
+   "name": "Houston Christian",
+   "key": "api_american_football",
+   "id": "259"
+  },
+  {
+   "name": "Howard",
+   "key": "api_american_football",
+   "id": "230"
+  },
+  {
+   "name": "Idaho",
+   "key": "api_american_football",
+   "id": "202"
+  },
+  {
+   "name": "Idaho St.",
+   "key": "api_american_football",
+   "id": "44"
+  },
+  {
+   "name": "Illinois",
+   "key": "api_american_football",
+   "id": "47"
+  },
+  {
+   "name": "Illinois St.",
+   "key": "api_american_football",
+   "id": "126"
+  },
+  {
+   "name": "Incarnate Word",
+   "key": "api_american_football",
+   "id": "222"
+  },
+  {
+   "name": "Indiana",
+   "key": "api_american_football",
+   "id": "103"
+  },
+  {
+   "name": "Indiana St.",
+   "key": "api_american_football",
+   "id": "218"
+  },
+  {
+   "name": "Iowa",
+   "key": "api_american_football",
+   "id": "138"
+  },
+  {
+   "name": "Iowa St.",
+   "key": "api_american_football",
+   "id": "151"
+  },
+  {
+   "name": "Jackson St.",
+   "key": "api_american_football",
+   "id": "303"
+  },
+  {
+   "name": "Jacksonville St.",
+   "key": "api_american_football",
+   "id": "250"
+  },
+  {
+   "name": "James Madison",
+   "key": "api_american_football",
+   "id": "169"
+  },
+  {
+   "name": "Kansas",
+   "key": "api_american_football",
+   "id": "101"
+  },
+  {
+   "name": "Kansas St.",
+   "key": "api_american_football",
+   "id": "174"
+  },
+  {
+   "name": "Kennesaw St.",
+   "key": "api_american_football",
+   "id": "217"
+  },
+  {
+   "name": "Kent St.",
+   "key": "api_american_football",
+   "id": "206"
+  },
+  {
+   "name": "Kentucky",
+   "key": "api_american_football",
+   "id": "129"
+  },
+  {
+   "name": "LIU",
+   "key": "api_american_football",
+   "id": "76"
+  },
+  {
+   "name": "LSU",
+   "key": "api_american_football",
+   "id": "207"
+  },
+  {
+   "name": "Lafayette",
+   "key": "api_american_football",
+   "id": "216"
+  },
+  {
+   "name": "Lamar",
+   "key": "api_american_football",
+   "id": "229"
+  },
+  {
+   "name": "Lehigh",
+   "key": "api_american_football",
+   "id": "275"
+  },
+  {
+   "name": "Liberty",
+   "key": "api_american_football",
+   "id": "179"
+  },
+  {
+   "name": "Lindenwood",
+   "key": "api_american_football",
+   "id": "316"
+  },
+  {
+   "name": "Louisiana",
+   "key": "api_american_football",
+   "id": "182"
+  },
+  {
+   "name": "Louisiana Tech",
+   "key": "api_american_football",
+   "id": "84"
+  },
+  {
+   "name": "Louisiana-Monroe",
+   "key": "api_american_football",
+   "id": "196"
+  },
+  {
+   "name": "Louisville",
+   "key": "api_american_football",
+   "id": "198"
+  },
+  {
+   "name": "Maine",
+   "key": "api_american_football",
+   "id": "200"
+  },
+  {
+   "name": "Marist",
+   "key": "api_american_football",
+   "id": "278"
+  },
+  {
+   "name": "Marshall",
+   "key": "api_american_football",
+   "id": "158"
+  },
+  {
+   "name": "Maryland",
+   "key": "api_american_football",
+   "id": "140"
+  },
+  {
+   "name": "McNeese",
+   "key": "api_american_football",
+   "id": "234"
+  },
+  {
+   "name": "Memphis",
+   "key": "api_american_football",
+   "id": "187"
+  },
+  {
+   "name": "Mercer",
+   "key": "api_american_football",
+   "id": "172"
+  },
+  {
+   "name": "Mercyhurst",
+   "key": "api_american_football",
+   "id": "381"
+  },
+  {
+   "name": "Merrimack",
+   "key": "api_american_football",
+   "id": "276"
+  },
+  {
+   "name": "Miami (FL)",
+   "key": "api_american_football",
+   "id": "123"
+  },
+  {
+   "name": "Miami (OH)",
+   "key": "api_american_football",
+   "id": "130"
+  },
+  {
+   "name": "Michigan",
+   "key": "api_american_football",
+   "id": "115"
+  },
+  {
+   "name": "Michigan St.",
+   "key": "api_american_football",
+   "id": "92"
+  },
+  {
+   "name": "Middle Tennessee",
+   "key": "api_american_football",
+   "id": "170"
+  },
+  {
+   "name": "Minnesota",
+   "key": "api_american_football",
+   "id": "85"
+  },
+  {
+   "name": "Mississippi St.",
+   "key": "api_american_football",
+   "id": "186"
+  },
+  {
+   "name": "Mississippi Valley St.",
+   "key": "api_american_football",
+   "id": "271"
+  },
+  {
+   "name": "Missouri",
+   "key": "api_american_football",
+   "id": "83"
+  },
+  {
+   "name": "Missouri St.",
+   "key": "api_american_football",
+   "id": "239"
+  },
+  {
+   "name": "Monmouth",
+   "key": "api_american_football",
+   "id": "267"
+  },
+  {
+   "name": "Montana",
+   "key": "api_american_football",
+   "id": "288"
+  },
+  {
+   "name": "Montana St.",
+   "key": "api_american_football",
+   "id": "253"
+  },
+  {
+   "name": "Morehead St.",
+   "key": "api_american_football",
+   "id": "265"
+  },
+  {
+   "name": "Morgan St.",
+   "key": "api_american_football",
+   "id": "167"
+  },
+  {
+   "name": "Murray St.",
+   "key": "api_american_football",
+   "id": "194"
+  },
+  {
+   "name": "NC St.",
+   "key": "api_american_football",
+   "id": "121"
+  },
+  {
+   "name": "Navy",
+   "key": "api_american_football",
+   "id": "145"
+  },
+  {
+   "name": "Nebraska",
+   "key": "api_american_football",
+   "id": "42"
+  },
+  {
+   "name": "Nevada",
+   "key": "api_american_football",
+   "id": "56"
+  },
+  {
+   "name": "New Hampshire",
+   "key": "api_american_football",
+   "id": "261"
+  },
+  {
+   "name": "New Haven",
+   "key": "api_american_football",
+   "id": "482"
+  },
+  {
+   "name": "New Mexico",
+   "key": "api_american_football",
+   "id": "199"
+  },
+  {
+   "name": "New Mexico St.",
+   "key": "api_american_football",
+   "id": "55"
+  },
+  {
+   "name": "Nicholls St.",
+   "key": "api_american_football",
+   "id": "164"
+  },
+  {
+   "name": "Norfolk St.",
+   "key": "api_american_football",
+   "id": "159"
+  },
+  {
+   "name": "North Alabama",
+   "key": "api_american_football",
+   "id": "263"
+  },
+  {
+   "name": "North Carolina",
+   "key": "api_american_football",
+   "id": "53"
+  },
+  {
+   "name": "North Carolina A&T",
+   "key": "api_american_football",
+   "id": "248"
+  },
+  {
+   "name": "North Carolina Central",
+   "key": "api_american_football",
+   "id": "302"
+  },
+  {
+   "name": "North Dakota",
+   "key": "api_american_football",
+   "id": "157"
+  },
+  {
+   "name": "North Dakota St.",
+   "key": "api_american_football",
+   "id": "254"
+  },
+  {
+   "name": "North Texas",
+   "key": "api_american_football",
+   "id": "58"
+  },
+  {
+   "name": "Northern Arizona",
+   "key": "api_american_football",
+   "id": "87"
+  },
+  {
+   "name": "Northern Colorado",
+   "key": "api_american_football",
+   "id": "220"
+  },
+  {
+   "name": "Northern Illinois",
+   "key": "api_american_football",
+   "id": "79"
+  },
+  {
+   "name": "Northern Iowa",
+   "key": "api_american_football",
+   "id": "150"
+  },
+  {
+   "name": "Northwestern",
+   "key": "api_american_football",
+   "id": "41"
+  },
+  {
+   "name": "Northwestern St.",
+   "key": "api_american_football",
+   "id": "251"
+  },
+  {
+   "name": "Notre Dame",
+   "key": "api_american_football",
+   "id": "108"
+  },
+  {
+   "name": "Ohio",
+   "key": "api_american_football",
+   "id": "168"
+  },
+  {
+   "name": "Ohio St.",
+   "key": "api_american_football",
+   "id": "107"
+  },
+  {
+   "name": "Oklahoma",
+   "key": "api_american_football",
+   "id": "117"
+  },
+  {
+   "name": "Oklahoma St.",
+   "key": "api_american_football",
+   "id": "61"
+  },
+  {
+   "name": "Old Dominion",
+   "key": "api_american_football",
+   "id": "96"
+  },
+  {
+   "name": "Ole Miss",
+   "key": "api_american_football",
+   "id": "131"
+  },
+  {
+   "name": "Oregon",
+   "key": "api_american_football",
+   "id": "110"
+  },
+  {
+   "name": "Oregon St.",
+   "key": "api_american_football",
+   "id": "203"
+  },
+  {
+   "name": "Penn",
+   "key": "api_american_football",
+   "id": "324"
+  },
+  {
+   "name": "Penn St.",
+   "key": "api_american_football",
+   "id": "78"
+  },
+  {
+   "name": "Pittsburgh",
+   "key": "api_american_football",
+   "id": "63"
+  },
+  {
+   "name": "Portland St.",
+   "key": "api_american_football",
+   "id": "91"
+  },
+  {
+   "name": "Prairie View A&M",
+   "key": "api_american_football",
+   "id": "295"
+  },
+  {
+   "name": "Presbyterian",
+   "key": "api_american_football",
+   "id": "294"
+  },
+  {
+   "name": "Princeton",
+   "key": "api_american_football",
+   "id": "323"
+  },
+  {
+   "name": "Purdue",
+   "key": "api_american_football",
+   "id": "77"
+  },
+  {
+   "name": "Rhode Island",
+   "key": "api_american_football",
+   "id": "256"
+  },
+  {
+   "name": "Rice",
+   "key": "api_american_football",
+   "id": "36"
+  },
+  {
+   "name": "Richmond",
+   "key": "api_american_football",
+   "id": "148"
+  },
+  {
+   "name": "Robert Morris",
+   "key": "api_american_football",
+   "id": "224"
+  },
+  {
+   "name": "Rutgers",
+   "key": "api_american_football",
+   "id": "143"
+  },
+  {
+   "name": "SMU",
+   "key": "api_american_football",
+   "id": "190"
+  },
+  {
+   "name": "Sacramento St.",
+   "key": "api_american_football",
+   "id": "258"
+  },
+  {
+   "name": "Sacred Heart",
+   "key": "api_american_football",
+   "id": "280"
+  },
+  {
+   "name": "Sam Houston",
+   "key": "api_american_football",
+   "id": "813"
+  },
+  {
+   "name": "Samford",
+   "key": "api_american_football",
+   "id": "210"
+  },
+  {
+   "name": "San Diego",
+   "key": "api_american_football",
+   "id": "300"
+  },
+  {
+   "name": "San Diego St.",
+   "key": "api_american_football",
+   "id": "155"
+  },
+  {
+   "name": "San Jose St.",
+   "key": "api_american_football",
+   "id": "90"
+  },
+  {
+   "name": "South Alabama",
+   "key": "api_american_football",
+   "id": "163"
+  },
+  {
+   "name": "South Carolina",
+   "key": "api_american_football",
+   "id": "188"
+  },
+  {
+   "name": "South Carolina St.",
+   "key": "api_american_football",
+   "id": "72"
+  },
+  {
+   "name": "South Dakota",
+   "key": "api_american_football",
+   "id": "175"
+  },
+  {
+   "name": "South Dakota St.",
+   "key": "api_american_football",
+   "id": "139"
+  },
+  {
+   "name": "South Florida",
+   "key": "api_american_football",
+   "id": "135"
+  },
+  {
+   "name": "Southeast Missouri St.",
+   "key": "api_american_football",
+   "id": "152"
+  },
+  {
+   "name": "Southeastern Louisiana",
+   "key": "api_american_football",
+   "id": "183"
+  },
+  {
+   "name": "Southern Illinois",
+   "key": "api_american_football",
+   "id": "243"
+  },
+  {
+   "name": "Southern Miss",
+   "key": "api_american_football",
+   "id": "178"
+  },
+  {
+   "name": "Southern University",
+   "key": "api_american_football",
+   "id": "232"
+  },
+  {
+   "name": "Southern Utah",
+   "key": "api_american_football",
+   "id": "212"
+  },
+  {
+   "name": "St. Thomas",
+   "key": "api_american_football",
+   "id": "895"
+  },
+  {
+   "name": "Stanford",
+   "key": "api_american_football",
+   "id": "191"
+  },
+  {
+   "name": "Stephen F. Austin",
+   "key": "api_american_football",
+   "id": "231"
+  },
+  {
+   "name": "Stetson",
+   "key": "api_american_football",
+   "id": "290"
+  },
+  {
+   "name": "Stonehill",
+   "key": "api_american_football",
+   "id": "287"
+  },
+  {
+   "name": "Stony Brook",
+   "key": "api_american_football",
+   "id": "246"
+  },
+  {
+   "name": "Syracuse",
+   "key": "api_american_football",
+   "id": "197"
+  },
+  {
+   "name": "TCU",
+   "key": "api_american_football",
+   "id": "105"
+  },
+  {
+   "name": "Tarleton St.",
+   "key": "api_american_football",
+   "id": "731"
+  },
+  {
+   "name": "Temple",
+   "key": "api_american_football",
+   "id": "100"
+  },
+  {
+   "name": "Tennessee",
+   "key": "api_american_football",
+   "id": "69"
+  },
+  {
+   "name": "Tennessee St.",
+   "key": "api_american_football",
+   "id": "252"
+  },
+  {
+   "name": "Tennessee Tech",
+   "key": "api_american_football",
+   "id": "102"
+  },
+  {
+   "name": "Tennessee-Martin",
+   "key": "api_american_football",
+   "id": "247"
+  },
+  {
+   "name": "Texas",
+   "key": "api_american_football",
+   "id": "195"
+  },
+  {
+   "name": "Texas A&M",
+   "key": "api_american_football",
+   "id": "111"
+  },
+  {
+   "name": "Texas Southern",
+   "key": "api_american_football",
+   "id": "233"
+  },
+  {
+   "name": "Texas St.",
+   "key": "api_american_football",
+   "id": "165"
+  },
+  {
+   "name": "Texas Tech",
+   "key": "api_american_football",
+   "id": "193"
+  },
+  {
+   "name": "The Citadel",
+   "key": "api_american_football",
+   "id": "260"
+  },
+  {
+   "name": "Toledo",
+   "key": "api_american_football",
+   "id": "75"
+  },
+  {
+   "name": "Towson",
+   "key": "api_american_football",
+   "id": "244"
+  },
+  {
+   "name": "Troy",
+   "key": "api_american_football",
+   "id": "132"
+  },
+  {
+   "name": "Tulane",
+   "key": "api_american_football",
+   "id": "180"
+  },
+  {
+   "name": "Tulsa",
+   "key": "api_american_football",
+   "id": "160"
+  },
+  {
+   "name": "UAB",
+   "key": "api_american_football",
+   "id": "81"
+  },
+  {
+   "name": "UC Davis",
+   "key": "api_american_football",
+   "id": "162"
+  },
+  {
+   "name": "UCF",
+   "key": "api_american_football",
+   "id": "71"
+  },
+  {
+   "name": "UCLA",
+   "key": "api_american_football",
+   "id": "153"
+  },
+  {
+   "name": "UConn",
+   "key": "api_american_football",
+   "id": "46"
+  },
+  {
+   "name": "UMass",
+   "key": "api_american_football",
+   "id": "181"
+  },
+  {
+   "name": "UNLV",
+   "key": "api_american_football",
+   "id": "43"
+  },
+  {
+   "name": "USC",
+   "key": "api_american_football",
+   "id": "122"
+  },
+  {
+   "name": "UT Rio Grande Valley",
+   "key": "api_american_football",
+   "id": "882"
+  },
+  {
+   "name": "UTEP",
+   "key": "api_american_football",
+   "id": "57"
+  },
+  {
+   "name": "UTSA",
+   "key": "api_american_football",
+   "id": "133"
+  },
+  {
+   "name": "University at Albany",
+   "key": "api_american_football",
+   "id": "730"
+  },
+  {
+   "name": "Utah",
+   "key": "api_american_football",
+   "id": "114"
+  },
+  {
+   "name": "Utah St.",
+   "key": "api_american_football",
+   "id": "45"
+  },
+  {
+   "name": "Utah Tech",
+   "key": "api_american_football",
+   "id": "264"
+  },
+  {
+   "name": "VMI",
+   "key": "api_american_football",
+   "id": "66"
+  },
+  {
+   "name": "Valparaiso",
+   "key": "api_american_football",
+   "id": "298"
+  },
+  {
+   "name": "Vanderbilt",
+   "key": "api_american_football",
+   "id": "60"
+  },
+  {
+   "name": "Villanova",
+   "key": "api_american_football",
+   "id": "242"
+  },
+  {
+   "name": "Virginia",
+   "key": "api_american_football",
+   "id": "147"
+  },
+  {
+   "name": "Virginia Tech",
+   "key": "api_american_football",
+   "id": "97"
+  },
+  {
+   "name": "Wagner",
+   "key": "api_american_football",
+   "id": "219"
+  },
+  {
+   "name": "Wake Forest",
+   "key": "api_american_football",
+   "id": "65"
+  },
+  {
+   "name": "Washington",
+   "key": "api_american_football",
+   "id": "205"
+  },
+  {
+   "name": "Washington St.",
+   "key": "api_american_football",
+   "id": "201"
+  },
+  {
+   "name": "Weber St.",
+   "key": "api_american_football",
+   "id": "227"
+  },
+  {
+   "name": "West Florida",
+   "key": "api_american_football",
+   "id": "720"
+  },
+  {
+   "name": "West Georgia",
+   "key": "api_american_football",
+   "id": "716"
+  },
+  {
+   "name": "West Virginia",
+   "key": "api_american_football",
+   "id": "64"
+  },
+  {
+   "name": "Western Carolina",
+   "key": "api_american_football",
+   "id": "226"
+  },
+  {
+   "name": "Western Illinois",
+   "key": "api_american_football",
+   "id": "215"
+  },
+  {
+   "name": "Western Kentucky",
+   "key": "api_american_football",
+   "id": "39"
+  },
+  {
+   "name": "Western Michigan",
+   "key": "api_american_football",
+   "id": "93"
+  },
+  {
+   "name": "William & Mary",
+   "key": "api_american_football",
+   "id": "98"
+  },
+  {
+   "name": "Wisconsin",
+   "key": "api_american_football",
+   "id": "125"
+  },
+  {
+   "name": "Wofford",
+   "key": "api_american_football",
+   "id": "240"
+  },
+  {
+   "name": "Wyoming",
+   "key": "api_american_football",
+   "id": "48"
+  },
+  {
+   "name": "Yale",
+   "key": "api_american_football",
+   "id": "328"
+  }
+ ]
+}

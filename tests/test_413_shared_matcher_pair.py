@@ -15,6 +15,20 @@ from tests.test_kalshi_matcher_day_rule import (CCAR_MRSH, FAMU_ALST, NDSU_UNLV,
                                                 NDSUUNLV, UNDUNI, Z, _a54_comp, _a54_row, _a54_sync, event, game,
                                                 placed, run)
 
+
+@pytest.fixture(autouse=True)
+def _the_scorer_alone(tmp_path, monkeypatch):
+    """These tests pin the SHARED SCORER on KXNCAAFGAME's real spellings, as written before the series declared its
+    name table. Since ARCHITECT 2026-11-16, addendum 412 items 2 and 3, KXNCAAFGAME is placed by its table alone
+    (src/ingestion/kalshi_tables/KXNCAAFGAME.json; 387 item 3(a)), so here the table folder is an empty one and the
+    scorer, still every series' matcher without a table, is what is read (392's precedent:
+    tests/test_ncaamb_kalshi_wiring.py). The series under its shipped table: tests/test_412_kxncaafgame_table.py."""
+    from src.ingestion import kalshi_table as kt
+    empty = tmp_path / "no_tables"
+    empty.mkdir()
+    monkeypatch.setattr(kt, "TABLE_DIR", empty)
+
+
 # --- one shape per two-way series: two siblings place both sides; one sibling places nothing ---
 
 SERIES_SHAPES = {

@@ -1,4 +1,0 @@
-## 2026-11-16 (#1043: 420-docs-index — the docs index without a per-entry ledger list; its four missing rows (ARCHITECT 2026-11-16, addendum 420 item 1))
-- **docs/README.md, `docs/ledger/`:** the file-by-file list of `docs/ledger/entries/` is gone, replaced by one sentence: the folder holds one entry per PR since the last compile; the compile folds them into BACKLOG.md and deletes them; the folder's README has the rules. No row per entry, now or later (420 item 1(a)). The index's opening line excepts the entries.
-- **Four rows added**, each read first (420 item 1(b)): `docs/ledger/2026-11-14-ledger-sweep.md`, `docs/registry/ids/ncaa-elo-v2.txt`, `docs/registry/ncaa-elo-v2.started.json` and `docs/specs/availability-graph-candidates.md`. Every docs file outside the entries folder now has its row.
-- **Ledger:** docs/ledger/entries/2026-11-16-420-docs-index.md, addendum 420 verbatim and what DEV 1 did, including #1035's exact read for the Thursday block.

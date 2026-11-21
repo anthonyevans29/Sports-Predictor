@@ -603,7 +603,8 @@ its compare verdict.
     #999, #1000, #1002, #1004, #1005, #1006, #1007, #1011, #1012, #1014, #1015, #1016, #1017, #1019, #1021, #1022. Not
     in the tag: #1023 (the 60 hand-ruled KXNCAAMBGAME lines), merged after the tag by the architect's block (400 item
     5; 402 item 4); it opens the next span.
-  - **Release Issue:** #1027 (ritual step 4), opened 2026-11-15 by ARCHITECT, addendum 402 item 2.
+  - **Release Issue:** #1027 (ritual step 4), opened 2026-11-15 by ARCHITECT, addendum 402 item 2. It was put on its
+    milestone v1.6.9 on 2026-11-21, as a backfill: it had been opened with none (ARCHITECT, addendum 439 item 2(a)).
     - It carries 395 item 3, 399 item 1, 400 items 1-3 and 402 item 1 verbatim, what the release puts on the host as 402
       item 2 names it, the 22 from git, and the record line.
     - It also carries the notes in one comment; read back from GitHub, the comment is the tag message character for
@@ -663,7 +664,8 @@ its compare verdict.
     #1030, #1031, #1032, #1033, #1034, #1036, #1037, #1039, #1040, #1042, #1043, #1045, #1046, #1049, #1054. Not in the
     tag: #1056, #1059 and #1057, merged after the tag by the architect's block, each by its exact head (436 item 3);
     they open the next span.
-  - **Release Issue:** #1061 (ritual step 4), opened 2026-11-21 by ARCHITECT, addendum 436 item 2.
+  - **Release Issue:** #1061 (ritual step 4), opened 2026-11-21 by ARCHITECT, addendum 436 item 2, on the milestone
+    v1.6.10 (addendum 439 item 2(a): the runbook's step 4 governs).
     - It carries 435 item 3 and 436 item 1 verbatim, what the release puts on the host, the 17 from git, and the record
       line.
     - It also carries the notes in one comment (7063157208). Read back from GitHub, the comment is the script's output

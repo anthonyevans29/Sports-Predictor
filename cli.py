@@ -2111,8 +2111,10 @@ def intl_venue_by_id_cmd(db, out_dir, max_calls, plan_only, fixtures_dir):
     copy, the provider's answer by id (/venues?id=<id>, one call each, kept under --out-dir, capped, resumable), and
     counts: ids whose by-id country agrees with the stored country, differs, or is not served; for each id that
     differs, its stored games by home country with the flag now and the flag under the by-id country, the cohort
-    fixtures among them named. Reads no score and no result, writes no row, prints no log-loss. Exit 0 complete, 3
-    incomplete (the cap or a failed call: re-run to continue), 2 refused."""
+    fixtures among them named. A stored id that is not a positive integer is never asked and is its own class; an
+    answer refusing the id is kept as served and is its own class (ARCHITECT 2026-11-21, addendum 437 item 2). Reads no
+    score and no result, writes no row, prints no log-loss. Exit 0 complete, 3 incomplete (the cap, a failed call or
+    any other errors block: re-run to continue), 2 refused."""
     from sqlalchemy.exc import DBAPIError as _DBAPIError
 
     from src.ingestion import intl_venue_by_id as vb
@@ -2158,7 +2160,8 @@ def intl_venue_by_id_cmd(db, out_dir, max_calls, plan_only, fixtures_dir):
         raise SystemExit(2)
     if plan_only:
         click.echo(f"INTL-VENUE-BY-ID ({vb.RULING}) · PLAN, nothing called · stored venue ids {len(stored)} · answers "
-                   f"kept under {out} {fetched['kept_before']} · calls needed {fetched['need']} (cap {max_calls})")
+                   f"kept under {out} {fetched['kept_before']} · calls needed {fetched['need']} (cap {max_calls}) · "
+                   f"{vb.NOT_PROVIDER_ID}, never asked: {len(fetched['unaskable'])}")
         return
     r = vb.classify(stored, fetched, cohort, grounds)
     for line in vb.lines(r, fetched, out, max_calls, cohort_why, fixtures_read):

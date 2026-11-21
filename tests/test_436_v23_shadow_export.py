@@ -464,3 +464,19 @@ def test_the_compare_masks_the_v23_keys_in_every_mode(tmp_path, capsys):
     rc, out = run(tmp_path / "div", capsys, lap, with_keys(host_doc))
     assert "0.7531" not in out and f"{ce.V23_LINE}: 10" in out.splitlines() and rc == ce.EXIT_DIVERGENT
 
+
+def test_an_empty_pl_export_still_prints_the_shadows_receipt_line(iso_db, ledger, host, tmp_path):
+    """Codex on #1064: a window holding no PL row builds no row, so the export command reads the gate itself."""
+    from click.testing import CliRunner
+
+    from cli import cli
+    _on_world(ledger)
+    ledger(None)
+    sh.take_receipts()
+    out = CliRunner().invoke(cli, ["export-predictions", "--sport", "soccer", "--competition", "PL", "--start",
+                                   "2027-03-01", "--end", "2027-03-02", "--status", "scheduled", "--out",
+                                   str(tmp_path / "empty.json")])
+    assert out.exit_code == 0, out.output
+    assert json.loads((tmp_path / "empty.json").read_text())["count"] == 0
+    assert "soccer-v23 shadow: dormant (no soccer-v23 entry in the registry)" in out.output.splitlines()
+

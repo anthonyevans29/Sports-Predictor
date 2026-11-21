@@ -121,7 +121,8 @@ def test_the_counts_the_differing_ids_and_the_copy_byte_for_byte(world, provider
     assert L[2] == (f"  stored venue ids on the copy 5 (rows with a venue id 6) · answers kept under {out_dir}: 0 "
                     "before this run · provider calls this run 5 (cap 700)")
     assert ("  by-id country: agrees 1 · differs 2 · stored country unknown 0 · served without a country 0 · not "
-            "served 1 · served under more than one country 1 · not yet asked 0") in L
+            "served 1 · served under more than one country 1 · refused by the provider 0 · stored id is not a "
+            "provider id 0 (rows 0; never asked) · not yet asked 0") in L          # 437 item 2: the two classes, 0 here
     assert "  keys served by id (law 1): capacity, city, country, id, name" in L
     assert (f"  games whose known flag flips under the by-id country: 3 · games whose unknown flag becomes known: 0 · "
             f"cohort fixtures at those ids: 1 — {ids['chi']}") in L
@@ -173,7 +174,8 @@ def test_plan_calls_nothing(world, provider, tmp_path):
     out = _run(["--db", str(copy), "--out-dir", str(tmp_path / "p"), "--plan"])
     assert out.exit_code == 0 and provider.calls == [] and not (tmp_path / "p").exists()
     assert out.output.splitlines()[-1] == (f"INTL-VENUE-BY-ID ({vb.RULING}) · PLAN, nothing called · stored venue ids 5 "
-                                           f"· answers kept under {tmp_path / 'p'} 0 · calls needed 5 (cap 700)")
+                                           f"· answers kept under {tmp_path / 'p'} 0 · calls needed 5 (cap 700) · "
+                                           "stored id is not a provider id, never asked: 0")
 
 
 def test_the_saved_fixtures_name_the_grounds_of_an_id(world, provider, tmp_path):

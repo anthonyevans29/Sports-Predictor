@@ -20,6 +20,21 @@ written, no log-loss.
 
 The flag under the by-id country is neutral_v3's own rule (intl-neutral-v3): norm(by-id country) != norm(home
 country), either unknown -> unknown. norm is intl_history.norm_city.
+
+TWO CLASSES OF THEIR OWN (ARCHITECT 2026-11-21 08:13 ET, addendum 437 item 2, after the first run stopped at venue 0):
+(a) "A stored venue id that is not a positive integer is NEVER ASKED. It is counted and printed as its own class
+("stored id is not a provider id"), with its rows and its games by home country, and it is not "not served": the
+provider was not asked." (b) "An answer in which the provider REFUSES THE ID (its errors block, as here) is that id's
+answer: kept as served, counted as its own class with the provider's words, and the run goes on. A transport failure or
+a rate limit still stops the run as today, resumable." The provider refuses the id when the answer's errors block is a
+non-empty mapping naming only the parameter asked (ID_ERROR_KEYS, "id": {'id': 'The Id field cannot be 0.'}); any
+other errors block (a request limit, a token, an access error, a list) stops the run, nothing kept for that id.
+
+How a stored 0 gets there (437 item 2(d), law 1): intl_match_venue.venue_id has ONE writer, intl_venues.sync
+(src/ingestion/intl_venues.py:124), which stores the id fixture_venues reads from the saved /fixtures files,
+`(fx.get("venue") or {}).get("id")` (src/ingestion/intl_venues.py:55), as served: a missing id stays NULL (never counted
+here, stored_venues reads venue_id IS NOT NULL). No code writes 0 for a missing id, so a stored 0 is the provider's own
+`"venue": {"id": 0, ...}` in a saved fixture.
 """
 from __future__ import annotations
 
@@ -31,6 +46,8 @@ from pathlib import Path
 RULING = "ARCHITECT 2026-11-19, addendum 433 item 4"
 DEFAULT_OUT = os.path.join("logs", "venue_by_id")
 DEFAULT_CAP = 700
+ID_ERROR_KEYS = frozenset({"id"})        # 437 item 2(b): an errors block naming only the id asked is a refusal OF THE ID
+NOT_PROVIDER_ID = "stored id is not a provider id"
 
 
 class ByIdRefused(RuntimeError):
@@ -108,16 +125,63 @@ def cohort_ids() -> tuple[set[int] | None, str]:
         return None, f"not read: {type(err).__name__}: {err}"
 
 
+def provider_id(v) -> bool:
+    """437 item 2(a): only a positive integer is a provider id; anything else is never asked."""
+    return isinstance(v, int) and not isinstance(v, bool) and v > 0
+
+
+def _order(v) -> tuple:
+    """Provider ids first, in numeric order (as before 437); then every other stored id, ordered by its text."""
+    return (0, v, "") if provider_id(v) else (1, 0, str(v))
+
+
+def refused_id(payload) -> dict | None:
+    """437 item 2(b): the provider's errors block when it refuses THE ID (a non-empty mapping naming only ID_ERROR_KEYS),
+    else None."""
+    errors = (payload or {}).get("errors") if isinstance(payload, dict) else None
+    if isinstance(errors, dict) and errors and set(errors) <= ID_ERROR_KEYS:
+        return errors
+    return None
+
+
+def _errors(payload):
+    e = (payload or {}).get("errors") if isinstance(payload, dict) else None
+    return e if e else None
+
+
+def _ask(client, vid) -> dict:
+    """One /venues?id call, the answer AS SERVED, its errors block included (437 item 2(b)). On the adapter: its own
+    throttle, session, 429 retry and HTTP status check, exactly as APIFootballAdapter._get does them, without its raise
+    on an errors block (so a refusal of the id is kept as served). A transport failure or an HTTP error raises (the run
+    stops there, resumable). A stand-in client without a session (the tests) answers through its own _get."""
+    if not hasattr(client, "_session"):
+        return client._get("venues", {"id": vid})
+    import time
+    client._throttle()
+    url = f"{client.base_url}/venues"
+    resp = client._session.get(url, params={"id": vid}, timeout=30)
+    if resp.status_code == 429:
+        time.sleep(60)
+        resp = client._session.get(url, params={"id": vid}, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def fetch(vids, out_dir, max_calls: int = DEFAULT_CAP, client=None, plan_only: bool = False) -> dict:
     """The by-id answers: a kept answer is replayed (no call); every other id is asked once (/venues?id=<id>), the
-    answer written under out_dir BEFORE it is used, until max_calls calls this run. A failed call stops the run
-    there (what is kept stays kept; a re-run resumes). Returns {"answers": {vid: payload}, "calls", "kept_before",
-    "not_asked": [vids], "stopped": reason or None}."""
+    answer written under out_dir BEFORE it is used, until max_calls calls this run. A stored id that is not a positive
+    integer is never asked ("unaskable", 437 item 2(a)). An answer refusing the id is kept as served and the run goes
+    on (437 item 2(b)); a failed call, or any other errors block, stops the run there (what is kept stays kept; a re-run
+    resumes). Returns {"answers": {vid: payload}, "calls", "kept_before", "not_asked": [vids], "unaskable": [vids],
+    "stopped": reason or None}."""
     out_dir = Path(out_dir)
-    vids = sorted(set(int(v) for v in vids))
+    every = sorted(set(vids), key=_order)
+    unaskable = [v for v in every if not provider_id(v)]
+    vids = [v for v in every if provider_id(v)]
     kept = [v for v in vids if answer_path(out_dir, v).exists()]
     need = [v for v in vids if not answer_path(out_dir, v).exists()]
-    r = {"answers": {}, "calls": 0, "kept_before": len(kept), "need": len(need), "not_asked": [], "stopped": None}
+    r = {"answers": {}, "calls": 0, "kept_before": len(kept), "need": len(need), "not_asked": [], "stopped": None,
+         "unaskable": unaskable}
     for v in kept:
         try:
             r["answers"][v] = json.loads(answer_path(out_dir, v).read_text())
@@ -144,10 +208,15 @@ def fetch(vids, out_dir, max_calls: int = DEFAULT_CAP, client=None, plan_only: b
             break
         r["calls"] += 1                                  # every attempt counts, a failed one too (the cap and the receipt)
         try:
-            payload = client._get("venues", {"id": v})
+            payload = _ask(client, v)
         except Exception as err:  # noqa: BLE001 - stop where it failed; what is kept stays kept
             r["not_asked"] = need[i:]
             r["stopped"] = f"the call for venue {v} failed ({type(err).__name__}: {err})"
+            break
+        if _errors(payload) is not None and refused_id(payload) is None:   # a limit, a token, access: not the id's
+            r["not_asked"] = need[i:]
+            r["stopped"] = (f"the provider answered venue {v} with errors {_errors(payload)!r}, not a refusal of the id "
+                            "(a limit or an access error); nothing kept for it")
             break
         try:
             _keep(answer_path(out_dir, v), payload)       # kept BEFORE it is used (a re-run replays it)
@@ -250,9 +319,17 @@ def classify(stored: dict, fetched: dict, cohort: set[int] | None, grounds: dict
     keys = Counter()
     out = {"agrees": [], "differs": [], "stored_unknown": [], "served_no_country": [], "not_served": [],
            "several": [], "not_asked": list(fetched["not_asked"]), "games_flipping": 0, "games_unknown_to_known": 0,
-           "cohort_read": cohort is not None}
-    for vid, rows in sorted(stored.items()):
+           "cohort_read": cohort is not None, "not_provider_id": [], "refused": []}
+    for vid, rows in sorted(stored.items(), key=lambda kv: _order(kv[0])):
+        if not provider_id(vid):                       # 437 item 2(a): never asked, never "not served"
+            by_home, _, _ = _detail(rows, None, cohort)
+            out["not_provider_id"].append({"venue_id": vid, "games": len(rows), "by_home": by_home})
+            continue
         if vid not in answers:
+            continue
+        refused = refused_id(answers[vid])
+        if refused is not None:                        # 437 item 2(b): the id's answer, the provider's own words
+            out["refused"].append({"venue_id": vid, "errors": refused, "games": len(rows)})
             continue
         served = _served(answers[vid], vid)
         for x in (answers[vid] or {}).get("response") or []:
@@ -287,6 +364,9 @@ def classify(stored: dict, fetched: dict, cohort: set[int] | None, grounds: dict
     out["stored_rows"] = sum(len(v) for v in stored.values())
     out["cohort_named"] = sorted(m for k in ("differs", "stored_unknown") for d in out[k]
                                  for g in d["by_home"].values() for m in g["cohort"])
+    out["not_provider_id_rows"] = sum(d["games"] for d in out["not_provider_id"])
+    out["not_provider_id_cohort"] = sorted(m for d in out["not_provider_id"] for g in d["by_home"].values()
+                                           for m in g["cohort"])
     if grounds is not None:
         out["two_grounds"] = sorted(v for v, gs in grounds.items() if v in stored and len(gs) > 1)
     return out
@@ -324,8 +404,9 @@ def lines(r: dict, fetched: dict, out_dir, cap: int, cohort_why: str, fixtures_r
         L.append(f"  saved fixtures read: {fixtures_read[0]} files, {fixtures_read[1]} fixtures with a venue id")
     L.append(f"  by-id country: agrees {len(r['agrees'])} · differs {len(r['differs'])} · stored country unknown "
              f"{len(r['stored_unknown'])} · served without a country {len(r['served_no_country'])} · not served "
-             f"{len(r['not_served'])} · served under more than one country {len(r['several'])} · not yet asked "
-             f"{len(r['not_asked'])}")
+             f"{len(r['not_served'])} · served under more than one country {len(r['several'])} · refused by the "
+             f"provider {len(r['refused'])} · {NOT_PROVIDER_ID} {len(r['not_provider_id'])} (rows "
+             f"{r['not_provider_id_rows']}; never asked) · not yet asked {len(r['not_asked'])}")
     L.append("  keys served by id (law 1): " + (", ".join(r["keys"]) or "none"))
     cohort = (f"{len(r['cohort_named'])}" + (" — " + ", ".join(map(str, r["cohort_named"])) if r["cohort_named"] else "")
               if r["cohort_read"] else f"NOT READ ({cohort_why})")
@@ -349,4 +430,20 @@ def lines(r: dict, fetched: dict, out_dir, cap: int, cohort_why: str, fixtures_r
                  + ", ".join(map(str, r["served_no_country"])))
     if r["not_served"]:
         L.append(f"  NOT SERVED BY ID ({len(r['not_served'])}): " + ", ".join(map(str, r["not_served"])))
+    if r["refused"]:
+        L.append(f"  REFUSED BY THE PROVIDER ({len(r['refused'])}; the answer kept as served, the provider's words):")
+        for d in r["refused"]:
+            L.append(f"    venue {d['venue_id']}: {json.dumps(d['errors'], ensure_ascii=False)} · {d['games']} stored "
+                     "games")
+    if r["not_provider_id"]:
+        cohort = (f" · cohort fixtures {len(r['not_provider_id_cohort'])}"
+                  + (" — " + ", ".join(map(str, r["not_provider_id_cohort"])) if r["not_provider_id_cohort"] else "")
+                  if r["cohort_read"] else "")
+        L.append(f"  {NOT_PROVIDER_ID.upper()} ({len(r['not_provider_id'])}; never asked, not \"not served\": the "
+                 f"provider was not asked){cohort}:")
+        for d in r["not_provider_id"]:
+            L.append(f"    venue {d['venue_id']}: {d['games']} stored games")
+            for hc, g in sorted(d["by_home"].items(), key=lambda kv: (kv[0] is None, str(kv[0]))):
+                L.append(f"      home {hc or 'unknown'}: {g['n']} · flag now {_counter_text(g['now'])}"
+                         + (f" · COHORT {', '.join(map(str, g['cohort']))}" if g["cohort"] else ""))
     return L

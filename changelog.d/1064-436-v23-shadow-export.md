@@ -1,4 +1,4 @@
-## 2026-11-21 (#PR: 436-v23-shadow-export — soccer-v23's PASS shadow on the host's PL pages, built DORMANT (ARCHITECT 2026-11-21, addendum 436 item 7; addendum 434 item 2(b)(ii); #656))
+## 2026-11-21 (#1064: 436-v23-shadow-export — soccer-v23's PASS shadow on the host's PL pages, built DORMANT (ARCHITECT 2026-11-21, addendum 436 item 7; addendum 434 item 2(b)(ii); #656))
 - **src/walters/soccer_v23_shadow.py (new):** the state read, the arm, the page keys and the fence (plan points 1 to 5, as ruled).
   - The arm is ON only on the host when the registry in the checkout records soccer-v23's PASS (`verdict.at` as registry.record_verdict writes it) with status `confirming`.
   - Also required: the entry's frozen constants and slots read, its run record carries `thin_excluded`, and production is exactly one `v22` row with poisson params beside a pass pricing v22.

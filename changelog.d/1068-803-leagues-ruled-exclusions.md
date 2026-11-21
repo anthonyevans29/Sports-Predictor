@@ -1,4 +1,4 @@
-## 2026-11-21 (#PR: 803-leagues-ruled-exclusions — the leagues windows' per-entry list of RULED exclusions the reader honours (ARCHITECT 2026-11-02, addendum 223 item 2(b); built by addendum 442 item 2(a); #803, #322))
+## 2026-11-21 (#1068: 803-leagues-ruled-exclusions — the leagues windows' per-entry list of RULED exclusions the reader honours (ARCHITECT 2026-11-02, addendum 223 item 2(b); built by addendum 442 item 2(a); #803, #322))
 - **docs/registry/experiments.json:** each of the five leagues entries (leagues-pd-v1, -sa-v1, -fl1-v1, -elc-v1, -bl1-v1) gains `ruled_exclusions: []`. The list starts empty: "Nothing on the list exists" (#803).
 - **src/walters/leagues_window.py:**
   - `ruled_items` validates the list. Each item is exactly `{match_id, kickoff, cause, ruling}`: a match id named once, a UTC instant, and non-empty cause and ruling text.

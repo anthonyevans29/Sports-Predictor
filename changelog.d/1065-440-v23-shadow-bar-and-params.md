@@ -1,4 +1,4 @@
-## 2026-11-21 (#PR: 440-v23-shadow-bar-and-params — the soccer-v23 shadow needs the bar the checkout holds and the v22 params the run read (ARCHITECT 2026-11-21, addendum 440 item 4; #656))
+## 2026-11-21 (#1065: 440-v23-shadow-bar-and-params — the soccer-v23 shadow needs the bar the checkout holds and the v22 params the run read (ARCHITECT 2026-11-21, addendum 440 item 4; #656))
 - **src/walters/soccer_v23_shadow.py:**
   - (a) The shadow is dormant, with its reason, unless the entry's gate equals BAR_TEXT (the run's own `bar_state`): "A PASS is shown only as a PASS at the bar the checkout holds."
   - (b) It is dormant unless the run record's `v22_params_sha256` equals `soccer_v23.params_sha256` of the stored v22 poisson params it prices from. A run record without the field, or with a malformed one, is dormant.

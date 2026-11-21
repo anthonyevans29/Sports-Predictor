@@ -1700,6 +1700,7 @@ def predict_cmd(sport: str, competition_code: str, season: str, version: str | N
     from src.db.schema import Competition, Match, MatchStatus, Sport
     sport_enum = Sport.SOCCER if sport == "soccer" else Sport.MLB
     n = generate_predictions(competition_code, season, model_version=version, sport=sport_enum)
+    _v23_shadow_receipts()                                  # soccer-v23's shadow: one line on a PL pass (436 item 7)
     if n == 0:
         # Diagnose: is the season missing? all matches finished? no strengths?
         with session_scope() as s:
@@ -10762,6 +10763,21 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
         lines = payload.count("\n")
         console.print(f"[green]✓ Wrote {max(lines - 1, 0)} rows to {out_path}[/green]")
     console.print(_window_line(start_date, end_date, window_how))
+    _v23_shadow_receipts(read_if_none=sport_enum == Sport.SOCCER and (competition_code or "PL").upper() == "PL")
+
+
+def _v23_shadow_receipts(read_if_none: bool = False) -> None:
+    """soccer-v23's shadow receipt (ARCHITECT 2026-11-21 08:04 ET, addendum 436 item 7): the line its gate read printed,
+    dormant with the reason or ON with the verdict stamp; printed plain (the reason is never read as markup).
+    `read_if_none` (a PL soccer export): when no PL row was built (an empty window), the gate is read here once, so the
+    export's one line is printed whatever the window held (Codex on #1064)."""
+    from src.walters import soccer_v23_shadow as v23s
+    lines = list(dict.fromkeys(v23s.take_receipts()))
+    if not lines and read_if_none:
+        with session_scope() as s:
+            lines = [v23s.read_gate(s).receipt()]
+    for line in lines:
+        click.echo(line)
 
 
 def _closing():

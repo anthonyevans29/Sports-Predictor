@@ -1,7 +1,8 @@
 """soccer-v23's PASS shadow, built DORMANT (ARCHITECT 2026-11-21 08:04 ET, addendum 436 item 7, on DEV 2's plan of
 2026-11-19 on #656; src/walters/soccer_v23_shadow.py). Held to, each with its test (436 item 7):
   (a) DORMANT IS BYTE-IDENTICAL: the pages, the stored rows, the Desk blocks and desk_meta, for each cause: no entry
-      (today), declared and unrun, REJECT, INVALID, an unreadable registry, off the host;
+      (today), declared and unrun, REJECT, INVALID, an unreadable registry, off the host; and (440 item 4) a gate that
+      is not BAR_TEXT, a run record without v22's params sha, params that are not the ones the run read;
   (b) ON: v22's own fields, the Desk and desk_meta unchanged byte for byte; a failed arm never stops v22's row; the arm
       reads no market field; availability is off in the shadow whatever the slot reads (263 item 6) and the page says
       so;
@@ -196,6 +197,11 @@ def test_dormant_off_the_host_with_a_pass_recorded(iso_db, ledger, monkeypatch):
 def test_every_other_dormant_cause_is_named(change, why):
     g = sh.state(entry(**change), None, ("v22", V22_POISSON))
     assert not g.on and why in g.why
+
+
+def test_v22_params_that_do_not_hash_are_dormant_never_a_raise():
+    g = sh.state(entry(), None, ("v22", {"dixon_coles_rho": float("nan")}))
+    assert not g.on and "do not hash" in g.why
 
 
 def test_another_production_version_or_pass_is_dormant(iso_db, ledger, host):

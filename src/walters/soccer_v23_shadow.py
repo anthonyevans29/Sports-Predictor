@@ -20,8 +20,9 @@ As built:
         (soccer_v23.production_params) whose soccer_v23.params_sha256 equals the run record's (440 item 4(b)), and
         the pass pricing v22 is v22's.
   Anything else is DORMANT with its reason (law 4): no entry (today), declared and unrun, REJECT, INVALID, FAIL, a PASS
-  with any other status, an unreadable registry, constants or slots that do not read, another production version, or
-  off the host. Dormant writes NOTHING: no stored arm, no key on any page, no file (436 item 7(a): the pages, the stored
+  with any other status, an unreadable registry, constants or slots that do not read, a gate that is not BAR_TEXT, a
+  run record without v22_params_sha256 or with one the store's v22 params do not hash to (440 item 4), another
+  production version, or off the host. Dormant writes NOTHING: no stored arm, no key on any page, no file (436 item 7(a): the pages, the stored
   rows, the Desk blocks and desk_meta byte-identical). The predict and export receipts print one line, RECEIPT.
 - THE ARM (plan point 2), at the soccer predict pass (training._generate_predictions_soccer), beside pl-availability's:
   a PL 2026/27 fixture kicking off strictly after verdict.at and within HORIZON_HOURS of the run's clock is priced by
@@ -172,7 +173,10 @@ def state(entry: dict | None, host_why: str | None = None, production: tuple | N
     if version != BASE_VERSION or not v22p:
         return _off(f"the store's soccer production version is {version!r}, not {BASE_VERSION!r} (or carries no "
                     "poisson params): the shadow is read beside live v22")
-    here = sv.params_sha256(v22p)
+    try:
+        here = sv.params_sha256(v22p)
+    except (TypeError, ValueError) as err:
+        return _off(f"the store's v22 poisson params do not hash ({err}): the shadow prices only on the v22 the run read")
     if here != run_sha:
         return _off(f"the store's v22 poisson params (sha256 {here[:16]}…) are not the params the run read "
                     f"({run_sha[:16]}…; 440 item 4(b)): the shadow prices only on the v22 the run walked")

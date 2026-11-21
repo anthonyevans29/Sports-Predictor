@@ -611,10 +611,10 @@ its compare verdict.
     - Addenda 404 (the graph's first run and its enable) and 405 (the goalie backfill) are each pasted verbatim in a
       comment of its own (402 item 3; each addendum's heading).
 - **v1.6.10** (ARCHITECT, addendum 436 item 1, as Release Issue #1061 quotes it): no migration, and none was due. The
-  commit is the #1060 merge 67f02dfc, the ledger compile d824529b (17 changelog fragments, 20 ledger entries) over
-  e65457ef (#1036's merge); its tree e93c87c5 is the tree of the architect's own compile (435 item 3(a); 436 item 1(b)),
-  as v1.6.9's was the #1025 merge. The operator cut and pushed the tag on Saturday from the architect's block, ruled
-  Friday 18:52 ET. Its tagger stamp is 2026-11-21 12:57:39Z (07:57:39 -0500). Verbatim (436 item 1, its heading):
+  commit is the #1060 merge 67f02dfc, as v1.6.9's was the #1025 merge: the ledger compile d824529b (17 changelog
+  fragments, 20 ledger entries) over e65457ef (#1036's merge). Its tree e93c87c5 is the tree of the architect's own
+  compile (435 item 3(a); 436 item 1(b)). The tag was ruled Friday 18:52 ET and cut by the operator Saturday (436 item
+  1(c)); it is on origin, as Code fetched it. Its tagger stamp is 2026-11-21 12:57:39Z (07:57:39 -0500). Verbatim (436 item 1, its heading):
   "v1.6.10 IS PRODUCTION (the ritual, each step by my block)."
   - **Step 1 (436 item 1(a), verbatim):** "STEP 1. The host's receipts since the v1.6.9 tag, read Friday 12:55Z: 2,212
     lines (4,087 with the step rows), 0 failing; the landing watch 1,236 runs finished, 0 failed; the graph unit 6
@@ -666,7 +666,8 @@ its compare verdict.
   - **Release Issue:** #1061 (ritual step 4), opened 2026-11-21 by ARCHITECT, addendum 436 item 2.
     - It carries 435 item 3 and 436 item 1 verbatim, what the release puts on the host, the 17 from git, and the record
       line.
-    - It also carries the notes in one comment. The byte-identical copy is the tag.
+    - It also carries the notes in one comment (7063157208). Read back from GitHub, the comment is the script's output
+      character for character, with the server's attribution footer after it. The byte-identical copy is the tag.
     - Addendum 438 item 1 (the post-deploy read that closes 436 item 1(e)'s gap) is pasted verbatim in a comment of its
       own.
 

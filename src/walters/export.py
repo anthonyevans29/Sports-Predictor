@@ -662,15 +662,15 @@ def _build_row(
         # withholds the figures until the verdict (the fence, item 3: the row carries the result beside them).
         from src.walters.pl_availability import export_fields
         cand = export_fields(pred, row["competition"], m)
-        if cand is not None:
-            row.update(cand)
+        cand = {**(cand or {}), **_v23_fields(s, pred, row["competition"], m)}   # + soccer-v23's shadow (436 item 7)
+        row.update(cand)
 
     return row
 
 
 def _strip_arm(fb) -> dict:
     from src.walters.pl_availability import strip_arm
-    return strip_arm(fb)
+    return _v23_strip(strip_arm(fb))
 
 
 def _injury_side(lst: list) -> dict:
@@ -1877,3 +1877,21 @@ def host_results_tally(days: int = 30, report=None, exports_dir: str = "exports"
             if os.path.exists(t):
                 os.unlink(t)
     return md, js
+
+
+def _v23_fields(s, pred, competition, m) -> dict:
+    """soccer-v23's PASS shadow on a PL row (ARCHITECT 2026-11-21 08:04 ET, addendum 436 item 7;
+    src/walters/soccer_v23_shadow.py): its `v23_*` keys on the host while the registry in the checkout records its PASS
+    (confirming), else {} (dormant: the row byte-identical). The gate is read once per session. Placed at the end of
+    the module so no cited export.py:<line> moves."""
+    from src.walters import soccer_v23_shadow as v23s
+    if (competition or "").strip().upper() != v23s.COMPETITION:
+        return {}
+    return v23s.export_fields(v23s.page_gate(s), pred, competition, m) or {}
+
+
+def _v23_strip(fb: dict) -> dict:
+    """The shadow arm's stored key never rides in an exported factor_breakdown (436 item 7: it reaches a page only as
+    the `v23_*` keys)."""
+    from src.walters.soccer_v23_shadow import strip
+    return strip(fb)

@@ -1,0 +1,17 @@
+## 2026-11-21 (#PR: 436-v23-shadow-export — soccer-v23's PASS shadow on the host's PL pages, built DORMANT (ARCHITECT 2026-11-21, addendum 436 item 7; addendum 434 item 2(b)(ii); #656))
+- **src/walters/soccer_v23_shadow.py (new):** the state read, the arm, the page keys and the fence (plan points 1 to 5, as ruled).
+  - The arm is ON only on the host when the registry in the checkout records soccer-v23's PASS (`verdict.at` as registry.record_verdict writes it) with status `confirming`.
+  - Also required: the entry's frozen constants and slots read, its run record carries `thin_excluded`, and production is exactly one `v22` row with poisson params beside a pass pricing v22.
+  - Anything else is DORMANT and writes nothing (no stored arm, no page key, no file).
+- **The arm** (src/walters/training.py `_soccer_v23_shadow`, at the module's end; the pass's lines unmoved):
+  - It covers each PL 2026/27 fixture kicking off after `verdict.at` and within `HORIZON_HOURS` (72) of the run.
+  - It is priced by `soccer_v23.predict_live_slate`, once per kickoff instant, on the run's own `canon_params` with availability off (263 item 6) and `NoRecord`.
+  - It is stored at full precision on v22's own row under `factor_breakdown.soccer_v23_shadow`, with the kickoff it was priced at.
+  - A failure stores its cause and v22's row is written as always.
+- **The pages** (src/walters/export.py `_v23_fields`, `_v23_strip`):
+  - Each covered PL row carries `v23_version`, `v23_probabilities`, `v23_availability`, `v23_label` and `v23_reason`.
+  - A finished game's figures are withheld (the fence).
+  - The stored key never rides in an exported `factor_breakdown`, and the Desk reads none of it.
+- **The receipts** (cli.py): `predict` and `export-predictions` print one line, `soccer-v23 shadow: dormant (<reason>)`, or ON with the counts and the seconds.
+- **deploy/hosting/compare_exports.py:** every `v23_*` key is masked in both modes and counted on its own line, `shadow-arm keys (host-only, soccer-v23): N`, right after the graded-export line.
+- **Tests:** tests/test_436_v23_shadow_export.py (37), including dormant byte-identity for each cause of 436 item 7(a) and four more. Nothing run on either machine.

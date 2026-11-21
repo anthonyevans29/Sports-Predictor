@@ -550,10 +550,8 @@ def ruled_items(code: str, e: dict | None) -> dict[int, dict]:
     Refused (WindowRefused) unless the field is a list of mappings with exactly RULED_ITEM_KEYS: match_id a positive
     integer named once, kickoff a UTC instant (parse_instant), cause and ruling non-empty text. That each names a game
     of the window is checked against the store (apply_ruled)."""
-    raw = (e or {}).get(RULED_FIELD, [])
+    raw = (e or {}).get(RULED_FIELD, [])               # no field: the empty list; null or anything else: refused
     eid = (e or {}).get("id")
-    if raw is None:
-        raw = []
     if not isinstance(raw, list):
         raise WindowRefused(f"{code} ({eid}): {RULED_FIELD} is {type(raw).__name__}, not a list of ruled exclusions "
                             "(#803; law 4: never guessed)")
@@ -607,10 +605,12 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     carried the entry), or None; `first_file`: that page's file. A no-row game kicking off AFTER it REFUSES the read
     (RULING_223_2B: WindowRefused naming each such game, match and kickoff, and the page; nothing scored, no slot
     decided), never labelled with item 4(a)'s cause (its premise does not hold).
-    `ruled`: ruled_items() of the entry (#803). A listed game that reaches the stored-row step is EXCLUDED BY RULED
-    CAUSE (RULED): no slot, never a refusal, listed in `ruled_exclusion` with its cause and ruling; a listed game that
-    an earlier step excludes or holds pending is named in `ruled_not_applied` (the list never overrides another
-    cause)."""
+    `ruled`: ruled_items() of the entry (#803). The list clears exactly the refusal 223 item 2(b) built: a listed game
+    with NO stored row kicking off AFTER the page whose binding carried the entry is EXCLUDED BY RULED CAUSE (RULED):
+    no slot, never a refusal, listed in `ruled_exclusion` with its cause and ruling. A listed game whose premise does
+    not hold when it reaches that step (it holds a stored row, or it is item 4(a)'s NO_ROW game before the page)
+    REFUSES the read (law 4: the list never removes a member and never relabels another cause). A listed game an
+    earlier step excludes or holds pending, or one beyond the 60th member, is named in `ruled_not_applied` with why."""
     from sqlalchemy import select
 
     from src.db.schema import Competition, Match
@@ -636,6 +636,8 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     ruled = dict(ruled or {})
     apply_ruled(code, ruled, games, declared_at)
     applied: set[int] = set()
+    reached: set[int] = set()            # the games the window's loop looked at (counting stops at the 60th)
+    premise: list[str] = []              # listed games whose premise (no row after a carrying page) does not hold
     on_tag = []                      # RULING_223_2B: no row although a page carrying the entry precedes the kickoff
     for m in games:
         if m.utc_date is not None and m.utc_date > declared_at:
@@ -657,6 +659,7 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     for m in after:
         if len(out["members"]) >= WINDOW_GAMES:
             break                    # counting stops at the 60th member
+        reached.add(m.id)
         st = _status(m)
         if st == "stale_orphan":
             out["excluded"]["stale_orphan"] += 1
@@ -702,22 +705,36 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
         if pred is None:
             out["excluded"][why] += 1
             continue
-        if m.id in ruled:            # #803 (223 item 2(b)): excluded by RULED cause, no slot, never a refusal
-            out["excluded"][RULED] += 1
-            out[RULED].append(ruled[m.id])
-            applied.add(m.id)
-            continue
         if m.id not in stored:       # addendum 222 item 4(a): no stored prospective row -> excluded by cause, no slot
             if first_page is not None and m.utc_date.isoformat() > first_page:
+                if m.id in ruled:    # #803 (223 item 2(b)): the refusal cleared by RULED cause, no slot
+                    out["excluded"][RULED] += 1
+                    out[RULED].append(ruled[m.id])
+                    applied.add(m.id)
+                    continue
                 on_tag.append((m.id, m.utc_date))   # its premise does not hold: the read refuses (223 item 2(b))
                 continue
+            if m.id in ruled:        # #803: item 4(a)'s own cause, never relabelled by the list
+                premise.append(f"match {m.id} has no stored row but kicks off before the first page whose binding "
+                               "carried the entry (or there is no such page): addendum 222 item 4(a)'s cause, which "
+                               "the list does not relabel")
             out["excluded"][NO_ROW] += 1
             out[NO_ROW].append((m.id, m.utc_date))
+            continue
+        if m.id in ruled:            # #803: a listed game holding its stored row is a member; the list never removes one
+            premise.append(f"match {m.id} holds its stored prospective row: there is no refusal for the list to clear")
             continue
         out["members"].append(m.id)
         if not _raw(m):              # 181 item 3: C1's member, scored on its stored score and listed as C2 lists it
             out["no_raw_code_members"].append(m)
-    out["ruled_not_applied"] = [ruled[i] for i in ruled if i not in applied]
+    if premise:
+        raise WindowRefused(f"{code}: {RULED_FIELD} names game(s) whose premise does not hold (the list clears only a "
+                            "game with no stored row kicking off after the page whose binding carried the entry, "
+                            "addendum 223 item 2(b)); nothing scored, no slot decided: " + "; ".join(premise))
+    out["ruled_not_applied"] = [{**ruled[i], "why": ("beyond the 60th member (counting stopped before it)"
+                                                     if i not in reached else
+                                                     "an earlier step excludes it or holds it pending")}
+                                for i in ruled if i not in applied]
     if on_tag:
         raise WindowRefused(
             f"{code}: no prospective row under the entry for {len(on_tag)} window game(s) kicking off after the page "
@@ -784,6 +801,7 @@ def read(codes=READ_CODES, now: datetime | None = None, export_dir: str = "expor
         except (WindowRefused, ReadOnlyRefused) as err:
             out[code] = {"code": code, "declared": True, "id": e["id"], "refused": str(err)}
             continue
+        w["ruled_items_read"] = ruled                                     # #803: the score refuses if it changes
         w.update({"declared": True, "id": e["id"], "declared_at_text": e.get("declared_at"),
                   "verdict_recorded": verdict_recorded(e),
                   "export_dir": str(export_dir), "export_pages": page["pages"],
@@ -910,9 +928,8 @@ def ruled_lines(code: str, items, not_applied=()) -> list[str]:
     L = [f"  - {code} · excluded by ruled cause (no slot): {len(items)} (ARCHITECT 2026-11-02, addendum 223 item 2(b); "
          f"the entry's {RULED_FIELD}, #803)"] + [one(it) for it in items]
     if not_applied:
-        L.append(f"  - {code} · listed, not applied {len(not_applied)} (an earlier step excludes the game or holds it "
-                 "pending; the list never overrides another cause):")
-        L.extend(one(it) for it in not_applied)
+        L.append(f"  - {code} · listed, not applied {len(not_applied)} (the list never overrides another cause):")
+        L.extend(one(it) + f" · not applied: {it['why']}" for it in not_applied)
     return L
 
 
@@ -953,6 +970,9 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
         # is scored (never games 2-61 for 1-60).
         fresh = membership(s, code, window["declared_at"], c, now or utc_now_naive(), stored, page["first"],
                            page["path"], ruled)
+        if ruled != window.get("ruled_items_read", {}):   # #803: one read stays one: the list the read printed
+            raise WindowRefused(f"{code}: the entry's {RULED_FIELD} changed between the read and the score: read it "
+                                "again; nothing is scored")
         if fresh["state"] != "ready" or fresh["members"] != ids:
             raise WindowRefused(f"{code}: the window moved between the read and the score (state "
                                 f"{fresh['state']!r}; members {'unchanged' if fresh['members'] == ids else 'changed'}"

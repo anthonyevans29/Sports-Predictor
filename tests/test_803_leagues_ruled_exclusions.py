@@ -92,6 +92,10 @@ MALFORMED = {
     "a match id that is not one": (lambda g: [_item(g, match_id="12")], "is not a match id"),
     "a game listed twice": (lambda g: [_item(g), _item(g)], "is listed twice"),
     "a field that is not a list": (lambda g: _item(g), "not a list of ruled exclusions"),
+    "a null field": (lambda g: None, "not a list of ruled exclusions"),
+    "a match id that is a bool": (lambda g: [_item(g, match_id=True)], "is not a match id"),
+    "a kickoff with an offset": (lambda g: [_item(g, kickoff=f"{g[1]:%Y-%m-%dT%H:%M:%S}+01:00")], "is not a UTC instant"),
+    "a kickoff with no zone": (lambda g: [_item(g, kickoff=f"{g[1]:%Y-%m-%dT%H:%M:%S}")], "is not a UTC instant"),
 }
 
 
@@ -124,8 +128,9 @@ def test_a_listed_game_an_earlier_step_excludes_is_named_never_overriding_that_c
     w = lw.read(("SA",), now=W_NOW)["SA"]
     assert w["excluded"]["cancelled"] == 1 and not w["excluded"].get(lw.RULED)
     assert [i["match_id"] for i in w["ruled_not_applied"]] == [got[5][0]]
-    assert "  - SA · listed, not applied 1 (an earlier step excludes the game or holds it pending; the list never " \
-           "overrides another cause):" in lw.lines({"SA": w}, W_NOW)
+    out = lw.lines({"SA": w}, W_NOW)
+    i = out.index("  - SA · listed, not applied 1 (the list never overrides another cause):")
+    assert out[i + 1].endswith(" · not applied: an earlier step excludes it or holds it pending")
 
 
 @pytest.mark.usefixtures("iso_db")
@@ -146,3 +151,61 @@ def test_the_list_starts_empty_and_an_empty_list_changes_nothing(ledger):
     assert not any("ruled" in x for x in lw.lines({"SA": b}, W_NOW)) and got
     sa, sb = lw.score(a, now=W_NOW), lw.score(b, now=W_NOW)
     assert lw.RULED not in sb["audit"] and sa == sb
+
+
+# ================================================================ my review's P1 and P2s (before the push) --
+
+@pytest.mark.usefixtures("iso_db")
+def test_a_listed_game_holding_its_stored_row_refuses_never_leaves_the_window(ledger):
+    """The list clears only 223 item 2(b)'s refusal (no row after a carrying page). Listing a member that holds its row
+    would swap it for the 61st game: the read and the score refuse instead (law 4), naming it."""
+    got = _window_62(ledger)
+    w_export("SA")
+    w = lw.read(("SA",), now=W_NOW)["SA"]
+    assert w["state"] == "ready" and got[2][0] in w["members"]
+    ledger(decl("SA", ruled_exclusions=[_item(got[2])]))
+    r = lw.read(("SA",), now=W_NOW)["SA"]
+    assert set(r) == {"code", "declared", "id", "refused"}
+    assert f"match {got[2][0]} holds its stored prospective row: there is no refusal for the list to clear" in r["refused"]
+    with pytest.raises(lw.WindowRefused, match="holds its stored prospective row"):
+        lw.score(w, now=W_NOW)
+
+
+@pytest.mark.usefixtures("iso_db")
+def test_a_listed_no_row_game_before_the_carrying_page_keeps_item_4a_s_cause_and_refuses(ledger):
+    """223 item 2(c): one cause, one count, one line; the list never relabels item 4(a)'s exclusion."""
+    got = _no_rows_after_the_page(ledger)
+    _drop_rows({got[3][0]})                                          # no row, kicking off before the carrying page
+    ledger(decl("SA", ruled_exclusions=[_item(got[3]), _item(got[9]), _item(got[12])]))
+    r = lw.read(("SA",), now=W_NOW)["SA"]
+    assert f"match {got[3][0]} has no stored row but kicks off before the first page" in r["refused"]
+    ledger(decl("SA", ruled_exclusions=[_item(got[9]), _item(got[12])]))
+    w = lw.read(("SA",), now=W_NOW)["SA"]
+    assert w[lw.NO_ROW] == [got[3]] and w["excluded"][lw.RULED] == 2 and w["excluded"][lw.NO_ROW] == 1
+
+
+@pytest.mark.usefixtures("iso_db")
+def test_an_item_beyond_the_60th_member_is_named_as_such(ledger):
+    got = _window_62(ledger)
+    w_export("SA")
+    ledger(decl("SA", ruled_exclusions=[_item(got[61])]))
+    w = lw.read(("SA",), now=W_NOW)["SA"]
+    assert w["state"] == "ready" and [i["match_id"] for i in w["ruled_not_applied"]] == [got[61][0]]
+    assert w["ruled_not_applied"][0]["why"] == "beyond the 60th member (counting stopped before it)"
+    assert any(x.endswith("not applied: beyond the 60th member (counting stopped before it)")
+               for x in lw.lines({"SA": w}, W_NOW))
+
+
+@pytest.mark.usefixtures("iso_db")
+def test_a_list_changed_between_the_read_and_the_score_refuses_the_score(ledger):
+    """One read stays one: even an item that leaves the 60 unchanged (beyond the 60th) refuses the score when the read
+    did not print it."""
+    got = _window_62(ledger)
+    w_export("SA")
+    w = lw.read(("SA",), now=W_NOW)["SA"]
+    ledger(decl("SA", ruled_exclusions=[_item(got[61])]))
+    with pytest.raises(lw.WindowRefused, match="changed between the read and the score"):
+        lw.score(w, now=W_NOW)
+    w2 = lw.read(("SA",), now=W_NOW)["SA"]
+    assert lw.score(w2, now=W_NOW)["match_ids"] == w2["members"] == w["members"]
+

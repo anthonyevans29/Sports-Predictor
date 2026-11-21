@@ -159,7 +159,7 @@ its compare verdict.
 | `v1.6.7` | 2026-11-12 15:19:06Z | `6792cefec6acc3f9254a97e2ba10fc530ce1f6eb` | `577e444a9d16f9d4979faa7d587a1ce2a1d15255` | #949 |
 | `v1.6.8` | 2026-11-13 21:13:23Z | `b3c5fbcf0791ff9201136d57882b80d33f01a474` | `5a88468c646ae2198790da448b11d4ddf7befbe1` | #990 |
 | `v1.6.9` | 2026-11-15 19:57:26Z | `482de3fdc4ee81ee532733975fd127999d6b7843` | `eb3becef4f5f24524cefa803923c463e416e908c` | #1027 |
-| `v1.6.10` | 2026-11-21 12:57:39Z | `67f02dfc1bdcd30ab7860dd1cc5c78737908a1d8` | `a081dceded6b897f3f3623de16518bdd0acb9bdd` | #NNNN |
+| `v1.6.10` | 2026-11-21 12:57:39Z | `67f02dfc1bdcd30ab7860dd1cc5c78737908a1d8` | `a081dceded6b897f3f3623de16518bdd0acb9bdd` | #1061 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -610,7 +610,7 @@ its compare verdict.
       character, with the server's attribution footer after it. The byte-identical copy is the tag.
     - Addenda 404 (the graph's first run and its enable) and 405 (the goalie backfill) are each pasted verbatim in a
       comment of its own (402 item 3; each addendum's heading).
-- **v1.6.10** (ARCHITECT, addendum 436 item 1, as Release Issue #NNNN quotes it): no migration, and none was due. The
+- **v1.6.10** (ARCHITECT, addendum 436 item 1, as Release Issue #1061 quotes it): no migration, and none was due. The
   commit is the #1060 merge 67f02dfc, the ledger compile d824529b (17 changelog fragments, 20 ledger entries) over
   e65457ef (#1036's merge); its tree e93c87c5 is the tree of the architect's own compile (435 item 3(a); 436 item 1(b)),
   as v1.6.9's was the #1025 merge. The operator cut and pushed the tag on Saturday from the architect's block, ruled
@@ -623,7 +623,7 @@ its compare verdict.
     0 diffs); the code-version skew named on both."
   - **Step 2 (436 item 1(b), verbatim):** "STEP 2. The fold, #1060, merged at d824529b: main 67f02dfc, tree e93c87c5 (my
     own compile's); 17 changelog fragments and 20 ledger entries folded; the notes 170 lines, 17 sections, no AMENDED
-    line, no failing line. CI green on 67f02dfc." The fold's ruling (435 item 3) is quoted whole in #NNNN.
+    line, no failing line. CI green on 67f02dfc." The fold's ruling (435 item 3) is quoted whole in #1061.
   - **Step 3, the tag (436 item 1(c), verbatim):** "STEP 3. Ruled Friday 18:52 ET; cut by the operator Saturday:
     v1.6.10, tag object a081dceded6b897f3f3623de16518bdd0acb9bdd on 67f02dfc1bdcd30ab7860dd1cc5c78737908a1d8, tagger
     stamp 2026-11-21 07:57:39 -0500 (12:57:39Z), --cleanup=verbatim; the message keeps the header and all 17 section
@@ -642,6 +642,14 @@ its compare verdict.
   - **A gap, named (436 item 1(e), verbatim):** "A GAP, NAMED: the deploy block read the last 12 hours of receipts (592
     lines, 0 failing). I wrote it for Friday evening and it ran Saturday morning, so the receipts from Friday 12:55Z to
     Saturday 00:58Z were not read before the deploy. My next host read covers them, and I record what it finds."
+  - **After the deploy, the gap closed (ARCHITECT 2026-11-21 08:15 ET, addendum 438 item 1, verbatim):** "THE
+    POST-DEPLOY READ (436 item 1(e)'s gap, closed). The host at 13:13Z on v1.6.10 (67f02dfc): the receipts of the last
+    25 hours, from before Friday's read, 1,258 lines (2,429 with the step rows), 0 failing; the landing watch 269 runs
+    finished, 0 failed; the graph unit one start, 0 failed, its timer enabled and active; timers 22 of 22, none missing
+    or stray; no failed unit; a clean checkout; no reboot pending. The host's first college football file on the tag
+    (fixtures_NCAA_2026-11-21.json, exported 13:00:35Z, git_sha 67f02dfc, 148 rows, 125 with a Kalshi quote) places
+    KXNCAAFGAME-26NOV21ARKTEX on Arkansas at Texas, ARK away and TEX home; Friday's file on v1.6.9 held no quote on that
+    game. The table is doing on the host what the replay said it would."
   - **What changed for the host, read from git (`v1.6.9..v1.6.10`):**
     - `src/db/schema.py`, every `migrate_*.py`, `requirements.txt` and both side requirements files are unchanged.
     - No file under `deploy/` changed. The pack ships 27 timers, as at v1.6.9.
@@ -655,10 +663,12 @@ its compare verdict.
     #1030, #1031, #1032, #1033, #1034, #1036, #1037, #1039, #1040, #1042, #1043, #1045, #1046, #1049, #1054. Not in the
     tag: #1056, #1059 and #1057, merged after the tag by the architect's block, each by its exact head (436 item 3);
     they open the next span.
-  - **Release Issue:** #NNNN (ritual step 4), opened 2026-11-21 by ARCHITECT, addendum 436 item 2.
+  - **Release Issue:** #1061 (ritual step 4), opened 2026-11-21 by ARCHITECT, addendum 436 item 2.
     - It carries 435 item 3 and 436 item 1 verbatim, what the release puts on the host, the 17 from git, and the record
       line.
     - It also carries the notes in one comment. The byte-identical copy is the tag.
+    - Addendum 438 item 1 (the post-deploy read that closes 436 item 1(e)'s gap) is pasted verbatim in a comment of its
+      own.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

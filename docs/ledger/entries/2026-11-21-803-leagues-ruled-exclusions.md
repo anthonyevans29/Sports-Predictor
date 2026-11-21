@@ -1,0 +1,4 @@
+**2026-11-21 — The leagues windows' ruled exclusions (addendum 223 item 2(b); #803; built by addendum 442 item 2(a); #PR).**
+- **Ruling (223 item 2(b), in part):** "The refusal is cleared only by a RULED exclusion: a follow-up Issue (its own small PR, before the first window read of 12-06) adds a per-entry list of ruled exclusions (match id, kickoff, the cause as the host's receipt established it, the ruling's stamp) that the reader honours — excluded by ruled cause, no slot, on its own named line."
+- **What landed:** `ruled_exclusions` (empty) on the five leagues entries; the reader and the score honour it; a malformed item refuses; an unlisted no-row game still refuses. 15 tests. An empty list changes nothing (pinned).
+- **Next:** the adversarial review, the stop rule, the architect's read, before ELC's 12-06 read.

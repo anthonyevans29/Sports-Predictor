@@ -13,13 +13,16 @@ As built:
         verdict is read from the registry in the checkout and nowhere else") records verdict.verdict == "PASS" with a
         verdict.at stamp, and its status is "confirming" (registry.record_verdict's record, never the run's computed
         text; the confirmation window is open);
-    (c) the entry's frozen_constants are the code's and its declaration slots read (soccer_v23.constants_state /
-        slots_state, the run's own checks), and its run record carries `thin_excluded` (soccer_v23.record);
+    (c) the entry's frozen_constants are the code's, its gate is BAR_TEXT (bar_state: a PASS only at the bar the
+        checkout holds, 440 item 4(a)) and its declaration slots read (soccer_v23.constants_state / slots_state, the
+        run's own checks), and its run record carries `thin_excluded` and `v22_params_sha256` (soccer_v23.record);
     (d) the store's production soccer_elo_poisson is exactly one row, "v22", with poisson params
-        (soccer_v23.production_params), and the pass pricing v22 is v22's.
+        (soccer_v23.production_params) whose soccer_v23.params_sha256 equals the run record's (440 item 4(b)), and
+        the pass pricing v22 is v22's.
   Anything else is DORMANT with its reason (law 4): no entry (today), declared and unrun, REJECT, INVALID, FAIL, a PASS
-  with any other status, an unreadable registry, constants or slots that do not read, another production version, or
-  off the host. Dormant writes NOTHING: no stored arm, no key on any page, no file (436 item 7(a): the pages, the stored
+  with any other status, an unreadable registry, constants or slots that do not read, a gate that is not BAR_TEXT, a
+  run record without v22_params_sha256 or with one the store's v22 params do not hash to (440 item 4), another
+  production version, or off the host. Dormant writes NOTHING: no stored arm, no key on any page, no file (436 item 7(a): the pages, the stored
   rows, the Desk blocks and desk_meta byte-identical). The predict and export receipts print one line, RECEIPT.
 - THE ARM (plan point 2), at the soccer predict pass (training._generate_predictions_soccer), beside pl-availability's:
   a PL 2026/27 fixture kicking off strictly after verdict.at and within HORIZON_HOURS of the run's clock is priced by
@@ -65,6 +68,7 @@ WITHHELD = ("withheld: a finished game of soccer-v23's shadow window; no figure 
 RULING = "ARCHITECT 2026-11-21 08:04 ET, addendum 436 item 7"
 RECEIPT = "soccer-v23 shadow: {state}"
 PRODUCTION_UNREAD = "the store's production soccer model was not read"
+PARAMS_KEY = "v22_params_sha256"         # 440 item 4(b): the run record's field (soccer_v23.record / params_sha256)
 SESSION_KEY = "soccer_v23_shadow_gate"   # the page gate, read once per session (Session.info)
 
 
@@ -147,6 +151,9 @@ def state(entry: dict | None, host_why: str | None = None, production: tuple | N
     why = sv.constants_state(entry)
     if why:
         return _off(f"{EID}: {why}")
+    why = sv.bar_state(entry)                           # 440 item 4(a): a PASS only at the bar the checkout holds
+    if why:
+        return _off(f"{EID}: {why}: a PASS is shown only as a PASS at the bar the checkout holds")
     slots, why = sv.slots_state(entry)
     if why:
         return _off(f"{EID}: {why}")
@@ -156,12 +163,23 @@ def state(entry: dict | None, host_why: str | None = None, production: tuple | N
     if not isinstance(thin, list) or not all(isinstance(x, list) and len(x) == 2 for x in thin):
         return _off(f"{EID}'s run record carries no thin_excluded set (soccer_v23.record): the shadow prices on the run's "
                     "own exclusion set or not at all")
+    run_sha = res.get(PARAMS_KEY)
+    if not (isinstance(run_sha, str) and len(run_sha) == 64 and all(c in "0123456789abcdef" for c in run_sha)):
+        return _off(f"{EID}'s run record carries no {PARAMS_KEY} (440 item 4(b)): the shadow prices only on the v22 "
+                    "params the run read")
     if production is None:
         return _off(PRODUCTION_UNREAD)
     version, v22p = production
     if version != BASE_VERSION or not v22p:
         return _off(f"the store's soccer production version is {version!r}, not {BASE_VERSION!r} (or carries no "
                     "poisson params): the shadow is read beside live v22")
+    try:
+        here = sv.params_sha256(v22p)
+    except (TypeError, ValueError) as err:
+        return _off(f"the store's v22 poisson params do not hash ({err}): the shadow prices only on the v22 the run read")
+    if here != run_sha:
+        return _off(f"the store's v22 poisson params (sha256 {here[:16]}…) are not the params the run read "
+                    f"({run_sha[:16]}…; 440 item 4(b)): the shadow prices only on the v22 the run walked")
     try:
         pj = sv.canon_params(v22p, False, slots["scope"], thin_excluded=[tuple(x) for x in thin])
     except (TypeError, ValueError) as err:

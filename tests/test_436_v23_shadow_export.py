@@ -1,7 +1,8 @@
 """soccer-v23's PASS shadow, built DORMANT (ARCHITECT 2026-11-21 08:04 ET, addendum 436 item 7, on DEV 2's plan of
 2026-11-19 on #656; src/walters/soccer_v23_shadow.py). Held to, each with its test (436 item 7):
   (a) DORMANT IS BYTE-IDENTICAL: the pages, the stored rows, the Desk blocks and desk_meta, for each cause: no entry
-      (today), declared and unrun, REJECT, INVALID, an unreadable registry, off the host;
+      (today), declared and unrun, REJECT, INVALID, an unreadable registry, off the host; and (440 item 4) a gate that
+      is not BAR_TEXT, a run record without v22's params sha, params that are not the ones the run read;
   (b) ON: v22's own fields, the Desk and desk_meta unchanged byte for byte; a failed arm never stops v22's row; the arm
       reads no market field; availability is off in the shadow whatever the slot reads (263 item 6) and the page says
       so;
@@ -27,6 +28,8 @@ from tests.test_pl_availability import KICK, MIXED, SEASON, _world
 from tests.test_record_vs_close import iso_db  # noqa: F401  (a fixture: a throwaway SQLite, cwd = tmp_path)
 
 VERDICT_AT = "2026-11-01T12:00:00Z"
+V22_POISSON = {"dixon_coles_rho": -0.1}              # the world's v22 row (tests.test_pl_availability._world)
+V22_SHA = sv.params_sha256(V22_POISSON)              # 440 item 4(b): what the run record carries
 NOW = KICK - timedelta(hours=20)                       # the run's clock: the fixture inside the horizon
 SLOTS = {"cut": "2026-10-30T15:00:00Z", "availability_on": True, "v22_recorded_log_loss": 1.0,
          "v22_recorded_source": "a test's own figure (never a record)", "scope": "LEAGUE_REGULAR",
@@ -38,7 +41,7 @@ def entry(**kw) -> dict:
     otherwise. availability_on is TRUE here on purpose: the shadow keeps the term off whatever the slot reads."""
     e = {"id": sv.EID, "status": "confirming", "verdict": {"verdict": "PASS", "ruling": "test", "at": VERDICT_AT},
          "frozen_constants": sv.code_constants(), sv.SLOTS_KEY: dict(SLOTS), "gate": sv.BAR_TEXT,
-         "run": {"result": {"verdict": "PASS", "thin_excluded": []}}}
+         "run": {"result": {"verdict": "PASS", "thin_excluded": [], "v22_params_sha256": V22_SHA}}}
     e.update(kw)
     return e
 
@@ -125,6 +128,13 @@ DORMANT = {
     "a registry that is not a list": ("{}", "is not a list of entries"),
     "a missing registry": ("missing", "no soccer-v23 entry in the registry"),
     "a verdict that is a bare string": (entry(verdict="PASS"), "verdict reads null, not PASS"),
+    # ARCHITECT 2026-11-21 09:54 ET, addendum 440 item 4(a)-(c): each its own dormant cause, byte-identical
+    "the gate is not BAR_TEXT": (entry(gate=sv.BAR_TEXT + " "), "a PASS is shown only as a PASS at the bar"),
+    "a run record without v22's params sha": (
+        entry(run={"result": {"verdict": "PASS", "thin_excluded": []}}), "carries no v22_params_sha256"),
+    "v22's params are not the ones the run read": (
+        entry(run={"result": {"verdict": "PASS", "thin_excluded": [], "v22_params_sha256": "0" * 64}}),
+        "are not the params the run read"),
 }
 
 
@@ -178,19 +188,28 @@ def test_dormant_off_the_host_with_a_pass_recorded(iso_db, ledger, monkeypatch):
     ({"verdict": {"verdict": "PASS", "ruling": "t", "at": "2026-11-01"}}, "no readable verdict stamp"),
     ({"frozen_constants": {**sv.code_constants(), "K_PRIOR": 6.0}}, "frozen constants differ"),
     ({sv.SLOTS_KEY: {**SLOTS, "cut": None}}, "slot 'cut' is null"),
-    ({"run": {"result": {"verdict": "PASS"}}}, "carries no thin_excluded set"),
+    ({"run": {"result": {"verdict": "PASS", "v22_params_sha256": V22_SHA}}}, "carries no thin_excluded set"),
+    ({"run": {"result": {"verdict": "PASS", "thin_excluded": [], "v22_params_sha256": "ABC"}}},
+     "carries no v22_params_sha256"),
+    ({"gate": None}, "a PASS is shown only as a PASS at the bar"),
     ({"run": None}, "carries no thin_excluded set"),
 ])
 def test_every_other_dormant_cause_is_named(change, why):
-    g = sh.state(entry(**change), None, ("v22", {"dixon_coles_rho": -0.1}))
+    g = sh.state(entry(**change), None, ("v22", V22_POISSON))
     assert not g.on and why in g.why
 
 
+def test_v22_params_that_do_not_hash_are_dormant_never_a_raise():
+    g = sh.state(entry(), None, ("v22", {"dixon_coles_rho": float("nan")}))
+    assert not g.on and "do not hash" in g.why
+
+
 def test_another_production_version_or_pass_is_dormant(iso_db, ledger, host):
-    assert "not 'v22'" in sh.state(entry(), None, ("v23", {"dixon_coles_rho": -0.1})).why
+    assert "not 'v22'" in sh.state(entry(), None, ("v23", V22_POISSON)).why
+    assert "are not the params the run read" in sh.state(entry(), None, ("v22", {"dixon_coles_rho": -0.2})).why
     assert "carries no poisson" in sh.state(entry(), None, ("v22", {})).why
     assert sh.state(entry()).why == sh.PRODUCTION_UNREAD
-    on = sh.state(entry(), None, ("v22", {"dixon_coles_rho": -0.1}))
+    on = sh.state(entry(), None, ("v22", V22_POISSON))
     assert on.on and "prices 'v21'" in sh.for_pass(on, "v21").why and sh.for_pass(on, "v22").on
 
 
@@ -365,9 +384,9 @@ def test_the_predict_command_prints_the_shadows_one_receipt_line(iso_db, ledger,
 
 def test_the_run_records_thin_set_reaches_the_arms_params():
     """The arm prices on the run record's own exclusion set (a list of [code, season] as soccer_v23.record writes it)."""
-    on = sh.state(entry(), None, ("v22", {"dixon_coles_rho": -0.1}))
-    thin = sh.state(entry(run={"result": {"verdict": "PASS", "thin_excluded": [["ELC", "2019/20"]]}}), None,
-                    ("v22", {"dixon_coles_rho": -0.1}))
+    on = sh.state(entry(), None, ("v22", V22_POISSON))
+    thin = sh.state(entry(run={"result": {"verdict": "PASS", "thin_excluded": [["ELC", "2019/20"]],
+                                          "v22_params_sha256": V22_SHA}}), None, ("v22", V22_POISSON))
     assert on.on and thin.on and on.params_sha != thin.params_sha
     assert json.loads(thin.params_json)["thin_excluded"] == [["ELC", "2019/20"]]
     assert json.loads(on.params_json)["thin_excluded"] == [] and json.loads(thin.params_json)["availability_on"] is False
@@ -479,4 +498,14 @@ def test_an_empty_pl_export_still_prints_the_shadows_receipt_line(iso_db, ledger
     assert out.exit_code == 0, out.output
     assert json.loads((tmp_path / "empty.json").read_text())["count"] == 0
     assert "soccer-v23 shadow: dormant (no soccer-v23 entry in the registry)" in out.output.splitlines()
+
+
+def test_the_params_sha_is_the_canonical_json_of_v22s_stored_poisson_params():
+    """440 item 4(b): the canonical form named: sha256 of json.dumps(dict(params), sort_keys=True,
+    separators=(",", ":"), ensure_ascii=True, allow_nan=False). Key order does not change it; any value does."""
+    import hashlib
+    p = {"dixon_coles_rho": -0.1, "elo_goal_coeff": 0.0008, "promoted_attack": 0.85}
+    want = hashlib.sha256(json.dumps(p, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+    assert sv.params_sha256(p) == want == sv.params_sha256(dict(reversed(list(p.items()))))
+    assert sv.params_sha256({**p, "dixon_coles_rho": -0.11}) != want
 

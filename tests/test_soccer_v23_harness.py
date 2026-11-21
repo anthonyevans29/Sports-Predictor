@@ -1529,6 +1529,23 @@ def test_the_one_run_reserves_before_any_outcome_then_records_once(declared, mon
     assert any("VERDICT" in x for x in v.run_lines(r))
     e = v.record(r, "ARCHITECT test word")
     assert e["status"] == "run" and e["run"]["n_scored"] == len(r["scored_ids"])
+    # ARCHITECT 2026-11-21 09:54 ET, addendum 440 item 4(b)-(c): the record carries v22's params sha as the run read
+    # them, one field the run itself never reads: the result the run returned, its fingerprint, its scored rows and its
+    # verdict are what they were without it.
+    res = e["run"]["result"]
+    assert res["v22_params_sha256"] == v.params_sha256(r["v22_poisson"]) and "v22_params_sha256" not in r
+    assert res["stream_fingerprint"] == r["stream_fingerprint"] == fp and res["verdict"] == r["compare"]["verdict"]
+    assert e["run"]["n_scored"] == len(r["scored_ids"]) and e["gate"] == v.BAR_TEXT
+    # ... and it is the hash of the v22 row stored on the copy the run read, the one the shadow hashes on its store:
+    # the recorded entry with a PASS recorded reads ON beside that row, and dormant beside any other
+    from src.walters import nfl_v2_gate as ng
+    from src.walters import soccer_v23_shadow as sh
+    with ng.db_session(ng.check_db(declared["copy"])) as s:
+        stored = v.production_params(s)
+    assert stored[0] == "v22" and res["v22_params_sha256"] == v.params_sha256(stored[1])
+    passed = {**e, "status": "confirming", "verdict": {"verdict": "PASS", "ruling": "t", "at": "2026-11-28T12:00:00Z"}}
+    assert sh.state(passed, None, stored).on
+    assert "not the params the run read" in sh.state(passed, None, ("v22", {**stored[1], "x": 1})).why
     assert e["run"]["result"]["availability"] == v.availability_lines(r["walk"]["availability"])
     assert len(e["run"]["result"]["availability"]) >= 2               # the header and one era at least
     with pytest.raises(v.GateRefused):

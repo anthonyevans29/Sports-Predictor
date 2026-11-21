@@ -159,6 +159,7 @@ its compare verdict.
 | `v1.6.7` | 2026-11-12 15:19:06Z | `6792cefec6acc3f9254a97e2ba10fc530ce1f6eb` | `577e444a9d16f9d4979faa7d587a1ce2a1d15255` | #949 |
 | `v1.6.8` | 2026-11-13 21:13:23Z | `b3c5fbcf0791ff9201136d57882b80d33f01a474` | `5a88468c646ae2198790da448b11d4ddf7befbe1` | #990 |
 | `v1.6.9` | 2026-11-15 19:57:26Z | `482de3fdc4ee81ee532733975fd127999d6b7843` | `eb3becef4f5f24524cefa803923c463e416e908c` | #1027 |
+| `v1.6.10` | 2026-11-21 12:57:39Z | `67f02dfc1bdcd30ab7860dd1cc5c78737908a1d8` | `a081dceded6b897f3f3623de16518bdd0acb9bdd` | #1061 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -602,13 +603,75 @@ its compare verdict.
     #999, #1000, #1002, #1004, #1005, #1006, #1007, #1011, #1012, #1014, #1015, #1016, #1017, #1019, #1021, #1022. Not
     in the tag: #1023 (the 60 hand-ruled KXNCAAMBGAME lines), merged after the tag by the architect's block (400 item
     5; 402 item 4); it opens the next span.
-  - **Release Issue:** #1027 (ritual step 4), opened 2026-11-15 by ARCHITECT, addendum 402 item 2.
+  - **Release Issue:** #1027 (ritual step 4), opened 2026-11-15 by ARCHITECT, addendum 402 item 2. It was put on its
+    milestone v1.6.9 on 2026-11-21, as a backfill: it had been opened with none (ARCHITECT, addendum 439 item 2(a)).
     - It carries 395 item 3, 399 item 1, 400 items 1-3 and 402 item 1 verbatim, what the release puts on the host as 402
       item 2 names it, the 22 from git, and the record line.
     - It also carries the notes in one comment; read back from GitHub, the comment is the tag message character for
       character, with the server's attribution footer after it. The byte-identical copy is the tag.
     - Addenda 404 (the graph's first run and its enable) and 405 (the goalie backfill) are each pasted verbatim in a
       comment of its own (402 item 3; each addendum's heading).
+- **v1.6.10** (ARCHITECT, addendum 436 item 1, as Release Issue #1061 quotes it): no migration, and none was due. The
+  commit is the #1060 merge 67f02dfc, as v1.6.9's was the #1025 merge: the ledger compile d824529b (17 changelog
+  fragments, 20 ledger entries) over e65457ef (#1036's merge). Its tree e93c87c5 is the tree of the architect's own
+  compile (435 item 3(a); 436 item 1(b)). The tag was ruled Friday 18:52 ET and cut by the operator Saturday (436 item
+  1(c)); it is on origin, as Code fetched it. Its tagger stamp is 2026-11-21 12:57:39Z (07:57:39 -0500). Verbatim (436 item 1, its heading):
+  "v1.6.10 IS PRODUCTION (the ritual, each step by my block)."
+  - **Step 1 (436 item 1(a), verbatim):** "STEP 1. The host's receipts since the v1.6.9 tag, read Friday 12:55Z: 2,212
+    lines (4,087 with the step rows), 0 failing; the landing watch 1,236 runs finished, 0 failed; the graph unit 6
+    starts, 0 failed; timers 22 of 22; no failed unit; the checkout clean. The compare, by hand with 67f02dfc's
+    comparator and --since 0: 2026-11-19 CLEAN (fixtures_NHL 26 rows each side, 0 diffs) and 2026-11-20 CLEAN (19 each,
+    0 diffs); the code-version skew named on both."
+  - **Step 2 (436 item 1(b), verbatim):** "STEP 2. The fold, #1060, merged at d824529b: main 67f02dfc, tree e93c87c5 (my
+    own compile's); 17 changelog fragments and 20 ledger entries folded; the notes 170 lines, 17 sections, no AMENDED
+    line, no failing line. CI green on 67f02dfc." The fold's ruling (435 item 3) is quoted whole in #1061.
+  - **Step 3, the tag (436 item 1(c), verbatim):** "STEP 3. Ruled Friday 18:52 ET; cut by the operator Saturday:
+    v1.6.10, tag object a081dceded6b897f3f3623de16518bdd0acb9bdd on 67f02dfc1bdcd30ab7860dd1cc5c78737908a1d8, tagger
+    stamp 2026-11-21 07:57:39 -0500 (12:57:39Z), --cleanup=verbatim; the message keeps the header and all 17 section
+    headings."
+  - **The tag message:**
+    - Stored (`git cat-file -p v1.6.10`): 170 lines and 18,735 bytes (its final newline included); 18 lines begin with `#`
+      (the header and all 17 `## ` section headings).
+    - It is byte-identical to `python3 scripts/release_notes.py --to 67f02dfc1bdcd30ab7860dd1cc5c78737908a1d8` (170
+      lines, exit 0). `git for-each-ref --format='%(contents)'` prints one more newline, as on the earlier entries.
+    - No AMENDED line and no `✗`. The one `FAILED` is inside #1039's section, where it quotes the probe's own
+      `VERDICT FAILED` label.
+  - **Step 5, the deploy and the state after it (436 item 1(d), verbatim):** "STEP 5. On the host at 12:58Z: v1.6.9 to
+    v1.6.10 (67f02dfc, 27 files), exit 0; no migration, no unit file, requirements unchanged; timers 22 of 22, the two
+    held units as they were; the college football table on the checkout reads the ruled sha256 0698c81d...; no failed
+    unit; a clean checkout." PRODUCTION = v1.6.10.
+  - **A gap, named (436 item 1(e), verbatim):** "A GAP, NAMED: the deploy block read the last 12 hours of receipts (592
+    lines, 0 failing). I wrote it for Friday evening and it ran Saturday morning, so the receipts from Friday 12:55Z to
+    Saturday 00:58Z were not read before the deploy. My next host read covers them, and I record what it finds."
+  - **After the deploy, the gap closed (ARCHITECT 2026-11-21 08:15 ET, addendum 438 item 1, verbatim):** "THE
+    POST-DEPLOY READ (436 item 1(e)'s gap, closed). The host at 13:13Z on v1.6.10 (67f02dfc): the receipts of the last
+    25 hours, from before Friday's read, 1,258 lines (2,429 with the step rows), 0 failing; the landing watch 269 runs
+    finished, 0 failed; the graph unit one start, 0 failed, its timer enabled and active; timers 22 of 22, none missing
+    or stray; no failed unit; a clean checkout; no reboot pending. The host's first college football file on the tag
+    (fixtures_NCAA_2026-11-21.json, exported 13:00:35Z, git_sha 67f02dfc, 148 rows, 125 with a Kalshi quote) places
+    KXNCAAFGAME-26NOV21ARKTEX on Arkansas at Texas, ARK away and TEX home; Friday's file on v1.6.9 held no quote on that
+    game. The table is doing on the host what the replay said it would."
+  - **What changed for the host, read from git (`v1.6.9..v1.6.10`):**
+    - `src/db/schema.py`, every `migrate_*.py`, `requirements.txt` and both side requirements files are unchanged.
+    - No file under `deploy/` changed. The pack ships 27 timers, as at v1.6.9.
+    - KXNCAAFGAME's name table (#1036), 264 lines, sha256 `0698c81d7c05e1c4fdcf30d7a09f95f9e34ba5812e077139a3e93dd7fc0b903e`:
+      the Friday replay was ruled CLEAN and the table to the host in this tag (435 item 2).
+    - KXNCAAMBGAME's 60 hand-ruled lines (#1023), 313 lines in all; the proposer's and the replay's lines (#1033); the
+      graph rebuild's `peak` (#1031); the read-only `scripts/ncaa_listing_probe.py` (#1039), run by hand only.
+  - **Carries:** git's `v1.6.9..v1.6.10` holds 76 commits and 27 files. Of its 22 merge commits, 18 are "Merge pull
+    request #N" on main's first parent: the 17 PRs the notes carry, one CHANGELOG section each, and the fold PR #1060;
+    the other 4 merge main into PR branches (two in #1036's, one in #1054's, one in #1023's). The 17: #1023, #1028,
+    #1030, #1031, #1032, #1033, #1034, #1036, #1037, #1039, #1040, #1042, #1043, #1045, #1046, #1049, #1054. Not in the
+    tag: #1056, #1059 and #1057, merged after the tag by the architect's block, each by its exact head (436 item 3);
+    they open the next span.
+  - **Release Issue:** #1061 (ritual step 4), opened 2026-11-21 by ARCHITECT, addendum 436 item 2, on the milestone
+    v1.6.10 (addendum 439 item 2(a): the runbook's step 4 governs).
+    - It carries 435 item 3 and 436 item 1 verbatim, what the release puts on the host, the 17 from git, and the record
+      line.
+    - It also carries the notes in one comment (7063157208). Read back from GitHub, the comment is the script's output
+      character for character, with the server's attribution footer after it. The byte-identical copy is the tag.
+    - Addendum 438 item 1 (the post-deploy read that closes 436 item 1(e)'s gap) is pasted verbatim in a comment of its
+      own.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

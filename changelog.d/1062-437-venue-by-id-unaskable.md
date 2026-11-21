@@ -1,4 +1,4 @@
-## 2026-11-21 (#PR: 437-venue-by-id-unaskable — the by-id receipt's two classes: an id that is not a provider id, and the provider's refusal of an id (ARCHITECT 2026-11-21, addendum 437 item 2; #1058))
+## 2026-11-21 (#1062: 437-venue-by-id-unaskable — the by-id receipt's two classes: an id that is not a provider id, and the provider's refusal of an id (ARCHITECT 2026-11-21, addendum 437 item 2; #1058))
 - **Why:** the receipt's first run (437 item 1) stopped at its first call, on stored venue 0 ("The Id field cannot be 0."). A re-run asks venue 0 first again, so the run could never get past it.
 - **src/ingestion/intl_venue_by_id.py:**
   - (a) A stored venue id that is not a positive integer is never asked. It is counted and printed as its own class, `stored id is not a provider id`, with its rows and its games by home country (flag now; the cohort fixtures named). It is never "not served".

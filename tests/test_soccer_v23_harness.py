@@ -1529,6 +1529,13 @@ def test_the_one_run_reserves_before_any_outcome_then_records_once(declared, mon
     assert any("VERDICT" in x for x in v.run_lines(r))
     e = v.record(r, "ARCHITECT test word")
     assert e["status"] == "run" and e["run"]["n_scored"] == len(r["scored_ids"])
+    # ARCHITECT 2026-11-21 09:54 ET, addendum 440 item 4(b)-(c): the record carries v22's params sha as the run read
+    # them, one field the run itself never reads: the result the run returned, its fingerprint, its scored rows and its
+    # verdict are what they were without it.
+    res = e["run"]["result"]
+    assert res["v22_params_sha256"] == v.params_sha256(r["v22_poisson"]) and "v22_params_sha256" not in r
+    assert res["stream_fingerprint"] == r["stream_fingerprint"] == fp and res["verdict"] == r["compare"]["verdict"]
+    assert e["run"]["n_scored"] == len(r["scored_ids"]) and e["gate"] == v.BAR_TEXT
     assert e["run"]["result"]["availability"] == v.availability_lines(r["walk"]["availability"])
     assert len(e["run"]["result"]["availability"]) >= 2               # the header and one era at least
     with pytest.raises(v.GateRefused):

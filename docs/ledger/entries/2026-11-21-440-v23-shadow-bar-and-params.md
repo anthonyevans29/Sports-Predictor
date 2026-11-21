@@ -1,0 +1,4 @@
+**2026-11-21 — The soccer-v23 shadow: the bar the checkout holds, and the v22 params the run read (addendum 440 item 4; #656; #PR).**
+- **Ruling (440 item 4, in part):** "YES TO BOTH, IN ONE FOLLOW-UP PR, gate-class, before the run. (a) THE GATE TEXT: the shadow is dormant, with its reason, unless the entry's gate equals BAR_TEXT [...] (b) v22's PARAMS: the run record carries the sha256 of v22's stored poisson params as the run read them, in a canonical form you name [...] THE RUN DOES NOT START BEFORE THIS PR IS MERGED".
+- **What landed:** the shadow's two new dormant causes; `soccer_v23.record()` writes `v22_params_sha256`; `params_sha256` is the canonical form (sorted-key compact JSON, sha256). No bar, fingerprint or scored row reads the field (pinned).
+- **Next:** the adversarial review, the stop rule, the architect's read. The run's block checks the checkout for this merge.

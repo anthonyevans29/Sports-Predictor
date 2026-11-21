@@ -2087,5 +2087,18 @@ def record(r: dict, word: str) -> dict:
                 # 254 item 3 Q4 / Q22: the day rule's residual and "v22 re-walked", labelled, the AET / PEN rows counted;
                 # 263 items 14, 15, 17: the thin seasons excluded, the off-pyramid arrivals, the tie order
                 "labels": record_labels(r), "aet_pen_rows": dict(r["aet_pen"]),
-                "thin_excluded": [list(k) for k in r["thin_excluded"]], "off_pyramid_arrivals": list(r["off_pyramid"])})
+                "thin_excluded": [list(k) for k in r["thin_excluded"]], "off_pyramid_arrivals": list(r["off_pyramid"]),
+                # ARCHITECT 2026-11-21 09:54 ET, addendum 440 item 4(b): v22's stored poisson params as the run read
+                # them, by sha256 of their canonical JSON (params_sha256), so the PASS shadow prices on the same v22.
+                # One recorded field: no bar, no fingerprint and no scored row reads it.
+                "v22_params_sha256": params_sha256(r["v22_poisson"])})
     return reg.record_run(EID, list(r["scored_ids"]), res, reg.LEDGER, reg.IDS_DIR)
+
+
+def params_sha256(v22_poisson) -> str:
+    """THE CANONICAL FORM of v22's stored poisson params (440 item 4(b)): the sha256 of
+    json.dumps(dict(params), sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False), the ASCII
+    bytes. The run records it (record); soccer_v23_shadow computes the same on the store it prices from."""
+    blob = json.dumps(dict(v22_poisson or {}), sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+                      allow_nan=False)
+    return hashlib.sha256(blob.encode("ascii")).hexdigest()

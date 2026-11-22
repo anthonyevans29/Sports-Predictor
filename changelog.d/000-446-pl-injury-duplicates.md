@@ -1,0 +1,12 @@
+## 2026-11-22 (#000: 446-pl-injury-duplicates — the PL injury duplicate receipt, read-only tooling (ARCHITECT 2026-11-22, addendum 446 item 1; Refs #1052))
+- **scripts/pl_injury_duplicate_receipt.py `--exports DIR|TREE --db COPY [--from INSTANT] [--through INSTANT]`:**
+  - The population is every PL closing row of 2026/27: family SOCCER, row competition PL, row season 2026/27, one row per match (the last in-bound run's). Earlier runs are counted. #688's floor is not inherited.
+  - For each side it prints the entries, the names shown, and the pairs that fold to one player: kinds `accent` and `double surname` in the headline, `identical` counted, `initial form` apart, AMBIGUOUS never paired. It also prints distinct by fold, and the page's factor_breakdown count and note beside the page count.
+  - A side above 8 entries is counted as names cut, not fully pairable.
+  - "Two source ids or one" reads UNKNOWN, with its file:line causes and the copy's `PRAGMA table_info(injuries)` result. The cause is measured on the copy: "no source id stored" where the column is absent or no PL 2026/27 team's row carries one, "not read per entry" with the count where some do.
+  - On a side that #688's `recoverable()` passes, it prints each paired entry's stored type, fixture_source_id and position.
+  - The rule is printed before any result. No player name is printed.
+  - It reuses #688's fold, --db fence, `read_db` and `recoverable` by path.
+  - No provider call; nothing written; nothing de-duplicated.
+- **Tests:** tests/test_pl_injury_duplicate_receipt.py, 48 tests.
+- **docs/CLI.md:** the row. **scripts/README.md:** the TOOL line; the Counts line recounted (117 indexed: LIVE 10, TOOL 65, ONE-OFF 30, UNDETERMINED 12; `git ls-files scripts` 121 at the head, three scripts not yet indexed). Nothing run.

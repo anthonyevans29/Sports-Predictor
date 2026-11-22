@@ -459,13 +459,16 @@ figure, soccer-v23's figure over the same matches, the difference, the verdict a
 2(d), kept: "`candidate_gate_verdict(v22_recorded_log_loss, soccer-v23's log-loss, DEFAULT_PROMOTION_DELTA)` decides
 the recorded one; PASS only when both PASS.")*
 
-**Tests** drive `run()` itself, the walk replaced by synthetic arms and the recorded slot set per case, the
-log-losses computed by `soccer_calibration`: below both by 0.0100 (PASS); at the bar on both, the smallest float
+*(SUPERSEDED by addendum 443 item 2(e), kept: the two-comparison cases below were the tests before the first leg was
+made like for like; none of them exists now but the INVALID one.)* **Tests** drive `run()` itself, the walk replaced
+by synthetic arms and the recorded slot set per case, the log-losses computed by `soccer_calibration`: below both by
+0.0100 (PASS); at the bar on both, the smallest float
 difference at or above 0.0050 on each (PASS); below the recorded figure but a tie on the re-walk (REJECT); below the
 re-walk but 0.0049999 from the recorded figure (REJECT); a tie on the recorded figure (REJECT); one float step under
 0.0050 on the re-walk (REJECT); one float step under 0.0050 on the recorded figure (REJECT); and an INVALID walk stays
-INVALID whatever the recorded figure. Under addendum 443 item 2(e), with two recorded figures: each of the three
-comparisons failing alone REJECTS, a tie on each REJECTS, a recorded set one row short (or reaching outside the scored
+INVALID whatever the recorded figure. **Now (addendum 443 item 2(e)),** with two recorded figures, eleven cases on
+the run path and on `decide`: all three at least 0.0100 below, or each at the smallest float difference at or above
+0.0050, PASS; each of the three comparisons failing alone (a tie, 0.0049999, one float step under) REJECTS, a tie on each REJECTS, a recorded set one row short (or reaching outside the scored
 set, or empty) refuses before the reservation with nothing reserved, and the recorded rows are pinned against
 `run_soccer_backtest`'s own results on a synthetic store (never a rule copied by hand). `decide` is also pinned
 directly on the same cases, and `run()`'s `min_delta` is
@@ -521,11 +524,14 @@ compares its fingerprint BEFORE the reservation (nfl_v2_gate.py: load :655, fing
 ncaa_v1r_gate.py: load :798, fingerprint :799-800, `reserve` :824; soccer_v23.run likewise); `registry.cross_ref_guard`
 runs inside `reserve()`, before the exclusive create (nfl_v2_gate.py:427, ncaa_v1r_gate.py:301, soccer_v23.reserve
 likewise); then the walk; the caller records. What holds is therefore "the reservation before any outcome is scored
-or priced": the goals are read and fingerprinted before it, as in both precedents, and nothing is fitted, scored or
-priced before it. (The earlier heading put the reservation before any outcome was read; that was inaccurate and is
+or priced": the goals are read and fingerprinted before it, as in both precedents, and nothing is scored before it and
+neither arm of the walk is fitted or priced before it. One thing runs before it that is not the walk (addendum 443 item
+1(c)): soccer-backtest's own walk on each recorded figure's season, which fits and prices v22 there to name the rows it
+scores; only the match ids are kept, and no figure of either arm is computed, kept or printed (`RECORDED_WALK_NOTE`,
+said on the preflight's closing line). (The earlier heading put the reservation before any outcome was read; that was inaccurate and is
 corrected here.) The missing-fingerprint refusal MATCHES the precedents (addendum 254 item 3: the run's order
 matches theirs): a MISSING `--stream-fingerprint` is refused right after the word, before any load and before `--db`
-is read (soccer_v23.py:1984, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
+is read (soccer_v23.py:1997, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
 the load, as in both. Either way nothing is reserved.
 
 `soccer-v23-gate` refuses, reserving nothing and recording nothing, when: there is no entry, its status is not
@@ -533,12 +539,15 @@ declared, `run` is not null, or a reservation exists; a slot is null or invalid;
 from the code's; the word is empty; the fingerprint is missing (before any load); `--db` is missing or fails `nfl_v2_gate.check_db` (outside data/, not the app's
 database, never created, no -wal/-shm/-journal); the copy holds more than one soccer_elo_poisson row marked
 production (never the newest picked; Codex on #832, round 1) or its production version is not v22; a fence refuses at
-the cut; under LEAGUE_REGULAR a walked row's stage label cannot be placed; the fingerprint does not match. A club's
+the cut; under LEAGUE_REGULAR a walked row's stage label cannot be placed; a recorded figure's matches are not whole on
+the copy (addendum 443 item 2(c), `recorded_refusals`: soccer-backtest's own rows for that competition and season
+number other than the recorded n, or reach outside the scored set, or soccer-backtest's fences refuse the season or its
+walk fails); the fingerprint does not match. A club's
 provenance never refuses (263 item 15: an arrival off the declared pyramid takes the outside-the-store prior, counted
 and labelled), nor does a thin season (263 item 14: excluded by cause). Then `registry.cross_ref_guard`, then the
 reservation (`docs/registry/soccer-v23.started.json`, exclusive create, written and fsynced with its directory, removed
-if the write fails), then the walk (both arms: v22 re-walked beside v23), `compare_candidate`, `decide` (both
-comparisons, §6) and `registry.record_run`. A failure after the reservation leaves it standing (the pot may have been
+if the write fails), then the walk (both arms: v22 re-walked beside v23), `compare_candidate`, `decide` (three
+comparisons with two recorded figures, §6; addendum 443 item 2(d)) and `registry.record_run`. A failure after the reservation leaves it standing (the pot may have been
 read; RULED, addendum 263 item 13: "a failure mid-walk leaves the reservation standing and the one run SPENT ... The
 only release is a ruling of mine on the failure's receipt"): the fit refusing (`FitRefused`) or a walk guard refusing
 is raised as `SpentRefused` and printed as the gate's REFUSED line with its reason, saying the reservation stands and
@@ -549,14 +558,16 @@ soccer_expansion.SYNC_CHAIN_TIMERS are other jobs' chains) and "v22 re-walked" a
 read at their 90-minute score counted (Q22); and addendum 263's three: the v22 arm's tie order (item 17, "stated in
 the record"), the thin seasons excluded (item 14) and the arrivals off the declared pyramid (item 15), each counted.
 
-`--preflight --db COPY` fits nothing and prices nothing: the slots, the constants, the bar, the context definition
+`--preflight --db COPY` fits and prices neither arm and scores nothing (soccer-backtest's own walk names the recorded
+figures' rows, ids only, and its closing line says so): the slots, the constants, the bar, the context definition
 (251 item 2), v22's recorded figures as the slot carries them, the copy's production
 version and params, the counts per competition and season with each competition's first season IN SCOPE (264 item
 2(a)), the stage census (regular, play-off and unplaceable labels with counts, per competition-season), the arrivals
 off the declared pyramid (263 item 15, counted), the scored n, the thin seasons excluded by cause (263 item 14: each
-competition-season with no home or no away goal, with its rows, named BEFORE the reservation), the fences and, last,
-the fingerprint. With no declared slots it loads nothing; while a stage label cannot be placed it gives no
-fingerprint.
+competition-season with no home or no away goal, with its rows, named BEFORE the reservation), the fences, for each
+recorded figure the count soccer-backtest scores on the copy against its n and whether the set lies whole inside the
+scored set (443 item 2(c)) and, last, the fingerprint. With no declared slots it loads nothing; while a stage label
+cannot be placed, or while a recorded set is not whole or cannot be read, it gives no fingerprint.
 
 ## 10. Code's readings (law 1), each checked against main 54833460 (the 251 lines against 44c8fceb)
 
@@ -789,12 +800,14 @@ rewritten; the finding Issue #827 cited." No run before the declaration.
     → reservation → walk → record)". Verified: the two precedents agree with each other, and soccer-v23 agrees with
     both on every ruled step (§9, file:line); no ruled step's order changed; run()'s docstring and §9 now say
     "before any outcome is scored or priced". The missing-fingerprint refusal now MATCHES both precedents (§9):
-    refused right after the word, before any load (soccer_v23.py:1984, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
+    refused right after the word, before any load (soccer_v23.py:1997, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
 
 ## 12. What is NOT done
 
 No v22 recorded figure is filled (the `v22_recorded` list, the architect's at the declaration, 443 item 3); no change to soccer_backtest.py (the sibling
-parity PR's optional `context` parameter is not depended on: this harness never calls the soccer gate's walk).
+parity PR's optional `context` parameter is not depended on). The harness calls the soccer gate's walk
+(`run_soccer_backtest`) in one place only, as addendum 443 item 1(c) requires: `recorded_rows`, at its default
+context, for each recorded figure's match ids.
 
 The availability record's tables are not created here (#831's `init_db` and migration create them); the reader of a
 present record is built on `record.as_of` (263 item 23) and maps no soccer injury_status fact (263 item 25: the soccer

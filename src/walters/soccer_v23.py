@@ -304,6 +304,13 @@ SLOT_VALUES = {
 }
 RECORDED_KEYS = ("competition", "season", "n", "log_loss", "source")
 RECORDED_MIN_PRIOR = 40                 # 443 item 1(c): "the row-by-row walk at min_prior = 40, as run_soccer_backtest"
+#: What naming a recorded figure's rows does (443 item 1(c): "the rows soccer-backtest scores ... by its own rule"):
+#: soccer-backtest's own walk runs on the copy, which fits v22's strengths and prices v22 on each recorded season; only
+#: the match ids are kept. No figure of either arm is computed, kept or printed, and soccer-v23 is neither fitted nor
+#: priced. The receipts say so wherever it has run, never "nothing fitted".
+RECORDED_WALK_NOTE = ("soccer-backtest's own walk ran on the copy to name each recorded figure's rows (it fits and "
+                      "prices v22 on those seasons; only the match ids are kept: no figure of either arm computed, "
+                      "kept or printed; soccer-v23 neither fitted nor priced)")
 SLOT_KEYS = tuple(SLOT_VALUES)
 RECOMMENDED = {"scope": "LEAGUE_REGULAR", "first_season": "score_under_prior", "visibility": "day",
                "cut": "2026-10-30T15:00:00Z", "availability_on": False}
@@ -1799,9 +1806,11 @@ def thin_seasons(rows) -> list[str]:
 
 
 def preflight_lines(entry: dict | None, db) -> list[str]:
-    """Fits nothing, prices nothing, reads no outcome into a figure: the counts, the first seasons, the scored n, the
-    slots, v22's params, the fences and, last, the fingerprint. Refuses without --db (the copy)."""
-    L = [f"SOCCER-V23 · PREFLIGHT (fits nothing, prices nothing) · {RULING}", f"  {POT_LABEL}"]
+    """Fits and prices neither arm of the walk, reads no outcome into a figure: the counts, the first seasons, the
+    scored n, the slots, v22's params, the fences, each recorded figure's count and wholeness (443 item 2(c): its rows
+    named by soccer-backtest's own walk, RECORDED_WALK_NOTE, said on every line after it has run) and, last, the
+    fingerprint. Refuses without --db (the copy)."""
+    L = [f"SOCCER-V23 · PREFLIGHT (fits and prices neither arm; scores nothing) · {RULING}", f"  {POT_LABEL}"]
     slots, why = slots_state(entry)
     L.append("  slots: " + (json.dumps(slots, sort_keys=True) if slots else f"NOT DECLARED — the run refuses: {why}")
              + f" · recommended {json.dumps(RECOMMENDED, sort_keys=True)}")
@@ -1875,17 +1884,19 @@ def preflight_lines(entry: dict | None, db) -> list[str]:
         sets = recorded_sets(path, slots, v22p, sc)
     except GateRefused as err:
         L.append(f"  v22 recorded: REFUSED — {err}")
-        L.append("PREFLIGHT only: nothing fitted, nothing priced, nothing reserved, nothing recorded; NO fingerprint: "
-                 "the run refuses while a recorded figure's matches cannot be read (addendum 443 item 2(c)).")
+        L.append("PREFLIGHT only: neither arm fitted or priced, nothing scored, nothing reserved, nothing recorded; NO "
+                 "fingerprint: the run refuses while a recorded figure's matches cannot be read (addendum 443 item "
+                 f"2(c)). {RECORDED_WALK_NOTE}.")
         return L
     L += recorded_lines(sets)
     if recorded_refusals(sets):
-        L.append("PREFLIGHT only: nothing fitted, nothing priced, nothing reserved, nothing recorded; NO fingerprint: "
-                 "the run refuses unless each recorded set numbers its n and lies whole inside soccer-v23's scored set "
-                 "(addendum 443 item 2(c)).")
+        L.append("PREFLIGHT only: neither arm fitted or priced, nothing scored, nothing reserved, nothing recorded; NO "
+                 "fingerprint: the run refuses unless each recorded set numbers its n and lies whole inside "
+                 f"soccer-v23's scored set (addendum 443 item 2(c)). {RECORDED_WALK_NOTE}.")
         return L
     fp, n = stream_fingerprint(hist, sc, slots, v22p or {}, record)
-    L.append("PREFLIGHT only: nothing fitted, nothing priced, nothing reserved, nothing recorded.")
+    L.append("PREFLIGHT only: neither arm fitted or priced, nothing scored, nothing reserved, nothing recorded. "
+             f"{RECORDED_WALK_NOTE}.")
     L.append(f"STREAM FINGERPRINT {fp} ({n} rows; the run takes it as --stream-fingerprint)")
     return L
 
@@ -1958,10 +1969,12 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     BEFORE any outcome is scored or priced: the outcome-bearing stream (the admitted rows with their goals) is loaded
     and fingerprinted before the reservation, as in both precedent gates (nfl_v2_gate.run: load :655, fingerprint
     :667-668, reserve :678, its guard inside reserve :427; ncaa_v1r_gate.run: load :798, fingerprint :799-800, reserve
-    :824, its guard inside reserve :301), and nothing is fitted, scored or priced before it (ARCHITECT 2026-11-04
+    :824, its guard inside reserve :301), and nothing is scored before it and neither arm is fitted or priced before
+    it, soccer-backtest's own walk on the recorded seasons aside (443 item 1(c): it names their rows, ids only;
+    RECORDED_WALK_NOTE) (ARCHITECT 2026-11-04
     15:45 ET, addendum 254 item 3: "preflight → fingerprint → cross_ref_guard → reservation → walk → record", the
     three gates' common order; --preflight is its own earlier invocation in all three). A MISSING fingerprint is
-    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1984, nfl_v2_gate.py:642,
+    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1997, nfl_v2_gate.py:642,
     ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after the load, as in both. Then the walk of
     both arms (v22 re-walked beside soccer-v23 on the same harness: the same scored set, the same as-of context
     definition, the same skip zero), the comparison (soccer_backtest.compare_candidate) and decide (THE BAR, 251 item
@@ -2248,8 +2261,8 @@ def recorded_rows(path, figure: dict, v22_poisson: dict) -> list[int]:
     figure or score of v22 is kept or printed. A fence or a walk that fails is a refusal here (GateRefused)."""
     from src.walters import soccer_backtest as sb
     code, season = figure["competition"], figure["season"]
-    rho, coeff = backtest_params(v22_poisson)
     try:
+        rho, coeff = backtest_params(v22_poisson)
         with _copy_binding(path):
             why = backtest_fences(code, season)
             if why:
@@ -2259,8 +2272,8 @@ def recorded_rows(path, figure: dict, v22_poisson: dict) -> list[int]:
     except GateRefused:
         raise
     except Exception as err:  # noqa: BLE001 - an unreadable copy or a walk error is a refusal, never a traceback
-        raise GateRefused(f"the recorded figure {code} {season}: soccer-backtest's walk on the copy failed "
-                          f"({type(err).__name__}: {err}); nothing reserved") from err
+        raise GateRefused(f"the recorded figure {code} {season}: soccer-backtest's walk on the copy (or its params, "
+                          f"backtest_params) failed ({type(err).__name__}: {err}); nothing reserved") from err
     return [int(r["match_id"]) for r in (res or [])]
 
 

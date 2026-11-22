@@ -2089,3 +2089,26 @@ def test_ninety_minute_read_is_admits_substitution():
     row = v.Row(1, "XX", "2024/25", datetime(2024, 9, 1), 1, 2, 1, 0)
     assert [v.ninety_minute_read(replace(row, status_raw=c)) for c in ("AET", " pen ", "FT", "", None)] == [
         True, True, False, False, False]
+
+
+def test_malformed_v22_params_refuse_the_recorded_rows_never_a_traceback(declared):
+    """The review of 443's amendment: backtest_params runs inside recorded_rows' refusal, so a stored rho or Elo goal
+    coefficient that is not a number is a REFUSED line (GateRefused), before the reservation, never a traceback."""
+    for bad in ({"dixon_coles_rho": None}, {"elo_goal_coeff": "abc"}):
+        with pytest.raises(v.GateRefused, match="backtest_params"):
+            v.recorded_rows(declared["copy"], RECORDED[0], {**V22P, **bad})
+    _nothing(declared)
+
+
+def test_the_preflight_says_soccer_backtests_walk_ran_and_neither_arm_was_fitted(declared, monkeypatch):
+    """The review of 443's amendment (escalated for the architect): naming the recorded rows runs soccer-backtest's own
+    walk, which fits and prices v22 on those seasons; the receipts say so where it has run, and never "nothing fitted".
+    soccer-v23's fit and both arms' predict are never called by the preflight."""
+    from src.models import joint_poisson as jp
+    from src.walters import registry as reg
+    monkeypatch.setattr(jp, "fit", lambda *a, **k: (_ for _ in ()).throw(AssertionError("fitted")))
+    monkeypatch.setattr(v, "predict", lambda *a, **k: (_ for _ in ()).throw(AssertionError("priced")))
+    L = v.preflight_lines(reg.get(v.EID, reg.LEDGER), declared["copy"])
+    assert L[0].startswith("SOCCER-V23 · PREFLIGHT (fits and prices neither arm; scores nothing)")
+    assert L[-2].endswith(v.RECORDED_WALK_NOTE + ".") and "nothing fitted" not in "\n".join(L)
+    assert "it fits and prices v22 on those seasons; only the match ids are kept" in v.RECORDED_WALK_NOTE

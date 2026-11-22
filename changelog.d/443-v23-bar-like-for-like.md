@@ -18,6 +18,10 @@
 - **`decide` (443 item 2(d)):**
   - The re-walked comparison, then each recorded figure against soccer-v23's log-loss over its ids (soccer_calibration on soccer-v23's own walk rows, unrounded), each by `candidate_gate_verdict` at DEFAULT_PROMOTION_DELTA.
   - The console carries the two figures, the difference and the verdict side by side, one line per comparison. The run record carries the same in its `recorded` list, with each set's ids sha256.
+- **What naming the rows runs, said plainly (the adversarial review's P1, escalated):** naming a recorded figure's rows runs soccer-backtest's own walk on the copy before the reservation. That walk fits and prices v22 on those seasons. Only the match ids are kept; no figure of either arm is computed, kept or printed; soccer-v23 is neither fitted nor priced.
+  - The receipts now say exactly that (`RECORDED_WALK_NOTE`, on the preflight's closing line), never "nothing fitted". The places are the preflight header and its closing lines, `run()`'s docstring, spec §9, docs/CLI.md and `--preflight`'s help.
+  - `backtest_params` runs inside the refusal, so malformed stored params print a REFUSED line, never a traceback.
+  - `soccer-v23-gate --help` states the new bar.
 - **Nothing else moves (443 item 2(f)):** the pot, the scope, the cut's slot, the re-walk, the constants and the walk are unchanged. The stream fingerprint reads the slots, so it changes with them.
 - **The spec:**
   - D11 carries 443 items 1 and 2 verbatim.
@@ -31,6 +35,7 @@
     - A set reaching outside the scored set refuses, and so does a season soccer-backtest's fences refuse.
     - The ids are pinned against `run_soccer_backtest`'s own results on the synthetic store.
     - The slot's 33 malformed shapes refuse.
+    - Malformed stored v22 params refuse; the preflight's receipts say what ran.
   - tests/test_436_v23_shadow_export.py: its entry carries the new slot.
 
   Nothing run on either machine; no roadmap text changed (443 item 5).

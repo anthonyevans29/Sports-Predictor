@@ -1,4 +1,4 @@
-## 2026-11-22 (#PR: 447-leagues-window-read — the leagues windows' one read as a command, and the host's pages digest (ARCHITECT 2026-11-22 09:18 ET, addendum 447 items 1-2 and 4 PR 1; lane leagues, #322))
+## 2026-11-22 (#1075: 447-leagues-window-read — the leagues windows' one read as a command, and the host's pages digest (ARCHITECT 2026-11-22 09:18 ET, addendum 447 items 1-2 and 4 PR 1; lane leagues, #322))
 - **cli.py `leagues-window-read`** (src/walters/leagues_read.py), run as three invocations:
   - `--preflight`: counts only, the first date the read is allowed, then the WINDOW FINGERPRINT;
   - the ONE read: `--architect-word`, `--window-fingerprint`;

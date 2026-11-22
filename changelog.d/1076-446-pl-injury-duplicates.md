@@ -1,4 +1,4 @@
-## 2026-11-22 (#000: 446-pl-injury-duplicates — the PL injury duplicate receipt, read-only tooling (ARCHITECT 2026-11-22, addendum 446 item 1; Refs #1052))
+## 2026-11-22 (#1076: 446-pl-injury-duplicates — the PL injury duplicate receipt, read-only tooling (ARCHITECT 2026-11-22, addendum 446 item 1; Refs #1052))
 - **scripts/pl_injury_duplicate_receipt.py `--exports DIR|TREE --db COPY [--from INSTANT] [--through INSTANT]`:**
   - The population is every PL closing row of 2026/27: family SOCCER, row competition PL, row season 2026/27, one row per match (the last in-bound run's). Earlier runs are counted. #688's floor is not inherited.
   - For each side it prints the entries, the names shown, and the pairs that fold to one player: kinds `accent` and `double surname` in the headline, `identical` counted, `initial form` apart, AMBIGUOUS never paired. It also prints distinct by fold, and the page's factor_breakdown count and note beside the page count.

@@ -8,7 +8,10 @@ absent, the "at least" lower bound, an incomplete session (and one carrying anot
 stamped session, the season/competition filter, a re-paged start, a copy, pages with no run start, a match found by
 teams and kickoff (and a page id naming another game or kickoff, an ambiguous lookup), the line_move cross-check, the
 buckets' edges, --from / --through, sessions after the export, exported_at with microseconds and a Z, the 198 fence set
-(the app's configured database, a write refused), latest/ refused, exit codes and the copy's bytes unchanged."""
+(the app's configured database, a write refused), latest/ refused, exit codes and the copy's bytes unchanged. The review
+round (#1077): an incomplete session before the run's first link that differs bounds the run, a snapshot row with an
+unreadable captured_at is surfaced and never 'at least', and a name stamp with no valid date/time is a run start
+unknown, never an abort."""
 import hashlib
 import importlib.util
 import json
@@ -668,3 +671,107 @@ def test_two_pages_with_no_run_id_and_no_exported_at_are_never_one_copy(tmp_path
 def test_no_bookmaker_name_is_printed(world):
     _code, out = run(world)
     assert "SecretBook" not in "\n".join(out)
+
+
+# ---- the review round (PR #1077, Codex P2s F1-F3) ---------------------------------------------------------------
+
+def test_an_earlier_incomplete_session_that_differs_bounds_the_run_never_at_least(world, tmp_path):
+    """An incomplete session BEFORE the run's first link whose present legs differ (or carry two values for one leg)
+    ends the run as one between two links does: the price is known to have changed before the first link, so the
+    last-change age is not 'at least'. One whose legs agree leaves the lower bound."""
+    h, a = dict(zip(SELS, X1)), dict(zip(SELS, X2))
+    _add_match(world["db"], 140, 100, snaps=[(T1030, {"HOME": a["HOME"]}), (T1100, h), (T1425, h)])
+    _add_match(world["db"], 141, 101, snaps=[(T1030, {"HOME": h["HOME"]}), (T1100, h), (T1425, h)])   # agrees
+    _add_match(world["db"], 142, 102, snaps=[(T1030, {"DRAW": h["DRAW"]}), (T1030, {"DRAW": a["DRAW"]}),
+                                             (T1100, h), (T1425, h)])          # two values for one leg
+    _add_match(world["db"], 143, 103, snaps=[(T1030, {"AWAY": a["AWAY"]}), (T1100, dict(zip(SELS, X1B))),
+                                             (T1425, h)])                      # the 4-place run bounded
+    _add_match(world["db"], 144, 104, snaps=[(T1030, {"HOME": a["HOME"]}), (T1425, h)])   # a run of one
+    ex = tmp_path / "ex_pre"
+    closing(ex, D + "15:00:00", EXP_1500, [row(m, X1, teams=GAMES[like][:2])
+                                           for m, like in ((140, 100), (141, 101), (142, 102), (143, 103),
+                                                           (144, 104))])
+    code, out = run(world, ex=ex)
+    assert code == 0 and summary(out)["status"] == {"priced": 5}
+    b = block(out, 140)
+    assert ("last-change age 206 min (identical as stored across 2 session(s) from 2026-11-21 11:00:35Z; an earlier "
+            "incomplete session's legs differ: the run is bounded there)") in b
+    assert "HEADLINE 206 min (by the last change)" in b and "at least" not in b
+    b = block(out, 141)
+    assert "last-change age at least 206 min (identical as stored across 2 session(s)" in b
+    assert "HEADLINE at least 206 min (by the last change)" in b
+    b = block(out, 142)
+    assert "last-change age 206 min (identical as stored across 2 session(s)" in b and "at least" not in b
+    b = block(out, 143)
+    assert "last-change age 2 min (identical as stored across 1 session(s)" in b
+    assert "at 4 places 206 min (2 sessions from 2026-11-21 11:00:35Z" in b and "at least" not in b
+    assert "an earlier incomplete session differs at 4 places: the run is bounded there" in b
+    b = block(out, 144)
+    assert "fresh (the triple moved at this fetch)" in b and "first stored session" not in b and "at least" not in b
+    assert summary(out)["measures"]["last_change"]["at_least"] == 1
+
+
+def test_an_incomplete_session_after_the_run_never_bounds_it(world, tmp_path):
+    """_bounded_before looks only at incomplete sessions EARLIER than the run's first link: one that differs and sits
+    after the export (before kickoff) leaves the run's lower bound standing."""
+    h, a = dict(zip(SELS, X1)), dict(zip(SELS, X2))
+    _add_match(world["db"], 160, 100, snaps=[(T1100, h), (T1425, h), (D + "14:40:00", {"HOME": a["HOME"]})])
+    ex = tmp_path / "ex_after"
+    closing(ex, D + "15:00:00", EXP_1500, [row(160, X1, teams=GAMES[100][:2])])
+    code, out = run(world, ex=ex)
+    b = block(out, 160)
+    assert code == 0 and "last-change age at least 206 min" in b and "bounded there" not in b
+
+
+def test_an_unreadable_captured_at_is_surfaced_and_never_at_least(world, tmp_path):
+    """A snapshot row whose captured_at is stored but unparseable belongs to no session: it is counted on the row and
+    in the totals, and the row never prints 'at least' (the game's first stored session is unknown)."""
+    h = dict(zip(SELS, X1))
+    _add_match(world["db"], 150, 100, snaps=[(T1100, h), (T1425, h)])
+    _add_match(world["db"], 151, 101, snaps=[(T1425, h)])
+    with sqlite3.connect(world["db"]) as c:
+        for mid in (150, 151):
+            c.execute("INSERT INTO odds_snapshots (match_id, market, selection, devig_prob, n_books, captured_at, "
+                      "source) VALUES (?, '1X2', 'HOME', 0.5, 5, 'not a time', 'api_football')", (mid,))
+    ex = tmp_path / "ex_unr"
+    closing(ex, D + "15:00:00", EXP_1500, [row(150, X1, teams=GAMES[100][:2]), row(151, X1, teams=GAMES[101][:2]),
+                                           row(100, X1)])
+    code, out = run(world, ex=ex)
+    assert code == 0
+    b = block(out, 150)
+    assert "snapshot rows with an unreadable captured_at 1 (in no session)" in b
+    assert ("last-change age 206 min (identical as stored across 2 session(s) from 2026-11-21 11:00:35Z; the first "
+            "stored session unknown: 1 snapshot row(s) with an unreadable captured_at)") in b
+    assert "HEADLINE 206 min (by the last change)" in b and "at least" not in b
+    b = block(out, 151)
+    assert "first readable session (1 snapshot row(s) with an unreadable captured_at" in b and "at least" not in b
+    assert "unreadable captured_at" not in block(out, 100)
+    s = summary(out)
+    assert s["unreadable_snapshots"] == {"rows": 2, "snapshot_rows": 2}
+    assert s["mechanism"]["first readable session"] == 1
+    assert any(ln.startswith("\nTOTALS: ") and "rows whose game has snapshot rows with an unreadable captured_at 2 "
+               "(snapshot rows 2" in ln for ln in out)
+
+
+def test_a_name_stamp_that_is_no_valid_date_time_is_run_start_unknown_never_an_abort(world, tmp_path):
+    """A page with no closing.start whose name matches the stamp's syntax but holds no valid date/time
+    (closing_SOCCER_2026-13-40T2500Z.json): its run start is unknown, as redated.closing_rows' page without a start
+    (kept unbounded, 'run start unknown under a bound' under one), counted and labelled; never a ValueError."""
+    ex = tmp_path / "ex_bad_stamp"
+    ex.mkdir()
+    doc = {"exported_at": EXP_1500, "git_sha": "x", "predictions": [row(100, X1)],
+           "closing": {"family": "SOCCER", "run_id": "r-bad"}}
+    (ex / "closing_SOCCER_2026-13-40T2500Z.json").write_text(json.dumps(doc))
+    code, out = run(world, ex=ex)
+    assert code == 0
+    s = summary(out)
+    assert s["pages"] == 1 and s["rows"] == 1 and s["files"]["stamp_invalid"] == 1
+    head = next(ln.lstrip("\n") for ln in out if ln.lstrip("\n").startswith("== page "))
+    assert head.startswith("== page closing_SOCCER_2026-13-40T2500Z.json · run start — ")
+    assert ("RUN START UNKNOWN: no readable closing.start, and the name's stamp 2026-13-40T2500 is not a valid date/time"
+            in head)
+    assert any(ln.startswith("FILES: ") and "name stamps not a valid date/time (no readable closing.start) 1" in ln
+               for ln in out)
+    code, out = run(world, "--from", "2026-11-21T13:00:00Z", ex=ex)
+    s = summary(out)
+    assert code == 0 and s["pages"] == 0 and s["files"]["run_unknown"] == 1 and s["files"]["stamp_invalid"] == 1

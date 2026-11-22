@@ -25,7 +25,10 @@ WHAT IT READS (law 1: every key below was read from the code at origin/main 841e
   dated folder in name order; latest/ and any other subfolder never; --exports at a latest/ folder, by name or
   resolved, or a dated-named folder resolving to one, refused). Each FILE is a page (closing.closing_doc: "ONE
   CLOSING, ONE PAGE, ONE FILE"). The page's family is its closing block's, else the file name's segment; its run
-  start is closing.start, else the file name's stamp (redated.closing_rows' rule); its exported_at and git_sha are the
+  start is closing.start, else the file name's stamp (redated.closing_rows' rule); a name whose stamp has the syntax
+  but no valid date/time (closing_SOCCER_2026-13-40T2500Z.json) gives none: the run start is unknown, as for
+  closing_rows' page without a start (kept with no bound, counted under one), counted on FILES and labelled on the
+  page, never an abort; its exported_at and git_sha are the
   file's top-level keys (closing_doc keeps the export's own, export.py:85-86; exported_at is
   utc_now_naive().isoformat() + "Z", microseconds and a Z, parsed through redated.as_utc, never a bare fromisoformat:
   Python 3.10 refuses the Z). Every row of a SOCCER page whose competition is "PL" and season "2026/27"
@@ -53,7 +56,9 @@ WHAT IT READS (law 1: every key below was read from the code at origin/main 841e
 - A SESSION: one book fetch is one captured_at on every snapshot row it appends (api_football.py:380, the answer's one
   clock; service.py:1397-1404 appends one row per selection at cl["captured_at"]), so the snapshots are grouped by
   captured_at. A session lacking HOME, DRAW or AWAY (or carrying two values for one) is INCOMPLETE: counted, skipped,
-  never priced and never a link in a run. Its stamp is source_updated_at (service.py:415-428 writes the oldest over
+  never priced and never a link in a run. A snapshot row whose captured_at is NULL or unparseable belongs to no
+  session: counted per row and on TOTALS, and such a row never prints "at least" (the game's first stored session is
+  unknown; labelled). Its stamp is source_updated_at (service.py:415-428 writes the oldest over
   the rows the close priced, the answer's one response[].update): unknown when the column is absent, when the
   session's rows are unstamped (NULL), or partly stamped (oldest_source_time's rule: one unknown makes it unknown).
 
@@ -69,8 +74,10 @@ THE MEASURES (ages in minutes at the page's exported_at; the distributions in ho
 - LAST-CHANGE AGE: exported_at - the captured_at of the EARLIEST session of the unbroken trailing run of complete
   sessions (ending at the priced one) whose devig triple is identical as stored (unrounded). An incomplete session
   between two links whose present legs differ from the triple (or carry two values for one leg) ends the run there
-  (law 4: the stored data shows the price moved; never counted through). Where that run reaches the first complete
-  stored session for the game, the age is printed "at least" (a lower bound: the price may be older than our first
+  (law 4: the stored data shows the price moved; never counted through), and so does one EARLIER than the run's
+  first link: the run is bounded there and is not "at least" (the price is known to have changed before the first
+  link; labelled). Where that run reaches the first complete stored session for the game with no such earlier session
+  and no unreadable snapshot row, the age is printed "at least" (a lower bound: the price may be older than our first
   capture). Beside it, separately, the same run read at 4 places, where it reaches further back (a move below the
   page's rounding).
 - THE HEADLINE AGE: the stamp age where one is stored, else the last-change age (the architect's words), labelled.
@@ -132,15 +139,17 @@ DEFINITIONS = (
     "THE PRICED SESSION: the latest complete api_football 1X2 snapshot session (one captured_at = one fetch) at or "
     "before the page's exported_at, validated: each devig_prob rounded to 4 places equals the page's fair_prob; else "
     "the latest earlier session that validates (labelled 'page matches an earlier session'); else 'no stored session "
-    "matches the page' (counted, never forced). An incomplete session (a leg missing) is counted and skipped.",
+    "matches the page' (counted, never forced). An incomplete session (a leg missing) is counted and skipped; a "
+    "snapshot row whose captured_at is unreadable is in no session, counted on its row and on TOTALS.",
     "CAPTURE AGE: exported_at minus the priced session's captured_at: our fetch time, #348's age.",
     "STAMP AGE: exported_at minus the priced session's source_updated_at, the provider's own stamp (schema.py, "
     "addendum 32 items 3-4: \"" + STAMP_TEXT + "\"): a LOWER BOUND on the quote's age. Unknown with its cause.",
     "LAST-CHANGE AGE: exported_at minus the captured_at of the earliest session of the unbroken trailing run of "
     "complete sessions, ending at the priced one, whose devig triple is identical as stored (unrounded); an "
-    "incomplete session between two links whose present legs differ ends the run; 'at least' where the run reaches "
-    "the game's first complete stored session. The run at 4 places is printed beside it where it reaches further "
-    "back.",
+    "incomplete session between two links whose present legs differ ends the run, and so does one earlier than the "
+    "run's first link (bounded there, never 'at least'); 'at least' where the run reaches the game's first complete "
+    "stored session with no such earlier session and no unreadable snapshot row (then the first stored session is "
+    "unknown, labelled). The run at 4 places is printed beside it where it reaches further back.",
     "HEADLINE AGE: the stamp age where one is stored, else the last-change age (\"by the provider's own stamp where "
     "one is stored, else by the last stored change\", addendum 446 item 2), labelled with which.",
     "MECHANISM (the code map's M3/M4, over the trailing identical run): fresh (a run of one) · M3 (triple and stamp "
@@ -240,8 +249,13 @@ def read_pages(exports: Path, lo=None, hi=None) -> dict:
             n["files"] += 1
             run = redated.as_utc(block.get("start"))
             stamp = redated._STAMP.search(p.name)
+            bad_stamp = None
             if run is None and stamp:
-                run = datetime.strptime(stamp.group(1), "%Y-%m-%dT%H%M")
+                try:
+                    run = datetime.strptime(stamp.group(1), "%Y-%m-%dT%H%M")
+                except ValueError:      # the stamp's syntax, no valid date/time: the run start unknown, never an abort
+                    bad_stamp = stamp.group(1)
+                    n["stamp_invalid"] += 1
             fam = block.get("family")
             if not isinstance(fam, str) or not fam:
                 named = redated._FAMILY.match(p.name)
@@ -260,7 +274,8 @@ def read_pages(exports: Path, lo=None, hi=None) -> dict:
                 continue
             pages.append({"file": pre + p.name, "run": run, "run_id": block.get("run_id"),
                           "exported_raw": doc.get("exported_at"), "exported_at": redated.as_utc(doc.get("exported_at")),
-                          "git_sha": doc.get("git_sha"), "rows": rows, "copy_of": None, "repaged": None})
+                          "git_sha": doc.get("git_sha"), "rows": rows, "copy_of": None, "repaged": None,
+                          "bad_stamp": bad_stamp})
     pages.sort(key=lambda g: (g["run"] or datetime.min, g["exported_at"] or datetime.min, g["file"]))
     by_run: dict = {}
     for g in pages:
@@ -463,6 +478,13 @@ def _run_start(upto: list, idx: int, key: str, sess: list | None = None) -> int:
     return j
 
 
+def _bounded_before(sess: list, first: dict, ref: tuple, key: str) -> bool:
+    """Whether an incomplete session earlier than the run's first link (`first`) differs from the run's triple by
+    _differs: then the run is bounded there (the price is known to have changed before the first link), never 'at
+    least', although no earlier COMPLETE session exists."""
+    return any(not x["complete"] and x["at"] < first["at"] and _differs(x, ref, key) for x in sess)
+
+
 def line_move_check(r: dict, priced: dict) -> str:
     book = _d(_d(_d(r.get("line_move")).get("venues")).get("book"))
     if not book:
@@ -485,12 +507,13 @@ def measure(page: dict, r: dict, ss: dict | None, how: str) -> dict:
            "books": _d(r.get("market")).get("bookmaker_count"), "status": None, "label": None, "priced": None,
            "ages": {k: None for k in MEASURES}, "why": {}, "at_least": False, "run": None, "run4": None,
            "mechanism": None, "line_move": "absent", "incomplete": 0, "after_export": 0, "sessions": 0,
-           "headline_by": None, "headline_at_least": False}
+           "headline_by": None, "headline_at_least": False, "run_note": "", "unreadable": 0}
     if ss is None:
         out["status"] = NOT_FOUND
         return out
     sess = ss["sessions"]
     out["sessions"] = len(sess)
+    out["unreadable"] = ss["unreadable"]
     exp = page["exported_at"]
     if exp is None:
         out["status"] = NO_EXPORTED
@@ -524,18 +547,30 @@ def measure(page: dict, r: dict, ss: dict | None, how: str) -> dict:
     j = _run_start(upto, idx, "triple", sess)
     j4 = _run_start(upto, idx, "triple4", sess)
     a["last_change"] = _min(exp, upto[j]["at"])
-    out["at_least"] = j == 0
+    unr = out["unreadable"]
+    unknown_first = f"the first stored session unknown: {unr} snapshot row(s) with an unreadable captured_at"
+    bounded = j == 0 and _bounded_before(sess, upto[0], p["triple"], "triple")
+    out["at_least"] = j == 0 and not bounded and not unr
+    if j == 0:
+        out["run_note"] = ("an earlier incomplete session's legs differ: the run is bounded there" if bounded else
+                           unknown_first if unr else "")
+    bounded4 = j4 == 0 and _bounded_before(sess, upto[0], p["triple4"], "triple4")
     out["run"] = {"n": idx - j + 1, "from": upto[j]["at"]}
-    out["run4"] = {"n": idx - j4 + 1, "from": upto[j4]["at"], "age": _min(exp, upto[j4]["at"]), "at_least": j4 == 0}
+    out["run4"] = {"n": idx - j4 + 1, "from": upto[j4]["at"], "age": _min(exp, upto[j4]["at"]),
+                   "at_least": j4 == 0 and not bounded4 and not unr,
+                   "note": ("an earlier incomplete session differs at 4 places: the run is bounded there" if bounded4
+                            else unknown_first if j4 == 0 and unr else "")}
     if p["stamp"] is not None:
         a["headline"], out["headline_by"] = a["stamp"], "stamp"
     else:
         a["headline"], out["headline_by"] = a["last_change"], "last change"
-        out["headline_at_least"] = j == 0
+        out["headline_at_least"] = out["at_least"]
     stamps = [x["stamp"] for x in upto[j:idx + 1]]
     n = idx - j + 1
     if n == 1:
-        out["mechanism"] = ("first stored session (no earlier capture to compare)" if j == 0 else
+        out["mechanism"] = ("first stored session (no earlier capture to compare)" if out["at_least"] else
+                            f"first readable session ({unr} snapshot row(s) with an unreadable captured_at: an "
+                            "earlier capture may exist)" if j == 0 and not bounded else
                             "fresh (the triple moved at this fetch)")
     elif any(x is None for x in stamps):
         out["mechanism"] = f"stamp unknown in the run (M3 and M4 not told apart; {n} sessions, triple unchanged)"
@@ -550,7 +585,7 @@ def measure(page: dict, r: dict, ss: dict | None, how: str) -> dict:
 def mech_key(m: str | None) -> str:
     if m is None:
         return "(not priced)"
-    for k in ("M3", "M4", "fresh", "first stored session", "stamp unknown"):
+    for k in ("M3", "M4", "fresh", "first stored session", "first readable session", "stamp unknown"):
         if m.startswith(k):
             return k
     return m
@@ -609,6 +644,8 @@ def report(pop: dict, s, has_stamp: bool, hdr: dict) -> tuple[list[str], dict]:
     c = pop["counts"]
     L.append(f"FILES: closing files read {c.get('files', 0)} · unreadable {len(pop['unreadable'])}"
              + (f" ({', '.join(pop['unreadable'])})" if pop["unreadable"] else "")
+             + " · name stamps not a valid date/time (no readable closing.start) "
+             + f"{c.get('stamp_invalid', 0)} (run start unknown)"
              + f" · another family's {c.get('other_family', 0)} · SOCCER pages outside the bound "
              f"{c.get('outside', 0)} · run start unknown under a bound {c.get('run_unknown', 0)} · SOCCER pages "
              f"with no PL {SEASON} row {c.get('no_pl_row', 0)} · other rows on the pages read (another competition "
@@ -620,6 +657,9 @@ def report(pop: dict, s, has_stamp: bool, hdr: dict) -> tuple[list[str], dict]:
             lab = f" · a COPY of {g['copy_of']} (same run id and exported_at): printed, not counted again"
         elif g["repaged"]:
             lab = f" · RE-PAGED: page {g['repaged'][0]} of {g['repaged'][1]} for this run start"
+        if g.get("bad_stamp"):
+            lab += (" · RUN START UNKNOWN: no readable closing.start, and the name's stamp "
+                    f"{g['bad_stamp']} is not a valid date/time")
         L.append(f"\n== page {g['file']} · run start {_t(g['run'])} · exported_at {g['exported_raw']} · git_sha "
                  f"{str(g['git_sha'])[:8] if g['git_sha'] else '—'} · rows {len(g['rows'])}{lab}")
         recs = []
@@ -632,7 +672,9 @@ def report(pop: dict, s, has_stamp: bool, hdr: dict) -> tuple[list[str], dict]:
             f = x["fair"]
             L.append(f"  {_t(x['kickoff'])} · match {x['match_id']} {x['home']} v {x['away']} · page fair H/D/A "
                      + ("/".join(f"{v:.4f}" for v in f) if f else "—")
-                     + f" · bookmaker_count {x['books']} · on the copy: {how}")
+                     + f" · bookmaker_count {x['books']} · on the copy: {how}"
+                     + (f" · snapshot rows with an unreadable captured_at {x['unreadable']} (in no session)"
+                        if x["unreadable"] else ""))
             if x["status"] != "priced":
                 L.append(f"    NOT PRICED: {x['status']} (sessions stored {x['sessions']}; incomplete at or before "
                          f"the export {x['incomplete']})")
@@ -643,12 +685,14 @@ def report(pop: dict, s, has_stamp: bool, hdr: dict) -> tuple[list[str], dict]:
                      + f" · n_books {p['n_books']} · {x['label']}")
             r4 = x["run4"]
             four = (f" · at 4 places {'at least ' if r4['at_least'] else ''}{_mins(r4['age'])} ({r4['n']} sessions "
-                    f"from {_t(r4['from'])}; a move below the page's rounding)" if r4["n"] > x["run"]["n"] else "")
+                    f"from {_t(r4['from'])}; a move below the page's rounding{'; ' + r4['note'] if r4.get('note') else ''})"
+                    if r4["n"] > x["run"]["n"] else "")
             L.append(f"    capture age {_mins(a['capture'])} · stamp age "
                      + (f"{_mins(a['stamp'])} (a lower bound on the quote's age)" if a["stamp"] is not None else
                         f"unknown ({x['why']['stamp']})")
                      + f" · last-change age {'at least ' if x['at_least'] else ''}{_mins(a['last_change'])} "
-                     f"(identical as stored across {x['run']['n']} session(s) from {_t(x['run']['from'])}){four}")
+                     f"(identical as stored across {x['run']['n']} session(s) from {_t(x['run']['from'])}"
+                     f"{'; ' + x['run_note'] if x['run_note'] else ''}){four}")
             L.append(f"    HEADLINE {'at least ' if x['headline_at_least'] else ''}{_mins(a['headline'])} (by "
                      f"{'the stamp' if x['headline_by'] == 'stamp' else 'the last change'}) · {x['mechanism']} · "
                      f"incomplete sessions "
@@ -662,15 +706,19 @@ def report(pop: dict, s, has_stamp: bool, hdr: dict) -> tuple[list[str], dict]:
     n = len(rows)
     st = Counter(x["status"] for x in rows)
     earlier = sum(1 for x in rows if (x["label"] or "").startswith(EARLIER))
+    unr_rows, unr_snap = sum(1 for x in rows if x["unreadable"]), sum(x["unreadable"] for x in rows)
     L.append(f"\nTOTALS: pages {len(page_sum)} (copies not counted again "
              f"{sum(1 for g in pop['pages'] if g['copy_of'])}; re-paged run starts "
              f"{len({g['run'] for g in pop['pages'] if g['repaged']})}) · rows {n} · priced {st['priced']} (the "
              f"latest session {st['priced'] - earlier}, {EARLIER} {earlier}) · {NOT_FOUND} {st[NOT_FOUND]} · "
              f"{NO_MATCH} {st[NO_MATCH]} · {NO_SESSION} {st[NO_SESSION]} · {NO_FAIR} {st[NO_FAIR]} · {NO_EXPORTED} "
-             f"{st[NO_EXPORTED]}")
+             f"{st[NO_EXPORTED]} · rows whose game has snapshot rows with an unreadable captured_at {unr_rows} "
+             f"(snapshot rows {unr_snap}, summed over those rows; in no session, so no 'at least' on them)")
     summary = {"rows": n, "pages": len(page_sum), "copies": sum(1 for g in pop["pages"] if g["copy_of"]),
                "repaged_starts": len({g["run"] for g in pop["pages"] if g["repaged"]}), "status": dict(st),
-               "earlier_session": earlier, "stamp_column": has_stamp, "files": c, "unreadable": pop["unreadable"],
+               "earlier_session": earlier, "stamp_column": has_stamp,
+               "unreadable_snapshots": {"rows": unr_rows, "snapshot_rows": unr_snap}, "files": c,
+               "unreadable": pop["unreadable"],
                "exports_dir": str(pop["dir"]), "db": hdr["db"],
                "from": qb._z(pop["lo"]) if pop["lo"] else None, "through": qb._z(pop["hi"]) if pop["hi"] else None,
                "measures": {}}

@@ -20,6 +20,6 @@
   - The priced session is validated against the page's fair to 4 places. A page that matches an earlier session, or none, is labelled and counted, never forced.
   - Capture, stamp, last-change and headline ages at the export. Unknowns stay in the denominator by cause; "at least" marks a lower bound.
   - The M3 / M4 read and the page's line_move cross-check.
-  - It sits behind #688's --db fence, and has 55 tests.
+  - It sits behind #688's --db fence, and has 59 tests.
   - The "from the code" half and "what it would take" are prose for the PR body and #348, each with file:line. No build beyond the receipt, no change to v22, the injuries feed or the Desk.
 - **Next:** the architect's block runs the receipt on the host's pulled copy with the mirror's host/ pages. He rules on it; nothing is built before that.

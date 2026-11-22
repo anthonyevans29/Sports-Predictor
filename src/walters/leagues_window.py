@@ -116,7 +116,8 @@ page), is excluded under NO_ROW_TEXT and named, so a read where the host's files
 2026-11-02 18:05 ET), (b) and (c) verbatim in RULING_223_2B and RULING_223_2C below: a no-row game kicking off after a
 page whose binding carried the entry REFUSES the league's read and the score (WindowRefused, exit 2 at the CLI: each
 game named (match, kickoff) and the page (its file); nothing scored, no slot decided) until a ruled exclusion clears
-it (a follow-up Issue, not built here); the cause text is amended to "no prospective row under the entry: the entry
+it (the entry's ruled_exclusions, #803: ruled_items / apply_ruled; a listed game is excluded by ruled cause, no slot,
+on its own named line, counted; a malformed item, or one naming no game of the window, refuses); the cause text is amended to "no prospective row under the entry: the entry
 was not on the host's tag", one cause, one count, one line, and a row under another entry's label (PD's rows under
 soccer-expansion-v1's, declared_at 2026-10-07T15:17:38Z) is never read: its game is excluded under that one cause.
 (b): PD is in DECLARATION_IDS, so fence_cutoff / fence_refusal (guards_backtest), read(), checked() and score() cover
@@ -168,6 +169,15 @@ RULING_223_2C = ("ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(c), verbati
                  "literally true for both kinds — no row at all (ELC's midweek games) and a row under the earlier "
                  "entry (PD's games priced on v1.6.2 after the stamp): \"no prospective row under the entry: the "
                  "entry was not on the host's tag\". One cause, one count, one line.\"")
+# THE RULED EXCLUSIONS (ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(b); #803, built by ARCHITECT 2026-11-21
+# 12:17 ET, addendum 442 item 2(a)): "The refusal is cleared only by a RULED exclusion: a follow-up Issue [...] adds a
+# per-entry list of ruled exclusions (match id, kickoff, the cause as the host's receipt established it, the ruling's
+# stamp) that the reader honours — excluded by ruled cause, no slot, on its own named line." The list is the entry's
+# RULED_FIELD; each item exactly RULED_ITEM_KEYS. It starts empty.
+RULED_FIELD = "ruled_exclusions"
+RULED_ITEM_KEYS = ("match_id", "kickoff", "cause", "ruling")
+RULED = "ruled_exclusion"              # the excluded counter's key and the window's list of the items applied
+RULED_TEXT = "excluded by ruled cause (each named with its cause and ruling below)"
 NO_ROW = "no_prospective_row"         # addendum 222 item 4(a)'s cause: its key; its text as 223 item 2(c) amends it
 NO_ROW_TEXT = "no prospective row under the entry: the entry was not on the host's tag"
 LEAGUE_FIELD = "competition"                  # the entry's league field (181 item 6: equal to the code looked up)
@@ -534,8 +544,58 @@ def disagrees(m) -> bool:
     return (m.home_score, m.away_score) != (m.home_score_90, m.away_score_90)
 
 
+def ruled_items(code: str, e: dict | None) -> dict[int, dict]:
+    """The entry's ruled exclusions, validated (#803: "an item must name a game [...], and needs a ruling stamp and a
+    cause. An item with no ruling refuses the read (law 4)"): {match id: item}. No field, or [], is the empty list.
+    Refused (WindowRefused) unless the field is a list of mappings with exactly RULED_ITEM_KEYS: match_id a positive
+    integer named once, kickoff a UTC instant (parse_instant), cause and ruling non-empty text. That each names a game
+    of the window is checked against the store (apply_ruled)."""
+    raw = (e or {}).get(RULED_FIELD, [])               # no field: the empty list; null or anything else: refused
+    eid = (e or {}).get("id")
+    if not isinstance(raw, list):
+        raise WindowRefused(f"{code} ({eid}): {RULED_FIELD} is {type(raw).__name__}, not a list of ruled exclusions "
+                            "(#803; law 4: never guessed)")
+    out: dict[int, dict] = {}
+    for i, it in enumerate(raw):
+        where = f"{code} ({eid}): {RULED_FIELD}[{i}]"
+        if not isinstance(it, dict) or set(it) != set(RULED_ITEM_KEYS):
+            raise WindowRefused(f"{where} is not exactly {{{', '.join(RULED_ITEM_KEYS)}}} ({it!r}); a ruled exclusion "
+                                "names the match, its kickoff, the cause as the host's receipt established it and the "
+                                "ruling's stamp (addendum 223 item 2(b)); nothing read")
+        mid = it["match_id"]
+        if isinstance(mid, bool) or not isinstance(mid, int) or mid <= 0:
+            raise WindowRefused(f"{where}: match_id {mid!r} is not a match id; nothing read")
+        if mid in out:
+            raise WindowRefused(f"{where}: match {mid} is listed twice; nothing read")
+        ko = parse_instant(it["kickoff"]) if isinstance(it["kickoff"], str) else None
+        if ko is None:
+            raise WindowRefused(f"{where}: kickoff {it['kickoff']!r} is not a UTC instant; nothing read")
+        for k in ("cause", "ruling"):
+            if not isinstance(it[k], str) or not it[k].strip():
+                raise WindowRefused(f"{where}: no {k} (an item with no {'ruling stamp' if k == 'ruling' else k} "
+                                    "refuses the read, #803; law 4); nothing read")
+        out[mid] = {"match_id": mid, "kickoff": ko, "cause": it["cause"].strip(), "ruling": it["ruling"].strip()}
+    return out
+
+
+def apply_ruled(code: str, ruled: dict[int, dict], games, declared_at: datetime) -> None:
+    """#803: each listed game exists in the window: a stored game of the league's season kicking off after the
+    declaration, at exactly the listed kickoff (a game re-dated since its ruling is never excluded on it). Refused
+    otherwise; nothing read."""
+    by_id = {m.id: m for m in games}
+    for mid, it in ruled.items():
+        m = by_id.get(mid)
+        if m is None or m.utc_date is None or m.utc_date <= declared_at:
+            raise WindowRefused(f"{code}: {RULED_FIELD} names match {mid}, which is not a game of the {SEASON} window "
+                                f"(a stored game kicking off after the declaration); nothing read")
+        if m.utc_date != it["kickoff"]:
+            raise WindowRefused(f"{code}: {RULED_FIELD} names match {mid} at {it['kickoff']:%Y-%m-%dT%H:%M:%SZ}, but it "
+                                f"is stored at {m.utc_date:%Y-%m-%dT%H:%M:%SZ}: the ruling is for another kickoff; "
+                                "nothing read")
+
+
 def membership(s, code: str, declared_at: datetime, constants: dict, now: datetime, stored: dict,
-               first_page: str | None = None, first_file: str | None = None) -> dict:
+               first_page: str | None = None, first_file: str | None = None, ruled: dict | None = None) -> dict:
     """The window of one declared league as of `now` (the module docstring's order). Counts and ids only: the
     probabilities predict_as_of returns are discarded here and recomputed by score() at the read (R1).
     `stored`: stored_rows(code, the entry's declared_at text, the read's export directory). A game that passes every
@@ -544,7 +604,13 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     `first_page`: carrying_page()'s "first" (the exported_at of the first page in that directory whose binding
     carried the entry), or None; `first_file`: that page's file. A no-row game kicking off AFTER it REFUSES the read
     (RULING_223_2B: WindowRefused naming each such game, match and kickoff, and the page; nothing scored, no slot
-    decided), never labelled with item 4(a)'s cause (its premise does not hold)."""
+    decided), never labelled with item 4(a)'s cause (its premise does not hold).
+    `ruled`: ruled_items() of the entry (#803). The list clears exactly the refusal 223 item 2(b) built: a listed game
+    with NO stored row kicking off AFTER the page whose binding carried the entry is EXCLUDED BY RULED CAUSE (RULED):
+    no slot, never a refusal, listed in `ruled_exclusion` with its cause and ruling. A listed game whose premise does
+    not hold when it reaches that step (it holds a stored row, or it is item 4(a)'s NO_ROW game before the page)
+    REFUSES the read (law 4: the list never removes a member and never relabels another cause). A listed game an
+    earlier step excludes or holds pending, or one beyond the 60th member, is named in `ruled_not_applied` with why."""
     from sqlalchemy import select
 
     from src.db.schema import Competition, Match
@@ -566,7 +632,12 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
            "stored_games": len(games), "at_or_before": 0, "postponed_before": 0, "members": [],
            "excluded": Counter(), "pending": Counter(), "to_come": 0, "not_placed": 0, "blocking": 0,
            "awarded_released": [], "no_raw_code_members": [], "score_disagreement": [], "disagreement_before": 0,
-           NO_ROW: [], "first_carrying_page": first_page}
+           NO_ROW: [], "first_carrying_page": first_page, RULED: [], "ruled_not_applied": []}
+    ruled = dict(ruled or {})
+    apply_ruled(code, ruled, games, declared_at)
+    applied: set[int] = set()
+    reached: set[int] = set()            # the games the window's loop looked at (counting stops at the 60th)
+    premise: list[str] = []              # listed games whose premise (no row after a carrying page) does not hold
     on_tag = []                      # RULING_223_2B: no row although a page carrying the entry precedes the kickoff
     for m in games:
         if m.utc_date is not None and m.utc_date > declared_at:
@@ -588,6 +659,7 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     for m in after:
         if len(out["members"]) >= WINDOW_GAMES:
             break                    # counting stops at the 60th member
+        reached.add(m.id)
         st = _status(m)
         if st == "stale_orphan":
             out["excluded"]["stale_orphan"] += 1
@@ -635,14 +707,34 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
             continue
         if m.id not in stored:       # addendum 222 item 4(a): no stored prospective row -> excluded by cause, no slot
             if first_page is not None and m.utc_date.isoformat() > first_page:
+                if m.id in ruled:    # #803 (223 item 2(b)): the refusal cleared by RULED cause, no slot
+                    out["excluded"][RULED] += 1
+                    out[RULED].append(ruled[m.id])
+                    applied.add(m.id)
+                    continue
                 on_tag.append((m.id, m.utc_date))   # its premise does not hold: the read refuses (223 item 2(b))
                 continue
+            if m.id in ruled:        # #803: item 4(a)'s own cause, never relabelled by the list
+                premise.append(f"match {m.id} has no stored row but kicks off before the first page whose binding "
+                               "carried the entry (or there is no such page): addendum 222 item 4(a)'s cause, which "
+                               "the list does not relabel")
             out["excluded"][NO_ROW] += 1
             out[NO_ROW].append((m.id, m.utc_date))
+            continue
+        if m.id in ruled:            # #803: a listed game holding its stored row is a member; the list never removes one
+            premise.append(f"match {m.id} holds its stored prospective row: there is no refusal for the list to clear")
             continue
         out["members"].append(m.id)
         if not _raw(m):              # 181 item 3: C1's member, scored on its stored score and listed as C2 lists it
             out["no_raw_code_members"].append(m)
+    if premise:
+        raise WindowRefused(f"{code}: {RULED_FIELD} names game(s) whose premise does not hold (the list clears only a "
+                            "game with no stored row kicking off after the page whose binding carried the entry, "
+                            "addendum 223 item 2(b)); nothing scored, no slot decided: " + "; ".join(premise))
+    out["ruled_not_applied"] = [{**ruled[i], "why": ("beyond the 60th member (counting stopped before it)"
+                                                     if i not in reached else
+                                                     "an earlier step excludes it or holds it pending")}
+                                for i in ruled if i not in applied]
     if on_tag:
         raise WindowRefused(
             f"{code}: no prospective row under the entry for {len(on_tag)} window game(s) kicking off after the page "
@@ -703,11 +795,13 @@ def read(codes=READ_CODES, now: datetime | None = None, export_dir: str = "expor
             at, constants = checked(code, e)
             stored = stored_rows(code, e.get("declared_at"), export_dir)     # refuses on an unreadable export file
             page = carrying_page(code, e.get("id"), e.get("declared_at"), export_dir)
+            ruled = ruled_items(code, e)                                   # #803: refuses a malformed item
             with readonly_scope() as s:
-                w = membership(s, code, at, constants, now, stored, page["first"], page["path"])
+                w = membership(s, code, at, constants, now, stored, page["first"], page["path"], ruled)
         except (WindowRefused, ReadOnlyRefused) as err:
             out[code] = {"code": code, "declared": True, "id": e["id"], "refused": str(err)}
             continue
+        w["ruled_items_read"] = ruled                                     # #803: the score refuses if it changes
         w.update({"declared": True, "id": e["id"], "declared_at_text": e.get("declared_at"),
                   "verdict_recorded": verdict_recorded(e),
                   "export_dir": str(export_dir), "export_pages": page["pages"],
@@ -819,6 +913,23 @@ def audit_lines(code: str, a: dict) -> list[str]:
     L.extend(one("EXPECTED", f) for f in a["expected"])
     if NO_ROW in a:                                      # addendum 222 item 4(a): named and counted on the receipt
         L.extend(no_row_lines(code, a[NO_ROW]))
+    if RULED in a:                                       # #803: the ruled exclusions, named and counted
+        L.extend(ruled_lines(code, a[RULED], a.get("ruled_not_applied") or []))
+    return L
+
+
+def ruled_lines(code: str, items, not_applied=()) -> list[str]:
+    """#803 (223 item 2(b)): the ruled exclusions on their own named line, counted, each game named with its kickoff,
+    its cause and its ruling; then the listed games an earlier step excluded or holds pending, if any. Printed when the
+    entry's list holds an item: an empty list (every entry today) leaves the reader's print exactly as it was."""
+    def one(it):
+        return (f"    - match {it['match_id']} · kickoff {it['kickoff']:%Y-%m-%dT%H:%M:%SZ} · cause: {it['cause']} · "
+                f"ruling: {it['ruling']}")
+    L = [f"  - {code} · excluded by ruled cause (no slot): {len(items)} (ARCHITECT 2026-11-02, addendum 223 item 2(b); "
+         f"the entry's {RULED_FIELD}, #803)"] + [one(it) for it in items]
+    if not_applied:
+        L.append(f"  - {code} · listed, not applied {len(not_applied)} (the list never overrides another cause):")
+        L.extend(one(it) + f" · not applied: {it['why']}" for it in not_applied)
     return L
 
 
@@ -850,6 +961,7 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
     export_dir = export_dir if export_dir is not None else window.get("export_dir", "exports")
     stored = stored_rows(code, window.get("declared_at_text"), export_dir)     # refuses on an unreadable export file
     page = carrying_page(code, window.get("id"), window.get("declared_at_text"), export_dir)
+    ruled = ruled_items(code, declaration(code))       # #803: the entry's list now, validated as the read validates it
     key = {"H": 0, "D": 1, "A": 2}
     pairs, recomputed, problems = [], {}, []
     with readonly_scope() as s:
@@ -857,7 +969,10 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
         # read could put another game before the 60th, so the ids and the state must match the read's or nothing
         # is scored (never games 2-61 for 1-60).
         fresh = membership(s, code, window["declared_at"], c, now or utc_now_naive(), stored, page["first"],
-                           page["path"])
+                           page["path"], ruled)
+        if ruled != window.get("ruled_items_read", {}):   # #803: one read stays one: the list the read printed
+            raise WindowRefused(f"{code}: the entry's {RULED_FIELD} changed between the read and the score: read it "
+                                "again; nothing is scored")
         if fresh["state"] != "ready" or fresh["members"] != ids:
             raise WindowRefused(f"{code}: the window moved between the read and the score (state "
                                 f"{fresh['state']!r}; members {'unchanged' if fresh['members'] == ids else 'changed'}"
@@ -884,6 +999,9 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
     out = aggregate(pairs)
     a = audit(stored, recomputed)
     a[NO_ROW] = list(fresh[NO_ROW])          # addendum 222 item 4(a): named and counted on the receipt
+    if fresh[RULED] or fresh["ruled_not_applied"]:   # #803: named on the receipt; an empty list prints as before
+        a[RULED] = list(fresh[RULED])
+        a["ruled_not_applied"] = list(fresh["ruled_not_applied"])
     out.update({"code": code, "match_ids": ids, "constants": dict(c), "audit": a})
     return out
 
@@ -919,8 +1037,10 @@ def lines(res: dict, now: datetime) -> list[str]:
                  + (f" · score disagreement {w['disagreement_before']} (pending, below)"
                     if w.get("disagreement_before") else ""))
         L.append(f"  - excluded (no slot): "
-                 f"{_causes(w['excluded'], EXCLUDED, ((NO_ROW, NO_ROW_TEXT),))}")
+                 f"{_causes(w['excluded'], EXCLUDED, ((NO_ROW, NO_ROW_TEXT), (RULED, RULED_TEXT)))}")
         L.extend(no_row_lines(code, w.get(NO_ROW) or []))   # addendum 222 item 4(a): its own line, each game named
+        if w.get(RULED) or w.get("ruled_not_applied"):      # #803: its own line; an empty list prints as before
+            L.extend(ruled_lines(code, w.get(RULED) or [], w.get("ruled_not_applied") or []))
         pend = Counter(w["pending"])
         L.append(f"  - pending (the read waits for them): scheduled {w['to_come']} · LIVE {pend['live']} · un-ingested "
                  f"{pend['uningested']}" + "".join(f" · {text} {pend[key]}" for key, text in PENDING[3:]

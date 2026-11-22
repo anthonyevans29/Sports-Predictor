@@ -31,8 +31,9 @@ VERDICT_AT = "2026-11-01T12:00:00Z"
 V22_POISSON = {"dixon_coles_rho": -0.1}              # the world's v22 row (tests.test_pl_availability._world)
 V22_SHA = sv.params_sha256(V22_POISSON)              # 440 item 4(b): what the run record carries
 NOW = KICK - timedelta(hours=20)                       # the run's clock: the fixture inside the horizon
-SLOTS = {"cut": "2026-10-30T15:00:00Z", "availability_on": True, "v22_recorded_log_loss": 1.0,
-         "v22_recorded_source": "a test's own figure (never a record)", "scope": "LEAGUE_REGULAR",
+SLOTS = {"cut": "2026-10-30T15:00:00Z", "availability_on": True,
+         "v22_recorded": [{"competition": "PL", "season": "2024/25", "n": 16, "log_loss": 1.0,
+                           "source": "a test's own figure (never a record)"}], "scope": "LEAGUE_REGULAR",
          "first_season": "score_under_prior", "visibility": "day"}
 
 

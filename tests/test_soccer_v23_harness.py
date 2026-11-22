@@ -12,6 +12,7 @@ receipt's verbatim categories; no number outside the design's own literals; the 
 reservation before any outcome, the record; the verdict at 0, 0.0049999 and 0.0050."""
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
@@ -1322,13 +1323,18 @@ def test_the_command_is_registered():
     assert "soccer-v23-gate" in cli.cli.commands
 
 
-RECORDED = {"v22_recorded_log_loss": 1.0, "v22_recorded_source": "synthetic (tests only)"}
+# ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 2(b): ONE slot, the LIST of v22's recorded figures. The declared
+# store (8 clubs a league, 56 rows a season) gives soccer-backtest's walk at min_prior 40 exactly 16 scored rows per PL
+# season; the figures themselves are synthetic (tests only), never a record.
+RECORDED_N = 16
+RECORDED = [{"competition": "PL", "season": s, "n": RECORDED_N, "log_loss": 1.0, "source": "synthetic (tests only)"}
+            for s in ("2024/25", "2025/26")]
 
 
 def test_slots_state():
     rec = {"scope": "LEAGUE_REGULAR", "first_season": "score_under_prior", "visibility": "day",
            "cut": "2026-10-30T15:00:00Z", "availability_on": False}
-    good = {**rec, **RECORDED}
+    good = {**rec, "v22_recorded": RECORDED}
     assert v.slots_state({v.SLOTS_KEY: good}) == (good, None)
     for k in v.SLOT_KEYS:
         assert v.slots_state({v.SLOTS_KEY: {**good, k: None}})[1]
@@ -1341,15 +1347,25 @@ def test_slots_state():
         assert v.slots_state({v.SLOTS_KEY: {**good, k: bad}})[1] == (f"the declaration slot {k!r} is {bad!r}, not one "
                                                                      f"of {v.SLOT_VALUES[k]}")
     for k, bad in (("scope", "ALL"), ("first_season", "skip40"), ("visibility", "close"), ("cut", "soon"),
-                   ("availability_on", "no"), ("v22_recorded_log_loss", True), ("v22_recorded_log_loss", "1.0"),
-                   ("v22_recorded_log_loss", 0.0), ("v22_recorded_log_loss", -1.0),
-                   ("v22_recorded_log_loss", float("nan")), ("v22_recorded_log_loss", float("inf")),
-                   ("v22_recorded_source", ""), ("v22_recorded_source", "  "), ("v22_recorded_source", 3)):
+                   ("availability_on", "no")):
         assert v.slots_state({v.SLOTS_KEY: {**good, k: bad}})[1], (k, bad)
+    # 443 item 2(b): "The run refuses an empty list"; each figure exactly {competition, season, n, log_loss, source}
+    f0 = RECORDED[0]
+    for bad in ([], {}, 1.0, "PL", [f0, f0], [{**f0, "extra": 1}], [{k: x for k, x in f0.items() if k != "n"}],
+                *([{**f0, "log_loss": x}] for x in (True, "1.0", 0.0, -1.0, float("nan"), float("inf"), None)),
+                *([{**f0, "n": x}] for x in (0, -1, True, 16.0, "16", None)),
+                *([{**f0, k: x}] for k in ("competition", "season", "source") for x in ("", "  ", 3, None)), [f0, 3]):
+        why = v.slots_state({v.SLOTS_KEY: {**good, "v22_recorded": bad}})[1]
+        assert why and "v22_recorded" in why, bad
+    assert "the run refuses an empty list" in v.slots_state({v.SLOTS_KEY: {**good, "v22_recorded": []}})[1]
+    one = {**good, "v22_recorded": RECORDED[:1]}                       # one figure is a list too; the bar takes each
+    assert v.slots_state({v.SLOTS_KEY: one}) == (one, None)
+    for old in ("v22_recorded_log_loss", "v22_recorded_source"):       # the slot pair is gone (443 item 2(b))
+        assert v.slots_state({v.SLOTS_KEY: {**good, old: 1.0}})[1]
     assert v.slots_state({v.SLOTS_KEY: {**good, "skip": 40}})[1]
     assert v.slots_state({v.SLOTS_KEY: rec})[1]                       # 251 item 2: v22's record is required
     assert v.slots_state({})[1] and v.RECOMMENDED == rec               # no recommendation for v22's record
-    assert set(v.UNRECOMMENDED) == set(RECORDED) == set(v.SLOT_KEYS) - set(v.RECOMMENDED)
+    assert set(v.UNRECOMMENDED) == {"v22_recorded"} == set(v.SLOT_KEYS) - set(v.RECOMMENDED)
 
 
 def test_constants_and_bar_state():
@@ -1388,7 +1404,7 @@ def declared(tmp_path, monkeypatch):
     from src.walters import registry as reg
     p = tmp_path / "experiments.json"
     entries = json.loads((ROOT / "docs" / "registry" / "experiments.json").read_text())
-    slots = {**v.RECOMMENDED, **RECORDED}
+    slots = {**v.RECOMMENDED, "v22_recorded": RECORDED}
     entries.append({"id": v.EID, "status": "declared", "run": None, "verdict": None,
                     "test_set": "synthetic (tests only)", "gate": v.BAR_TEXT, "frozen_constants": v.code_constants(),
                     v.SLOTS_KEY: slots})
@@ -1397,7 +1413,7 @@ def declared(tmp_path, monkeypatch):
     monkeypatch.setattr(reg, "IDS_DIR", str(tmp_path / "ids"))
     monkeypatch.setattr(v, "RESERVATION", str(tmp_path / f"{v.EID}.started.json"))
     db = fresh(tmp_path / "store.db", monkeypatch)
-    build(db, seasons=SEASONS[1:], n_teams=6, extras=False)
+    build(db, seasons=SEASONS[1:], n_teams=8, extras=False)            # 16 rows a PL season at min_prior 40 (443)
     from src.db.schema import ModelVersion, Sport
     with db.session_scope() as s:
         s.add(ModelVersion(sport=Sport.SOCCER, model_family="soccer_elo_poisson", version="v22", status="production",
@@ -1419,7 +1435,13 @@ def test_preflight_fits_nothing_and_ends_with_the_fingerprint(declared, monkeypa
     L = v.preflight_lines(reg.get(v.EID, reg.LEDGER), declared["copy"])
     assert any("fences at the cut: clear" in x for x in L) and any("'v22'" in x for x in L)
     assert any(v.CONTEXT_DEFINITION in x for x in L)
-    assert any("v22's recorded figure" in x and "1.0 from 'synthetic (tests only)'" in x for x in L)
+    assert any("v22's recorded figures" in x and "PL 2024/25 n 16 log-loss 1.0 from 'synthetic (tests only)'" in x
+               and "PL 2025/26 n 16" in x for x in L)
+    # 443 item 2(c): per recorded figure, the count soccer-backtest scores on the copy and its wholeness, before the
+    # fingerprint, scoring nothing (fit and predict raise above)
+    for s in ("2024/25", "2025/26"):
+        assert (f"  v22 recorded PL {s} (synthetic (tests only)): soccer-backtest scores 16 row(s) on the copy "
+                f"(min_prior 40) · recorded n 16 · whole inside soccer-v23's scored set") in L
     assert len(_fp(L)) == 64 and not Path(v.reservation_path()).exists()
 
 
@@ -1448,9 +1470,13 @@ def test_the_run_refuses_in_order_and_records_nothing(declared, monkeypatch):
     with pytest.raises(v.GateRefused, match="null"):
         v.run("w", fp, db=declared["copy"])
     e[v.SLOTS_KEY]["cut"] = v.RECOMMENDED["cut"]
-    e[v.SLOTS_KEY]["v22_recorded_log_loss"] = None                     # 251 item 2: v22's record not yet filled
+    e[v.SLOTS_KEY]["v22_recorded"] = None                              # 251 item 2: v22's record not yet filled
     declared["ledger"].write_text(json.dumps(entries))
-    with pytest.raises(v.GateRefused, match="v22_recorded_log_loss.*null"):
+    with pytest.raises(v.GateRefused, match="v22_recorded.*null"):
+        v.run("w", fp, db=declared["copy"])
+    e[v.SLOTS_KEY]["v22_recorded"] = []                                # 443 item 2(b): "refuses an empty list"
+    declared["ledger"].write_text(json.dumps(entries))
+    with pytest.raises(v.GateRefused, match="refuses an empty list"):
         v.run("w", fp, db=declared["copy"])
     _nothing(declared)
 
@@ -1588,14 +1614,20 @@ def _recorded(v23_ll, d):
     return r if d == "edge" else math.nextafter(r, -math.inf)
 
 
-BAR_CASES = [  # (case, re-walked difference, recorded difference, verdict)
-    ("below both by 0.0100", 0.01, 0.01, "PASS"),
-    ("at the bar on both", "edge", "edge", "PASS"),
-    ("below recorded, a tie on the re-walk", 0.0, 0.01, "REJECT"),
-    ("below the re-walk, 0.0049999 from recorded", 0.01, 0.0049999, "REJECT"),
-    ("a tie on recorded", 0.01, 0.0, "REJECT"),
-    ("one float step under on the re-walk", "under", 0.01, "REJECT"),
-    ("one float step under on recorded", 0.01, "under", "REJECT"),
+BAR_CASES = [  # (case, re-walked difference, recorded PL 2024/25 difference, recorded PL 2025/26 difference, verdict)
+    # ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 2(e): "each comparison alone failing rejects; a tie on each
+    # rejects"; PASS iff ALL THREE hold, exactly 0.0050 passing that one
+    ("below all three by 0.0100", 0.01, 0.01, 0.01, "PASS"),
+    ("at the bar on all three", "edge", "edge", "edge", "PASS"),
+    ("a tie on the re-walk alone", 0.0, 0.01, 0.01, "REJECT"),
+    ("a tie on recorded 2024/25 alone", 0.01, 0.0, 0.01, "REJECT"),
+    ("a tie on recorded 2025/26 alone", 0.01, 0.01, 0.0, "REJECT"),
+    ("0.0049999 on the re-walk alone", 0.0049999, 0.01, 0.01, "REJECT"),
+    ("0.0049999 on recorded 2024/25 alone", 0.01, 0.0049999, 0.01, "REJECT"),
+    ("0.0049999 on recorded 2025/26 alone", 0.01, 0.01, 0.0049999, "REJECT"),
+    ("one float step under on the re-walk alone", "under", 0.01, 0.01, "REJECT"),
+    ("one float step under on recorded 2024/25 alone", 0.01, "under", 0.01, "REJECT"),
+    ("one float step under on recorded 2025/26 alone", 0.01, 0.01, "under", "REJECT"),
 ]
 
 
@@ -1607,21 +1639,32 @@ def _set_slots(declared, **kw):
     return e[v.SLOTS_KEY]
 
 
-@pytest.mark.parametrize("case, d_rw, d_rec, want", BAR_CASES, ids=[c[0] for c in BAR_CASES])
-def test_the_run_decides_at_the_bar(declared, monkeypatch, case, d_rw, d_rec, want):
-    """THE BAR's decision ON THE RUN PATH (251 item 2): run() itself, the walk replaced by synthetic arms (v22
-    re-walked at q, soccer-v23 at 0.5) and v22's recorded figure set in its declaration slot, at each side of each
-    comparison: PASS only when soccer-v23 is at least 0.0050 below BOTH; a tie, 0.0049999 or one float step under on
-    EITHER rejects. The log-losses are soccer_calibration's; the min_delta run passes is DEFAULT_PROMOTION_DELTA."""
+def _figures(*lls, source="synthetic record (tests only)"):
+    return [{**f, "log_loss": ll, "source": source} for f, ll in zip(RECORDED, lls)]
+
+
+@pytest.mark.parametrize("case, d_rw, d_a, d_b, want", BAR_CASES, ids=[c[0] for c in BAR_CASES])
+def test_the_run_decides_at_the_bar(declared, monkeypatch, case, d_rw, d_a, d_b, want):
+    """THE BAR's decision ON THE RUN PATH (251 item 2, the first leg made like for like by 443 item 1(c)): run()
+    itself, the walk replaced by synthetic arms (v22 re-walked at q, soccer-v23 at 0.5) and v22's two recorded figures
+    set in the declaration slot, at each side of each of the THREE comparisons: PASS only when soccer-v23 is at least
+    0.0050 below ALL; a tie, 0.0049999 or one float step under on ANY ONE alone rejects. Each recorded comparison reads
+    soccer-v23's log-loss over that figure's own matches (the ids soccer-backtest scores on the copy); the log-losses
+    are soccer_calibration's; the min_delta run passes is DEFAULT_PROMOTION_DELTA."""
     from src.walters import registry as reg
     from src.walters.soccer_backtest import soccer_calibration
     from src.walters.training import DEFAULT_PROMOTION_DELTA
-    _, _, _, rows, record = v._load(declared["copy"], reg.get(v.EID, reg.LEDGER)[v.SLOTS_KEY])
+    slots = reg.get(v.EID, reg.LEDGER)[v.SLOTS_KEY]
+    path, _, v22p, rows, record = v._load(declared["copy"], slots)
     assert record.at(rows[-1].utc_date).state == v.NO_RECORD           # no availability tables on the copy
-    ids = [r.id for r in v.scored_rows(rows, reg.get(v.EID, reg.LEDGER)[v.SLOTS_KEY])]
+    ids = [r.id for r in v.scored_rows(rows, slots)]
+    sets = [v.recorded_rows(path, f, v22p) for f in RECORDED]
+    assert [len(x) for x in sets] == [RECORDED_N, RECORDED_N] and all(set(x) <= set(ids) for x in sets)
     v23_ll = soccer_calibration(_arm(ids, 0.5))["log_loss"]
-    q, recorded = _q_rewalked(ids, d_rw), _recorded(v23_ll, d_rec)
-    _set_slots(declared, v22_recorded_log_loss=recorded, v22_recorded_source="synthetic record (tests only)")
+    v23_sets = [soccer_calibration(_arm(x, 0.5))["log_loss"] for x in sets]
+    q = _q_rewalked(ids, d_rw)
+    figs = [_recorded(ll, d) for ll, d in zip(v23_sets, (d_a, d_b))]
+    _set_slots(declared, v22_recorded=_figures(*figs))
     fp = _fp(v.preflight_lines(reg.get(v.EID, reg.LEDGER), declared["copy"]))
 
     def fake_walk(rows_, fixtures, params_json, rule, use_cache=True, record=v.ROWS_ONLY):
@@ -1630,27 +1673,36 @@ def test_the_run_decides_at_the_bar(declared, monkeypatch, case, d_rw, d_rec, wa
     monkeypatch.setattr(v, "walk", fake_walk)
     r = v.run("ARCHITECT test word", fp, db=declared["copy"])
     c = r["compare"]
-    assert c["min_delta"] == DEFAULT_PROMOTION_DELTA == 0.005 and c["n"] >= 30
+    assert c["min_delta"] == DEFAULT_PROMOTION_DELTA == 0.005 and c["n"] >= 30 and c["comparisons"] == 3
     assert c["v23_log_loss"] == v23_ll == c["cand_log_loss"]
     assert c["v22_rewalked_log_loss"] == soccer_calibration(_arm(ids, q))["log_loss"] == c["prod_log_loss"]
-    assert c["v22_recorded_log_loss"] == recorded and c["v22_recorded_source"] == "synthetic record (tests only)"
-    assert c["delta_rewalked"] == c["v22_rewalked_log_loss"] - v23_ll and c["delta_recorded"] == recorded - v23_ll
+    assert c["delta_rewalked"] == c["v22_rewalked_log_loss"] - v23_ll
     assert c["verdict_rewalked"] == ("PASS" if c["delta_rewalked"] >= 0.005 else "REJECT")
-    assert c["verdict_recorded"] == ("PASS" if c["delta_recorded"] >= 0.005 else "REJECT")
-    assert c["verdict"] == want
+    assert [(x["competition"], x["season"], x["n"], x["source"]) for x in c["recorded"]] == [
+        ("PL", "2024/25", 16, "synthetic record (tests only)"), ("PL", "2025/26", 16, "synthetic record (tests only)")]
+    for x, fig, ll, d, ids_ in zip(c["recorded"], figs, v23_sets, (d_a, d_b), sets):
+        assert x["v22_recorded_log_loss"] == fig and x["v23_log_loss"] == ll and x["delta"] == fig - ll
+        assert x["verdict"] == ("PASS" if x["delta"] >= 0.005 else "REJECT")
+        assert x["ids_sha256"] == hashlib.sha256(json.dumps(sorted(ids_)).encode("ascii")).hexdigest()
+        if d == 0.0:
+            assert x["delta"] == 0.0
+        if isinstance(d, str):                                         # one float step from the bar
+            assert abs(x["delta"] - 0.005) < 1e-14 and (x["delta"] >= 0.005) == (d == "edge")
     if d_rw == 0.0:
         assert c["delta_rewalked"] == 0.0
-    if d_rec == 0.0:
-        assert c["delta_recorded"] == 0.0
-    for d, key in ((d_rw, "delta_rewalked"), (d_rec, "delta_recorded")):
-        if isinstance(d, str):                                         # one float step from the bar
-            assert abs(c[key] - 0.005) < 1e-14 and (c[key] >= 0.005) == (d == "edge")
+    if isinstance(d_rw, str):
+        assert abs(c["delta_rewalked"] - 0.005) < 1e-14 and (c["delta_rewalked"] >= 0.005) == (d_rw == "edge")
+    assert c["verdict"] == want
     text = "\n".join(v.run_lines(r))
-    assert "against v22 RE-WALKED on this harness" in text and "against v22 RECORDED (synthetic record" in text
+    assert "against v22 RE-WALKED on this harness" in text and "comparisons 3: PASS iff ALL hold" in text
+    for x in c["recorded"]:                                            # 443 item 2(d): side by side, each
+        assert (f"against v22 RECORDED PL {x['season']} (synthetic record (tests only); n 16, over the same matches): "
+                f"recorded {x['v22_recorded_log_loss']:.4f} · soccer-v23 {x['v23_log_loss']:.6f} · delta "
+                f"{x['delta']:+.6f} · {x['verdict']}") in text
     e = v.record(r, "ARCHITECT test word")
     res = e["run"]["result"]
-    assert (res["v23_log_loss"], res["v22_rewalked_log_loss"], res["v22_recorded_log_loss"]) == (
-        v23_ll, c["v22_rewalked_log_loss"], recorded) and res["verdict"] == want
+    assert (res["v23_log_loss"], res["v22_rewalked_log_loss"]) == (v23_ll, c["v22_rewalked_log_loss"])
+    assert res["recorded"] == c["recorded"] and res["verdict"] == want
 
 
 def _cmp(prod, cand, n=40):
@@ -1660,24 +1712,148 @@ def _cmp(prod, cand, n=40):
             "prod_rps": 0.2, "cand_rps": 0.2, "prod_brier": 0.6, "cand_brier": 0.6}
 
 
-@pytest.mark.parametrize("case, d_rw, d_rec, want", BAR_CASES, ids=[c[0] for c in BAR_CASES])
-def test_decide_at_the_bar(case, d_rw, d_rec, want):
-    """decide itself (the only decision path) on plain figures, soccer-v23 at 1.0: the same cases."""
-    from src.walters.training import DEFAULT_PROMOTION_DELTA
-    cand = 1.0
+def _set(ids, ll, season="2024/25"):
+    return {"competition": "PL", "season": season, "n": len(ids), "log_loss": ll, "source": "a record", "ids": ids}
 
-    def fig(d):
-        return _recorded(cand, d)
-    got = v.decide(_cmp(fig(d_rw), cand), fig(d_rec), "a record", DEFAULT_PROMOTION_DELTA)
-    assert got["verdict"] == want
-    assert (got["v22_rewalked_log_loss"], got["v22_recorded_log_loss"], got["v23_log_loss"]) == (fig(d_rw),
-                                                                                                fig(d_rec), cand)
+
+@pytest.mark.parametrize("case, d_rw, d_a, d_b, want", BAR_CASES, ids=[c[0] for c in BAR_CASES])
+def test_decide_at_the_bar(case, d_rw, d_a, d_b, want):
+    """decide itself (the only decision path) on plain figures: the re-walk with soccer-v23 at 1.0, and two recorded
+    sets over which soccer-v23's own rows give their own log-loss (a different q on each, so neither is the pot's)."""
+    from src.walters.soccer_backtest import soccer_calibration
+    from src.walters.training import DEFAULT_PROMOTION_DELTA
+    a, b = list(range(1, 21)), list(range(21, 41))
+    rows = _arm(a, 0.5) + _arm(b, 0.4) + _arm(range(41, 61), 0.3)
+    la, lb = (soccer_calibration(_arm(x, q))["log_loss"] for x, q in ((a, 0.5), (b, 0.4)))
+    fa, fb = _recorded(la, d_a), _recorded(lb, d_b)
+    got = v.decide(_cmp(_recorded(1.0, d_rw), 1.0), [_set(a, fa), _set(b, fb, "2025/26")], rows,
+                   DEFAULT_PROMOTION_DELTA)
+    assert got["verdict"] == want and got["comparisons"] == 3
+    assert (got["v22_rewalked_log_loss"], got["v23_log_loss"]) == (_recorded(1.0, d_rw), 1.0)
+    assert [(x["v22_recorded_log_loss"], x["v23_log_loss"], x["delta"]) for x in got["recorded"]] == [
+        (fa, la, fa - la), (fb, lb, fb - lb)]
+
+
+def test_each_recorded_figure_is_set_against_soccer_v23_over_its_own_matches_only():
+    """443 item 1(c): "soccer-v23's mean three-way log-loss OVER THE SAME MATCHES": the rows outside a set move nothing
+    of its comparison, and a set reaching a row soccer-v23 did not walk raises (unreachable through run: the
+    preflight's refusal)."""
+    from src.walters.soccer_backtest import soccer_calibration
+    a = list(range(1, 21))
+    one = v.decide(_cmp(1.1, 1.0), [_set(a, 1.0)], _arm(a, 0.5) + _arm(range(21, 61), 0.2), 0.005)
+    two = v.decide(_cmp(1.1, 1.0), [_set(a, 1.0)], _arm(a, 0.5) + _arm(range(21, 61), 0.9), 0.005)
+    assert one["recorded"] == two["recorded"]
+    assert one["recorded"][0]["v23_log_loss"] == soccer_calibration(_arm(a, 0.5))["log_loss"]
+    assert one["recorded"][0]["v23_log_loss"] != soccer_calibration(_arm(a, 0.5) + _arm(range(21, 61), 0.2))["log_loss"]
+    with pytest.raises(v.GateRefused, match="not whole"):
+        v.decide(_cmp(1.1, 1.0), [_set(a + [99], 1.0)], _arm(a, 0.5), 0.005)
+    with pytest.raises(v.GateRefused, match="not whole"):
+        v.decide(_cmp(1.1, 1.0), [{**_set(a, 1.0), "n": 21}], _arm(a, 0.5), 0.005)
+    # with no recorded set (unreachable: the slot refuses an empty list) the re-walk alone never passes
+    assert v.decide(_cmp(1.1, 1.0), [], _arm(a, 0.5), 0.005)["verdict"] == "REJECT"
+
+
+def test_the_recorded_rows_are_soccer_backtests_own(declared):
+    """443 item 2(e): "the rows are the ones run_soccer_backtest itself scores (pinned against its own results on a
+    synthetic store, never a rule copied by hand)": recorded_rows on the copy equals run_soccer_backtest's own match
+    ids on the store the copy was taken from, called as soccer-backtest calls it (min_prior 40, the production rho and
+    Elo goal coefficient); they are a strict part of the season (the min_prior skip applies) and the binding returns."""
+    import src.db.database as database
+    from src.db.schema import Competition, Match, MatchStatus
+    from src.walters import soccer_backtest as sb
+    bound = database.SessionLocal
+    for f in RECORDED:
+        own = [r["match_id"] for r in sb.run_soccer_backtest(f["competition"], f["season"], 40,
+                                                              dixon_coles_rho=V22P["dixon_coles_rho"],
+                                                              elo_goal_coeff=V22P["elo_goal_coeff"])]
+        got = v.recorded_rows(declared["copy"], f, V22P)
+        assert got == own and len(got) == RECORDED_N
+        assert database.SessionLocal is bound                          # the copy's binding is undone
+        with database.session_scope() as s:
+            season_n = (s.query(Match).join(Competition, Competition.id == Match.competition_id)
+                        .filter(Competition.code == "PL", Match.season == f["season"],
+                                Match.status == MatchStatus.FINISHED).count())
+        assert season_n == 56 and len(got) == season_n - 40
+    assert v.backtest_params(V22P) == (V22P["dixon_coles_rho"], V22P["elo_goal_coeff"])
+    from src.models.poisson import PoissonConfig
+    assert v.backtest_params({}) == (float(PoissonConfig().dixon_coles_rho), float(PoissonConfig().elo_goal_coeff))
+    assert v.RECORDED_MIN_PRIOR == 40
+
+
+def _short_copy(declared, season="2024/25"):
+    """A copy of the declared copy on which one PL `season` row soccer-backtest scored is no longer FINISHED: the
+    record's n is one row more than the copy scores (the store a throwaway tmp file; never data/)."""
+    import shutil
+    src_ = Path(declared["copy"])
+    dst = declared["tmp"] / "short" / "copy.db"
+    dst.parent.mkdir()
+    shutil.copyfile(src_, dst)
+    con = sqlite3.connect(str(dst))
+    try:
+        (mid,) = con.execute("SELECT m.id FROM matches m JOIN competitions c ON c.id = m.competition_id WHERE "
+                             "c.code = 'PL' AND m.season = ? ORDER BY m.utc_date DESC, m.id DESC LIMIT 1",
+                             (season,)).fetchone()
+        con.execute("UPDATE matches SET status = 'SCHEDULED', home_score = NULL, away_score = NULL WHERE id = ?",
+                    (mid,))
+        con.commit()
+    finally:
+        con.close()
+    return str(dst)
+
+
+def test_a_recorded_set_one_row_short_refuses_before_the_reservation(declared, monkeypatch):
+    """443 item 2(c) and (e): the copy scores one row fewer than the recorded n: the preflight names it and gives NO
+    fingerprint; the run refuses before the fingerprint's compare and the reservation (the original fingerprint is
+    given, so a refusal on it would say "fingerprint"): nothing reserved, nothing walked, nothing recorded."""
+    from src.walters import registry as reg
+    fp = _fp(v.preflight_lines(reg.get(v.EID, reg.LEDGER), declared["copy"]))
+    short = _short_copy(declared)
+    L = v.preflight_lines(reg.get(v.EID, reg.LEDGER), short)
+    assert ("  v22 recorded PL 2024/25 (synthetic (tests only)): soccer-backtest scores 15 row(s) on the copy "
+            "(min_prior 40) · recorded n 16 · whole inside soccer-v23's scored set · THE RUN REFUSES") in L
+    assert any(x.startswith("  v22 recorded PL 2025/26") and x.endswith("whole inside soccer-v23's scored set")
+               for x in L)
+    assert not any(x.startswith("STREAM FINGERPRINT") for x in L) and "NO fingerprint" in L[-1]
+    monkeypatch.setattr(v, "walk", lambda *a, **k: (_ for _ in ()).throw(AssertionError("walked")))
+    monkeypatch.setattr(v, "reserve", lambda *a, **k: (_ for _ in ()).throw(AssertionError("reserved")))
+    with pytest.raises(v.GateRefused, match=r"PL 2024/25: soccer-backtest scores 15 row\(s\) on the copy, the record "
+                                            r"says n = 16; nothing reserved, nothing scored"):
+        v.run("w", fp, db=short)
+    _nothing(declared)
+    _set_slots(declared, v22_recorded=[{**RECORDED[0], "n": 17}, RECORDED[1]])  # the record one row more, same copy
+    with pytest.raises(v.GateRefused, match="says n = 17"):
+        v.run("w", fp, db=declared["copy"])
+    _nothing(declared)
+
+
+def test_a_recorded_set_outside_the_scored_set_or_refused_by_soccer_backtest_refuses(declared, monkeypatch):
+    """A recorded figure's row outside soccer-v23's scored set (the count right) refuses, as does a recorded season
+    soccer-backtest's own fences refuse (it scores nothing there): before the reservation, named in the preflight,
+    no fingerprint."""
+    from src.walters import registry as reg
+    fp = _fp(v.preflight_lines(reg.get(v.EID, reg.LEDGER), declared["copy"]))
+    real = v.recorded_rows
+    monkeypatch.setattr(v, "reserve", lambda *a, **k: (_ for _ in ()).throw(AssertionError("reserved")))
+    monkeypatch.setattr(v, "recorded_rows", lambda path, f, p: real(path, f, p)[1:] + [10 ** 9])
+    L = v.preflight_lines(reg.get(v.EID, reg.LEDGER), declared["copy"])
+    assert any(x.startswith("  v22 recorded PL 2024/25") and "1 row(s) OUTSIDE soccer-v23's scored set · THE RUN "
+               "REFUSES" in x for x in L) and not any(x.startswith("STREAM FINGERPRINT") for x in L)
+    with pytest.raises(v.GateRefused, match="1 of them outside soccer-v23's scored set"):
+        v.run("w", fp, db=declared["copy"])
+    monkeypatch.setattr(v, "recorded_rows", real)
+    monkeypatch.setattr(v, "backtest_fences", lambda code, season: "a fence (tests only)")
+    L = v.preflight_lines(reg.get(v.EID, reg.LEDGER), declared["copy"])
+    assert any("v22 recorded: REFUSED" in x and "soccer-backtest refuses it (a fence (tests only))" in x for x in L)
+    assert not any(x.startswith("STREAM FINGERPRINT") for x in L)
+    with pytest.raises(v.GateRefused, match="soccer-backtest refuses it"):
+        v.run("w", fp, db=declared["copy"])
+    _nothing(declared)
 
 
 def test_an_invalid_comparison_stays_invalid_whatever_the_record(declared, monkeypatch):
     """Differing scored sets: INVALID, never a pass, even with v22's recorded figure far above soccer-v23's."""
     from src.walters import registry as reg
-    _set_slots(declared, v22_recorded_log_loss=9.0)
+    _set_slots(declared, v22_recorded=_figures(9.0, 9.0))
     fp = _fp(v.preflight_lines(reg.get(v.EID, reg.LEDGER), declared["copy"]))
 
     real_walk = v.walk
@@ -1689,14 +1865,15 @@ def test_an_invalid_comparison_stays_invalid_whatever_the_record(declared, monke
     monkeypatch.setattr(v, "walk", fake_walk)
     r = v.run("ARCHITECT test word", fp, db=declared["copy"])
     c = r["compare"]
-    assert c["verdict"] == "INVALID" and c["v22_recorded_log_loss"] == 9.0
+    assert c["verdict"] == "INVALID" and "recorded" not in c
     # 253 item 2(d): the per-era availability line is printed on an INVALID verdict too (the review: it was dropped)
     lines = v.run_lines(r)
     era = v.availability_lines(r["walk"]["availability"])
     assert len(era) >= 2 and era[0] in lines and all(x in lines for x in era[1:])
     assert any(x.startswith("    PL ") and "term off: the slot availability_on is false" in x for x in lines)
     assert lines[-1].startswith("  VERDICT (computed; the architect rules): INVALID")
-    assert v.decide({"verdict": "INVALID", "n": 0, "reason": "empty"}, 9.0, "r", 0.005)["verdict"] == "INVALID"
+    assert v.decide({"verdict": "INVALID", "n": 0, "reason": "empty"}, [_set([1], 9.0)], [], 0.005)["verdict"] == \
+        "INVALID"
 
 
 def test_an_unplaceable_stage_refuses_the_run_and_is_named_in_the_preflight(declared):
@@ -1912,3 +2089,26 @@ def test_ninety_minute_read_is_admits_substitution():
     row = v.Row(1, "XX", "2024/25", datetime(2024, 9, 1), 1, 2, 1, 0)
     assert [v.ninety_minute_read(replace(row, status_raw=c)) for c in ("AET", " pen ", "FT", "", None)] == [
         True, True, False, False, False]
+
+
+def test_malformed_v22_params_refuse_the_recorded_rows_never_a_traceback(declared):
+    """The review of 443's amendment: backtest_params runs inside recorded_rows' refusal, so a stored rho or Elo goal
+    coefficient that is not a number is a REFUSED line (GateRefused), before the reservation, never a traceback."""
+    for bad in ({"dixon_coles_rho": None}, {"elo_goal_coeff": "abc"}):
+        with pytest.raises(v.GateRefused, match="backtest_params"):
+            v.recorded_rows(declared["copy"], RECORDED[0], {**V22P, **bad})
+    _nothing(declared)
+
+
+def test_the_preflight_says_soccer_backtests_walk_ran_and_neither_arm_was_fitted(declared, monkeypatch):
+    """The review of 443's amendment (escalated for the architect): naming the recorded rows runs soccer-backtest's own
+    walk, which fits and prices v22 on those seasons; the receipts say so where it has run, and never "nothing fitted".
+    soccer-v23's fit and both arms' predict are never called by the preflight."""
+    from src.models import joint_poisson as jp
+    from src.walters import registry as reg
+    monkeypatch.setattr(jp, "fit", lambda *a, **k: (_ for _ in ()).throw(AssertionError("fitted")))
+    monkeypatch.setattr(v, "predict", lambda *a, **k: (_ for _ in ()).throw(AssertionError("priced")))
+    L = v.preflight_lines(reg.get(v.EID, reg.LEDGER), declared["copy"])
+    assert L[0].startswith("SOCCER-V23 · PREFLIGHT (fits and prices neither arm; scores nothing)")
+    assert L[-2].endswith(v.RECORDED_WALK_NOTE + ".") and "nothing fitted" not in "\n".join(L)
+    assert "it fits and prices v22 on those seasons; only the match ids are kept" in v.RECORDED_WALK_NOTE

@@ -21,7 +21,11 @@ SPEC = (ROOT / "docs" / "specs" / "soccer-v23.md").read_text()
 # items 2, 3, 5, 9, 14, 15) and 262 item 2's soccer cadence entries ("no soccer source declared; ..."). The pin before
 # it, 15002742f71996b0d3422fcc7a0576bcb44ff6e6dd4833a91b2f8d42eec1feb5, was 251 item 2's bar repaired before any
 # declaration with addendum 254 item 3's Q4, Q20 and Q22.
-BAR_SHA256 = "e5fd61888014dc8f4ce81511a4d2c13b27c529d7e206a1e957748f38f6d9cfe3"
+# RE-PINNED under addendum 443 (ARCHITECT 2026-11-21 18:57 ET, item 2(a): "BAR_TEXT says item 1(c), quoting it and
+# citing this addendum beside 251 item 2; its sha256 re-pinned"): the first leg made like for like, three comparisons
+# with two recorded figures, before any result. The pin before it, e5fd61888014dc8f4ce81511a4d2c13b27c529d7e206a1e957748f38f6d9cfe3,
+# was 263's.
+BAR_SHA256 = "d4778a276359f11cb89fe7b0694458ba7e01da6fa2a7971a320f5e90eb2371c4"
 
 # the rulings, verbatim (each must appear in the spec exactly)
 RULINGS = {
@@ -81,9 +85,18 @@ def test_the_bar_is_pinned_and_the_spec_carries_it_character_for_character():
     phrases below are each ruling's, as BAR_TEXT states it. No number of the bar moved."""
     assert hashlib.sha256(v.BAR_TEXT.encode("utf-8")).hexdigest() == BAR_SHA256
     assert v.BAR_TEXT in SPEC
-    for must in ("at least 0.0050 BELOW BOTH v22's recorded figure AND v22's figure re-walked on soccer-v23's harness",
-                 "a tie on EITHER is a rejection", "a difference of exactly 0.0050 passes that comparison",
-                 "STANDS as measured and is never recomputed", "v22_recorded_log_loss", "v22_recorded_source",
+    for must in ("at least 0.0050 BELOW v22's on EVERY comparison: v22's figure re-walked on soccer-v23's harness, on the "
+                 "frozen pot; and, FOR EACH of v22's recorded figures, that figure, over the same matches",
+                 "a tie on ANY comparison is a rejection", "a difference of exactly 0.0050 passes that comparison",
+                 # ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 2(a): 1(c) quoted, cited beside 251 item 2
+                 "addendum 251 item 2; addendum 443 item 1(c))",
+                 "ADDENDUM 443 ITEM 1(c) (ARCHITECT 2026-11-21 18:57 ET), verbatim: \"THE RULING: THE LEG IS MADE LIKE "
+                 "FOR LIKE AND TAKES EVERY RECORDED FIGURE.",
+                 "PASS iff ALL THREE hold", "REFUSES THE RUN BEFORE ITS RESERVATION: nothing spent, nothing scored.",
+                 "Each recorded figure STANDS as recorded and is never recomputed", "declaration slot v22_recorded",
+                 "the run refuses an empty list",
+                 "the rows soccer_backtest.run_soccer_backtest itself scores for that competition and season on the "
+                 "run's copy at min_prior = 40 (its own output, never a rule copied by hand)",
                  "the same context definition", "in the harness and the production path alike",
                  "addendum 251 item 2", "INVALID, never a pass", "MIN_GATE_N = 30", "within-season skip is zero (no 40-match skip)",
                  "the market is a reference, never a feature, and gates nothing", "mode=ro&immutable=1",
@@ -91,9 +104,9 @@ def test_the_bar_is_pinned_and_the_spec_carries_it_character_for_character():
                  # the review of the 251 follow-up: the recorded figure is read as measured, only the re-walked
                  # figures are soccer_calibration's; the no-visible-row default as CONTEXT_DEFINITION states it; a
                  # game visible only once its result is known
-                 "The recorded figure is read from the slot as measured",
-                 "the re-walked figures (soccer-v23's and v22's, on this harness) are computed by "
-                 "soccer_backtest.soccer_calibration",
+                 "Each recorded figure is read from the slot as recorded",
+                 "soccer-v23's figures (on the pot, and over each recorded figure's matches) and v22's re-walked one "
+                 "are computed by soccer_backtest.soccer_calibration",
                  "the default context (g 1.4, b 1.15) only where the competition has no visible game",
                  # the review of the five rows: G0 is not only the first season's prior centre; it also sets that
                  # season's prior precision and beta's prior precision in every window (joint_poisson.py:92, :277)
@@ -149,7 +162,18 @@ def test_the_bar_is_pinned_and_the_spec_carries_it_character_for_character():
     from src.models.poisson import CompetitionScoringContext
     d = CompetitionScoringContext()                                    # the default the bar names, as the code holds it
     assert f"(g {d.avg_goals_per_team_per_match}, b {d.home_field_goal_boost})" in v.BAR_TEXT
-    assert "on the frozen pot" not in v.SLOT_VALUES["v22_recorded_log_loss"]
+    assert "v22_recorded_log_loss" not in v.SLOT_VALUES and "v22_recorded_source" not in v.SLOT_VALUES   # 443 2(b)
+    assert v.UNRECOMMENDED == ("v22_recorded",) and v.RECORDED_MIN_PRIOR == 40
+    assert "on the frozen pot" not in v.SLOT_VALUES["v22_recorded"]
+    # 443 item 1(c), whole, in BAR_TEXT, and in the spec's §5a, its question 18, and D11 (item 2(a))
+    c = " ".join(SPEC[SPEC.index("**D11 "):].split("\n", 1)[0].split())
+    i, j = c.index("(c) THE RULING:"), c.index(" (d) WHY NOT LESS.")
+    ruling = c[i + 4:j]
+    assert ruling in v.BAR_TEXT and ruling.endswith("nothing spent, nothing scored.")
+    sec5a = " ".join(SPEC[SPEC.index("## 5a. "):SPEC.index("## 6. ")].split())
+    q18 = " ".join(SPEC[SPEC.index("18. **v22's recorded figure"):SPEC.index("19. **")].split())
+    assert f"\"{c[i:j]}\"" in sec5a and f"\"{c[i:j]}\"" in q18
+    assert "**RULED (254 item 3):**" in q18 and "*(SUPERSEDED, kept and never deleted" in q18   # kept, marked
     assert v.WITHIN_SEASON_SKIP == 0
 
 

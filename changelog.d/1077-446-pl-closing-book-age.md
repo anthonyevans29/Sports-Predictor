@@ -1,4 +1,4 @@
-## 2026-11-22 (#000: 446-pl-closing-book-age — the PL closing-page book age receipt, read-only tooling (ARCHITECT 2026-11-22 09:03 ET, addendum 446 item 2; Refs #348))
+## 2026-11-22 (#1077: 446-pl-closing-book-age — the PL closing-page book age receipt, read-only tooling (ARCHITECT 2026-11-22 09:03 ET, addendum 446 item 2; Refs #348))
 - **`python3 scripts/pl_closing_book_age_receipt.py --exports DIR|TREE --db COPY [--from INSTANT] [--through INSTANT]`:**
   - It reads every closing page (file) of a flat directory or a dated tree, latest/ refused, and keeps every Premier League 2026/27 row on each. A re-paged start is labelled; a copy of a page is printed and counted once.
   - `--db` is required: a .backup copy behind #688's fence (mode=ro + immutable=1). A refusal exits 2 with nothing read.

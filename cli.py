@@ -6760,8 +6760,9 @@ def leagues_window_read_cmd(code, db, exports, pages_digest, preflight, word, fi
         click.echo(line)
     try:
         e = lr.record(res["code"], res)
-    except reg.RegistryError as err:
-        click.echo(f"NOT RECORDED: {err} (the reservation stands: the read is spent)")
+    except (reg.RegistryError, OSError, ValueError) as err:     # never a traceback after the reservation
+        click.echo(f"NOT RECORDED: {type(err).__name__}: {err} (the reservation stands: the read is spent; inspect "
+                   "docs/registry/ before anything else)")
         raise SystemExit(2)
     click.echo(f"  recorded: {e['run']['n_scored']} ids · sha {e['run']['ids_sha256'][:12]}… · {e['run']['ids_file']} "
                "(commit docs/registry/ on the laptop/<eid>-run-record branch)")

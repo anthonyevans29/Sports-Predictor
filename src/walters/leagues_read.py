@@ -23,9 +23,9 @@ nothing written):
   3. the copy: addendum 346's fence (mlb_pitchers_gate.check_db: an existing file outside every data/, never the app's
      configured database, never created; no -wal/-shm/-journal beside it; each table the read touches probed through
      mode=ro + immutable=1), its sha256 taken before the read;
-  4. the pages: the folder missing or not a folder; the folder INSIDE THE CHECKOUT (B2(b), RULED: "The read REFUSES an
-     --exports folder inside the checkout, and never writes into the folder"); a page that cannot be read; no page; the
-     digest (leagues_window.pages_digest, B2(c)) not the one given;
+  4. the pages: the folder INSIDE THE CHECKOUT (B2(b), RULED: "The read REFUSES an --exports folder inside the
+     checkout, and never writes into the folder"); the folder missing or not a folder; no page; a page that cannot be
+     read or parsed (export_pages); the digest (leagues_window.pages_digest, B2(c)) not the one given;
   5. the entry's own checks (leagues_window.checked: the league field, declared_at, the frozen constants against the
      run record) and its ruled list (ruled_items, #803), inside read();
   6. the window: read() on the copy and the pages must report "ready" (60 members, nothing pending before the 60th);
@@ -33,7 +33,11 @@ nothing written):
   7. THE DAY AFTER (B2(d), RULED: "the read REFUSES while the UTC date of its clock is not later than the UTC date of
      the 60th member's kickoff");
   8. the fingerprint: the given --window-fingerprint must equal this stream's (window_fingerprint: the member ids in
-     order, their stored rows, the ruled list, the copy's sha256, the pages digest, the frozen constants).
+     order, their stored rows, the ruled list, the copy's sha256, the pages digest, the frozen constants);
+  9. the bytes read: the pages digest and the copy's sha256 and sidecars taken again AFTER the window was read, equal
+     to those taken before it, so the fingerprint is the digested bytes' (a change there spends nothing).
+The run's console prints the copy (path, sha256) and the pages (count, first, last, digest) before the reservation, and
+says after the score that both were found unchanged.
 Then the #329 cross-ref guard and the reservation docs/registry/<eid>.started.json (exclusive create, serialised first,
 written and fsynced with its directory, removed if the write fails: nothing spent). From there THE READ IS SPENT: the
 score (leagues_window.score on the same copy session, which re-derives the window in its own derivation and refuses if
@@ -214,8 +218,9 @@ def _roots() -> list[Path]:
 
 def inside_checkout(folder) -> bool:
     """B2(b): the folder, by its absolute path and by its resolved path, is a checkout's root or under it (compared by
-    device and inode, so a symlink or another spelling of the same folder is found). A folder that does not exist is
-    not inside (the pages check refuses it as missing)."""
+    device and inode, so a symlink or another spelling of the same folder is found). A path that does not exist yet is
+    judged by its nearest existing ancestor: under the checkout it is inside (refused), elsewhere it is not (and the
+    pages check then refuses it as missing)."""
     roots = []
     for r in _roots():
         try:
@@ -243,6 +248,7 @@ def check_pages(exports, given: str) -> dict:
                           "outside data/; nothing read")
     try:
         d = lw.pages_digest(exports)
+        lw.export_pages(str(exports))           # a page that cannot be parsed refuses here, at step 4 (the plan)
     except lw.WindowRefused as err:
         raise ReadRefused(str(err)) from err
     if d["digest"] != str(given).strip().lower():
@@ -320,6 +326,25 @@ def load(code, e: dict, path: Path, exports, pages_digest, now: datetime, s=None
     return sha, pages, w, stored
 
 
+def unchanged(path: Path, exports, sha: str, pages: dict) -> str | None:
+    """Why the copy or the pages differ from what was digested and hashed before the read, else None."""
+    try:
+        d = lw.pages_digest(exports)
+    except lw.WindowRefused as err:
+        return f"the pages can no longer be read ({err})"
+    if d["digest"] != pages["digest"]:
+        return "the pages changed"
+    try:
+        sha2, sides = copy_state(path)
+    except ReadRefused as err:
+        return str(err)
+    if sha2 != sha:
+        return "the copy changed"
+    if sides:
+        return f"a sidecar appeared beside the copy ({', '.join(sides)})"
+    return None
+
+
 def _label(code, path, sha, pages) -> list[str]:
     from src.walters import mlb_pitchers_gate as mp
     return [f"  {lw.DECLARATION_IDS[code]} · --db {path} · sha256 {sha} · a .backup copy, opened "
@@ -337,6 +362,9 @@ def preflight_lines(code, db, exports, pages_digest, now: datetime | None = None
     e = check_entry(code)
     path = check_copy(db)
     sha, pages, w, stored = load(code, e, path, exports, pages_digest, now)
+    why = unchanged(path, exports, sha, pages)
+    if why:
+        raise ReadRefused(f"{lw.DECLARATION_IDS[code]}: {why} while the window was read; no fingerprint; nothing read")
     L = [f"LEAGUES WINDOW READ · PREFLIGHT · {code} · clock {_iso(now)} (scores nothing, reserves nothing, writes "
          "nothing; addendum 447 item 2)"]
     L += _label(code, path, sha, pages)
@@ -435,6 +463,12 @@ def run(code, db, exports, pages_digest, word, fingerprint, now: datetime | None
         if str(fingerprint).strip().lower() != fp:
             raise ReadRefused(f"the window fingerprint given ({fingerprint!r}) is not this window's ({fp}): run "
                               f"{COMMAND} --preflight again and take the word on it; nothing reserved")
+        why = unchanged(path, exports, sha, pages)       # the fingerprint is the digested bytes' (step 9)
+        if why:
+            raise ReadRefused(f"{eid}: {why} while the window was read; nothing reserved")
+        if echo:
+            for ln in _label(code, path, sha, pages):
+                echo(ln.strip())
         meta = {"architect_word": word, "window_fingerprint": fp, "copy_sha256": sha, "pages_digest": pages["digest"],
                 "pages": pages["pages"], "code_sha": _code_sha()}
         held = reserve(eid, meta, no_fetch=no_fetch, echo=echo)
@@ -500,7 +534,10 @@ def run_lines(res: dict) -> list[str]:
     The architect reads this, then rules (B1)."""
     from collections import Counter
     causes = Counter(x["cause"] for x in res["took_no_slot"])
-    return ([f"  n={res['n']} · candidate mean log-loss {res['ll_candidate']!r} · the close's {res['ll_close']!r} · "
+    p = res["pages"]
+    return ([f"  read: the copy sha256 {res['copy_sha256']} and the pages ({p['pages']} · first {p['first']} · last "
+             f"{p['last']} · digest {p['digest']}) found unchanged after the score",
+             f"  n={res['n']} · candidate mean log-loss {res['ll_candidate']!r} · the close's {res['ll_close']!r} · "
              "PASS only when the candidate's is strictly below (a tie REJECTS)",
              f"  the opening (447 C1): the 60th member, match {res['confirmation_opens_after']['match_id']}, kicks off "
              f"{res['confirmation_opens_after']['kickoff']}",

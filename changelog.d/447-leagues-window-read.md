@@ -28,6 +28,7 @@
   - every reached game that took no slot, by id with its cause (B2(e)): the audit's lines did not hold that before, so it is added;
   - the audit, the copy's sha256 and the pages digest.
   - The result is checked as JSON before `record_run` writes anything.
+- **The read's console** prints the copy (path and sha256) and the pages (count, first, last and digest) before the reservation, and after the score says both were found unchanged. The digest and the copy are taken again after the window is read and before the reservation, so the fingerprint belongs to the digested bytes.
 - **`--record-verdict`** is refused unless the run is recorded by this command, no verdict is recorded yet, the ruling is given, and the word equals the computed verdict.
 - **src/walters/leagues_window.py:**
   - `pages_digest` (B2(c)): one `sha256sum` line per page, sorted by name bytewise, then hashed. It refuses a missing, empty or unreadable folder and a name sha256sum would escape.
@@ -35,13 +36,14 @@
   - `membership()` adds `took_no_slot` and `last_member`.
   - The reader's print and every figure are unchanged.
 - **scripts/leagues_window.py `--pages-digest`:** the same digest, the page count and the first and last file. It opens no database and writes nothing, so the host can take it before anything new is deployed.
-- **Tests:** tests/test_447_leagues_window_read.py (23).
+- **Tests:** tests/test_447_leagues_window_read.py (31).
   - The digest is checked against sha256sum itself and against the script's, with no database opened.
-  - Every refusal in order, a folder inside the checkout (and a link into it) among them.
+  - Every refusal, and their order pinned two faults at a time; a folder inside the checkout (a link into it, and a worktree's main checkout) among them.
   - The day-after rule; the fingerprint's six parts; the reservation before the score.
   - The per-id account; the opening on a tie at the 60th place, ordered by id.
-  - A spent read after the reservation, including a page that changes during the read.
+  - A spent read after the reservation, including a page, the copy or a sidecar that changes during the read.
+  - Bytes that change between the digest and the read refuse before the reservation.
   - The guard runs before the reservation; a failed reservation write spends nothing.
-  - B1's refusals; the CLI's REFUSED lines; the reader's print unchanged through a copy session.
+  - B1's refusals both ways; the CLI's happy path with its receipt, and its REFUSED lines; the read never writes the folder; the reader's print unchanged through a copy session.
 
   No prediction output changes; nothing run on either machine.

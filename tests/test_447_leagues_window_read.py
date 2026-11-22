@@ -65,7 +65,7 @@ def _copy(tmp_path, name="copy") -> Path:
 
 @pytest.fixture
 def world(ledger, tmp_path, monkeypatch):
-    """A ready SA window: 40 priors, a cancelled and a below-the-60th-only game besides 60 members, the pages written
+    """A ready SA window: 40 priors, 60 members and a cancelled game kicking off among them, the pages written
     (into tmp_path/exports, then moved to a pulled folder outside the checkout), the copy taken; the registry and the
     reservation in tmp_path."""
     monkeypatch.setattr(reg, "IDS_DIR", str(tmp_path / "ids"))
@@ -458,3 +458,117 @@ def test_no_prediction_output_changes_the_readers_print_is_the_same(world):
         via = lw.read(("SA",), now=NOW, export_dir=str(world["exports"]), s=s)
     assert lw.lines(plain, NOW) == lw.lines(via, NOW)
     assert plain["SA"]["members"] == via["SA"]["members"]
+
+
+# ------------------------------------------------------------- the review's findings, before the push --
+
+def test_the_refusals_come_in_the_plans_order_when_two_faults_stand_together(world, ledger, tmp_path):
+    """Two faults at once: the earlier step's refusal is the one named (arguments, entry, copy, pages, entry checks,
+    window, the day after, the fingerprint)."""
+    bad_copy = str(tmp_path / "nope.db")
+    ledger()                                                            # entry absent AND a bad copy
+    with pytest.raises(lr.ReadRefused, match="no declared entry"):
+        _pre(world, db=bad_copy)
+    ledger(_entry())                                                    # a bad copy AND pages inside the checkout
+    with pytest.raises(lr.ReadRefused, match="nothing read, nothing reserved"):
+        _pre(world, db=bad_copy, exports=str(ROOT / "exports"))
+    ledger(_entry(frozen_constants={"production_version": "v22", "rho": -0.2, "elo_goal_coeff": 0.0008}))
+    with pytest.raises(lr.ReadRefused, match="inside the checkout"):    # pages AND drifted constants
+        _pre(world, exports=str(ROOT / "exports"))
+    bad = world["exports"] / "soccer_expansion_shadow_zz_bad.json"
+    bad.write_text("not json")                                          # a malformed page AND drifted constants
+    with pytest.raises(lr.ReadRefused, match="zz_bad"):
+        _pre(world, pages_digest=lw.pages_digest(world["exports"])["digest"])
+    bad.unlink()
+    ledger(_entry())
+    ko60 = world["members"][-1][1]                                      # the day before AND a wrong fingerprint
+    with pytest.raises(lr.ReadRefused, match=r"B2\(d\)"):
+        _run(world, "0" * 64, now=ko60.replace(hour=23, minute=59))
+    _nothing(world)
+
+
+def test_bytes_that_change_between_the_digest_and_the_read_refuse_before_the_reservation(world, monkeypatch):
+    fp = _fp(_pre(world))
+    real = lr.check_pages
+
+    def then_touch(exports, given):
+        d = real(exports, given)
+        p = sorted(Path(exports).glob("soccer_expansion_shadow_*.json"))[0]
+        p.write_text(p.read_text() + "\n")                             # the same JSON, the same count, other bytes
+        return d
+    monkeypatch.setattr(lr, "check_pages", then_touch)
+    monkeypatch.setattr(lr, "reserve", lambda *a, **k: pytest.fail("reserved"))
+    with pytest.raises(lr.ReadRefused, match="the pages changed while the window was read; nothing reserved"):
+        _run(world, fp)
+    _nothing(world)
+
+
+@pytest.mark.parametrize("how", ["copy", "sidecar"])
+def test_the_copy_changing_or_a_sidecar_appearing_during_the_score_leaves_the_read_spent(world, monkeypatch, how):
+    fp = _fp(_pre(world))
+    real = lw.score
+
+    def score_then(*a, **k):
+        out = real(*a, **k)
+        if how == "copy":
+            with open(world["copy"], "ab") as f:
+                f.write(b"\0" * 10)
+        else:
+            (world["copy"].parent / "sports.db-journal").write_bytes(b"")
+        return out
+    monkeypatch.setattr(lw, "score", score_then)
+    with pytest.raises(lr.SpentRefused, match="the copy changed during the read" if how == "copy"
+                       else "a sidecar appeared beside the copy"):
+        _run(world, fp)
+    assert Path(lr.reservation_path("leagues-sa-v1")).exists()
+    assert reg.get("leagues-sa-v1", reg.LEDGER)["run"] is None
+
+
+def test_b1_a_pass_word_on_a_computed_reject_refuses_and_a_reject_closes(world, ledger):
+    run = {"run_at": "2026-12-21T00:00:00Z", "result": {"command": lr.COMMAND, "verdict": "REJECT"}}
+    ledger(_entry(run=run))
+    with pytest.raises(lr.ReadRefused, match="the word given is PASS, the computed verdict is REJECT"):
+        lr.record_verdict("SA", "PASS", "a ruling (tests only)")
+    e = lr.record_verdict("SA", "REJECT", "a ruling (tests only)")
+    assert e["status"] == "closed" and e["verdict"]["verdict"] == "REJECT"
+
+
+def test_the_cli_happy_path_prints_the_receipt_records_and_takes_the_verdict(world):
+    from click.testing import CliRunner
+
+    import cli
+    base = ["leagues-window-read", "--code", "SA", "--db", str(world["copy"]), "--exports", str(world["exports"]),
+            "--pages-digest", world["digest"]]
+    r = CliRunner().invoke(cli.cli, base + ["--preflight", "--architect-word", "x"])
+    assert r.exit_code == 2 and "takes no word" in r.output
+    import src.walters.leagues_read as lr_
+    pre = lr_.preflight_lines("SA", str(world["copy"]), str(world["exports"]), world["digest"])
+    fp = _fp(pre)
+    r = CliRunner().invoke(cli.cli, base + ["--architect-word", WORD, "--window-fingerprint", fp, "--no-fetch"])
+    assert r.exit_code == 0, r.output
+    out = r.output
+    d = lw.pages_digest(world["exports"])
+    assert f"sha256 {lr.copy_state(world['copy'])[0]}" in out
+    assert f"--exports: {d['pages']} pages · first {d['first']} · last {d['last']} · digest {d['digest']}" in out
+    assert out.index("--exports: ") < out.index("cross-ref guard") < out.index("VERDICT")   # the receipt first
+    assert "found unchanged after the score" in out and "recorded: 60 ids" in out
+    v = reg.get("leagues-sa-v1", reg.LEDGER)["run"]["result"]["verdict"]
+    r = CliRunner().invoke(cli.cli, ["leagues-window-read", "--code", "SA", "--record-verdict", v, "--ruling",
+                                     "the architect's words (tests only)"])
+    assert r.exit_code == 0 and f"verdict {v}" in r.output
+
+
+def test_b2b_the_main_checkout_of_a_worktree_is_inside_too(world, tmp_path, monkeypatch):
+    from src.walters import mlb_pitchers_gate as mp
+    main = tmp_path / "main-checkout"
+    (main / "data").mkdir(parents=True)
+    (main / "exports" / "host").mkdir(parents=True)
+    monkeypatch.setattr(mp, "_main_checkout_data", lambda: main / "data")
+    assert lr.inside_checkout(main / "exports" / "host") and not lr.inside_checkout(world["exports"])
+
+
+def test_the_read_never_writes_into_the_exports_folder(world):
+    before = {p.name: (p.stat().st_mtime_ns, p.read_bytes()) for p in world["exports"].iterdir()}
+    _run(world, _fp(_pre(world)))
+    assert {p.name: (p.stat().st_mtime_ns, p.read_bytes()) for p in world["exports"].iterdir()} == before
+

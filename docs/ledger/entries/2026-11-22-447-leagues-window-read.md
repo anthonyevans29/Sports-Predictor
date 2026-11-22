@@ -4,5 +4,5 @@
   - `leagues-window-read` (preflight, the one read, `--record-verdict`), with its refusals in the approved order, the fingerprint, the cross-ref guard, the O_EXCL reservation and the spent read.
   - The pages digest: sha256sum's lines, sorted bytewise, hashed; also `scripts/leagues_window.py --pages-digest`.
   - The run record carries the opening (447 C1) and the per-id account (B2(e)).
-  - 23 tests. No prediction output changes.
+  - 31 tests. No prediction output changes.
 - **Next:** the adversarial review, then the stop rule; PR 2 (the policy) by 11-27 and PR 3 by 12-11. The soccer-v23 declaration PR comes first.

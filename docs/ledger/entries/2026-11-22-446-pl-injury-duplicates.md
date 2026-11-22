@@ -12,9 +12,9 @@
   >    many rows and sides carry such a pair; and whether the two entries of a pair carry two source ids
   >    or one. Counts and the rule you used. I rule on the receipt; nothing is de-duplicated before that.
 - **What landed:**
-  - `scripts/pl_injury_duplicate_receipt.py`, with 48 tests.
+  - `scripts/pl_injury_duplicate_receipt.py`, with 57 tests. Every row is printed.
   - The rule, declared before any result: #688's `tokens()`, pairs within one side of one row only, the kinds `accent` and `double surname` in the headline, `identical` counted, `initial form` apart, and AMBIGUOUS never paired.
-  - A side above 8 entries is counted as names cut.
-  - "Two source ids or one" reads UNKNOWN: the page carries no id, and the soccer adapter never reads `player.id` (api_football.py:460-475). The copy's PRAGMA result is printed.
+  - A side above 8 entries is counted as names cut. A side with an AMBIGUOUS entry reads distinct by fold as "at most".
+  - "Two source ids or one" reads UNKNOWN where the copy stores no id: the page carries no id, and the soccer adapter never reads `player.id` (api_football.py:460-475). The copy's PRAGMA result is printed. Where the copy stores ids, a pair on a recoverable side reads "two ids", "one id" or "unknown (a NULL)".
   - No player name is printed.
 - **Next:** the architect's block runs it on the host's pulled copy and the pages. He rules on the receipt; nothing is de-duplicated before that.

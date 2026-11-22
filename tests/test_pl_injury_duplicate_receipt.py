@@ -200,7 +200,8 @@ def test_initial_form_is_apart_and_ambiguous_is_counted(world):
     code, out = run(world)
     eve = next(ln for ln in out if ln.startswith("  HOME Everton:"))
     assert "pairs initial form 1 (entries 4 and 5) · AMBIGUOUS entries 1" in eve
-    assert "distinct by fold 5" in eve                          # the initial form is never subtracted
+    # the initial form is never subtracted; the AMBIGUOUS group (entries 1-3) holds at least one duplicate (F3)
+    assert "distinct by fold at most 4" in eve
     s = summary(out)
     assert s["pairs"] == {dr.ACCENT: 2, dr.DOUBLE: 1, dr.IDENTICAL: 1, dr.INITIAL: 1}
     assert s["ambiguous_entries"] == 1
@@ -236,6 +237,18 @@ def test_a_side_of_exactly_eight_is_not_cut(world):
     assert "entries 8 (injuries.home_count 8, input_quality count 8) · names shown 8" in bre
     assert "names cut" not in bre and "at most" not in bre and "distinct by fold 7" in bre
     assert summary(out)["sides_names_cut"] == 0
+
+
+def test_a_names_list_longer_than_its_count_has_no_distinct_bound(world):
+    ex = world["tmp"] / "longer"
+    r = row(9500, "Everton", "Leeds", "2026-11-21T15:00:00", EVE, ["Lee One"])
+    r["injuries"]["home_count"] = 1                                # five names on the page, a count of 1
+    r["input_quality"]["injuries"]["home"]["count"] = 1
+    closing(ex, "2026-11-21T14:25:00", [r])
+    code, out = run(world, ex=ex)
+    eve = next(ln for ln in out if ln.startswith("  HOME Everton:"))
+    assert code == 0 and "names list longer than the count" in eve and "distinct by fold unknown" in eve
+    assert "at most -" not in "\n".join(out) and "distinct by fold at most 0" not in eve
 
 
 def test_entries_take_the_page_count_before_input_quality(world):
@@ -381,15 +394,17 @@ def test_the_id_line_with_the_column(world):
     ids = next(ln for ln in out if ln.startswith("SOURCE IDS"))
     assert ("PRAGMA table_info(injuries) has player_source_id; injuries rows of PL 2026/27 teams 9, carrying a "
             "non-null player_source_id 1") in ids
-    # the cause is measured: a PL row carries an id, so "no source id stored" would be false; the receipt says why
-    assert "no source id stored" not in ids
-    assert ("read UNKNOWN (not read per entry by this receipt; 1 injuries rows of PL 2026/27 teams carry a non-null "
-            "player_source_id)") in ids
+    # the cause is measured: a PL row carries an id, so "no source id stored" would be false; the ids are read
+    assert "no source id stored" not in ids and ids.startswith("SOURCE IDS: read per entry where the side is "
+                                                                "recoverable")
     s = summary(out)
     assert s["pl_rows_with_id"] == 1 and s["pl_injury_rows"] == 9      # the out-of-scope rows' ids never counted
-    assert s["source_ids"] == ("unknown (not read per entry by this receipt; 1 injuries rows of PL 2026/27 teams "
-                               "carry a non-null player_source_id)")
-    assert any(ln.startswith("  source ids: UNKNOWN for every pair and every side (not read per entry") for ln in out)
+    assert s["source_ids"] == "read per entry on recoverable sides"
+    # Chelsea's entry 1 carries the one id: both its pairs hold a NULL, so no side count by id
+    assert s["pair_source_ids"][dr.ACCENT] == {"two ids": 0, "one id": 0, "unknown (a NULL)": 1, "unknown": 1}
+    assert s["sides_distinct_by_id"] == 0
+    che = next(ln for ln in out if ln.startswith("  HOME Chelsea:"))
+    assert "distinct by id UNKNOWN (6 of 7 stored entries carry no player_source_id)" in che
 
 
 def test_the_id_line_with_the_column_and_no_pl_id_reads_no_source_id_stored(world):
@@ -408,21 +423,114 @@ def test_recoverable_pairs_print_the_stored_fields_never_a_name(world):
     assert out[i + 1].startswith("    recoverable? yes (recoverable")
     assert out[i + 2] == ("    accent pair entries 1 and 2: entry 1: type 'Missing Fixture' · fixture_source_id "
                           "'2001' · position 'Midfielder' | entry 2: type 'Missing Fixture' · fixture_source_id "
-                          "'1990' · position 'Midfielder'")
+                          "'1990' · position 'Midfielder' · source ids: unknown (no source id stored: no "
+                          "player_source_id column)")
     assert out[i + 3].startswith("    double surname pair entries 3 and 4: entry 3: type 'Missing Fixture' · "
                                  "fixture_source_id '2001' · position 'Defender' | entry 4:")
     j = next(k for k, ln in enumerate(out) if ln.startswith("  HOME Brentford:"))
     assert out[j + 1] == "    recoverable? no (not recoverable (stored count 2, row count 10))"
+    assert out[j + 2] == ("    accent pair entries 1 and 2: source ids: unknown (no source id stored: no "
+                          "player_source_id column)")
     assert summary(out)["sides_with_pair_recoverable"] == 1
 
 
-def test_a_row_with_no_pair_is_one_count_line(world):
+def test_every_row_is_printed_a_quiet_row_on_one_compact_line_with_both_sides(world):
+    """F1 (Codex on #1076): 446 item 1 asks 'for every Premier League closing row ... each side's entries': a row with
+    no pair and no ambiguity is printed too, one line carrying both sides' fields."""
     ex = world["tmp"] / "quiet"
-    closing(ex, "2026-11-21T14:25:00", [row(9500, "Chelsea", "Arsenal", "2026-11-21T15:00:00", CHE[4:], ARS)])
+    closing(ex, "2026-11-21T14:25:00", [row(9500, "Chelsea", "Arsenal", "2026-11-21T15:00:00", CHE[4:], ARS),
+                                        row(9501, "Everton", "Leeds", "2026-11-21T15:00:00", EVE, LEE)])
+    closing(ex, "2026-11-21T16:55:00", [row(9502, "Brentford", "Fulham", "2026-11-21T17:30:00", BRE[2:] + ["Al Ivo"],
+                                            ["Dov Ashgrove"], hc=10)])
     code, out = run(world, ex=ex)
-    assert code == 0 and not any(ln.startswith("\n==") for ln in out)
-    assert any(ln.startswith("\nrows with no pair and no ambiguity: 1 ") for ln in out)
+    assert code == 0
+    q = [ln for ln in out if ln.startswith("-- kickoff")]
+    assert len(q) == 2 and sum(1 for ln in out if ln.startswith("\n== kickoff")) == 1      # Everton's row is flagged
+    assert q[0] == ("-- kickoff 2026-11-21T15:00:00 UTC · match 9500 Chelsea v Arsenal · file "
+                    "closing_SOCCER_2026-11-21T1425Z.json (git_sha 841eba24, run 2026-11-21T14:25Z; earlier runs 0) · "
+                    "no pair, no ambiguity | HOME Chelsea: entries 3 (injuries.home_count 3, input_quality count 3) · "
+                    "names shown 3 · factor_breakdown home_injuries_count 3, note 3 (-9% xG) · factor count vs page "
+                    "count: equal · distinct by fold 3 · distinct by id UNKNOWN (no source id stored: no "
+                    "player_source_id column) | AWAY Arsenal: entries 2 (injuries.away_count 2, input_quality count "
+                    "2) · names shown 2 · factor_breakdown away_injuries_count 2, note 2 (-6% xG) · factor count vs "
+                    "page count: equal · distinct by fold 2 · distinct by id UNKNOWN (no source id stored: no "
+                    "player_source_id column)")
+    assert ("HOME Brentford: entries 10 (injuries.home_count 10, input_quality count 10) · names shown 7 · "
+            "factor_breakdown home_injuries_count 10, note 10 (-25% xG) · factor count vs page count: equal · "
+            "distinct by fold at most 10 · distinct by id UNKNOWN") in q[1]
+    assert "names cut, not fully pairable (10 entries, 7 shown) | AWAY Fulham: entries 1" in q[1]
+    assert any(ln.startswith("\nrows with no pair and no ambiguity: 2 (each printed above") for ln in out)
+    joined = "\n".join(out)
+    for n in CHE + ARS + BRE + FUL + ["Al Ivo"]:
+        assert n not in joined
     assert summary(out)["headline_rows"] == 0
+
+
+def _set_ids(db: Path, ids: dict) -> None:
+    eng = create_engine(f"sqlite:///{db}")
+    with eng.begin() as c:
+        for i, v in ids.items():
+            c.execute(text("UPDATE injuries SET player_source_id = :v WHERE id = :i"), {"v": v, "i": i})
+    eng.dispose()
+
+
+def test_a_migrated_copy_reads_each_pair_two_ids_or_one_and_the_side_by_id(world):
+    """F2 (Codex on #1076): on a recoverable side the copy's own player_source_id is read per paired entry (Chelsea's
+    stored rows are ids 1-7 in CHE's order): entries 1 and 2 carry two ids, 3 and 4 one."""
+    _add_id_column(world["db"])
+    _set_ids(world["db"], {1: "101", 2: "102", 3: "103", 4: "103", 5: "105", 6: "106", 7: "107"})
+    code, out = run(world)
+    assert code == 0
+    i = next(k for k, ln in enumerate(out) if ln.startswith("  HOME Chelsea:"))
+    assert "distinct by fold 5 · distinct by id 6" in out[i]
+    assert out[i + 2].startswith("    accent pair entries 1 and 2: entry 1:") and out[i + 2].endswith(" · source ids: "
+                                                                                                     "two ids")
+    assert out[i + 3].startswith("    double surname pair entries 3 and 4:") and out[i + 3].endswith(" · source ids: "
+                                                                                                    "one id")
+    s = summary(out)
+    assert s["pair_source_ids"][dr.ACCENT] == {"two ids": 1, "one id": 0, "unknown (a NULL)": 0, "unknown": 1}
+    assert s["pair_source_ids"][dr.DOUBLE] == {"two ids": 0, "one id": 1, "unknown (a NULL)": 0, "unknown": 0}
+    assert s["sides_distinct_by_id"] == 1                   # only Chelsea's side is recoverable
+    bre = next(k for k, ln in enumerate(out) if ln.startswith("  HOME Brentford:"))
+    assert "distinct by id UNKNOWN (no stored list to read: not recoverable (stored count 2, row count 10))" in out[bre]
+    assert out[bre + 2] == ("    accent pair entries 1 and 2: source ids: unknown (no stored list to read: not "
+                            "recoverable (stored count 2, row count 10))")
+    assert any(ln.startswith("  source ids, pairs by kind: accent: two ids 1, one id 0") for ln in out)
+    joined = "\n".join(out)
+    for n in ALL_NAMES:
+        assert n not in joined
+
+
+def test_a_migrated_copy_with_one_null_reads_the_pair_unknown_and_no_side_count(world):
+    _add_id_column(world["db"])
+    _set_ids(world["db"], {1: "101", 3: "103", 4: "103", 5: "105", 6: "106", 7: "107"})      # entry 2 NULL
+    code, out = run(world)
+    i = next(k for k, ln in enumerate(out) if ln.startswith("  HOME Chelsea:"))
+    assert "distinct by id UNKNOWN (1 of 7 stored entries carry no player_source_id)" in out[i]
+    assert out[i + 2].endswith(" · source ids: unknown (a NULL)") and out[i + 3].endswith(" · source ids: one id")
+    s = summary(out)
+    assert s["pair_source_ids"][dr.ACCENT]["unknown (a NULL)"] == 1 and s["sides_distinct_by_id"] == 0
+
+
+def test_long_short_short_reads_at_most_two_never_three(world):
+    """F3 (Codex on #1076): the long form pairs with both short forms, so it is AMBIGUOUS and no pair is formed; the
+    three entries hold at least one duplicate under the fold: at most 2, never a definite 3."""
+    names = ["Ana Belo Cruz", "Ana Belo", "Ana Cruz"]
+    pairs, amb = dr.side_pairs(names)
+    assert pairs == [] and amb == [1] and dr.amb_groups(names, amb) == 1
+    ex = world["tmp"] / "lss"
+    closing(ex, "2026-11-21T14:25:00", [row(9500, "Chelsea", "Arsenal", "2026-11-21T15:00:00", names, ARS)])
+    code, out = run(world, ex=ex)
+    che = next(ln for ln in out if ln.startswith("  HOME Chelsea:"))
+    assert "AMBIGUOUS entries 1" in che and "distinct by fold at most 2 " in che and "distinct by fold 3" not in che
+
+
+def test_ambiguity_groups_are_counted_once_each_and_an_initial_form_alone_subtracts_nothing():
+    two = ["Ana Belo Cruz", "Ana Belo", "Ana Cruz", "Kit Rae Moss", "Kit Rae", "Kit Moss", "Lo Pim"]
+    assert dr.amb_groups(two, dr.side_pairs(two)[1]) == 2
+    initial_only = ["T. Aldermoor", "Tobias Aldermoor", "Theo Aldermoor"]     # ambiguous by initial form alone
+    pairs, amb = dr.side_pairs(initial_only)
+    assert amb == [1] and dr.amb_groups(initial_only, amb) == 0
 
 
 def test_a_names_list_short_for_another_cause_is_counted_with_it(world):
@@ -453,6 +561,25 @@ def test_latest_is_refused_and_a_dated_tree_is_read(world):
     (host / "2026-11-22").symlink_to(host / "latest", target_is_directory=True)
     code, out = run(world, ex=host)
     assert code == 2 and "resolves to" in out[0] and "a latest/ folder; latest/ is never read; nothing read" in out[0]
+
+
+@pytest.mark.parametrize("bad", ["missing", "file", "latest", "dated_link"])
+def test_a_bad_exports_is_refused_before_the_copy_is_opened(world, monkeypatch, bad):
+    """F4 (Codex on #1076): a bad --exports exits 2 'nothing read' with the copy never opened (no probe, no session)."""
+    calls = []
+    monkeypatch.setattr(dr.C, "probe_copy", lambda *a, **k: calls.append("probe_copy"))
+    monkeypatch.setattr(dr.C, "open_db", lambda *a, **k: calls.append("open_db"))
+    host = world["tmp"] / "mirror" / "host"
+    (host / "latest").mkdir(parents=True)
+    ex = {"missing": world["tmp"] / "nope", "latest": host / "latest", "dated_link": host}[bad] \
+        if bad != "file" else world["tmp"] / "a_file.json"
+    if bad == "file":
+        ex.write_text("{}")
+    if bad == "dated_link":
+        (host / "2026-11-22").symlink_to(host / "latest", target_is_directory=True)
+    code, out = run(world, ex=ex)
+    assert code == 2 and len(out) == 1 and out[0].startswith(f"REFUSED: --exports {ex}") and "nothing read" in out[0]
+    assert calls == []
 
 
 def test_exports_not_a_directory_or_missing_is_refused(world):

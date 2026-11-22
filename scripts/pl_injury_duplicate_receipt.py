@@ -40,12 +40,16 @@ closing block's start and run_id.
 THE COPY (--db COPY, required): the host's pulled .backup copy, opened only through addendum 198 item 6(ii)'s fence
 exactly as #688 opens it (its check_copy, probe_copy and open_db: mlb_pitchers_gate.check_db, a -wal/-shm/-journal
 sidecar refused, mlb_pitchers_gate.open_ro before any read, mlb_pitchers_gate.readonly_session with
-mode=ro&immutable=1). Every refusal exits 2 with nothing read. From it: (1) PRAGMA table_info(injuries) on the copy's
-own connection (never database.has_injury_player_id, which inspects the app's engine): is player_source_id present;
-if present, how many injuries rows of PL 2026/27 teams carry a non-null one (counts only). (2) Through #688's read_db
-(the match by id only when its teams and kickoff agree, else by both team names and the kickoff) and #688's
+mode=ro&immutable=1). Every refusal exits 2 with nothing read; the --exports folder checks (not a directory, latest/)
+run before the copy is probed, so a bad --exports never opens the copy. From it: (1) PRAGMA table_info(injuries) on the
+copy's own connection (never database.has_injury_player_id, which inspects the app's engine): is player_source_id
+present; if present, how many injuries rows of PL 2026/27 teams carry a non-null one (counts only). (2) Through #688's
+read_db (the match by id only when its teams and kickoff agree, else by both team names and the kickoff) and #688's
 recoverable() test (the stored refreshed_at equals the row's synced_at and the counts match): for a recoverable side,
-each paired entry's stored type, fixture_source_id and player_position. No name is printed.
+each paired entry's stored type, fixture_source_id and player_position. (3) Where the column is present, for each
+recoverable side, each stored entry's player_source_id by its stored row's id (read_db's stored "id"), by raw
+SELECTs of at most 500 ids each on the copy's own session; the page's entry is matched to its stored row by its exact
+name (the page carries no row id), only when one stored row carries it. No name is printed.
 
 THE RULE (declared here and printed on the console before any result line):
 - The fold is #688's tokens() (NFKD, combining marks dropped, casefold, apostrophes dropped, dots and hyphens to
@@ -64,15 +68,27 @@ THE RULE (declared here and printed on the console before any result line):
 - A side whose count is above 8 has its names cut (export.py:598): counted apart as "names cut, not fully pairable"
   (law 4); pairs among its 8 shown names still count, labelled.
 - A side whose names list is shorter than its count for any other reason is counted with its cause.
-- Distinct players by name fold, per side = entries - (accent + double surname + identical pairs); pairs are disjoint
-  by construction. "at most" where the names are cut or short.
-- Distinct players by the source's own player id: the page carries no id (export.py:592-600) and soccer stores none
-  (api_football.py:460-475 never reads player.id; src/ingestion/service.py:1571-1581 writes player_source_id only when
-  an adapter supplies one; of the three list_injuries adapters, only src/adapters/api_american_football.py:529 (its
-  list_injuries at :441) does). So every pair's "two ids or one" reads UNKNOWN, printed once with these causes and the
-  copy's PRAGMA result, its cause measured on the copy: "no source id stored" where the column is absent or no
-  injuries row of a PL 2026/27 team carries one; "not read per entry" (with the count) where some do, since this
-  receipt never reads an entry's id. Never guessed.
+- Distinct players by name fold, per side = entries - (accent + double surname + identical pairs) - G; pairs are
+  disjoint by construction. G is the number of AMBIGUOUS groups: the groups connected by accent / double surname /
+  identical candidacies touching an ambiguous entry (an initial-form candidacy joins none), disjoint from each other
+  and from the pairs; each holds at least one duplicate under the fold, which one is not decided. So where a side
+  carries an AMBIGUOUS entry the count is "at most" (an upper bound: the fold could make a group one player), and
+  "at most" also where the names are cut or short. Long / short / short ("Given S1 S2", "Given S1", "Given S2") reads
+  "at most 2", never 3.
+- Distinct players by the source's own player id: the page carries no id (export.py:592-600) and the soccer adapter
+  supplies none (api_football.py:460-475 never reads player.id; src/ingestion/service.py:1571-1581 writes
+  player_source_id only when an adapter supplies one; of the three list_injuries adapters, only
+  src/adapters/api_american_football.py:529 (its list_injuries at :441) does). Measured on the copy: where the column is
+  absent or no injuries row of a PL 2026/27 team carries one, every pair's "two ids or one" and every side's count read
+  UNKNOWN ("no source id stored"), printed once with these causes and the copy's PRAGMA result. Where some do, each
+  pair on a recoverable side reads "two ids" (two different ids), "one id" (the same id) or "unknown (a NULL)" (an
+  entry carries none), and the side's distinct-by-id count is printed only when every stored entry carries an id;
+  every other pair and side reads UNKNOWN with its cause (no column, not recoverable, NULLs, a stored entry not found
+  once). Never guessed.
+
+EVERY ROW is printed: a row whose sides carry a pair or an AMBIGUOUS entry in full (a header and one line per side,
+with the pair and stored detail), every other row on one '-- kickoff' line carrying both sides' same fields (entries,
+names shown, factor count and note percent, equal or not, distinct by fold and by id, names cut / short).
 
 PRIVACY (446: "the names stay off the public record; they are on the page"): the console prints NO player name, ever:
 not in pairs, not in examples, not in errors. A pair is named by its row (kickoff, match id, file), side, team name and
@@ -135,7 +151,14 @@ RULE = [
     f"  a side whose count is above {NAMES_KEPT}: names cut (export.py:598), counted apart as 'names cut, not fully "
     "pairable' (law 4); pairs among its shown names still count, labelled",
     "  a side whose names list is shorter than its count for another reason: counted with its cause",
-    f"  distinct by name fold = entries - ({' + '.join(FOLDED)} pairs); 'at most' where the names are cut or short",
+    f"  distinct by name fold = entries - ({' + '.join(FOLDED)} pairs) - G, G the AMBIGUOUS groups (connected by "
+    f"{' / '.join(FOLDED)} candidacies touching an ambiguous entry; an initial-form candidacy joins none), each "
+    "holding at least one duplicate under the fold; 'at most' (an upper bound) where a side carries an AMBIGUOUS "
+    "entry, and where the names are cut or short",
+    "  distinct by the source's own player id: read on the copy where injuries.player_source_id exists and the side is "
+    "recoverable (#688's recoverable()), only when every stored entry carries one; a pair: 'two ids' / 'one id' / "
+    "'unknown (a NULL)'; elsewhere UNKNOWN with its cause",
+    "  every row is printed: a row with a pair or an ambiguity in full, every other row on one '-- kickoff' line",
     "  headline: rows and sides carrying >= 1 pair of the kinds " + " / ".join(repr(k) for k in HEADLINE),
     "  privacy (446): no player name is printed; an entry is its 1-based place in the page's names list",
 ]
@@ -146,13 +169,16 @@ ID_CAUSES = ("the page carries no player id (src/walters/export.py:592-600); the
              "(list_injuries at :441) supplies one")
 
 
-def id_cause(pr: dict) -> str:
-    """The UNKNOWN's cause, measured on the copy (law 4): 'no source id stored' only where the column is absent or no
-    injuries row of a PL 2026/27 team carries one; otherwise this receipt's own limit (it never reads an entry's id)."""
+def id_cause(pr: dict) -> str | None:
+    """The UNKNOWN's cause where it holds for every pair, measured on the copy (law 4): 'no source id stored' where the
+    column is absent or no injuries row of a PL 2026/27 team carries one. None where some do: then each paired entry's
+    id is read on a recoverable side (entry_ids) and every other pair and side carries its own cause."""
     if not pr["present"] or not pr["with_id"]:
         return "no source id stored"
-    return (f"not read per entry by this receipt; {pr['with_id']} injuries rows of PL {SEASON} teams carry a non-null "
-            "player_source_id")
+    return None
+
+
+ID_TWO, ID_ONE, ID_NULL = "two ids", "one id", "unknown (a NULL)"
 
 
 class Refused(Exception):
@@ -201,6 +227,29 @@ def side_pairs(names: list) -> tuple[list[tuple[int, int, str]], list[int]]:
     return pairs, sorted(i + 1 for i in amb)
 
 
+def amb_groups(names: list, amb: list[int]) -> int:
+    """G, the AMBIGUOUS groups of a side: the connected groups formed by the accent / double surname / identical
+    candidacies that touch an ambiguous entry (an initial-form candidacy joins none). Each group holds at least one
+    duplicate under the fold (an ambiguous entry folds to one of its candidates: which one is not decided). The groups
+    are disjoint from each other by construction and from the side's pairs (a pair's two entries are each other's only
+    candidate, so neither is a candidate of an ambiguous entry), so entries - folded - G bounds distinct by fold from
+    above (F3, Codex on #1076)."""
+    names = [str(n) for n in names]
+    amb0 = {i - 1 for i in amb}
+    parent = {}
+
+    def root(i):
+        while parent.setdefault(i, i) != i:
+            i = parent[i]
+        return i
+
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            if (i in amb0 or j in amb0) and pair_kind(names[i], names[j]) in FOLDED:
+                parent[root(i)] = root(j)
+    return len({root(i) for i in parent})
+
+
 # ---- the rows -------------------------------------------------------------------------------------------------------
 
 def bounds(from_: str | None, through: str | None) -> tuple[datetime | None, datetime | None]:
@@ -245,10 +294,10 @@ def file_index(exports: Path) -> dict:
     return out
 
 
-def population(exports: Path, lo: datetime | None, hi: datetime | None) -> dict:
-    """The local population (no FLOOR, unlike #688's population(), critic G2): every SOCCER closing row with row
-    competition PL and row season 2026/27, one per match, the last in-bound run's; earlier runs counted. The latest/
-    refusals are #688's, word for word in effect."""
+def check_exports(exports: Path) -> None:
+    """--exports checked before the copy is probed (F4, Codex on #1076): not a directory, a latest/ folder by name or
+    resolved, or a dated-named folder that resolves to one: refused, exit 2, nothing read (the copy never opened).
+    #688's population() refusals, word for word in effect; only the folder listing is read."""
     if not exports.is_dir():
         raise Refused(f"REFUSED: --exports {exports}: not a directory; nothing read")
     if "latest" in (exports.name, exports.resolve().name):
@@ -258,6 +307,13 @@ def population(exports: Path, lo: datetime | None, hi: datetime | None) -> dict:
         if sub.resolve().name == "latest":
             raise Refused(f"REFUSED: --exports {exports}: the dated folder {sub.name}/ resolves to {sub.resolve()}, a "
                           "latest/ folder; latest/ is never read; nothing read")
+
+
+def population(exports: Path, lo: datetime | None, hi: datetime | None) -> dict:
+    """The local population (no FLOOR, unlike #688's population(), critic G2): every SOCCER closing row with row
+    competition PL and row season 2026/27, one per match, the last in-bound run's; earlier runs counted. The latest/
+    refusals are #688's (check_exports, run again here for a direct caller)."""
+    check_exports(exports)
     cr = C._qb_hold().read_closings(exports, lo, hi)
     idx = file_index(exports)
     rows, no_run, earlier, other_season = [], [], 0, 0
@@ -305,6 +361,7 @@ def analyse_side(r: dict, side: str) -> dict:
         short = "names list longer than the count"
     by = Counter(k for _i, _j, k in pairs)
     folded = sum(by[k] for k in FOLDED)
+    groups = amb_groups(names or [], amb)          # F3: each AMBIGUOUS group holds >= 1 duplicate under the fold
     fb = C._d(C._d(r.get("prediction")).get("factor_breakdown"))
     fcount = _int(fb.get(f"{side}_injuries_count"))
     note = None
@@ -314,8 +371,9 @@ def analyse_side(r: dict, side: str) -> dict:
             note = {"count": int(m.group(2)), "pct": int(m.group(3))}
     return {"team": base["team"], "entries": entries, "page_count": page, "iq_count": base["count"],
             "shown": shown, "names": names, "pairs": pairs, "ambiguous": amb, "by": by, "cut": cut, "short": short,
-            "distinct": None if entries is None else entries - folded,
-            "at_most": bool(cut or (short and entries is not None and shown < entries)),
+            "distinct": (None if entries is None or (not cut and shown > entries)  # names longer than the count: no bound
+                         else entries - folded - groups), "amb_groups": groups,
+            "at_most": bool(cut or amb or (short and entries is not None and shown < entries)),
             "fcount": fcount, "note": note,
             "factor_equal": None if fcount is None or entries is None else fcount == entries}
 
@@ -342,13 +400,66 @@ def pragma(s) -> dict:
     return {"present": True, "pl_rows": rows_pl, "with_id": with_id}
 
 
-def stored_of(sd: dict, place: int) -> str:
-    """The paired entry's stored type / fixture_source_id / position on a recoverable side (no name printed)."""
+def entry_ids(s, rows: list[dict]) -> dict:
+    """{stored injuries.id: player_source_id or None}, for every stored entry of every recoverable side (#688's
+    recoverable(): the stored list is the consumed list), read by the stored row's own id (read_db's stored "id") in a
+    guarded raw SELECT on the copy's own session; called only where PRAGMA table_info(injuries) has the column."""
+    from sqlalchemy import bindparam, text
+    want = sorted({e["id"] for x in rows for sd in x["a"].values() if sd["recoverable"] is True
+                   for e in sd["stored"] if isinstance(e.get("id"), int)})
+    out = {}
+    q = text("SELECT id, player_source_id FROM injuries WHERE id IN :ids").bindparams(bindparam("ids", expanding=True))
+    for k in range(0, len(want), 500):            # under SQLite's oldest bound-variable limit (999)
+        out.update({i: v for i, v in s.execute(q, {"ids": want[k:k + 500]})})
+    return out
+
+
+def _stored_entry(sd: dict, place: int) -> dict | None:
+    """The stored row of the page's entry at 1-based place: the page carries no row id, so the entry is matched to the
+    side's stored list (the consumed list on a recoverable side) by its exact name, and only when one row carries it."""
     name = (sd["names"] or [None] * place)[place - 1]
     hits = [e for e in sd["stored"] if e["name"] == name]
-    if len(hits) != 1:
-        return f"entry {place}: stored entry not found once ({len(hits)} stored rows carry its exact name)"
-    e = hits[0]
+    return hits[0] if len(hits) == 1 else None
+
+
+def pair_ids(sd: dict, i: int, j: int) -> str:
+    """'two ids' / 'one id' / 'unknown (a NULL)' for a pair whose side's ids were read, else 'unknown (cause)'."""
+    if sd["ids"] is None:
+        return f"unknown ({sd['id_why']})"
+    ea, eb = _stored_entry(sd, i), _stored_entry(sd, j)
+    if ea is None or eb is None:
+        return "unknown (a stored entry not found once by its exact name)"
+    a, b = sd["ids"].get(ea["id"]), sd["ids"].get(eb["id"])
+    if a is None or b is None:
+        return ID_NULL
+    return ID_ONE if str(a) == str(b) else ID_TWO
+
+
+def side_ids(sd: dict, pr: dict, ids: dict) -> None:
+    """The side's ids, its distinct-by-id count (only when every stored entry carries an id) and the cause otherwise."""
+    sd["ids"], sd["distinct_id"] = None, None
+    if not pr["present"]:
+        sd["id_why"] = "no source id stored: no player_source_id column"
+    elif sd["recoverable"] is not True:
+        sd["id_why"] = f"no stored list to read: {sd['why']}"
+    else:
+        sd["ids"] = {e["id"]: ids.get(e["id"]) for e in sd["stored"]}
+        nulls = sum(1 for v in sd["ids"].values() if v is None)
+        if nulls:
+            sd["id_why"] = f"{nulls} of {len(sd['ids'])} stored entries carry no player_source_id"
+        else:
+            sd["id_why"] = None
+            sd["distinct_id"] = len({str(v) for v in sd["ids"].values()})
+    sd["pair_ids"] = [pair_ids(sd, i, j) for i, j, _k in sd["pairs"]]
+
+
+def stored_of(sd: dict, place: int) -> str:
+    """The paired entry's stored type / fixture_source_id / position on a recoverable side (no name printed)."""
+    e = _stored_entry(sd, place)
+    if e is None:
+        name = (sd["names"] or [None] * place)[place - 1]
+        return (f"entry {place}: stored entry not found once "
+                f"({sum(1 for x in sd['stored'] if x['name'] == name)} stored rows carry its exact name)")
     return (f"entry {place}: type {e['type']!r} · fixture_source_id {e['fixture']!r} · position "
             f"{e['position']!r}")
 
@@ -364,20 +475,27 @@ def _pairs_text(sd: dict) -> str:
     return " · ".join(parts) or "none"
 
 
-def _side_line(side: str, sd: dict) -> str:
+def _side_text(side: str, sd: dict, quiet: bool = False) -> str:
+    """One side's fields; a quiet side (no pair, no ambiguity) drops only the two 'none' fields."""
     note = (f"note {sd['note']['count']} (-{sd['note']['pct']}% xG)" if sd["note"] else "note none")
     eq = {True: "equal", False: "NOT EQUAL", None: "not compared (missing)"}[sd["factor_equal"]]
     dist = "unknown" if sd["distinct"] is None else (("at most " if sd["at_most"] else "") + str(sd["distinct"]))
+    did = str(sd["distinct_id"]) if sd["distinct_id"] is not None else f"UNKNOWN ({sd['id_why']})"
     lab = []
     if sd["cut"]:
         lab.append(f"names cut, not fully pairable ({sd['entries']} entries, {sd['shown']} shown)")
     if sd["short"]:
         lab.append(sd["short"])
     amb = f"entries {', '.join(map(str, sd['ambiguous']))}" if sd["ambiguous"] else "none"
-    return (f"  {side.upper()} {sd['team']}: entries {sd['entries']} (injuries.{side}_count {sd['page_count']}, "
-            f"input_quality count {sd['iq_count']}) · names shown {sd['shown']} · pairs {_pairs_text(sd)} · "
-            f"AMBIGUOUS {amb} · factor_breakdown {side}_injuries_count {sd['fcount']}, {note} · factor count vs page "
-            f"count: {eq} · distinct by fold {dist}" + (f" · {'; '.join(lab)}" if lab else ""))
+    found = "" if quiet else f" · pairs {_pairs_text(sd)} · AMBIGUOUS {amb}"
+    return (f"{side.upper()} {sd['team']}: entries {sd['entries']} (injuries.{side}_count {sd['page_count']}, "
+            f"input_quality count {sd['iq_count']}) · names shown {sd['shown']}{found} · factor_breakdown "
+            f"{side}_injuries_count {sd['fcount']}, {note} · factor count vs page count: {eq} · distinct by fold "
+            f"{dist} · distinct by id {did}" + (f" · {'; '.join(lab)}" if lab else ""))
+
+
+def _side_line(side: str, sd: dict) -> str:
+    return "  " + _side_text(side, sd)
 
 
 def build(pop: dict, s) -> dict:
@@ -391,7 +509,12 @@ def build(pop: dict, s) -> dict:
             ok, why = C.recoverable(x["sides"][side])
             x["a"][side]["recoverable"], x["a"][side]["why"] = ok, why
             x["a"][side]["stored"] = x["sides"][side].get("stored") or []
-    return {"rows": rows, "pragma": pragma(s)}
+    pr = pragma(s)
+    ids = entry_ids(s, rows) if pr["present"] else {}
+    for x in rows:
+        for sd in x["a"].values():
+            side_ids(sd, pr, ids)
+    return {"rows": rows, "pragma": pr}
 
 
 def lines(res: dict, pop: dict, label: str, exports_arg: str) -> tuple[list[str], dict]:
@@ -419,17 +542,37 @@ def lines(res: dict, pop: dict, label: str, exports_arg: str) -> tuple[list[str]
            f"{pr['pl_rows']}, carrying a non-null player_source_id {pr['with_id']}" if pr["present"] else
            f"the copy: PRAGMA table_info(injuries) has NO player_source_id column; injuries rows of PL {SEASON} teams "
            f"{pr['pl_rows']}")
-    L.append(f"SOURCE IDS: every pair's 'two source ids or one' and every side's 'distinct by the source's own player "
-             f"id' read UNKNOWN ({id_cause(pr)}): {ID_CAUSES}; {idl}.")
+    sides = [sd for x in rows for sd in x["a"].values()]
+    pid = Counter()
+    for sd in sides:
+        for (_i, _j, k), st in zip(sd["pairs"], sd["pair_ids"]):
+            pid[(k, st if st in (ID_TWO, ID_ONE, ID_NULL) else "unknown")] += 1
+    n_did = sum(1 for sd in sides if sd["distinct_id"] is not None)
+    pid_text = " · ".join(f"{k}: " + ", ".join(f"{st} {pid[(k, st)]}" for st in (ID_TWO, ID_ONE, ID_NULL, "unknown"))
+                          for k in KINDS)
+    if id_cause(pr):
+        L.append(f"SOURCE IDS: every pair's 'two source ids or one' and every side's 'distinct by the source's own "
+                 f"player id' read UNKNOWN ({id_cause(pr)}): {ID_CAUSES}; {idl}.")
+    else:
+        L.append(f"SOURCE IDS: read per entry where the side is recoverable (#688's recoverable(): the stored list is "
+                 f"the consumed list), each stored entry's injuries.player_source_id by its stored row's id, the "
+                 f"page's entry matched to its stored row by its exact name: pairs by kind {pid_text} (unknown: the "
+                 f"side not recoverable, or a stored entry not found once) · sides with a distinct-by-id count (every "
+                 f"stored entry carries an id) {n_did}; every other pair and side reads UNKNOWN with its cause; the code's "
+                 f"causes: {ID_CAUSES}; {idl}.")
     quiet = 0
     tot = Counter()
     for x in rows:
         r, meta, a = x["row"], x["meta"], x["a"]
         loud = [sd for sd in a.values() if sd["pairs"] or sd["ambiguous"]]
-        if not loud:
-            quiet += 1
-            continue
         sha = str(meta.get("git_sha") or "?")[:8]
+        if not loud:                               # F1 (Codex on #1076): every row is printed, a quiet one compactly
+            quiet += 1
+            L.append(f"-- kickoff {r.get('utc_date')} UTC · match {x['match_id']} {r.get('home_team')} v "
+                     f"{r.get('away_team')} · file {meta.get('file')} (git_sha {sha}, run {x['run']:%Y-%m-%dT%H:%MZ}; "
+                     f"earlier runs {x['earlier_runs']}) · no pair, no ambiguity | "
+                     f"{_side_text('home', a['home'], True)} | {_side_text('away', a['away'], True)}")
+            continue
         L.append(f"\n== kickoff {r.get('utc_date')} UTC · match {x['match_id']} {r.get('home_team')} v "
                  f"{r.get('away_team')} · file {meta.get('file')} (git_sha {sha}, exported_at "
                  f"{meta.get('exported_at')}, run {x['run']:%Y-%m-%dT%H:%MZ}, run_id {meta.get('run_id')}; earlier "
@@ -439,10 +582,12 @@ def lines(res: dict, pop: dict, label: str, exports_arg: str) -> tuple[list[str]
             L.append(_side_line(side, sd))
             if sd["pairs"]:
                 L.append(f"    recoverable? {'yes' if sd['recoverable'] else 'no'} ({sd['why']})")
-                if sd["recoverable"]:
-                    for i, j, k in sd["pairs"]:
-                        L.append(f"    {k} pair entries {i} and {j}: {stored_of(sd, i)} | {stored_of(sd, j)}")
-    sides = [sd for x in rows for sd in x["a"].values()]
+                for (i, j, k), st in zip(sd["pairs"], sd["pair_ids"]):
+                    if sd["recoverable"]:
+                        L.append(f"    {k} pair entries {i} and {j}: {stored_of(sd, i)} | {stored_of(sd, j)} · source "
+                                 f"ids: {st}")
+                    else:
+                        L.append(f"    {k} pair entries {i} and {j}: source ids: {st}")
     for sd in sides:
         tot.update(sd["by"])
     head_side = [sd for sd in sides if any(sd["by"][k] for k in HEADLINE)]
@@ -451,8 +596,8 @@ def lines(res: dict, pop: dict, label: str, exports_arg: str) -> tuple[list[str]
     fdiff = [x for x in rows if any(sd["factor_equal"] is False for sd in x["a"].values())]
     fmiss = sum(1 for sd in sides if sd["factor_equal"] is None)
     rec_pairs = sum(1 for sd in sides if sd["pairs"] and sd["recoverable"])
-    L.append(f"\nrows with no pair and no ambiguity: {quiet} (one count line; none of their sides carries a pair of "
-             "any kind or an ambiguous entry)")
+    L.append(f"\nrows with no pair and no ambiguity: {quiet} (each printed above on its one '-- kickoff' line; none "
+             "of their sides carries a pair of any kind or an ambiguous entry)")
     L.append("TOTALS:")
     L.append(f"  rows read (one per match) {len(rows)} · earlier runs not counted {pop['earlier']} · PL rows of "
              f"another season (not read) {pop['other_season']} · sides {len(sides)} · entries "
@@ -468,7 +613,11 @@ def lines(res: dict, pop: dict, label: str, exports_arg: str) -> tuple[list[str]
              f"headline pair among the shown names {sum(1 for sd in head_side if sd['cut'])})")
     L.append("  sides whose names list is short or unknown, by cause: "
              + (" · ".join(f"{k} {v}" for k, v in sorted(shorts.items())) or "none"))
-    L.append(f"  source ids: UNKNOWN for every pair and every side ({id_cause(pr)}; the SOURCE IDS line above)")
+    if id_cause(pr):
+        L.append(f"  source ids: UNKNOWN for every pair and every side ({id_cause(pr)}; the SOURCE IDS line above)")
+    else:
+        L.append(f"  source ids, pairs by kind: {pid_text} · sides with a distinct-by-id count {n_did} of "
+                 f"{len(sides)} (the SOURCE IDS line above)")
     L.append(f"  rows whose factor_breakdown count differs from the page count {len(fdiff)} · sides not compared "
              f"(a count missing) {fmiss}")
     L.append(f"  sides carrying a pair that are recoverable on this copy {rec_pairs}")
@@ -483,7 +632,9 @@ def lines(res: dict, pop: dict, label: str, exports_arg: str) -> tuple[list[str]
         "pairs": {k: tot[k] for k in KINDS},
         "ambiguous_entries": sum(len(sd["ambiguous"]) for sd in sides),
         "sides_names_cut": sum(1 for sd in sides if sd["cut"]), "sides_short": dict(shorts),
-        "source_ids": f"unknown ({id_cause(pr)})",
+        "source_ids": f"unknown ({id_cause(pr)})" if id_cause(pr) else "read per entry on recoverable sides",
+        "pair_source_ids": {k: {st: pid[(k, st)] for st in (ID_TWO, ID_ONE, ID_NULL, "unknown")} for k in KINDS},
+        "sides_distinct_by_id": n_did,
         "player_source_id_column": pr["present"], "pl_injury_rows": pr["pl_rows"], "pl_rows_with_id": pr["with_id"],
         "rows_factor_differs": len(fdiff), "sides_factor_not_compared": fmiss,
         "sides_with_pair_recoverable": rec_pairs,
@@ -516,8 +667,9 @@ def main(argv=None, echo=print) -> int:
             raise Refused("REFUSED: --exports is required (a flat directory of closing_*.json or a tree of dated "
                           "folders); nothing read")
         lo, hi = bounds(a.from_, a.through)
+        check_exports(Path(a.exports))                # F4: a bad --exports is refused before the copy is opened
         try:
-            C.probe_copy(path)                        # the copy opens before any read
+            C.probe_copy(path)                        # the copy opens before any closing file is read
         except C.Refused as e:
             raise Refused(str(e)) from None
         pop = population(Path(a.exports), lo, hi)

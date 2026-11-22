@@ -6697,6 +6697,76 @@ def soccer_v23_gate_cmd(preflight, word, fingerprint, db, no_fetch):
                f"{e['run']['ids_file']} (commit docs/registry/ in a PR)")
 
 
+@cli.command("leagues-window-read")
+@click.option("--code", "code", default=None, help="PD, SA, FL1, ELC or BL1: the leagues window to read.")
+@click.option("--db", "db", default=None,
+              help="The host's pulled .backup copy, OUTSIDE data/ (law 5), opened mode=ro + immutable=1 (addendum 346's "
+                   "fence: never created, never the app's database, no -wal/-shm/-journal beside it). REQUIRED.")
+@click.option("--exports", "exports", default=None,
+              help="The host's pages, pulled into a folder OUTSIDE the checkout and outside data/ (addendum 447 item 2 "
+                   "B2(a)-(b): refused inside the checkout; never written). REQUIRED.")
+@click.option("--pages-digest", "pages_digest", default=None,
+              help="The digest the host printed for its pages (sha256sum's lines, sorted by name bytewise, hashed: "
+                   "B2(c)); the read refuses a folder whose digest differs. REQUIRED.")
+@click.option("--preflight", is_flag=True,
+              help="Counts only, the first date the read is allowed, then the WINDOW FINGERPRINT; scores nothing, "
+                   "reserves nothing, writes nothing.")
+@click.option("--architect-word", "word", default=None, help="The architect's word to start the ONE read, verbatim.")
+@click.option("--window-fingerprint", "fingerprint", default=None,
+              help="The fingerprint --preflight printed; the read refuses a window that differs.")
+@click.option("--no-fetch", "no_fetch", is_flag=True, help="Cross-ref guard (#329): skip fetching origin laptop/*.")
+@click.option("--record-verdict", "verdict", default=None,
+              help="PASS or REJECT: record the architect's verdict on the recorded read (B1: a separate invocation, "
+                   "refused unless the word equals the computed verdict).")
+@click.option("--ruling", "ruling", default=None, help="With --record-verdict: the architect's words, verbatim.")
+def leagues_window_read_cmd(code, db, exports, pages_digest, preflight, word, fingerprint, no_fetch, verdict, ruling):
+    """THE LEAGUES WINDOWS' ONE READ (ARCHITECT 2026-11-22 09:18 ET, addendum 447 items 1-2 and 4 PR 1; lane leagues,
+    #322). Three invocations: --preflight (counts, the first allowed date, the WINDOW FINGERPRINT); the ONE read
+    (--architect-word, --window-fingerprint); --record-verdict PASS|REJECT --ruling (B1). Every refusal prints REFUSED
+    and exits 2 with nothing reserved, in src/walters/leagues_read.py's order; a failure after the reservation says the
+    read is spent (the reservation stands; released only by the architect's ruling) and records nothing. The read
+    records registry.record_run (the 60 ids; the result with the opening, the per-id account, the audit, the copy's
+    sha256 and the pages digest): commit docs/registry/ on the laptop/<eid>-run-record branch. Changes no prediction
+    output."""
+    from src.walters import leagues_read as lr
+    from src.walters import registry as reg
+
+    if verdict is not None or ruling is not None:
+        if preflight or word or fingerprint:
+            click.echo("REFUSED: --record-verdict is its own invocation (addendum 447 item 2 B1); nothing recorded")
+            raise SystemExit(2)
+        try:
+            e = lr.record_verdict(code, verdict, ruling)
+        except lr.ReadRefused as err:
+            click.echo(f"REFUSED: {err}")
+            raise SystemExit(2)
+        click.echo(f"  recorded: {e['id']} verdict {e['verdict']['verdict']} at {e['verdict']['at']} · status "
+                   f"{e['status']} (commit docs/registry/ in a PR)")
+        return
+    try:
+        if preflight:
+            if word or fingerprint:
+                raise lr.ReadRefused("--preflight takes no word and no fingerprint; nothing read")
+            for line in lr.preflight_lines(code, db, exports, pages_digest):
+                click.echo(line)
+            return
+        click.echo(f"LEAGUES WINDOW READ · THE ONE READ · {code} · word: {word!r} · window fingerprint {fingerprint!r}")
+        res = lr.run(code, db, exports, pages_digest, word, fingerprint, no_fetch=no_fetch,
+                     echo=lambda line: click.echo(f"  {line}"))
+    except lr.ReadRefused as err:
+        click.echo(f"REFUSED: {err}")
+        raise SystemExit(2)
+    for line in lr.run_lines(res):
+        click.echo(line)
+    try:
+        e = lr.record(res["code"], res)
+    except reg.RegistryError as err:
+        click.echo(f"NOT RECORDED: {err} (the reservation stands: the read is spent)")
+        raise SystemExit(2)
+    click.echo(f"  recorded: {e['run']['n_scored']} ids · sha {e['run']['ids_sha256'][:12]}… · {e['run']['ids_file']} "
+               "(commit docs/registry/ on the laptop/<eid>-run-record branch)")
+
+
 @cli.command("capture-weather-nfl")
 def capture_weather_nfl_cmd():
     """Tracking-only weather capture for upcoming NFL games (N1 phase 1).

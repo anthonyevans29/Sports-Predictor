@@ -1,4 +1,4 @@
-**2026-11-22 — soccer-v23's bar: the first leg made like for like (addendum 443 items 1(c) and 2; #656; #PR).**
+**2026-11-22 — soccer-v23's bar: the first leg made like for like (addendum 443 items 1(c) and 2; #656; #1070).**
 - **Ruling (443 item 1(c), in part):** "FOR EACH of v22's recorded figures, soccer-v23's mean three-way log-loss OVER THE SAME MATCHES is at least 0.0050 below it ... Two recorded figures, so two comparisons. With the re-walked comparison on the whole pot, which does not change, THREE. PASS iff ALL THREE hold."
 - **What landed:**
   - BAR_TEXT quotes 1(c) and is re-pinned.

@@ -1,4 +1,4 @@
-## 2026-11-22 (#PR: 443-v23-bar-like-for-like — soccer-v23's first leg made like for like: three comparisons with two recorded figures (ARCHITECT 2026-11-21 18:57 ET, addendum 443 items 1(c) and 2; GATE-CLASS; lane soccer-v23, #656))
+## 2026-11-22 (#1070: 443-v23-bar-like-for-like — soccer-v23's first leg made like for like: three comparisons with two recorded figures (ARCHITECT 2026-11-21 18:57 ET, addendum 443 items 1(c) and 2; GATE-CLASS; lane soccer-v23, #656))
 - **The bar (`BAR_TEXT`, the spec's §6):**
   - It cites addendum 443 item 1(c) beside 251 item 2 and quotes 1(c) whole.
   - PASS iff soccer-v23's mean three-way log-loss is at least 0.0050 below v22's re-walked figure on the pot AND below EACH recorded figure over that figure's own matches. With two recorded figures that is three comparisons. A tie, or any difference under 0.0050, on any one REJECTS.

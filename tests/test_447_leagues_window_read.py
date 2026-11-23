@@ -45,7 +45,7 @@ WORD = "ARCHITECT test word (tests only)"
 
 def _entry(code="SA", **kw):
     base = {"test_set": f"{code} 2026/27 window (tests only)", "candidate": "v22 frozen (tests only)",
-            "status": "declared", "run": None}
+            "status": "declared", "run": None, "confirmation_plan": dict(lw.RULED_PLAN)}   # 448 item 2: as stored
     return decl(code, **{**base, **kw})
 
 
@@ -212,6 +212,22 @@ def test_the_entry_refuses_absent_run_ruled_or_reserved(world, ledger):
     Path(lr.reservation_path("leagues-sa-v1")).write_text(json.dumps({"started_at": "2026-12-01T00:00:00Z"}))
     with pytest.raises(lr.ReadRefused, match="it is spent"):
         _pre(world)
+
+
+@pytest.mark.parametrize("plan", [None, {**lw.RULED_PLAN, "bar": 0.95}, {**lw.RULED_PLAN, "n_games": 60.0},
+                                  {k: v for k, v in lw.RULED_PLAN.items() if k != "reference"}])
+def test_448_2b_the_read_refuses_an_entry_whose_stored_plan_is_not_the_ruled_plan(world, ledger, tmp_path, plan):
+    """ARCHITECT 2026-11-22, addendum 448 item 2(b) ("the leagues read refuses an entry whose stored plan is not the
+    ruled plan, so a checkout without PR 2 cannot carry a null back to main"), the call placed by addendum 459 item
+    2(a): the preflight and the read both refuse at the entry, before the copy is opened; nothing is reserved."""
+    ledger(_entry(confirmation_plan=plan))
+    with pytest.raises(lr.ReadRefused, match="not the ruled plan .* addendum 448 item 2"):
+        _pre(world)
+    with pytest.raises(lr.ReadRefused, match="not the ruled plan"):
+        _run(world, "f" * 64)
+    assert not os.path.lexists(lr.reservation_path("leagues-sa-v1"))
+    ledger(_entry())                                                         # the ruled plan: the entry is taken
+    assert lr.check_entry("SA")["confirmation_plan"] == lw.RULED_PLAN
 
 
 def test_the_copy_fence_refuses_a_sidecar_and_a_missing_file(world):

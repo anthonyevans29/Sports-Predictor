@@ -4,5 +4,5 @@
   - The fence while confirming, at one site; it lifts after a REJECT and once the confirmation is recorded either way.
   - `record_confirmation` checks the stored plan and bounds the first game by the opening's kickoff, as strings to the second with the Z.
   - The five plans, by direct edit, and each note's one added sentence, verbatim.
-  - The ruled-plan refusal for the leagues read.
-- **Next:** the adversarial review, then the stop rule. The wiring of the refusal into `leagues_read` follows #1075 onto main. It merges before any leagues verdict is recorded (447 item 4).
+  - The ruled-plan refusal, called by the leagues read at its entry check (459 item 2(a)).
+- **Next:** the stop rule's rounds, then the architect's read of the PR whole (459 item 2). It merges before any leagues verdict is recorded (447 item 4).

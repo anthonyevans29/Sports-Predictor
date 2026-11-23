@@ -142,7 +142,8 @@ def _started_at(p: str) -> str:
 
 
 def check_entry(code: str) -> dict:
-    """The declared entry, refused when absent, run, ruled, or its reservation present (the read is spent)."""
+    """The declared entry, refused when absent, run, ruled, holding a stored plan that is not the ruled plan (448 item
+    2(b): a checkout without it cannot carry the entry back to main), or its reservation present (the read is spent)."""
     eid = lw.DECLARATION_IDS[code]
     try:
         e = lw.declaration(code)
@@ -154,6 +155,9 @@ def check_entry(code: str) -> dict:
         raise ReadRefused(f"{eid}: a run is recorded ({e['run'].get('run_at', '?')}): the one read is spent")
     if e.get("verdict"):
         raise ReadRefused(f"{eid}: a verdict is recorded: the one read is spent")
+    why = lw.plan_refusal(e)          # ARCHITECT 2026-11-22, addendum 448 item 2(b); the call, addendum 459 item 2(a)
+    if why:
+        raise ReadRefused(f"{why}; nothing read")
     p = reservation_path(eid)
     if os.path.lexists(p):
         raise ReadRefused(f"{eid}: the one read was started at {_started_at(p)} ({os.path.relpath(p)}): it is spent, "

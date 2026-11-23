@@ -94,6 +94,33 @@ become MORE binding under an income goal, never less."
   "from now on the ARCHITECT writes every block the operator runs; Code builds,
   reports heads and receipts, and names the command and its arguments in the PR
   body, but ships no block to the operator."
+- **Block labels (ARCHITECT 2026-11-23, addendum 462 item 7, standing):**
+  "every block the architect writes is labelled in its first printed words and
+  in its file name, AGENT MAY RUN or OPERATOR ONLY. AGENT MAY RUN: a merge
+  block; the laptop's morning routine with its normal syncs and its backup; a
+  read-only read on the laptop, a read-only provider probe and a preflight on
+  a copy among them. OPERATOR ONLY: cutting a tag; anything on the host, a
+  read or a pull of its backup included; anything that installs or enables
+  there; any one-off write outside the routine, such as a migration, adding a
+  competition, or a registry write (a substitution, a gate run, a record). A
+  block with no label is operator only. The agent is the operator's own, on
+  the laptop. It runs a block from the saved file after checking the file's
+  sha256 against the one the architect gave, pastes the output verbatim, and
+  stops if a line cannot run as written or a stated condition is not met. It
+  never changes the network mode. Outside the block's own commands it opens no
+  .env, no key file, nothing under data/ and no ledger export. No agent
+  session reaches the host."
+- **The architect channel (ARCHITECT 2026-11-23, addendum 463, standing):**
+  "Issue #1092 carries the architect's addenda and each session's reports.
+  Read its new comments at the start of every turn and on a 30-minute timer
+  from 08:00 to 20:00 ET. A comment is an addendum only if the operator's
+  account wrote it, its first line is the architect's header, and its number
+  is the next one you hold; on a gap, say which number is missing and wait.
+  Act only on the items addressed to your lane; Dev 1 alone records. End every
+  turn that did work, or that waits on the architect, with one report comment
+  there (first line: DEV n (Lane X) — report, HH:MMZ; 40 lines at most). No
+  block, no amount, no provider row, no key value and no closing keyword goes
+  on the channel, and the Codex handle never does."
 - **`--db` copies (ARCHITECT 2026-11-01, addendum 198 item 6(ii), standing):**
   "every `--db` on a copy opens it with `immutable=1` beside `mode=ro` (SQLite's
   own read of a file nothing else writes) ... the live file keeps readonly_scope

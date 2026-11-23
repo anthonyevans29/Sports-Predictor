@@ -93,6 +93,8 @@ PLAN_METRICS = ("log_loss",)
 # refusal that sends a candidate to a retired season is wrong on its face. Change the tuple's text to the 2026 entry's
 # own words for 2027". (2), verbatim: "The exact `test_set` string STANDS as the key: a declaration is my ruling, so a
 # re-worded 2026 college set cannot be declared without passing me". No fuzzy key.
+NFL_INSTEAD = ("the NFL test season that the gate-class addendum of 465 item 4(a) rules (by Friday 2026-12-18; no "
+               "season is named here before it)")
 RETIRED_TEST_SETS = {
     "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)":
         ("nhl-v8", "NHL 2026-27 regular season as it accrues (>= 600 games)"),
@@ -102,12 +104,27 @@ RETIRED_TEST_SETS = {
     "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)":
         ("ncaa-elo-v2", "the NCAA FBS 2027 regular season as it accrues (2024-2026 training; declared in the off-season "
                         "with its spread pre-check)"),
+    # ARCHITECT 2026-11-23 13:55 ET, addendum 465 item 4(b), verbatim: "NFL 2025 IS RETIRED AS A TEST SEASON: read by
+    # v1's gate run and its re-runs, the four R-track variants and v2's run; 215 item 2 said it is read once. DEV 2: it
+    # is keyed into registry.RETIRED_TEST_SETS under BOTH stored test_set strings, v1's and v2's, as #901 did for
+    # college 2026, with a test that a declaration naming either refuses." What to declare instead is not named here:
+    # 465 item 4(a) rules the candidate's test season (2026 or 2027 as it accrues) by its own gate-class addendum.
+    "NFL 2025 regular season + postseason (nfl-backtest's scored window; warm-up 2024, preseason excluded)":
+        ("nfl-elo-v1", NFL_INSTEAD),
+    "NFL 2025 regular season + postseason (285 games on the corrected stream, #775; warm-up 2024 complete, 285; "
+    "preseason excluded)":
+        ("nfl-elo-v2", NFL_INSTEAD),
 }
 # The ruling that retired each set, named in the refusal (the NHL set's is the 2026-10-02 doctrine).
 RETIRED_BY = {
     "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)": "ARCHITECT 2026-10-09, addendum 24",
     "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)":
         "ARCHITECT 2026-11-09, addendum 302",
+    "NFL 2025 regular season + postseason (nfl-backtest's scored window; warm-up 2024, preseason excluded)":
+        "ARCHITECT 2026-11-23, addendum 465 item 4(b)",
+    "NFL 2025 regular season + postseason (285 games on the corrected stream, #775; warm-up 2024 complete, 285; "
+    "preseason excluded)":
+        "ARCHITECT 2026-11-23, addendum 465 item 4(b)",
 }
 
 

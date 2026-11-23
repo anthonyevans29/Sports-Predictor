@@ -145,8 +145,11 @@ become MORE binding under an income goal, never less."
   Predictions are a LAPTOP duty (PHASE B negative, 2026-09-29); the host
   keeps MLB history from the api-sports fallback (PHASE A).
   mlb-pitchers-v1 (the as-of pitcher layer) ran once 11-06 and was
-  REJECTED (OFF − ON 0.0014 vs the 0.0050 bar; addendum 266); the layer
-  stays off; the finding goes to the 2027 model.
+  REJECTED (OFF − ON 0.0014 vs the 0.0050 bar; addendum 266); the as-of
+  layer was never live; the live path's snapshot-fed pitcher layer, on
+  through 2026 (#746), is RETIRED before 2027 by 190 item 4 (addendum
+  469); the 2027 model is the pitcher-less arm; the as-of finding goes to
+  the 2027 candidate.
 - **Soccer**: soccer_elo_poisson **v22** on the 16,546-match / 24-comp
   pot; PL predictions live; positive-edge cohort (>=+5pp vs market) is
   6/16 — big anti-market edges are ANTI-PREDICTIVE; n=30 pre-committed

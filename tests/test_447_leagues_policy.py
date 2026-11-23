@@ -397,3 +397,27 @@ def test_with_an_opening_a_confirmation_still_needs_a_recorded_pass(tmp_path, ve
     with pytest.raises(reg.RegistryError, match="needs a recorded PASS verdict"):
         reg.record_confirmation("x-v1", list(range(1, 61)), _res("2026-12-08T00:00:00Z"), "r", str(p),
                                 str(tmp_path / "ids"))
+
+
+# ----------------------------------------------- ARCHITECT 2026-11-23, addendum 464 item 2(d): the minimum datetime --
+
+def test_464_2d_an_opening_at_the_minimum_datetime_is_no_opening_in_the_window(ledger):
+    """An opening stored as 0001-01-01T00:00:00Z has the form and a calendar instant, but no instant before it to cut
+    at (datetime.min - 1 microsecond overflows): the window reads it as no opening, the fence from declared_at (law 4),
+    and every consumer reads the fence without an error."""
+    low = {"kickoff": reg.OPENING_MIN, "match_id": 4242}
+    assert reg._instant_z(low["kickoff"]) and lw.parse_instant(low["kickoff"]) == datetime.min
+    ledger(_entry(status="confirming", verdict=PASS, opening=low))
+    assert lw.opening(lw.declaration("SA")) is None
+    assert lw.fence_cutoff("SA", SEASON) == lw.parse_instant(AT)
+    assert "no readable opening" in lw.fence_refusal("SA", SEASON)
+    assert sx.guards_backtest("SA", SEASON) == lw.fence_refusal("SA", SEASON)
+
+
+def test_464_2d_record_confirmation_refuses_an_opening_at_the_minimum_datetime(tmp_path):
+    p = _confirming_file(tmp_path, opening={"kickoff": reg.OPENING_MIN, "match_id": 4242})
+    before = open(p).read()
+    with pytest.raises(reg.RegistryError, match="not start earlier than the opening"):
+        reg.record_confirmation("x-v1", list(range(1, 61)), _res("2026-12-08T00:00:00Z"), "r", p,
+                                str(tmp_path / "ids"))                  # a first game after it: still refused
+    assert open(p).read() == before

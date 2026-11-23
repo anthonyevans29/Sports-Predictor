@@ -3,6 +3,7 @@
   - **The fence while confirming (447 C2; 448 item 1(a), one site):** while an entry is `confirming`, `fence_cutoff` returns the opening's kickoff less one microsecond. Every consumer's "after the cut" therefore fences every game at or after the opening's kickoff. The opening is the 60th member's kickoff and id, `run.result.confirmation_opens_after`, read by `opening()`.
     - A confirming entry with no readable opening keeps the window's own fence (law 4). Its refusal and its print say so; they never say the verdict is unrecorded or that the fence holds from the opening.
     - `opening()` reads an opening only in the form the registry compares: kickoff to the second with the Z, and an integer match id.
+    - An opening at the minimum datetime (`0001-01-01T00:00:00Z`) is no opening in the window, because there is no instant before it to cut at, and the registry refuses it (`OPENING_MIN`; ARCHITECT 2026-11-23, addendum 464 item 2(d)).
     - The confirming case has its own refusal wording, naming the opening as inclusive and printing it whole.
   - **After the confirmation is recorded (448 item 1(b))** the fence lifts, CONFIRMED or NOT_CONFIRMED, as after a REJECT.
   - **The print and the module docstring** say so (448 item 1(c)).

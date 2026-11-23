@@ -465,6 +465,11 @@ def freeze_confirmation_cohort(eid: str, cohort_ids: list[int], basis: dict,
 INSTANT_Z = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 
+# ARCHITECT 2026-11-23, addendum 464 item 2(d): an opening at the minimum datetime is refused, as the window reads it
+# as no opening (leagues_window.opening); a cut one microsecond before it does not exist.
+OPENING_MIN = "0001-01-01T00:00:00Z"
+
+
 def _instant_z(v) -> bool:
     """INSTANT_Z's form AND a real calendar instant (2026-99-40T25:00:00Z has the form and is no instant)."""
     if not isinstance(v, str) or not INSTANT_Z.fullmatch(v):
@@ -522,8 +527,8 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
                                 f"{e.get('verdict')!r}")
         o_at = opening.get("kickoff") if isinstance(opening, dict) else None
         mid = opening.get("match_id") if isinstance(opening, dict) else None
-        if (not _instant_z(first) or not _instant_z(o_at) or isinstance(mid, bool) or not isinstance(mid, int)
-                or first < o_at):
+        if (not _instant_z(first) or not _instant_z(o_at) or o_at == OPENING_MIN or isinstance(mid, bool)
+                or not isinstance(mid, int) or first < o_at):
             raise RegistryError(f"{eid}: confirmation games must not start earlier than the opening (the 60th "
                                 f"member's kickoff {o_at!r}, match {mid!r}; each written to the second with the Z, "
                                 f"the match id an integer); first_game_at {first!r}")

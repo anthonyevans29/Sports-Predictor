@@ -426,7 +426,9 @@ def opening(e: dict | None) -> tuple[datetime, int] | None:
     if not isinstance(text, str) or not INSTANT_Z.fullmatch(text) or isinstance(mid, bool) or not isinstance(mid, int):
         return None
     ko = parse_instant(text)                 # the form's shape is not a date: 2026-99-40T25:00:00Z reads as none
-    return None if ko is None else (ko, mid)
+    if ko is None or ko == datetime.min:     # 464 item 2(d): the minimum datetime has no instant before it to cut at
+        return None
+    return ko, mid
 
 
 def fence_refusal(code, season=None, through: datetime | None = None) -> str | None:

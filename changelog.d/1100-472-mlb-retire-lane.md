@@ -1,4 +1,4 @@
-## 2026-11-23 (#000: 472-mlb-retire-lane — the roadmap gains lane mlb-retire on #746, as addendum 472 item 1 rules it)
+## 2026-11-23 (#1100: 472-mlb-retire-lane — the roadmap gains lane mlb-retire on #746, as addendum 472 item 1 rules it)
 - **The lane (472 item 1; 469 item 4(b)):** mlb-retire, "MLB: the snapshot pitcher layer retired from the live path (addendum 469)", issue 746, registry_id null, competitions MLB, state declared, earliest_live null, vs_close "not a model lane: none". Two steps, owner code: the plan of 469 item 3(a) on #746, due 2026-12-04; the live MLB path prices pitcher-less, the OFF arm (469 item 3(b)), due 2026-12-18. live_needs quotes 469 items 2(a) and 3(b) and 472 item 1's sentence, verbatim: "It merges and is tagged before the first 2027 MLB price."
 - **Unchanged:** lane mlb-pitchers stays closed, every step done; no existing date moves, so no moved line.
 - Nothing here moves a bar or a held timer. Nothing changes a prediction output.

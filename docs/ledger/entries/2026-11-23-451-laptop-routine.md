@@ -131,4 +131,18 @@
 - **The two pins (451 item 3(f) 17; 461 item 2):** tests/test_mlb_retire_orphans.py::test_never_inside_the_watch and tests/test_host_watch_after_flip.py::test_c_one_switch_the_cutover_pr_turns_off_and_the_pinned_routes_stay_shut both pass on the amended module, unedited. The refusal's function, desk_policy.not_laptop_reason(), shipped first as its own small PR (#1091, 461 item 2(e)).
 - **Tests:** tests/test_laptop_routine.py. cli.py never runs: the process call is faked, and the two timeout tests (461 item 4) run a `python -c` child that sleeps (one with SIGTERM trapped) under a limit of one second. The refusal's test reads not_laptop_reason on each of its four answers. Real `python -c` children also cover the drain: a sync whose last line is its count line, behind a slow console; the routine's own read error; and a pipe held open by a grandchild. A checkout `.env` that is not UTF-8 (redact raising) on the three error paths: the role read raising (refused, exit 2, one receipt on a real run, none on a dry run), the weekly list's refusal (exit 2), and a step that cannot start (not started, the next step runs).
 - **Docs:** README.md's laptop routine and docs/specs/h2-cutover-runbook.md's standing routine are rewritten (item 3(f) 15) for 16 steps, the dry run in the block, the limits and the exits. docs/CLI.md gains a row.
+- **Addendum 479 item 1 (ARCHITECT 2026-11-23 17:17 ET), verbatim:**
+
+  > 1. #1096's ROUND-TWO P2 (thread 4672345335; your report of 22:05Z), READ. The finding is right and your
+  >    reading of it is the larger finding: ten of the twelve commands the routine runs can end a real
+  >    failure with exit 0. RULED: IT DOES NOT BLOCK #1096. Your option (a), with one addition:
+  >    (a) THE DOCS say the routine counts exits, not outcomes, and name the ten commands and the kind of
+  >        failure each lets through, as your thread lists them.
+  >    (b) THE ROUTINE SAYS IT TOO, where it is read: its last printed line, after the counts, reads
+  >        "exits counted, not outcomes: a step that exits 0 may still have failed (see #N)", N the
+  >        Issue of item 2. One line, no logic. That and (a) are your one round-three change.
+  >    (c) Until item 2 is ruled I go on reading each step's own lines in the console, as I do now; the
+  >        routine's count is a count of exits and I treat it as one.
+
+- **As built (479 item 1, round three):** the module's docstring, README.md, docs/CLI.md and docs/specs/h2-cutover-runbook.md say the routine counts exits, not outcomes, and name the ten commands (the docstring with the kind of failure each lets through, as thread 4672345335 lists them; #1102 holds the lines). The run's last printed line, after the counts, is `EXITS_NOTE`, the item's words with N = #1102. One line, no logic; a dry run prints no counts and no note. No exit is changed.
 - **Next:** review by the stop rule as ops tooling (451 item 3(h)); a reviewable head by Monday 2026-11-30 (461 item 4). Until it merges the architect writes the morning block by hand from 451 item 3(d), all 17 steps (461 item 5). The architect's block calls the command. Code ships no block (198 item 6(i)).

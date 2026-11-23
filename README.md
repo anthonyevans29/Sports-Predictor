@@ -153,7 +153,14 @@ step runs. Exits (461 item 3(d)): 0 when every step is clean or its exit is
 marked routine and every receipt is written; 1 when a step failed, timed
 out, could not start, or went unreceipted (a step whose output could not be
 read whole included: "unreceipted in 461 item 3(d)'s sense; the run exits 1
-and the receipt says why", addendum 469 item 5(2)); 2 for the refusal. The architect's block
+and the receipt says why", addendum 469 item 5(2)); 2 for the refusal. It counts
+exits, not outcomes (addendum 479 item 1; finding #1102): ten of the twelve
+commands can end a real failure with exit 0 (`sync-kalshi`,
+`sync-kalshi-atp`, `sync-kalshi-wta`, `export-results`, `sync-matches`,
+`sync-teams`, `improve`, `dedupe-matches`, `nhl-goalie-sync`,
+`results-tally`; the module's docstring names the kind of failure each lets
+through), so its last line, after the counts, reads "exits counted, not outcomes: a step that exits 0 may still
+have failed (see #1102)". The architect's block
 keeps the rest (451 item 3(c)): the backup, first (the command is not
 called if it failed), then `coverage`, then the command; the MLB orphan
 dry run (`retire-orphans`, no `--apply`), by hand, after the command returns

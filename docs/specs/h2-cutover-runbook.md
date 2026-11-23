@@ -497,6 +497,12 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
       routine, and every receipt is written; 1 when a step failed, timed out, could not start or went unreceipted (a
       step whose output could not be read whole included: "unreceipted in 461 item 3(d)'s sense; the run exits 1 and
       the receipt says why", addendum 469 item 5(2)); 2 for the refusal, nothing run.
+      IT COUNTS EXITS, NOT OUTCOMES (ARCHITECT 2026-11-23, addendum 479 item 1; finding #1102): a step that exits 0
+      may still have failed. Ten of the twelve commands can end a real failure with exit 0: `sync-kalshi`,
+      `sync-kalshi-atp`, `sync-kalshi-wta`, `export-results`, `sync-matches`, `sync-teams`, `improve`,
+      `dedupe-matches`, `nhl-goalie-sync` and `results-tally` (the module's docstring names what each lets through), so the run's last line, after the counts, reads "exits counted, not
+      outcomes: a step that exits 0 may still have failed (see #1102)". The architect reads each step's own lines in
+      the console (479 item 1(c)); no exit is changed (479 item 2).
    4. **The MLB orphan dry run:** `retire-orphans --competition MLB --season 2026` (no `--apply`), by hand, in the
       block, after the command returns (461 item 2(a); no file under deploy/hosting names it). Five MLB steps stay in the command through the off-season, and this sixth is the
       architect's (451 item 3(f) 7, amended).

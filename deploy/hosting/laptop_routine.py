@@ -27,10 +27,28 @@ WHAT IT DOES (451 item 3(b), as 461 items 2 and 3 amend it):
 - First line: the UTC dates it resolved. The step's own output streams indented ("  | "), then ONE line per step:
   its number, the command, its exit, its seconds; for a sync step (a command starting "sync-", and nhl-goalie-sync,
   step 13), its own lines of counts and any orientation, refusal, collision, skipped-listing or held line follow it,
-  each "    > ". Last line: steps run, steps failed (461 item 3(a): a non-zero exit, a timed-out step and a step that
+  each "    > ". Then the counts line: steps run, steps failed (461 item 3(a): a non-zero exit, a timed-out step and a step that
   could not start are each a failed step; the last two have exit null), and non-zero exits (then steps timed out and
   steps not started, when any; routine exits counted apart; steps whose output is not whole, and receipts not
-  written, when any).
+  written, when any). After the counts, one more line, always, the run's last (479 item 1(b)): EXITS_NOTE, "exits
+  counted, not outcomes: a step that exits 0 may still have failed (see #1102)". One line, no logic.
+- THE ROUTINE COUNTS EXITS, NOT OUTCOMES (ARCHITECT 2026-11-23, addendum 479 item 1(a); finding #1102). A step that
+  exits 0 may still have failed: ten of the twelve commands of the list can end a real failure with exit 0, each read
+  in cli.py and src/ (#1102 holds the lines):
+    sync-kalshi: an exception, an ok:false result, and a market fetch that failed (it reads as "no open markets");
+    sync-kalshi-atp and sync-kalshi-wta: a status read that failed, a listing refusal, no competition row;
+    export-results: an export error prints "✗ Results export failed", no file is written;
+    sync-matches: a missing competition row; rows an adapter drops before counting (no team id, a date it cannot
+      read); listings whose clubs are not in the DB and SP_SYNC_HOLD are ruled exit 0 (204 item 3(c), 332 item 3);
+    sync-teams: a missing competition row, after the provider call is spent;
+    improve: a holdout under 30 games, or a model it cannot score, reads as REJECTED;
+    dedupe-matches (the dry run): a provider lookup that failed is planned "unresolved", and a team with no
+      provider id is planned "orphan";
+    nhl-goalie-sync: a 200 with an empty body, or with no games in it, reads as no games (refused boxscores are
+      ruled exit 0, 389 item 3(e); a non-200 answer, or a body that is not JSON, does exit non-zero);
+    results-tally: five sections write "Grade unavailable." and go on; an unreadable closing file is dropped.
+  evaluate and export-fixtures exit non-zero on every real failure. The architect reads each step's own lines in the
+  console (479 item 1(c)); no exit is changed (479 item 2).
 - A step whose non-zero exit is routine carries those exits in the list (Step.routine) and is counted apart. READ FROM
   cli.py (law 1): `improve --sport mlb --hold-on-pass` gives a rejection NO non-zero exit. improve_cmd prints
   "✓ Candidate <v>: REJECTED" (or HELD, or PROMOTED) and returns, exit 0; its one SystemExit is 2 for
@@ -41,7 +59,7 @@ WHAT IT DOES (451 item 3(b), as 461 items 2 and 3 amend it):
   sp_common.append_receipt as it is (SP_RECEIPTS, else the checkout's logs/receipts.jsonl). A step that could not start
   is receipted with exit null (law 4: no exit is invented) and `not_started` naming why. A receipt that cannot be
   written (append_receipt raised) is printed ("receipt NOT written: ...", the error's class name alone when redacting it
-  raises too) and the run goes on; the run receipt lists those steps and the last line counts them. A step whose output
+  raises too) and the run goes on; the run receipt lists those steps and the counts line counts them. A step whose output
   the routine could not read whole (its own error while reading, "output not read: ...", or a pipe still open after the
   step ended, "output not drained: ...") is printed and receipted so (output_error), never as a timeout: the child's
   exit stands, the pipe is still drained, and the run exits 1. RULED (ARCHITECT 2026-11-23 15:20 ET, addendum 469 item
@@ -133,6 +151,8 @@ WEEKLY_EXCLUDED = ("MLB", "ATP", "WTA", "WC", "NCAA")   # item 3(e): "except MLB
 # RULED (ARCHITECT 2026-11-23 15:20 ET, addendum 469 item 5(1)): "THE LIMIT IS EACH COMMAND'S, AS BUILT: 2,400 s for
 # each command of a weekly line and 1,200 s for each command of a daily step." So WEEKLY_LINE_LIMIT is given to each of
 # a weekly line's two commands, and DAILY_STEP_LIMIT to each command of steps 14 and 15.
+# 479 item 1(b), verbatim, N the Issue of its item 2: the run's last printed line, after the counts.
+EXITS_NOTE = "exits counted, not outcomes: a step that exits 0 may still have failed (see #1102)"
 DAILY_STEP_LIMIT = 1200
 WEEKLY_LINE_LIMIT = 2400
 KILL_GRACE = 10
@@ -427,7 +447,7 @@ def _exit_text(rc) -> str:
 def _receipt(rec: dict) -> str | None:
     """sp_common.append_receipt(rec), as it is; a write that raises (a full disk, a read-only logs/, an SP_RECEIPTS
     naming a directory) is printed on its own line and returned as its text, never raised: the run goes on (item
-    3(b)) and its last line counts it."""
+    3(b)) and its counts line counts it."""
     try:
         c.append_receipt(rec)
         return None
@@ -597,6 +617,7 @@ def main(argv=None) -> int:
     print(f"{'✓' if code == 0 else '✗'} laptop-routine: steps run {r['ran']}/{len(steps)} · failed {failed_n} · "
           f"non-zero exits {len(r['failed'])}{failed}{timed}{unstarted} · routine exits {len(r['routine'])}{routine}"
           f"{unread}{unwritten}", flush=True)
+    print(EXITS_NOTE, flush=True)
     return code
 
 

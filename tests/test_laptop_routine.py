@@ -212,6 +212,13 @@ def test_improve_gives_a_rejection_no_non_zero_exit_so_no_step_is_marked():
     assert all(st.routine == frozenset() for st in lr.DAILY)
 
 
+def counts_and_note(out):
+    """479 item 1(b): the run's last printed line is EXITS_NOTE, after the counts; returns the counts line."""
+    assert out[-1] == lr.EXITS_NOTE == ("exits counted, not outcomes: a step that exits 0 may still have failed "
+                                        "(see #1102)")
+    return out[-2]
+
+
 def test_a_routine_exit_is_counted_apart(box, monkeypatch, capsys):
     steps = [lr.Step("1", ("evaluate", "--sport", "mlb")), lr.Step("2", ("improve", "--sport", "mlb"),
                                                                    routine=frozenset({3})),
@@ -221,7 +228,7 @@ def test_a_routine_exit_is_counted_apart(box, monkeypatch, capsys):
     assert lr.main([]) == 0
     out = capsys.readouterr().out.splitlines()
     assert "2 · python cli.py improve --sport mlb · exit 3" in "\n".join(out)
-    assert out[-1] == "✓ laptop-routine: steps run 3/3 · failed 0 · non-zero exits 0 · routine exits 1 · 2 exit 3"
+    assert counts_and_note(out) == "✓ laptop-routine: steps run 3/3 · failed 0 · non-zero exits 0 · routine exits 1 · 2 exit 3"
     run = receipts(box.tmp)[-1]
     assert run["routine_exits"] == [{"step": "2", "command": "python cli.py improve --sport mlb", "exit": 3}]
     assert run["nonzero"] == [] and run["exit"] == 0
@@ -357,7 +364,7 @@ def test_a_failing_step_does_not_stop_the_next(box, capsys):
     assert out[j + 1:j + 4] == ["    > ✓ Players (WTA, as teams): created=0 updated=0 skipped=0",
                                 "    > ✗ WTA: a cursor left", "    last line: ✗ WTA: a cursor left"]
     assert "  | plain progress" in out                                          # the step's own output streams
-    assert out[-1] == ("✗ laptop-routine: steps run 26/26 · failed 2 · non-zero exits 2 · 5 exit 1 · 14.2 exit 1 · "
+    assert counts_and_note(out) == ("✗ laptop-routine: steps run 26/26 · failed 2 · non-zero exits 2 · 5 exit 1 · 14.2 exit 1 · "
                        "routine exits 0")
     rs = receipts(box.tmp)
     steps = [r for r in rs if r["kind"] == "step"]
@@ -386,7 +393,7 @@ def test_a_step_that_cannot_start_is_a_failed_step_with_exit_null_and_the_next_r
     monkeypatch.setattr(lr, "_popen", popen)
     assert lr.main([]) == 1 and seen == ["evaluate", "results-tally"]
     out = capsys.readouterr().out
-    assert "1 · python cli.py evaluate --sport mlb · exit ?" in out and out.rstrip().splitlines()[-1] == (
+    assert "1 · python cli.py evaluate --sport mlb · exit ?" in out and counts_and_note(out.rstrip().splitlines()) == (
         "✗ laptop-routine: steps run 2/2 · failed 1 · non-zero exits 0 · not started 1 · 1 · routine exits 0")
     run = receipts(box.tmp)[-1]
     assert run["nonzero"] == [] and run["steps_failed"] == 1 and run["not_started"] == [
@@ -444,8 +451,8 @@ def test_a_receipt_that_cannot_be_written_never_stops_the_next_step(box, monkeyp
     out = capsys.readouterr().out.splitlines()
     i = out.index(next(x for x in out if x.startswith("3 · python cli.py improve ")))
     assert out[i + 1] == "    receipt NOT written: OSError: [Errno 28] No space left on device"
-    assert out[-1] == ("✗ laptop-routine: steps run 26/26 · failed 0 · non-zero exits 0 · routine exits 0 · receipts "
-                       "not written 1 · 3")
+    assert counts_and_note(out) == ("✗ laptop-routine: steps run 26/26 · failed 0 · non-zero exits 0 · routine "
+                                    "exits 0 · receipts not written 1 · 3")
     rs = receipts(box.tmp)
     assert [r["step"] for r in rs if r["kind"] == "step"] == [lab for lab, _ in EXPECTED if lab != "3"]
     assert rs[-1]["kind"] == "laptop_routine" and rs[-1]["exit"] == 1
@@ -462,9 +469,9 @@ def test_a_run_receipt_that_cannot_be_written_still_prints_the_last_line(box, mo
     monkeypatch.setattr(lr.c, "append_receipt", no_run)
     assert lr.main([]) == 1
     out = capsys.readouterr().out.splitlines()
-    assert out[-2] == "    receipt NOT written: PermissionError: read-only logs"
-    assert out[-1] == ("✗ laptop-routine: steps run 26/26 · failed 0 · non-zero exits 0 · routine exits 0 · receipts "
-                       "not written 1 · run")
+    assert out[-3] == "    receipt NOT written: PermissionError: read-only logs"
+    assert counts_and_note(out) == ("✗ laptop-routine: steps run 26/26 · failed 0 · non-zero exits 0 · routine "
+                                    "exits 0 · receipts not written 1 · run")
 
 
 def test_a_reason_read_that_raises_is_refused_exit_2_nothing_run(box, monkeypatch, capsys):
@@ -604,7 +611,7 @@ def test_a_step_that_cannot_start_while_redact_raises_is_not_started_and_the_nex
     monkeypatch.setattr(lr, "_popen", popen)
     assert lr.main([]) == 1 and seen == ["evaluate", "results-tally"]
     out = capsys.readouterr().out.rstrip().splitlines()
-    assert out[-1] == ("✗ laptop-routine: steps run 2/2 · failed 1 · non-zero exits 0 · not started 1 · 1 · routine "
+    assert counts_and_note(out) == ("✗ laptop-routine: steps run 2/2 · failed 1 · non-zero exits 0 · not started 1 · 1 · routine "
                        "exits 0")
     step1, step2, run = receipts(box.tmp)
     assert step1["exit"] is None and step1["not_started"] == "could not start: FileNotFoundError"
@@ -701,7 +708,7 @@ def test_a_timed_out_step_makes_the_run_exit_1_and_the_last_line_names_it(box, c
     monkeypatch.setattr(lr, "resolve", lambda today, weekly=None: steps)
     assert lr.main([]) == 1 and box.calls == [["results-tally"]]
     out = capsys.readouterr().out.splitlines()
-    assert out[-1] == ("✗ laptop-routine: steps run 2/2 · failed 1 · non-zero exits 0 · timed out 1 · 1 timed out "
+    assert counts_and_note(out) == ("✗ laptop-routine: steps run 2/2 · failed 1 · non-zero exits 0 · timed out 1 · 1 timed out "
                        "after 1 s · routine exits 0")
     run = receipts(box.tmp)[-1]
     assert run["steps_failed"] == 1 and run["not_started"] == []
@@ -760,9 +767,9 @@ def test_the_routines_own_read_error_is_kept_never_a_timeout(box, children, monk
     capsys.readouterr()
     assert lr.main([]) == 1
     out = capsys.readouterr().out.splitlines()
-    assert out[-2] == "    output not read: UnicodeDecodeError"
-    assert out[-1] == ("✗ laptop-routine: steps run 1/1 · failed 0 · non-zero exits 0 · routine exits 0 · output not "
-                       "whole 1 · 1")
+    assert out[-3] == "    output not read: UnicodeDecodeError"
+    assert counts_and_note(out) == ("✗ laptop-routine: steps run 1/1 · failed 0 · non-zero exits 0 · routine exits 0 · "
+                                    "output not whole 1 · 1")
     step, run = receipts(box.tmp)
     assert step["exit"] == 0 and step["output_error"] == "output not read: UnicodeDecodeError"
     assert "timed_out" not in step and run["exit"] == 1
@@ -854,9 +861,9 @@ def test_a_receipt_error_redact_cannot_read_is_named_by_its_class_and_the_run_go
     assert [" ".join(a) for a in box.calls] == [x for _, x in EXPECTED]           # the next step ran, every one
     out = capsys.readouterr().out.splitlines()
     assert out.count("    receipt NOT written: OSError") == len(EXPECTED) + 1      # each step's, then the run's
-    assert out[-1].startswith("✗ laptop-routine: steps run 26/26 · failed 0 · non-zero exits 0 · routine exits 0 · "
+    assert counts_and_note(out).startswith("✗ laptop-routine: steps run 26/26 · failed 0 · non-zero exits 0 · routine exits 0 · "
                               f"receipts not written {len(EXPECTED) + 1} · 1 · 2 · ")
-    assert out[-1].endswith(" · 16 · run")
+    assert counts_and_note(out).endswith(" · 16 · run")
 
 
 def test_the_exits_are_0_1_and_2(box, machine, monkeypatch):
@@ -950,3 +957,25 @@ def test_the_weekly_list_reads_the_checkouts_file_for_a_relative_url(seeded, tmp
     got = lr.weekly_list()
     assert ("PL", "2026/27") in got and len(got) == 8
     assert Path.cwd() == elsewhere and not (elsewhere / seeded.name).exists()
+
+
+def test_the_last_line_says_exits_are_counted_not_outcomes_and_a_dry_run_prints_no_counts(box, monkeypatch, capsys):
+    # 479 item 1(b): "its last printed line, after the counts, reads 'exits counted, not outcomes: a step that exits 0
+    # may still have failed (see #N)'": printed after the counts on a clean run and on a failing one, once
+    steps = [lr.Step("1", ("evaluate", "--sport", "mlb")), lr.Step("2", ("sync-kalshi",))]
+    monkeypatch.setattr(lr, "resolve", lambda today, weekly=None: steps)
+    for rc, code in ((0, 0), (1, 1)):
+        box.answer = staticmethod(lambda argv, rc=rc: (["x"], rc if argv[0] == "sync-kalshi" else 0))
+        assert lr.main([]) == code
+        out = capsys.readouterr().out.splitlines()
+        assert counts_and_note(out).startswith(("✓" if code == 0 else "✗") + " laptop-routine: steps run 2/2")
+        assert out.count(lr.EXITS_NOTE) == 1
+    # the docs name the ten commands, and the two that exit non-zero on every real failure
+    doc = lr.__doc__
+    assert "THE ROUTINE COUNTS EXITS, NOT OUTCOMES" in doc and "#1102" in doc
+    for cmd in ("sync-kalshi:", "sync-kalshi-atp and sync-kalshi-wta:", "export-results:", "sync-matches:",
+                "sync-teams:", "improve:", "dedupe-matches (the dry run):", "nhl-goalie-sync:", "results-tally:",
+                "evaluate and export-fixtures exit non-zero"):
+        assert cmd in doc, cmd
+    assert lr.main(["--dry-run"]) == 0
+    assert lr.EXITS_NOTE not in capsys.readouterr().out

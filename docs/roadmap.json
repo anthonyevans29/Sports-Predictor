@@ -25,13 +25,31 @@
           }
         },
         {
+          "what": "the override table's lines ruled, from two read-only reads (addendum 480 items 1 and 2)",
+          "owner": "architect",
+          "due": "2027-01-08",
+          "done": null
+        },
+        {
+          "what": "PR ONE (#1055) rebuilt on the ruled table, a reviewable head",
+          "owner": "code",
+          "due": "2027-01-22",
+          "done": null
+        },
+        {
+          "what": "PR TWO (#336), the provenance receipt and the read both ways, a reviewable head",
+          "owner": "code",
+          "due": "2027-01-29",
+          "done": null
+        },
+        {
           "what": "the confirmation record, by the architect's block on the laptop from the host's pulled copy (addendum 346)",
           "owner": "operator",
-          "due": "2026-12-01",
+          "due": "2027-02-05",
           "done": null
         }
       ],
-      "earliest_live": "2026-12-01",
+      "earliest_live": "2027-02-05",
       "live_needs": "CONFIRMED, computed by the registry on the cohort of record. Then the INTL Desk policy v0 as built (#325): half units until 30 INTL calls are graded, UNL only.",
       "vs_close": "not read",
       "moved": [
@@ -90,6 +108,22 @@
           "now": "2026-12-01",
           "why": "the verdict and the record stand on the corrected venue flags, with the read reported both ways (addendum 160 item 3; addendum 161 item 2), and neither the keyed venue-country override (160 item 2) nor the both-ways read (159 item 2; #336) is on main: both sit on reference branches of 2026-10-23, never merged, and the record was planned without them (the architect's miss, addendum 426 item 3); the cohort, the plan and the bar untouched",
           "ruling": "ARCHITECT 2026-11-19 08:36 ET, addendum 426 item 3(e) (MOVED LINE, lane unl; two dates, two lines; the step's wording does not change; the lane's state stays confirming)"
+        },
+        {
+          "moved_on": "2026-11-23",
+          "which": "the confirmation record, by the architect's block on the laptop from the host's pulled copy (addendum 346)",
+          "was": "2026-12-01",
+          "now": "2027-02-05",
+          "why": "the corrected flags' source is a ruled table whose lines need two reads and my ruling of 112 ids by name and city; Lane B's December holds the soccer-v23 run, the leagues reads and three dated builds; and by the competition's calendar the next Nations League fixtures are the March 2027 ties, so no call is missed before the new date. The frozen cohort, the bar and the read are untouched, and nothing is computed on a corrected flag before the table is merged.",
+          "ruling": "ARCHITECT 2026-11-23 17:31 ET, addendum 480 item 3 (MOVED LINE, lane unl, verbatim in why from item 3(d); two dates, two lines; item 3(c)'s three steps appended before the record; the step's wording does not change)"
+        },
+        {
+          "moved_on": "2026-11-23",
+          "which": "earliest_live",
+          "was": "2026-12-01",
+          "now": "2027-02-05",
+          "why": "the corrected flags' source is a ruled table whose lines need two reads and my ruling of 112 ids by name and city; Lane B's December holds the soccer-v23 run, the leagues reads and three dated builds; and by the competition's calendar the next Nations League fixtures are the March 2027 ties, so no call is missed before the new date. The frozen cohort, the bar and the read are untouched, and nothing is computed on a corrected flag before the table is merged.",
+          "ruling": "ARCHITECT 2026-11-23 17:31 ET, addendum 480 item 3 (MOVED LINE, lane unl, verbatim in why from item 3(d); two dates, two lines; item 3(c)'s three steps appended before the record; the step's wording does not change)"
         }
       ]
     },

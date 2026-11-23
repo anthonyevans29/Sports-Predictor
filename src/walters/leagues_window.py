@@ -530,8 +530,8 @@ def pages_digest(export_dir) -> dict:
     sha256 in hex, two spaces, the file name, a newline (what sha256sum prints); the lines sorted by file name
     bytewise; the digest is the sha256 of those lines." The pages are export_pages' own: every
     soccer_expansion_shadow_*.json directly in `export_dir` (the same glob). Returns {"digest", "pages", "first",
-    "last"}. REFUSES (WindowRefused, law 4): a folder that is missing or not a folder; no page; a page that is not a
-    regular file or cannot be read; a name holding a backslash, a newline or a carriage return (sha256sum escapes
+    "last"}. REFUSES (WindowRefused, law 4): a folder that is missing or not a folder; no page; a page that is a
+    symbolic link (read by lstat, never followed: #1087), is not a regular file or cannot be read; a name holding a backslash, a newline or a carriage return (sha256sum escapes
     those, so its line would not be the name's bytes). Reads nothing else, writes nothing."""
     import hashlib
     import os
@@ -545,10 +545,17 @@ def pages_digest(export_dir) -> dict:
     if bad:
         raise WindowRefused(f"--exports {export_dir}: a page name sha256sum would escape (a backslash, newline or "
                             f"carriage return): {bad!r}; nothing read")
+    import stat
     lines = []
     for n in names:
         f = d / n
-        if not f.is_file():
+        try:                                 # #1087 (ARCHITECT 2026-11-23, addendum 459 item 1(a), (c)): lstat, so a
+            st = os.lstat(f)                 # page that is a symlink is refused, never followed
+        except OSError as err:
+            raise WindowRefused(f"--exports {export_dir}: {n} cannot be read ({err}); nothing read") from err
+        if stat.S_ISLNK(st.st_mode):
+            raise WindowRefused(f"--exports {export_dir}: {n} is a symbolic link, not a page; nothing read")
+        if not stat.S_ISREG(st.st_mode):
             raise WindowRefused(f"--exports {export_dir}: {n} is not a regular file; nothing read")
         h = hashlib.sha256()
         try:

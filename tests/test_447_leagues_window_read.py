@@ -166,6 +166,48 @@ def test_b2c_the_digest_refuses_a_missing_empty_or_unreadable_folder(tmp_path, c
     assert capsys.readouterr().out.startswith("REFUSED: ")
 
 
+def test_1087_a_page_that_is_a_symbolic_link_is_refused_never_followed(tmp_path, capsys):
+    """#1087 (ARCHITECT 2026-11-23, addendum 459 item 1(a), (c): "lstat in pages_digest"): a page that is a link, to a
+    page of the folder's own or to a file elsewhere, refuses the digest; the folder with the link removed digests."""
+    d = tmp_path / "pages"
+    names = _fixture_pages(d)
+    clean = lw.pages_digest(d)
+    for target in (d / names[0], tmp_path / "elsewhere.json"):
+        if not target.exists():
+            target.write_text((d / names[0]).read_text())
+        link = d / "soccer_expansion_shadow_2026-11-30_090000.json"
+        link.symlink_to(target)
+        with pytest.raises(lw.WindowRefused, match="is a symbolic link, not a page"):
+            lw.pages_digest(d)
+        assert script.main(["--exports", str(d), "--pages-digest"]) == 2
+        assert "is a symbolic link" in capsys.readouterr().out
+        link.unlink()
+    assert lw.pages_digest(d) == clean
+
+
+def test_1087_an_exports_path_under_a_file_or_with_a_refused_stat_is_refused_not_a_traceback(world, tmp_path,
+                                                                                              monkeypatch):
+    """#1087 (459 item 1(b), (c)): "NotADirectoryError as a missing folder and any other OSError a refusal". A path
+    under a regular file reads as missing and the pages check refuses it as not a folder; a stat refused by
+    permissions refuses by name. Both before the reservation: nothing is reserved, nothing written."""
+    f = tmp_path / "a-file"
+    f.write_text("x")
+    assert lr.inside_checkout(f / "pages") is False
+    with pytest.raises(lr.ReadRefused, match="not a folder"):
+        _pre(world, exports=str(f / "pages"))
+    real_stat = os.stat
+    blocked = tmp_path / "blocked"
+
+    def stat(p, *a, **k):
+        if Path(p) == blocked:
+            raise PermissionError(13, "Permission denied", str(p))
+        return real_stat(p, *a, **k)
+    monkeypatch.setattr(lr.os, "stat", stat)
+    with pytest.raises(lr.ReadRefused, match="the folder cannot be checked .PermissionError"):
+        _pre(world, exports=str(blocked / "pages"))
+    assert not os.path.lexists(lr.reservation_path("leagues-sa-v1"))
+
+
 # --------------------------------------------------------------------------------------- the preflight --
 
 def test_the_preflight_prints_counts_the_first_allowed_date_and_the_fingerprint_and_writes_nothing(world,

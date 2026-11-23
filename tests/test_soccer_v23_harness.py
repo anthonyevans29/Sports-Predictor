@@ -1164,7 +1164,7 @@ def test_the_scope_and_first_season_slots_change_the_scored_set():
     assert ids({}) == [1, 2, 3, 5]                                       # the play-off round out, by cause
     assert ids({"first_season": "exclude_as_warmup"}) == [3]             # XX 2024/25 and YY 2025/26: first seasons
     cen = v.stage_census(rows)[("XX", "2025/26")]
-    assert cen == {"regular": 1, "playoff": {"Relegation Round - 1": 1}, "unplaced": {}}
+    assert cen == {"regular": 1, "playoff": {"Relegation Round - 1": 1}, "unplaced": {}, "ruled": {}}   # 456: none
 
 
 def test_the_fingerprint_binds_every_slot():
@@ -2067,7 +2067,10 @@ def test_the_run_record_labels_the_day_rule_residual_and_v22_rewalked_with_the_a
             "  arrivals off the declared pyramid (addendum 263 item 15): 0, each priced on the outside-the-store prior"]
     assert v.record_labels(r) == want
     lines = v.run_lines(r)
-    assert lines[-6:-1] == want and lines[-1].startswith("  VERDICT")
+    assert lines[-7:-2] == want and lines[-1].startswith("  VERDICT")
+    # ARCHITECT 2026-11-23, addendum 456 item 5(d): the labels the ruled table places, marked and counted (none here)
+    assert lines[-2] == ("  stage labels placed by ruling 456 (ARCHITECT 2026-11-23, addendum 456 items 4(a)-(d); the "
+                         "code places the rest itself): 0 row(s) (none in this store)")
     e = v.record(r, "ARCHITECT test word")
     assert e["run"]["result"]["labels"] == want and e["run"]["result"]["aet_pen_rows"] == {"scored": 1, "history": 1}
 
@@ -2078,11 +2081,16 @@ def test_the_labels_on_an_invalid_verdict_and_off_the_day_rule():
     record_labels refuses one loudly should anything else hand it one, never a silent label."""
     r = {"compare": {"verdict": "INVALID", "reason": "empty"}, "walk": {"availability": []}, "rows": 0,
          "stream_fingerprint": "0" * 64, "slots": {**SLOTS, "visibility": "day"}, "aet_pen": {"scored": 0, "history": 2},
-         "thin_excluded": [], "thin_rows": 0, "off_pyramid": []}
+         "thin_excluded": [], "thin_rows": 0, "off_pyramid": [],
+         "ruled_placements": [["SCO", "2024/25", "1st Phase - 1", "regular", 6]]}
     lines = v.run_lines(r)
-    assert lines[-6:-1] == v.record_labels(r) and lines[-1].startswith("  VERDICT (computed; the architect rules): "
+    # ARCHITECT 2026-11-23, addendum 456 item 5(d): the "by ruling 456" lines on every verdict, INVALID included
+    assert lines[-8:-3] == v.record_labels(r) and lines[-1].startswith("  VERDICT (computed; the architect rules): "
                                                                        "INVALID")
-    assert "0 scored, 2 in the walked history" in lines[-5]
+    assert lines[-3:-1] == v.ruled_census_lines(r["ruled_placements"]) and "6 row(s)" in lines[-3]
+    assert "0 scored, 2 in the walked history" in lines[-7]
+    with pytest.raises(KeyError):                         # never defaulted to "none in this store" (law 4)
+        v.run_lines({k: x for k, x in r.items() if k != "ruled_placements"})
     with pytest.raises(ValueError, match="'kickoff' is not the day rule addendum 254 item 3 Q4 ruled"):
         v.record_labels({**r, "slots": {**SLOTS, "visibility": "kickoff"}})
 

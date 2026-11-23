@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -459,15 +460,9 @@ def freeze_confirmation_cohort(eid: str, cohort_ids: list[int], basis: dict,
     return e
 
 
-def _instant(v) -> datetime | None:
-    """An ISO-8601 instant as naive UTC (a trailing Z or an offset read as such), or None when it cannot be read."""
-    if not isinstance(v, str) or not v.strip():
-        return None
-    try:
-        d = datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
+# ARCHITECT 2026-11-22, addendum 448 item 1(d): the opening's kickoff is written as the callers write theirs, to the
+# second with the Z, and the backstop compares the two as strings; a value in any other form refuses (never parsed).
+INSTANT_Z = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 
 def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: str,
@@ -489,6 +484,7 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     plan = e.get("confirmation_plan")
     if not plan:
         raise RegistryError(f"{eid} has no executable confirmation_plan: it cannot be confirmed")
+    plan = check_plan(plan)          # ARCHITECT 2026-11-22, addendum 448 item 2: the STORED plan is checked here too
     ids = sorted(set(int(i) for i in scored_ids))
     cohort = frozen_cohort(e, ids_dir)
     if cohort is not None and ids != cohort:
@@ -505,9 +501,11 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
         # ARCHITECT 2026-11-22, addendum 447 item 3 C1(b): an entry whose run record carries the opening (the 60th
         # member's kickoff and match id, written by the one read before any verdict) checks the first game against
         # the opening's kickoff, NOT EARLIER than it (a game tied at that kickoff with a higher id enters); the reader
-        # holds the order, the registry is the backstop. No overlap with the run's ids, as before (below).
-        f_at, o_at = _instant(first), _instant(opening["kickoff"])
-        if f_at is None or o_at is None or f_at < o_at:
+        # holds the order, the registry is the backstop. No overlap with the run's ids, as before (below). 448 item
+        # 1(d): both are written to the second with the Z and compared as strings; any other form refuses.
+        o_at = opening["kickoff"]
+        if (not isinstance(first, str) or not INSTANT_Z.fullmatch(first) or not isinstance(o_at, str)
+                or not INSTANT_Z.fullmatch(o_at) or first < o_at):
             raise RegistryError(f"{eid}: confirmation games must not start earlier than the opening (the 60th "
                                 f"member's kickoff {opening['kickoff']}); first_game_at {first!r}")
     elif not first or not verdict_at or str(first) <= str(verdict_at):

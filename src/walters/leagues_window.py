@@ -43,7 +43,9 @@ the bar is 155 item 4(b)'s (below the close's log-loss), not league_gate's."
   and `frozen_constants` {production_version, rho, elo_goal_coeff},
   which must equal the soccer-expansion-v1 RUN RECORD's (run.result: v22 / -0.1 / 0.0008), never the current
   production model's. Missing or different: REFUSED (exit 2). An entry whose `verdict` is set has its verdict
-  recorded: the fence lifts.
+  recorded: the fence lifts after a REJECT, and after a PASS once the confirmation is recorded, CONFIRMED or
+  NOT_CONFIRMED; while the PASS is confirming it holds from the opening's kickoff, inclusive (addendum 448 items
+  1(a)-(b); THE FENCE below).
 - MEMBERSHIP (R3, R4; 155 item 4(b): "the first 60 FINISHED 2026/27 games per league with a three-way close, counted
   from the declaration"; 158 item 2(c): "Historical October games never enter the window"): the league's 2026/27
   rows (soccer_expansion.CURRENT_SEASON, the string paper and leagues_candidate read) in order of their ACTUAL stored
@@ -376,6 +378,22 @@ def fence_cutoff(code, season=None) -> datetime | None:
 CONFIRMING = "confirming"
 OPENING_FIELD = "confirmation_opens_after"     # the run record's opening (447 C1): the 60th member's kickoff and id
 OPENING_INCLUSIVE = timedelta(microseconds=1)  # 448 item 1(a): the cut one microsecond before the opening's kickoff
+# THE RULED PLAN (ARCHITECT 2026-11-22, addendum 447 item 3 C3(a); the reference-only bar, 449 item 6(b)): the one
+# confirmation plan the five entries hold, written into experiments.json by PR 2 (448 item 2).
+RULED_PLAN = {"n_games": WINDOW_GAMES, "metric": "log_loss", "bar": None, "must_beat_reference": True,
+              "reference": "the close (the grader's close, on the same games)"}
+
+
+def plan_refusal(e: dict | None) -> str | None:
+    """ARCHITECT 2026-11-22, addendum 448 item 2(b): the leagues read refuses an entry whose STORED plan is not the
+    ruled plan, so a checkout without PR 2 (a null plan) cannot carry it back to main whole-file. None = the ruled
+    plan, exactly (the stored dict, never a normalised one)."""
+    plan = (e or {}).get("confirmation_plan")
+    if plan == RULED_PLAN and all(type(plan[k]) is type(RULED_PLAN[k]) for k in RULED_PLAN):
+        return None
+    return (f"{(e or {}).get('id')}: the stored confirmation_plan is {json.dumps(plan, sort_keys=True)}, not the ruled "
+            f"plan {json.dumps(RULED_PLAN, sort_keys=True)} (addendum 447 item 3 C3(a); addendum 448 item 2(b): a "
+            "checkout without it cannot carry the entry back to main). Read from a checkout of main that holds it.")
 
 
 def opening(e: dict | None) -> tuple[datetime, int] | None:

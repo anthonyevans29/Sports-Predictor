@@ -8,8 +8,12 @@ written. Pins:
        whose run record holds no opening keeps the window's own fence (law 4);
   C1(b) record_confirmation checks the first game against the opening's kickoff (not earlier), for an entry whose run
        record carries the opening; an entry without one keeps today's rule (after verdict.at);
-  C3(a) the five leagues entries carry the one plan, taken by check_plan;
-  C3(b) a leagues entry at status production changes no export and no Desk call."""
+  C3(a) the five leagues entries carry the one plan, taken by check_plan, and record_confirmation runs check_plan on
+       the stored plan (448 item 2);
+  C3(b) a leagues entry at status production changes no export and no Desk call;
+  448 1(d) the opening's kickoff and the first game are compared as strings, each written to the second with the Z;
+  448 2(a) each note keeps its words and gains the one sentence before the closing 223 item 2(d) sentence;
+  448 2(b) the ruled plan is the one stored, and plan_refusal refuses any other stored plan."""
 from __future__ import annotations
 
 import json
@@ -21,6 +25,7 @@ import pytest
 from src.walters import leagues_window as lw
 from src.walters import registry as reg
 from src.walters import soccer_expansion as sx
+from tests.test_record_vs_close import iso_db  # noqa: F401  (a fixture: a throwaway SQLite, cwd = tmp_path)
 
 ROOT = Path(__file__).resolve().parent.parent
 SEASON = lw.SEASON
@@ -133,7 +138,8 @@ def _res(first):
 
 
 @pytest.mark.parametrize("first, ok", [("2026-12-06T14:59:59Z", False), ("2026-12-06T15:00:00Z", True),
-                                       ("2026-12-06T15:00:00", True), ("2026-12-06T16:00:00Z", True)])
+                                       ("2026-12-06T15:00:00", False), ("2026-12-06T15:00:00+00:00", False),
+                                       ("2026-12-06T15:00:00.000001Z", False), ("2026-12-06T16:00:00Z", True)])
 def test_c1b_the_first_game_is_checked_against_the_openings_kickoff_not_the_verdict(tmp_path, first, ok):
     """A game played before the verdict's stamp may enter (447 C1(c)): the opening is the bound, not verdict.at."""
     p = _confirming_file(tmp_path)
@@ -143,6 +149,38 @@ def test_c1b_the_first_game_is_checked_against_the_openings_kickoff_not_the_verd
     else:
         with pytest.raises(reg.RegistryError, match="not start earlier than the opening"):
             reg.record_confirmation("x-v1", list(range(1, 61)), _res(first), "r", p, str(tmp_path / "ids"))
+
+
+def test_448_1d_the_opening_and_the_first_game_are_compared_as_strings_written_to_the_second_with_the_z(tmp_path):
+    """448 item 1(d): the opening's kickoff is written as the callers write theirs (to the second, with the Z), and the
+    backstop compares the two strings. The callers' form is the registry's own stamp and strftime's; a bare instant
+    sorts before its Z form as a string (the receipt on #322), so any other form refuses rather than being parsed."""
+    assert reg.INSTANT_Z.fullmatch(reg._now())
+    assert reg.INSTANT_Z.fullmatch(datetime(2026, 12, 6, 15, 0).strftime("%Y-%m-%dT%H:%M:%SZ")) and \
+        OPENING["kickoff"] == "2026-12-06T15:00:00Z"
+    assert not ("2026-12-06T15:00:00" >= "2026-12-06T15:00:00Z")      # why the form is held, not parsed
+    assert "2026-12-06T15:00:00Z" >= "2026-12-06T15:00:00Z" and "2026-12-06T15:00:01Z" > "2026-12-06T15:00:00Z"
+    for bad in ("2026-12-06T15:00:00", "2026-12-06 15:00:00Z", "2026-12-06T15:00:00+00:00", 1765033200):
+        p = _confirming_file(tmp_path, opening={"kickoff": bad, "match_id": 16267})
+        with pytest.raises(reg.RegistryError, match="not start earlier than the opening"):
+            reg.record_confirmation("x-v1", list(range(1, 61)), _res("2026-12-08T00:00:00Z"), "r", p,
+                                    str(tmp_path / "ids"))
+
+
+def test_448_2_record_confirmation_runs_check_plan_on_the_stored_plan(tmp_path):
+    """448 item 2: check_plan runs on the stored plan inside record_confirmation; a stored plan it refuses (a missing
+    bar; a null bar without a named reference) refuses the confirmation before anything is written."""
+    for broken in ({k: v for k, v in PLAN.items() if k != "bar"}, {**PLAN, "reference": ""},
+                   {**PLAN, "must_beat_reference": False}, {**PLAN, "n_games": 0}):
+        p = _confirming_file(tmp_path)
+        data = json.loads(open(p).read())
+        data[0]["confirmation_plan"] = broken
+        open(p, "w").write(json.dumps(data))
+        before = open(p).read()
+        with pytest.raises(reg.RegistryError, match="confirmation_plan"):
+            reg.record_confirmation("x-v1", list(range(1, 61)), _res("2026-12-08T00:00:00Z"), "r", p,
+                                    str(tmp_path / "ids"))
+        assert open(p).read() == before
 
 
 def test_c1b_an_entry_without_the_opening_keeps_todays_rule(tmp_path):
@@ -170,7 +208,7 @@ def test_c3a_the_five_entries_carry_the_one_plan_taken_by_check_plan():
         assert real[eid]["confirmation_plan"] == PLAN and reg.check_plan(real[eid]["confirmation_plan"]) == PLAN
 
 
-def test_c3b_a_leagues_entry_at_production_changes_no_export_and_no_desk_call(ledger):
+def test_c3b_a_leagues_entry_at_production_changes_no_export_and_no_desk_call(ledger, monkeypatch):
     """447 C3(b): what decides a leagues call is code, never a status. At production: the shadow binding is the one it
     was at declared; the Desk's shadow set and predict's refusal stand; the fence is lifted (448 item 1(b))."""
     import cli
@@ -182,7 +220,71 @@ def test_c3b_a_leagues_entry_at_production_changes_no_export_and_no_desk_call(le
     assert {k: after[k] for k in ("state", "candidate", "declared_at", "frozen_constants")} == {
         k: before[k] for k in ("state", "candidate", "declared_at", "frozen_constants")}
     assert "SA" in dp.SHADOW_VENUE_COMPS
-    with pytest.raises(SystemExit) as ex:
-        cli._refuse_shadow_league("SA", "predict")
-    assert ex.value.code == 2
+    for cmd in ("predict", "export-predictions"):
+        with pytest.raises(SystemExit) as ex:
+            cli._refuse_shadow_league("SA", cmd)
+        assert ex.value.code == 2
+    monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", False)               # the Desk's two shadow-league paths, as on a
+    r = {"sport": "SA", "comp": "SA", "mkt": None, "utc": None, "fairAll": {}, "books": 0, "home": "h",  # laptop
+         "away": "a", "marketOnly": True}
+    call = dp._desk_call(r, 0)
+    assert (call["call"], call["units"], call["passKind"]) == ("PASS", 0, dp.SHADOW_LEAGUE_KIND)
+    ven = dp.venue_edge(r, 0)
+    assert ven["eligible"] is False and ven["reason"].startswith("shadow league (SA, soccer-expansion-v1)")
     assert lw.fence_cutoff("SA", SEASON) is None
+
+
+# ------------------------------------------------------------------------------ 448 item 2(a)-(b): the note, the refusal --
+
+NOTE_448 = ("Superseded in two places (ARCHITECT 2026-11-22, addendum 447 item 3, C2 and C3(a)): this entry now holds its "
+            "executable plan, check_plan admitting a reference-only bar, so this note's first sentence no longer "
+            "describes it; and after a PASS the fence does not lift but stands from the 60th member's kickoff until the "
+            "confirmation is recorded.")
+D2D_SENTENCE = ("A PASS enters the confirmation of 60 more qualifying games at the same bar of addendum 158 item 2(a) "
+                "(ARCHITECT 2026-11-02 18:05 ET, addendum 223 item 2(d), verbatim: \"220 item 3's PASS clause reads as "
+                "\"the WINDOW step of the live needs is met\": the confirmation follows, and the Desk's calls are ruled "
+                "in by their own addendum only after it.\").")
+FIRST_SENTENCE = ("registry.check_plan holds one metric against a fixed number; this bar is the close's log-loss on the "
+                  "same 60 games, so no executable plan is written and record_confirmation refuses this entry.")
+
+
+@pytest.mark.parametrize("eid", sorted(lw.DECLARATION_IDS.values()))
+def test_448_2a_each_note_keeps_its_words_and_gains_the_one_sentence_before_the_closing_223_2d_sentence(eid):
+    """448 item 2(a): "Its words stay ... ONE SENTENCE is added, the same in all five, before the closing 223 item 2(d)
+    sentence" (verbatim)."""
+    note = {e["id"]: e for e in reg.load(str(ROOT / "docs" / "registry" / "experiments.json"))}[eid][
+        "confirmation_plan_note"]
+    assert note.startswith(FIRST_SENTENCE + " ") and note.count(NOTE_448) == 1
+    assert note.endswith(" " + NOTE_448 + " " + D2D_SENTENCE)
+    without = note.replace(" " + NOTE_448, "", 1)          # the words of 11-02, unchanged around it
+    assert NOTE_448 not in without and without.endswith(" " + D2D_SENTENCE)
+
+
+def test_448_2b_the_ruled_plan_is_the_one_stored_and_any_other_stored_plan_is_refused():
+    real = {e["id"]: e for e in reg.load(str(ROOT / "docs" / "registry" / "experiments.json"))}
+    assert lw.RULED_PLAN == PLAN
+    for eid in lw.DECLARATION_IDS.values():
+        assert lw.plan_refusal(real[eid]) is None
+    e = dict(real["leagues-sa-v1"])
+    for other in (None, {**PLAN, "bar": 0.0}, {**PLAN, "n_games": 60.0}, {**PLAN, "must_beat_reference": 1},
+                  {**PLAN, "reference": "the close"}, {k: v for k, v in PLAN.items() if k != "bar"},
+                  {**PLAN, "extra": 1}):
+        e["confirmation_plan"] = other
+        why = lw.plan_refusal(e)
+        assert why and why.startswith("leagues-sa-v1: the stored confirmation_plan is ") and "448 item 2(b)" in why
+
+
+@pytest.mark.parametrize("status, text", [
+    ("confirming", "the confirmation is open: the fence holds from the opening, inclusive (448 item 1(a))"),
+    ("production", "the fence is lifted"), ("closed", "the fence is lifted")])
+def test_448_1c_the_print_names_the_fence_as_the_rule_has_it(iso_db, ledger, status, text):
+    """448 item 1(c): the print is amended to the rule: while confirming the fence holds; recorded, it is lifted."""
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Sport
+    with session_scope() as s:
+        s.add(Competition(sport=Sport.SOCCER, code="SA", name="SA", area="X", type="LEAGUE"))
+    ledger(_entry(status=status, verdict=PASS))
+    now = datetime(2026, 12, 8, 12, 0)
+    out = lw.lines(lw.read(("SA",), now=now), now)
+    line = next(x for x in out if "the verdict is recorded in leagues-sa-v1" in x)
+    assert line.endswith(": " + text)

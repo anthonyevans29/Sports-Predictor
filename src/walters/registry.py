@@ -134,6 +134,9 @@ def check_plan(plan) -> dict:
     if metric not in PLAN_METRICS:
         raise RegistryError(f"confirmation_plan.metric must be one of {PLAN_METRICS}")
     beat = plan.get("must_beat_reference")
+    if "bar" not in plan:            # a missing bar is never a null one: today's refusal (449 admits null, not absent)
+        raise RegistryError("confirmation_plan.bar must be a number (or null with must_beat_reference true and a "
+                            "named reference); the plan has no bar")
     if bar is None:
         if beat is not True or not isinstance(plan.get("reference"), str) or not plan["reference"].strip():
             raise RegistryError("confirmation_plan.bar may be null only with must_beat_reference true and a named "

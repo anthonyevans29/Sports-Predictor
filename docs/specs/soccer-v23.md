@@ -1,4 +1,4 @@
-# soccer-v23 — the joint log-linear successor to v22 (THE DESIGN; not declared, not run)
+# soccer-v23 — the joint log-linear successor to v22 (THE DESIGN; declared by addendum 449, not run)
 
 Lane `soccer-v23` (docs/roadmap.json), Issue #656, designed with the one-prediction-function lane #789. Code:
 src/models/joint_poisson.py (the fit), src/walters/soccer_v23.py (the snapshot, the one prediction function, both
@@ -476,7 +476,7 @@ directly on the same cases, and `run()`'s `min_delta` is
 `training.DEFAULT_PROMOTION_DELTA` = 0.005. A test runs 0, 0.0049999 and 0.0050 through `candidate_gate_verdict` with
 the imported constant. There is no other decision path.
 
-## 7. The declaration slots (the architect's, 11-20; the run refuses while any is null)
+## 7. The declaration slots (the architect's, filled by addendum 449; the run refuses while any is null)
 
 The declared registry entry carries them as `declaration_slots`; the code holds only the allowed values.
 
@@ -805,7 +805,7 @@ rewritten; the finding Issue #827 cited." No run before the declaration.
 
 ## 12. What is NOT done
 
-No v22 recorded figure is filled (the `v22_recorded` list, the architect's at the declaration, 443 item 3); no change to soccer_backtest.py (the sibling
+The `v22_recorded` list is filled by the declaration (addendum 449 item 2: PL 2024/25 and 2025/26, n 340 each), nothing else of the run; no change to soccer_backtest.py (the sibling
 parity PR's optional `context` parameter is not depended on). The harness calls the soccer gate's walk
 (`run_soccer_backtest`) in one place only, as addendum 443 item 1(c) requires: `recorded_rows`, at its default
 context, for each recorded figure's match ids.

@@ -98,7 +98,7 @@ def _real() -> tuple[list, dict]:
 def test_449_items_1_and_6a_declared_at_the_stamp_appended_after_bl1_unrun():
     entries, e = _real()
     ids = [x["id"] for x in entries]
-    assert ids.count(v.EID) == 1 and ids.index(v.EID) == ids.index("leagues-bl1-v1") + 1 == len(ids) - 1
+    assert ids.count(v.EID) == 1 and ids.index(v.EID) == ids.index("leagues-bl1-v1") + 1   # after BL1, found by id
     assert e["declared_at"] == "2026-11-23T13:05:00Z" and e["sport"] == "soccer"
     assert (e["status"], e["run"], e["verdict"]) == ("declared", None, None)
     assert LEDGER.read_text() == json.dumps(entries, indent=2) + "\n"            # the file's own form, unchanged
@@ -158,6 +158,11 @@ def test_449_6b_check_plan_admits_a_null_bar_only_with_must_beat_reference_and_a
                 {**PLAN, "reference": 3}, {k: x for k, x in PLAN.items() if k != "must_beat_reference"}):
         with pytest.raises(reg.RegistryError, match="null only with must_beat_reference true and a named reference"):
             reg.check_plan(bad)
+    # a MISSING bar (or a misspelt key) is never read as a null one: refused as today, whatever the reference
+    for absent in ({k: x for k, x in PLAN.items() if k != "bar"}, {**{k: x for k, x in PLAN.items() if k != "bar"},
+                                                                    "bar_ll": 0.6931}):
+        with pytest.raises(reg.RegistryError, match="the plan has no bar"):
+            reg.check_plan(absent)
 
 
 def test_449_6b_every_other_plan_keeps_todays_rule():

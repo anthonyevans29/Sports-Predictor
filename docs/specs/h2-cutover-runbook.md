@@ -466,20 +466,33 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
    With no MLB game left in the season, nothing is reinstalled.
    **The laptop's standing routine after the cutover (ARCHITECT 2026-10-27, addendum 169 item 4(ii)):** "the
    morning 'console' block I wrote today is the operator's shape of it — record it as the laptop's standing routine
-   (backup, MLB, read-only receipts, tally, mirror) so no PL/NFL/NHL/NCAA sync ever runs on the laptop again." In order,
-   every morning:
+   (backup, MLB, read-only receipts, tally, mirror) so no PL/NFL/NHL/NCAA sync ever runs on the laptop again." Its
+   sync list is superseded: the later blocks synced NCAA, NHL and tennis on the laptop (addendum 390 item 5(c)), a
+   weekly whole-season pass joined the routine (390 item 5(e), 391 item 3), and the routine's steps are now one
+   committed list and one command (ARCHITECT 2026-11-23, addendum 451 item 3):
+   `python deploy/hosting/laptop_routine.py [--weekly] [--dry-run]`. In order, every morning, by the architect's block:
    1. **Backup:** the daily `.backup` (the `.backup` API, never a file copy), outside `data/`, before anything writes.
-   2. **MLB:** the `mlb-morning` chain's steps in its order (`deploy/hosting/chains.py`: `sync-matches` MLB yesterday
-      and today, `evaluate`, `improve --hold-on-pass`, `sync-appearances`, `sync-umpires`, `export-results`,
-      `results-tally`), then the slate (`mlb-preslate`'s steps) and the MLB closing watch at their times.
-   3. **Read-only receipts:** the day's blocks that read the laptop's database (mode=ro, or `sqlite3 -readonly`).
-      Each is MLB's record or a read of it.
-   4. **Tally:** `results-tally`, the last step of `mlb-morning`.
-   5. **Mirror:** `python deploy/hosting/exports_mirror.py push --role laptop --label morning`.
+      The block does not call the command if the backup failed (451 item 3(c)).
+   2. **Coverage:** `coverage`, after the backup and before the command (451 item 3(c)).
+   3. **The command:** `python deploy/hosting/laptop_routine.py`, with `--weekly` when the block runs the weekly pass. It refuses
+      (exit 2, nothing run) unless `desk_policy.machine_role()` reads `laptop`, prints the UTC dates it resolved,
+      runs each step on the checkout's `cli.py` in order, a failing step never stopping the next, and writes one
+      receipt line per step and one for the run. The daily list (451 item 3(d); `DAILY` in the module): MLB's
+      `sync-matches` (2026-10-15 to tomorrow), the `retire-orphans` dry run, `evaluate`, `improve --hold-on-pass`,
+      `export-results` and `sync-kalshi`; NBA and NCAAMB `sync-matches` one day at a time (today-2, yesterday, today,
+      tomorrow), 6 seconds after each day; NCAA `sync-teams`, `sync-matches` today-8 to yesterday and the
+      `dedupe-matches --orphans --sample 30` dry run; NHL `sync-matches` one day at a time (yesterday, today,
+      tomorrow), `export-fixtures --competition NHL` and `nhl-goalie-sync`; ATP and WTA `sync-matches` (yesterday to
+      tomorrow), `sync-kalshi-atp`, `sync-kalshi-wta`; `results-tally`. `--weekly` runs, before NCAA's `sync-teams`,
+      `sync-teams` then `sync-matches` for every competition-season in the laptop's database with a game from
+      2026-07-01, except MLB, ATP, WTA, WC and NCAA, 6 seconds after each (451 item 3(e)).
 
-   Nothing else writes the laptop's database. No `sync-*` of PL, NFL, NHL, NCAA, the cups, UNL or the intl family
-   runs on the laptop: the host is their writer of record, and its `coverage` file (the mirror's
-   `host/latest/coverage.json`) is the day's map. `python cli.py coverage` on the laptop shows MLB only.
+   The block's own reads and writes stay in the architect's block, which places them (451 item 3(c) names them and
+   gives them no position): the roadmap read, the mirror push
+   (`python deploy/hosting/exports_mirror.py push --role laptop --label morning`), the stale count (last in the block
+   on 2026-11-16, addendum 406 item 3(b)) and the read of the four guarded college rows.
+
+   The command sends no page, has no timer and no launchd job, and never runs `soccer-refresh`.
 
 ## 2. Fresh-fingerprint compare
 

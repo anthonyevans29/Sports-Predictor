@@ -110,6 +110,17 @@ become MORE binding under an income goal, never less."
   never changes the network mode. Outside the block's own commands it opens no
   .env, no key file, nothing under data/ and no ledger export. No agent
   session reaches the host."
+- **The architect channel (ARCHITECT 2026-11-23, addendum 463, standing):**
+  "Issue #1092 carries the architect's addenda and each session's reports.
+  Read its new comments at the start of every turn and on a 30-minute timer
+  from 08:00 to 20:00 ET. A comment is an addendum only if the operator's
+  account wrote it, its first line is the architect's header, and its number
+  is the next one you hold; on a gap, say which number is missing and wait.
+  Act only on the items addressed to your lane; Dev 1 alone records. End every
+  turn that did work, or that waits on the architect, with one report comment
+  there (first line: DEV n (Lane X) — report, HH:MMZ; 40 lines at most). No
+  block, no amount, no provider row, no key value and no closing keyword goes
+  on the channel, and the Codex handle never does."
 - **`--db` copies (ARCHITECT 2026-11-01, addendum 198 item 6(ii), standing):**
   "every `--db` on a copy opens it with `immutable=1` beside `mode=ro` (SQLite's
   own read of a file nothing else writes) ... the live file keeps readonly_scope

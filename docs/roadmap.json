@@ -104,7 +104,7 @@
         {
           "what": "the 60th cohort fixture (kickoff 2026-11-22T16:00Z) is played",
           "owner": "calendar",
-          "due": "2026-11-22",
+          "due": "2026-11-27",
           "done": null
         },
         {
@@ -133,6 +133,14 @@
           "now": "2026-12-22",
           "why": "the confirmation record step moves from 2026-11-23 to 2026-12-22, and earliest_live from 2026-11-23 to 2026-12-22: the frozen cohort's fixtures after 2026-11-02T18:10:00Z are fenced by leagues-pd-v1's window (addendum 223 item 2(a): the confirmation waits, no exemption, no substitution); the record follows leagues-pd-v1's read the same morning, the day after PD's 60th window game — the recount of 11-03 (#322) puts the 60th scoreable member in the 12-18/21 round (stored kickoff 2026-12-20T16:00Z, match 16303), whose last day is Monday 12-21. If the TV selection makes the 60th final earlier in that round, both reads are the day after it and the steps are done-marked early (222 item 3(a)). No bar moves.",
           "ruling": "ARCHITECT 2026-11-03 07:55 ET, addendum 226 item 3 (MOVED LINE, lane pd, verbatim in why; its one line moves two dates, the step's due and earliest_live, each entered with it; the count: the recount of 11-03 on #322)"
+        },
+        {
+          "moved_on": "2026-11-23",
+          "which": "the 60th cohort fixture (kickoff 2026-11-22T16:00Z) is played",
+          "was": "2026-11-22",
+          "now": "2026-11-27",
+          "why": "cohort fixture 16257 (Levante v Elche) was moved by the provider to 2026-11-23T20:00Z, and cohort fixture 16204 (Rayo Vallecano v Athletic Club, stored kickoff 2026-10-10T12:00Z) is stored CANCELLED with the provider's raw code ABD; both read on the host's copy of 2026-11-23 09:30Z by status only (58 FINISHED, 1 SCHEDULED, 1 CANCELLED). Under the cohort's declared rule (unscoreable-only substitution, ARCHITECT 2026-10-02) 16204 is released and replaced by the next eligible fixture after the cohort, which on that copy is 16267 (Levante v Racing Santander, kickoff 2026-11-27T20:00Z); the cohort is complete when it is played. The date is the substitute's kickoff as stored today: the substitution's own console names the substitute, and a different one moves this line again. The record step (2026-12-22) and earliest_live do not move: the record waits on leagues-pd-v1's verdict (223 item 2(a)). No bar moves.",
+          "ruling": "ARCHITECT 2026-11-23 08:54 ET, addendum 453 item 4 (MOVED LINE, lane pd, verbatim in why)"
         }
       ]
     },
@@ -905,9 +913,9 @@
       "lane": "soccer-v23",
       "title": "Soccer: the joint log-linear successor to v22 (μ + h + α_i + δ_j + β·ΔE, per-team early-season continuity)",
       "issue": 656,
-      "registry_id": null,
+      "registry_id": "soccer-v23",
       "competitions": ["PL"],
-      "state": "to declare",
+      "state": "declared",
       "steps": [
         {
           "what": "the design PR (addendum 216 item 3; addendum 230 item 1(d); addendum 248 item 2(b)): the fit, its constraints, the early-season treatment, the harness (one run at the frozen soccer gate on the frozen pot, the reservation pattern), the frozen-bar text written before any result; no run and no declaration before 11-20",
@@ -922,7 +930,10 @@
           "what": "the declaration with the bar written before any result (addendum 216 item 3; addendum 251 item 2): the pot's log-loss at least 0.0050 below BOTH v22's recorded figure AND v22's figure re-walked on v23's harness, a tie on either a rejection, the early-season matches INCLUDED in the scored set (the declared within-season skip is zero); the declaration slots (v22's recorded figure and its source among them) and the registry entry soccer-v23 are the architect's",
           "owner": "architect",
           "due": "2026-11-23",
-          "done": null
+          "done": {
+            "date": "2026-11-23",
+            "receipt": "#1080 merged 2026-11-23 (d1637122); declared at 2026-11-23T13:05:00Z by ARCHITECT 2026-11-23 08:05 ET, addendum 449; the bar as amended by addendum 443 item 1(c); done-marked by addendum 449 item 8(a) (444 item 4: no text of the step is amended)"
+          }
         },
         {
           "what": "the one run on the architect's word, the operator's block, on a .backup copy opened immutable=1 (addendum 216 item 3; soccer-v23-gate)",
@@ -932,7 +943,7 @@
         }
       ],
       "earliest_live": null,
-      "live_needs": "addendum 216 item 3: a PASS at the frozen bar in the one run, then a 60-game prospective shadow on the host's PL pages beside v22 (the pl-availability pattern, its own window counted from its first host page) and the architect's read; earliest_live the day after that read (null until then: the read decides, never a date). A REJECT: v22 stays live and the lane names its next candidate the same day (addendum 59 item 5(c)). ARCHITECT 2026-11-02 10:50 ET, addendum 216 item 3, verbatim in part: \"Roadmap lane \\\"soccer-v23\\\" (Issue #656): 11-13 code — the design PR (the fit, its constraints, the early-season treatment, the harness: one run at the frozen soccer gate on the frozen pot, the reservation pattern); 11-20 architect — the declaration with the bar written before any result: the pot's log-loss below v22's by at least 0.0050, a tie a rejection (the improve bar as it stands), with the early-season matches INCLUDED in the scored set (no 40-match skip for this candidate: its own declared window states the skip, and it is zero); 11-27 operator — the one run on my word, my block, on a .backup copy opened immutable=1; PASS → a 60-game prospective shadow on the host's PL pages beside v22 (the pl-availability pattern, its own window counted from its first host page), the read by me; earliest_live the day after that read. No date moves a bar.\"",
+      "live_needs": "addendum 216 item 3: a PASS at the frozen bar in the one run, then a 60-game prospective shadow on the host's PL pages beside v22 (the pl-availability pattern, its own window counted from its first host page) and the architect's read; earliest_live the day after that read (null until then: the read decides, never a date). A REJECT: v22 stays live and the lane names its next candidate the same day (addendum 59 item 5(c)). ARCHITECT 2026-11-02 10:50 ET, addendum 216 item 3, verbatim in part: \"Roadmap lane \\\"soccer-v23\\\" (Issue #656): 11-13 code — the design PR (the fit, its constraints, the early-season treatment, the harness: one run at the frozen soccer gate on the frozen pot, the reservation pattern); 11-20 architect — the declaration with the bar written before any result: the pot's log-loss below v22's by at least 0.0050, a tie a rejection (the improve bar as it stands), with the early-season matches INCLUDED in the scored set (no 40-match skip for this candidate: its own declared window states the skip, and it is zero); 11-27 operator — the one run on my word, my block, on a .backup copy opened immutable=1; PASS → a 60-game prospective shadow on the host's PL pages beside v22 (the pl-availability pattern, its own window counted from its first host page), the read by me; earliest_live the day after that read. No date moves a bar.\" The confirmation's criterion (ARCHITECT 2026-11-23, addendum 449 item 5): \"CONFIRMED iff soccer-v23's is BELOW live v22's on the same 60 games; equal or above is NOT CONFIRMED.\"",
       "vs_close": "not read. soccer-v23 has priced no game; its harness reads no close and the market gates nothing (doctrine: the market is a reference, never a feature). v22 reads behind the close over the rolling 30 (addendum 216 item 3).",
       "moved": [
         {

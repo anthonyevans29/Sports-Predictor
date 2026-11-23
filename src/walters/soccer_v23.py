@@ -117,6 +117,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
@@ -851,8 +852,8 @@ def canon_params(v22_poisson: dict, availability_on: bool, scope: str, thin_excl
 
 def in_scope(rows, scope: str) -> list:
     """THE STAGE SCOPE OF THE HISTORY (Codex on #832, round 1; soccer_expansion F3, ruled: "only regular-season rounds
-    are scored and walked"): under LEAGUE every row; under LEAGUE_REGULAR only the rows soccer_expansion.placement
-    reads "regular": a play-off row is left out of the HISTORY as well as the scored set, so it touches neither arm's
+    are scored and walked"): under LEAGUE every row; under LEAGUE_REGULAR only the rows placement_of reads "regular"
+    (soccer_expansion.placement, then addendum 456's RULED_PLACEMENTS where it reads nothing): a play-off row is left out of the HISTORY as well as the scored set, so it touches neither arm's
     walk (no Elo step, no context, no v22 strength or backfill, no v23 window), and a label the code cannot place
     REFUSES (never guessed). The one builder applies it (both arms, the replay and live alike) and the walk applies it
     to its own rows first, so the memo's rows are the builder's."""
@@ -860,10 +861,9 @@ def in_scope(rows, scope: str) -> list:
         return list(rows)
     if scope != "LEAGUE_REGULAR":
         raise ValueError(f"scope {scope!r} is not one of {SCOPE_RULES}")
-    from src.walters.soccer_expansion import placement
     out, bad = [], {}
     for r in rows:
-        pl = placement(r.stage)
+        pl = placement_of(r)            # addendum 456: soccer_expansion.placement first, then RULED_PLACEMENTS
         if pl == "regular":
             out.append(r)
         elif pl != "playoff":
@@ -1400,13 +1400,12 @@ def _first_season_census(rows, scope: str) -> tuple[dict[str, list[str]], dict[s
     first of them}), over `rows` IN THE STAGE SCOPE less 263 item 14's thin set (thin_season_keys of that history, the
     set the_pot freezes). A season is priced as a first season when its S−1 (_season_order, window_obs's own rule) is
     None or thin: window_obs gives a thin S−1 no row, and never skips over it to an older season. Under LEAGUE_REGULAR
-    only the rows soccer_expansion.placement reads "regular" count (in_scope's rule; a label it cannot place is not
+    only the rows placement_of reads "regular" count (in_scope's rule, addendum 456's table included; a label it cannot place is not
     regular, and the stage refusal names it); `scope` is required, never defaulted."""
     if scope not in SCOPE_RULES:
         raise ValueError(f"scope {scope!r} is not one of {SCOPE_RULES}")
     if scope == "LEAGUE_REGULAR":
-        from src.walters.soccer_expansion import placement
-        rows = [r for r in rows if placement(r.stage) == "regular"]
+        rows = [r for r in rows if placement_of(r) == "regular"]    # addendum 456: the ruled table where placement is None
     thin = set(thin_season_keys(rows))
     windows: dict[str, list[str]] = {}
     before: dict[str, list[str]] = {}
@@ -1445,14 +1444,17 @@ def first_seasons(rows, scope: str) -> dict[str, str]:
 
 
 def stage_census(rows) -> dict[tuple[str, str], dict]:
-    """Per competition-season, soccer_expansion.placement's three values over the rows' stage labels: the regular
-    count, the play-off labels (left out BY CAUSE under LEAGUE_REGULAR) and the labels that cannot be placed (NULL,
-    empty, any other form), each label with its count."""
-    from src.walters.soccer_expansion import placement
+    """Per competition-season, placement_of's three values over the rows' stage labels: the regular count, the
+    play-off labels (left out BY CAUSE under LEAGUE_REGULAR) and the labels that cannot be placed (NULL, empty, any
+    other form), each label with its count; and `ruled`, {(label, placement): count} for every label placed by
+    addendum 456's RULED_PLACEMENTS rather than by soccer_expansion.placement (item 5(d): marked, counted)."""
     out: dict[tuple[str, str], dict] = {}
     for r in rows:
-        c = out.setdefault((r.code, r.season), {"regular": 0, "playoff": {}, "unplaced": {}})
-        pl = placement(r.stage)
+        c = out.setdefault((r.code, r.season), {"regular": 0, "playoff": {}, "unplaced": {}, "ruled": {}})
+        pl, ruled = placement_with_source(r.code, r.stage)
+        if ruled:                       # addendum 456 item 5(d): placed by the ruled table, counted on its own
+            k = (r.stage, pl)
+            c["ruled"][k] = c["ruled"].get(k, 0) + 1
         if pl == "regular":
             c["regular"] += 1
         else:
@@ -1508,7 +1510,6 @@ def scored_rows(rows, slots: dict) -> list[Row]:
     scope's stage rule; each competition's first season out by cause when first_season is exclude_as_warmup. The
     within-season skip is zero (WITHIN_SEASON_SKIP): no prior-count condition exists. Under LEAGUE_REGULAR a play-off
     label is left out BY CAUSE and a label that cannot be placed REFUSES (stage_refusals; never a silent drop)."""
-    from src.walters.soccer_expansion import placement
     cut = parse_instant(slots["cut"])
     refused = stage_refusals(rows, slots)
     if refused:
@@ -1519,7 +1520,7 @@ def scored_rows(rows, slots: dict) -> list[Row]:
     for r in rows:
         if r.utc_date > cut:
             continue
-        if slots["scope"] == "LEAGUE_REGULAR" and placement(r.stage) != "regular":
+        if slots["scope"] == "LEAGUE_REGULAR" and placement_of(r) != "regular":
             continue                                      # a play-off round, by cause (an unplaced label refused above)
         if slots["first_season"] == "exclude_as_warmup" and fs.get(r.code) == r.season:
             continue
@@ -1848,6 +1849,7 @@ def preflight_lines(entry: dict | None, db) -> list[str]:
                     if fb.get(c) else "")
                  + (f" · priced as a first season again after a thin S−1 (addendum 263 item 14): {', '.join(ws[1:])}"
                     if len(ws) > 1 else ""))
+    L += ruled_placement_lines(rows)    # addendum 456 item 5(d): every label the ruled table places, counted
     for (c, se), cen in sorted(stage_census(rows).items()):
         if cen["playoff"] or cen["unplaced"]:
             L.append(f"  stages {c} {se}: regular {cen['regular']} · play-off (left out by cause under "
@@ -1974,7 +1976,7 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     RECORDED_WALK_NOTE) (ARCHITECT 2026-11-04
     15:45 ET, addendum 254 item 3: "preflight → fingerprint → cross_ref_guard → reservation → walk → record", the
     three gates' common order; --preflight is its own earlier invocation in all three). A MISSING fingerprint is
-    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1997, nfl_v2_gate.py:642,
+    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1999, nfl_v2_gate.py:642,
     ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after the load, as in both. Then the walk of
     both arms (v22 re-walked beside soccer-v23 on the same harness: the same scored set, the same as-of context
     definition, the same skip zero), the comparison (soccer_backtest.compare_candidate) and decide (THE BAR, 251 item
@@ -2044,6 +2046,8 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     out_ = set(thin)
     return {"compare": cmp_, "walk": w, "stream_fingerprint": fp, "rows": n, "slots": slots, "db": str(path),
             "scored_ids": [r.id for r in sc], "v22_poisson": v22p,
+            # addendum 456 item 5(d): the labels placed by the ruled table, with their counts (the record marks them)
+            "ruled_placements": ruled_placement_census(rows),
             # 263 items 14 and 15: the exclusion set and the off-pyramid arrivals, counted for the record
             "thin_excluded": [list(k) for k in thin], "thin_rows": sum(1 for r in hist if (r.code, r.season) in out_),
             "off_pyramid": list(ar),
@@ -2141,6 +2145,7 @@ def run_lines(r: dict) -> list[str]:
     L += strata_lines(r["walk"])
     L += availability_lines(r["walk"]["availability"])
     L += record_labels(r)
+    L += ruled_census_lines(r.get("ruled_placements") or [])     # addendum 456 item 5(d)
     L.append(f"  VERDICT (computed; the architect rules): {c['verdict']}")
     return L
 
@@ -2159,7 +2164,10 @@ def record(r: dict, word: str) -> dict:
                 # ARCHITECT 2026-11-21 09:54 ET, addendum 440 item 4(b): v22's stored poisson params as the run read
                 # them, by sha256 of their canonical JSON (params_sha256), so the PASS shadow prices on the same v22.
                 # One recorded field: no bar, no fingerprint and no scored row reads it.
-                "v22_params_sha256": params_sha256(r["v22_poisson"])})
+                "v22_params_sha256": params_sha256(r["v22_poisson"]),
+                # addendum 456 item 5(d): every label placed "by ruling 456", with its count, and the table's sha256
+                "placed_by_ruling_456": list(r.get("ruled_placements") or []),
+                "ruled_placements_sha256": ruled_placements_sha256()})
     return reg.record_run(EID, list(r["scored_ids"]), res, reg.LEDGER, reg.IDS_DIR)
 
 
@@ -2305,4 +2313,81 @@ def recorded_lines(sets) -> list[str]:
                f"{s['outside_pot']} row(s) OUTSIDE soccer-v23's scored set")
             + ("" if s["count"] == s["n"] and not s["outside_pot"] else " · THE RUN REFUSES")
             for s in sets]
+
+
+# ------------------------------------------------- THE RULED PLACEMENTS (ARCHITECT 2026-11-23, addendum 456) --
+
+RULING_456 = "addendum 456"
+#: THE RULED TABLE (ARCHITECT 2026-11-23 09:26 ET, addendum 456 items 4(a)-(d) and 5(a)), keyed by (competition code,
+#: label form: the stored label without its " - <number>"). EXACTLY items 4(a) to 4(d), each with this addendum's
+#: number; item 4(e): "NOTHING ELSE IS RULED. A form above in a competition not named beside it stays unplaced and
+#: refuses. Any other form stays as the code reads it." Read ONLY where soccer_expansion.placement returns nothing
+#: (placement_with_source); soccer_expansion.py is not edited (item 5(b)). Not a model constant: code_constants() and
+#: the entry's frozen_constants do not change (item 5(c)); the run record carries its sha256.
+RULED_PLACEMENTS: dict[tuple[str, str], tuple[str, str]] = {
+    **{(c, "Championship Group"): ("playoff", "addendum 456 item 4(a)")
+       for c in ("AUT", "BEL", "CZE", "GRE", "SCO", "SUI")},
+    **{(c, "Conference League Group"): ("playoff", "addendum 456 item 4(b)") for c in ("BEL", "GRE")},
+    ("SCO", "1st Phase"): ("regular", "addendum 456 item 4(c)"),
+    ("SCO", "2nd Phase"): ("playoff", "addendum 456 item 4(d)"),
+}
+LABEL_FORM = re.compile(r"(?P<form>.+?) - \d+")     # "<form> - <n>", the form without its number (full match)
+
+
+def label_form(label: str | None) -> str | None:
+    """The label without its number: "Championship Group - 3" -> "Championship Group". Only the "<form> - <n>" shape
+    (the forms addendum 456 rules carry it); any other label has no form here and the table never places it."""
+    m = LABEL_FORM.fullmatch(label or "")
+    return m.group("form") if m else None
+
+
+def placement_with_source(code: str | None, label: str | None) -> tuple[str | None, bool]:
+    """(placement, by_ruling): soccer_expansion.placement FIRST (its answer, when it gives one, is never overridden);
+    only where it returns None, RULED_PLACEMENTS by (competition code, label form). by_ruling is True only when the
+    table placed it. A ruled form in a competition the table does not name, or any other form, stays None (unplaced:
+    under LEAGUE_REGULAR the run refuses)."""
+    from src.walters.soccer_expansion import placement
+    pl = placement(label)
+    if pl is not None:
+        return pl, False
+    hit = RULED_PLACEMENTS.get(((code or "").strip().upper(), label_form(label)))
+    return (hit[0], True) if hit else (None, False)
+
+
+def placement_of(r) -> str | None:
+    """THE ONE FUNCTION soccer_v23 places a row's stage label with (addendum 456 item 5(a): in_scope,
+    _first_season_census, stage_census and scored_rows; the replay and the live path alike)."""
+    return placement_with_source(r.code, r.stage)[0]
+
+
+def ruled_placement_census(rows) -> list[list]:
+    """[[code, season, label, placement, rows], ...], sorted: every stored label placed by the ruled table, with its
+    count (addendum 456 item 5(d)). Counts only."""
+    out = []
+    for (c, se), cen in sorted(stage_census(rows).items()):
+        for (label, pl), n in sorted(cen["ruled"].items()):
+            out.append([c, se, label, pl, n])
+    return out
+
+
+def ruled_census_lines(census) -> list[str]:
+    """The lines that mark the table's placements "by ruling 456", one per competition-season, with counts."""
+    by: dict[tuple[str, str], list[str]] = {}
+    for c, se, label, pl, n in census:
+        by.setdefault((c, se), []).append(f"{label!r} {'play-off' if pl == 'playoff' else pl} {n}")
+    tot = sum(x[4] for x in census)
+    return ([f"  stage labels placed by ruling 456 (ARCHITECT 2026-11-23, {RULING_456} items 4(a)-(d); the code places "
+             f"the rest itself): {tot} row(s)" + ("" if census else " (none in this store)")]
+            + [f"    stages {c} {se}, by ruling 456: " + "; ".join(v) for (c, se), v in sorted(by.items())])
+
+
+def ruled_placement_lines(rows) -> list[str]:
+    return ruled_census_lines(ruled_placement_census(rows))
+
+
+def ruled_placements_sha256() -> str:
+    """sha256 of RULED_PLACEMENTS as canonical JSON (sorted [code, form, placement, ruling] rows): the run record binds
+    the table it ran under (addendum 456 item 5(c)); the entry is not touched."""
+    rows = sorted([c, f, pl, why] for (c, f), (pl, why) in RULED_PLACEMENTS.items())
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode("ascii")).hexdigest()
 

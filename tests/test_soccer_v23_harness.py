@@ -1164,7 +1164,7 @@ def test_the_scope_and_first_season_slots_change_the_scored_set():
     assert ids({}) == [1, 2, 3, 5]                                       # the play-off round out, by cause
     assert ids({"first_season": "exclude_as_warmup"}) == [3]             # XX 2024/25 and YY 2025/26: first seasons
     cen = v.stage_census(rows)[("XX", "2025/26")]
-    assert cen == {"regular": 1, "playoff": {"Relegation Round - 1": 1}, "unplaced": {}}
+    assert cen == {"regular": 1, "playoff": {"Relegation Round - 1": 1}, "unplaced": {}, "ruled": {}}   # 456: none
 
 
 def test_the_fingerprint_binds_every_slot():
@@ -2067,7 +2067,10 @@ def test_the_run_record_labels_the_day_rule_residual_and_v22_rewalked_with_the_a
             "  arrivals off the declared pyramid (addendum 263 item 15): 0, each priced on the outside-the-store prior"]
     assert v.record_labels(r) == want
     lines = v.run_lines(r)
-    assert lines[-6:-1] == want and lines[-1].startswith("  VERDICT")
+    assert lines[-7:-2] == want and lines[-1].startswith("  VERDICT")
+    # ARCHITECT 2026-11-23, addendum 456 item 5(d): the labels the ruled table places, marked and counted (none here)
+    assert lines[-2] == ("  stage labels placed by ruling 456 (ARCHITECT 2026-11-23, addendum 456 items 4(a)-(d); the "
+                         "code places the rest itself): 0 row(s) (none in this store)")
     e = v.record(r, "ARCHITECT test word")
     assert e["run"]["result"]["labels"] == want and e["run"]["result"]["aet_pen_rows"] == {"scored": 1, "history": 1}
 

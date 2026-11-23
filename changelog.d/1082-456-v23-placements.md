@@ -1,4 +1,4 @@
-## 2026-11-23 (#PR: 456-v23-placements — soccer-v23's ruled stage placements (ARCHITECT 2026-11-23 09:26 ET, addendum 456 items 3-5; GATE-CLASS; lane soccer-v23, #656))
+## 2026-11-23 (#1082: 456-v23-placements — soccer-v23's ruled stage placements (ARCHITECT 2026-11-23 09:26 ET, addendum 456 items 3-5; GATE-CLASS; lane soccer-v23, #656))
 - **src/walters/soccer_v23.py:**
   - `RULED_PLACEMENTS` holds exactly items 4(a)-(d), each with its item number, keyed by (competition code, label form: the label without its " - N"):
     - "Championship Group" is play-off in AUT, BEL, CZE, GRE, SCO and SUI;

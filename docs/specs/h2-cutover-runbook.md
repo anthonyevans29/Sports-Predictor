@@ -488,13 +488,15 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
       competition-season in the laptop's database with a game from 2026-07-01, except MLB, ATP, WTA, WC and NCAA, 6
       seconds after each (451 item 3(e)).
       Each step carries its limit (461 item 3(a)): "1,200 for a daily step (each single-day sync counts as its own
-      step), 2,400 for each line of the weekly pass". As built, a limit is per command (each of a weekly line's two
-      commands gets its own 2,400 s, each command of daily steps 14 and 15 its own 1,200 s); that reading is open for
-      the architect's ruling. At the limit the child gets SIGTERM, then SIGKILL 10 s later if it has not ended; the
+      step), 2,400 for each line of the weekly pass". The limit is each command's, as built, ruled by addendum 469
+      item 5(1): "2,400 s for each command of a weekly line and 1,200 s for each command of a daily step" (each of a
+      weekly line's two commands gets its own 2,400 s, each command of daily steps 14 and 15 its own 1,200 s). At the
+      limit the child gets SIGTERM, then SIGKILL 10 s later if it has not ended; the
       step's line and receipt say "timed out after N s", its exit is recorded as null, it counts as a failed step and
       the next step runs. The exits (461 item 3(d)): 0 when every step is clean, or its exit is one the list marks
       routine, and every receipt is written; 1 when a step failed, timed out, could not start or went unreceipted (a
-      step whose output could not be read whole included); 2 for the refusal, nothing run.
+      step whose output could not be read whole included: "unreceipted in 461 item 3(d)'s sense; the run exits 1 and
+      the receipt says why", addendum 469 item 5(2)); 2 for the refusal, nothing run.
    4. **The MLB orphan dry run:** `retire-orphans --competition MLB --season 2026` (no `--apply`), by hand, in the
       block, after the command returns (461 item 2(a); no file under deploy/hosting names it). Five MLB steps stay in the command through the off-season, and this sixth is the
       architect's (451 item 3(f) 7, amended).

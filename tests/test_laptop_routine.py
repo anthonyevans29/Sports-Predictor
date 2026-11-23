@@ -11,6 +11,7 @@ for real: the module's one process call (_popen) is replaced by a fake, or, for 
 child that sleeps; receipts go to a tmp file; the weekly list is read from a throwaway DB of its own (never data/)."""
 import inspect
 import json
+import os
 import re
 import signal
 import subprocess
@@ -124,9 +125,10 @@ def test_the_mlb_orphan_dry_run_left_the_routine():
 
 def test_each_entry_carries_its_limit():
     """461 item 3(a): "1,200 for a daily step (each single-day sync counts as its own step), 2,400 for each line of the
-    weekly pass"; SIGKILL 10 s after SIGTERM. Constants in the module, set by no environment variable. AS BUILT,
-    PENDING THE ARCHITECT'S READING (needs-ruling): a limit is per command, so W k.1 and W k.2 carry 2,400 s each and
-    the two-command daily steps 14 and 15 carry 1,200 s per command; this pins the build, not the ruling's reading."""
+    weekly pass"; SIGKILL 10 s after SIGTERM. Constants in the module, set by no environment variable. RULED
+    (ARCHITECT 2026-11-23 15:20 ET, addendum 469 item 5(1)): "THE LIMIT IS EACH COMMAND'S, AS BUILT: 2,400 s for each
+    command of a weekly line and 1,200 s for each command of a daily step." So W k.1 and W k.2 carry 2,400 s each and
+    the two-command daily steps 14 and 15 carry 1,200 s per command."""
     assert (lr.DAILY_STEP_LIMIT, lr.WEEKLY_LINE_LIMIT, lr.KILL_GRACE) == (1200, 2400, 10)
     assert all(st.limit_s == 1200 for st in lr.DAILY) and all(st.limit_s == 1200 for st in lr.resolve(DAY))
     full = lr.resolve(DAY, [("PL", "2026/27"), ("NFL", "2026")])
@@ -525,6 +527,92 @@ def test_an_unreadable_weekly_list_refuses_the_run(box, monkeypatch, capsys):
     assert "Nothing was run." in capsys.readouterr().out
 
 
+@pytest.fixture
+def bad_dotenv(tmp_path, monkeypatch):
+    """A checkout .env holding bytes that are not UTF-8 (\\xff\\xfe): sp_common.redact reads it (_dotenv, by
+    sp_common's own parse_env_file) and raises UnicodeDecodeError, and desk_policy.not_laptop_reason reads it too
+    (DOTENV, no host.env, no role in the environment) and raises. The receipts' own reads (SP_HOST_NAME,
+    SP_WRITER_OF_RECORD) are set in the environment, so append_receipt never reaches the .env and only redact fails."""
+    from src.walters import desk_policy as dp
+    bad = tmp_path / "bad.env"
+    bad.write_bytes(b"\xff\xfe" + b"SP_EXPORTS_MIRROR_ROLE=laptop\n")
+    monkeypatch.setattr(lr.c, "_dotenv", lambda: lr.c.parse_env_file(bad))
+    monkeypatch.setattr(dp, "DOTENV", bad)
+    monkeypatch.setenv("SP_HOST_ENV", str(tmp_path / "no-host.env"))
+    monkeypatch.delenv("SP_EXPORTS_MIRROR_ROLE", raising=False)
+    for name in lr.c.SECRET_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SP_HOST_NAME", "test-laptop")
+    monkeypatch.setenv("SP_WRITER_OF_RECORD", "laptop")
+    with pytest.raises(UnicodeDecodeError):
+        lr.c.redact("x")
+    return bad
+
+
+@pytest.mark.parametrize("dry", [False, True])
+def test_a_role_read_that_raises_while_redact_raises_is_still_refused_exit_2(box, bad_dotenv, monkeypatch, capsys,
+                                                                            dry):
+    """461 item 3(d): the refusal is exit 2, nothing run. A checkout .env that is not UTF-8 makes not_laptop_reason
+    raise AND the handler's redact raise: the error is named by its class alone (_redacted), the refusal line is
+    printed, a real run writes exactly one receipt and a --dry-run none; never a traceback with exit 1."""
+    with pytest.raises(UnicodeDecodeError):
+        lr.not_laptop_reason()                               # the role read itself raises on this .env
+    monkeypatch.setattr(lr, "weekly_list", lambda since=lr.WEEKLY_FROM: pytest.fail("read before the refusal"))
+    assert lr.main(["--weekly", "--dry-run"] if dry else ["--weekly"]) == 2 and box.calls == []
+    out = capsys.readouterr().out
+    assert out.startswith("✗ laptop-routine refused: the role could not be read (UnicodeDecodeError); this command "
+                          "runs on the laptop only (src.walters.desk_policy.not_laptop_reason). Nothing was run.")
+    assert "UTC dates" not in out and "receipt NOT written" not in out
+    rs = receipts(box.tmp)
+    if dry:
+        assert rs == []
+    else:
+        (r,) = rs
+        assert (r["kind"], r["exit"], r["refused"], r["error"]) == ("laptop_routine", 2, "not_laptop_reason",
+                                                                    "UnicodeDecodeError")
+        assert r["not_laptop_reason"] == "the role could not be read (UnicodeDecodeError)"
+
+
+def test_an_unreadable_weekly_list_is_refused_exit_2_while_redact_raises(box, bad_dotenv, monkeypatch, capsys):
+    """The weekly list's refusal (exit 2, nothing run) with redact raising on the checkout .env: its receipt names the
+    error by its class alone, never a traceback."""
+    monkeypatch.setattr(lr, "not_laptop_reason", lambda: None)
+
+    def broken(since=lr.WEEKLY_FROM):
+        raise RuntimeError("REFUSED: no DB file")
+    monkeypatch.setattr(lr, "weekly_list", broken)
+    assert lr.main(["--weekly"]) == 2 and box.calls == []
+    assert "Nothing was run." in capsys.readouterr().out
+    (r,) = receipts(box.tmp)
+    assert (r["exit"], r["refused"], r["error"]) == (2, "weekly_list", "RuntimeError")
+
+
+def test_a_step_that_cannot_start_while_redact_raises_is_not_started_and_the_next_runs(box, bad_dotenv,
+                                                                                         monkeypatch, capsys):
+    """run_step's could-not-start message with redact raising: the step is recorded not started (exit null, the
+    error's class alone), never raised out of run, and the next step runs; the run exits 1."""
+    monkeypatch.setattr(lr, "not_laptop_reason", lambda: None)
+    steps = [lr.Step("1", ("evaluate", "--sport", "mlb")), lr.Step("2", ("results-tally",))]
+    monkeypatch.setattr(lr, "resolve", lambda today, weekly=None: steps)
+    seen = []
+
+    def popen(cmd, **kw):
+        seen.append(cmd[2])
+        if cmd[2] == "evaluate":
+            raise FileNotFoundError("no python")
+        return FakeProc([], 0)
+    monkeypatch.setattr(lr, "_popen", popen)
+    assert lr.main([]) == 1 and seen == ["evaluate", "results-tally"]
+    out = capsys.readouterr().out.rstrip().splitlines()
+    assert out[-1] == ("✗ laptop-routine: steps run 2/2 · failed 1 · non-zero exits 0 · not started 1 · 1 · routine "
+                       "exits 0")
+    step1, step2, run = receipts(box.tmp)
+    assert step1["exit"] is None and step1["not_started"] == "could not start: FileNotFoundError"
+    assert step2["exit"] == 0 and "not_started" not in step2
+    assert run["not_started"] == [{"step": "1", "command": "python cli.py evaluate --sport mlb", "exit": None,
+                                   "not_started": "could not start: FileNotFoundError"}]
+
+
 # ---------------------------------------------------------------- the per-step timeout, 461 item 3(a) ----
 
 SLEEPER = "import time; print('started', flush=True); time.sleep(60)"
@@ -691,6 +779,84 @@ def test_a_pipe_held_open_after_the_child_exits_is_named_and_never_holds_the_mor
     assert r["output_errors"] == [("1", "output not drained: the pipe was still open 1 s after the step ended")]
     rec = receipts(box.tmp)[0]
     assert rec["exit"] == 0 and rec["output_error"].startswith("output not drained") and "timed_out" not in rec
+
+
+def test_a_descendant_writing_after_the_kill_never_holds_the_morning_a_further_limit(box, children, monkeypatch,
+                                                                                    tmp_path):
+    """461 item 3(a), "the next step runs": the child times out at a 1 s limit and is ended, but a grandchild it
+    spawned (its own session, the inherited stdout) writes a line every 0.05 s for 30 s, so the pipe stays open and
+    busy. After the kill the drain is capped at the grace (0.3 s here), never the step's limit again: the step returns
+    within limit + grace + slack, is recorded as timed out and its output as not drained, and the next step runs."""
+    pid_file = tmp_path / "grandchild.pid"
+    monkeypatch.setitem(CHILDREN, "spawner", (
+        "import subprocess, sys, time; g = subprocess.Popen([sys.executable, '-c', 'import time\\nfor i in range(600):"
+        "\\n    print(f\"gc {i}\", flush=True); time.sleep(0.05)'], start_new_session=True); "
+        f"open({str(pid_file)!r}, 'w').write(str(g.pid)); print('spawned', flush=True); time.sleep(60)"))
+    try:
+        t0 = time.monotonic()
+        r = lr.run([lr.Step("1", ("spawner",)), lr.Step("2", ("results-tally",))], "t", limit_s=1, grace_s=0.3)
+        took = time.monotonic() - t0
+        (p,) = children
+        assert p.poll() == -signal.SIGTERM
+        assert took < 1 + 0.3 + 0.8, took                     # the old drain ran the limit again: 2.2 s at least
+        assert r["timed_out"] == [("1", "python cli.py spawner", 1)] and r["failed"] == [] and r["ran"] == 2
+        assert r["output_errors"] == [("1", "output not drained: the pipe was still open 0.3 s after the step ended")]
+        assert box.calls == [["results-tally"]]                                   # the next step ran
+        rec = receipts(box.tmp)[0]
+        assert (rec["exit"], rec["timed_out"], rec["ended_by"]) == (None, "timed out after 1 s", "SIGTERM")
+        assert rec["output_error"].startswith("output not drained")
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
+
+
+def test_a_refusal_resolves_no_time_before_the_read_and_a_real_one_still_receipts_its_run_id(box, machine,
+                                                                                            monkeypatch, capsys):
+    """The refusal comes before anything else: a refused --dry-run never reads the clock (utc_now raises here); a
+    refused real run reads it only after not_laptop_reason, for its one receipt, which carries its run id."""
+    machine("host")
+    reason = FOUR_ANSWERS["host"][2]
+
+    def no_clock():
+        raise AssertionError("utc_now read before the refusal")
+    monkeypatch.setattr(lr.c, "utc_now", no_clock)
+    assert lr.main(["--dry-run"]) == 2 and machine.reads == [reason] and receipts(box.tmp) == []
+    seen = []
+
+    def clock():
+        seen.append(list(machine.reads))
+        return datetime(2026, 11, 23, 13, 8, tzinfo=timezone.utc)
+    monkeypatch.setattr(lr.c, "utc_now", clock)
+    assert lr.main([]) == 2 and box.calls == []
+    assert seen[0] == [reason, reason]                       # the clock is read after this run's reason read
+    (r,) = receipts(box.tmp)
+    assert (r["run_id"], r["exit"], r["refused"], r["not_laptop_reason"]) == (
+        "20261123T130800Z-laptop-routine", 2, "not_laptop_reason", reason)
+
+
+def test_a_receipt_error_redact_cannot_read_is_named_by_its_class_and_the_run_goes_on(box, monkeypatch, capsys):
+    """append_receipt raising AND redact raising (a checkout .env it cannot decode): _receipt returns the error's
+    class name and never raises (as run_step's note), so every step still runs, each line is printed and counted,
+    and the run exits 1."""
+    def full(rec):
+        raise OSError(28, "No space left on device")
+
+    def bad(s):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+    monkeypatch.setattr(lr.c, "append_receipt", full)
+    monkeypatch.setattr(lr.c, "redact", bad)
+    assert lr._receipt({"kind": "step"}) == "OSError"
+    capsys.readouterr()
+    assert lr.main([]) == 1
+    assert [" ".join(a) for a in box.calls] == [x for _, x in EXPECTED]           # the next step ran, every one
+    out = capsys.readouterr().out.splitlines()
+    assert out.count("    receipt NOT written: OSError") == len(EXPECTED) + 1      # each step's, then the run's
+    assert out[-1].startswith("✗ laptop-routine: steps run 26/26 · failed 0 · non-zero exits 0 · routine exits 0 · "
+                              f"receipts not written {len(EXPECTED) + 1} · 1 · 2 · ")
+    assert out[-1].endswith(" · 16 · run")
 
 
 def test_the_exits_are_0_1_and_2(box, machine, monkeypatch):

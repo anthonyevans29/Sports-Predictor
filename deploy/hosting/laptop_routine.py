@@ -18,8 +18,10 @@ WHAT IT DOES (451 item 3(b), as 461 items 2 and 3 amend it):
   not a fence input; the routine names nothing else of desk_policy's role code (461 item 2(b)), and the refusal never
   rests on closing.mirror_role(), which reads the environment first (461 item 2(c)). The refusal comes before anything
   else: no date is resolved, no database is read, no step runs. A read that raises is refused the same way (its error
-  printed and receipted). A real run's refusal writes one receipt (refused: not_laptop_reason, the reason beside it);
-  a --dry-run's writes none, as sp_run's dry runs write none.
+  printed and receipted; by its class name alone when redacting it raises too, as for every error the module
+  redacts, _redacted). A real run's refusal writes one receipt (refused: not_laptop_reason, the reason beside it;
+  its time and run id resolved after the read, for that receipt alone); a --dry-run's writes none and resolves
+  nothing, as sp_run's dry runs write none.
 - Runs each step as the checkout's own python (sys.executable) on the checkout's cli.py (cwd the checkout), in
   order. A FAILING STEP NEVER STOPS THE NEXT: every exit is printed. No step is retried (item 3 asks for none).
 - First line: the UTC dates it resolved. The step's own output streams indented ("  | "), then ONE line per step:
@@ -36,28 +38,33 @@ WHAT IT DOES (451 item 3(b), as 461 items 2 and 3 amend it):
   no step of the list has a routine non-zero exit today, and every non-zero exit counts as one.
 - One receipt line per step (kind "step", unit "laptop-routine", as bootstrap.py writes its own steps) and one for the
   run (kind "laptop_routine", never "chain", so no reader of the host's chain receipts counts it), by
-  sp_common.append_receipt as it is (SP_RECEIPTS, else the checkout's logs/receipts.jsonl). A step that could not
-  start is receipted with exit null (law 4: no exit is invented) and `not_started` naming why. A receipt that cannot
-  be written (append_receipt raised) is printed ("receipt NOT written: ...") and the run goes on; the run receipt
-  lists those steps and the last line counts them. A step whose output the routine could not read whole (its own
-  error while reading, "output not read: ...", or a pipe still open after the step ended, "output not drained: ...")
-  is printed and receipted so (output_error), never as a timeout: the child's exit stands, the pipe is still drained,
-  and the run exits 1 (its receipt is not whole: law 4).
+  sp_common.append_receipt as it is (SP_RECEIPTS, else the checkout's logs/receipts.jsonl). A step that could not start
+  is receipted with exit null (law 4: no exit is invented) and `not_started` naming why. A receipt that cannot be
+  written (append_receipt raised) is printed ("receipt NOT written: ...", the error's class name alone when redacting it
+  raises too) and the run goes on; the run receipt lists those steps and the last line counts them. A step whose output
+  the routine could not read whole (its own error while reading, "output not read: ...", or a pipe still open after the
+  step ended, "output not drained: ...") is printed and receipted so (output_error), never as a timeout: the child's
+  exit stands, the pipe is still drained, and the run exits 1. RULED (ARCHITECT 2026-11-23 15:20 ET, addendum 469 item
+  5(2)): "a step whose output could not be fully read is unreceipted in 461 item 3(d)'s sense; the run exits 1 and the
+  receipt says why."
 - A PER-STEP TIMEOUT (461 item 3(a)): each entry of the list carries its limit in seconds (Step.limit_s), a constant
-  here: DAILY_STEP_LIMIT (1,200) for a daily step, each single-day sync counting as its own step, and
-  WEEKLY_LINE_LIMIT (2,400), 461's "2,400 for each line of the weekly pass". AS BUILT, PENDING THE ARCHITECT'S
-  READING (needs-ruling): each child gets its own limit, so a weekly line's two commands (W k.1, W k.2) get 2,400 s
-  each, not one 2,400 s between them, and the two-command daily steps 14 and 15 (451's 15 and 16) get 1,200 s per
-  command. At the limit the child is sent SIGTERM, then SIGKILL after KILL_GRACE (10) seconds if it has not ended.
-  The step's line and its receipt say "timed out after N s", its exit is recorded as null, it counts as a failed
-  step, and the next step runs. The child's output keeps streaming while it runs (a reader thread; the wait is the
-  main thread's). A limit changes only by the architect's ruling: no environment variable or option sets one (run()
-  takes an override for the tests alone).
+  here: DAILY_STEP_LIMIT (1,200) for a daily step, each single-day sync counting as its own step, and WEEKLY_LINE_LIMIT
+  (2,400), 461's "2,400 for each line of the weekly pass". RULED (ARCHITECT 2026-11-23 15:20 ET, addendum 469 item
+  5(1)): "THE LIMIT IS EACH COMMAND'S, AS BUILT: 2,400 s for each command of a weekly line and 1,200 s for each command
+  of a daily step." Each child gets its own limit, so a weekly line's two commands (W k.1, W k.2) get 2,400 s each, not
+  one 2,400 s between them, and the two-command daily steps 14 and 15 (451's 15 and 16) get 1,200 s per command. At the
+  limit the child is sent SIGTERM, then SIGKILL after KILL_GRACE (10) seconds if it has not ended. The step's line and
+  its receipt say "timed out after N s", its exit is recorded as null, it counts as a failed step, and the next step
+  runs: after the kill the pipe is drained for KILL_GRACE at most, so a descendant still holding it never holds the
+  morning (the step is then also marked "output not drained"). The child's output keeps streaming while it runs (a
+  reader thread; the wait is the main thread's). A limit changes only by the architect's ruling: no environment
+  variable or option sets one (run() takes an override for the tests alone).
 - --dry-run prints the resolved steps and runs nothing (no step, no receipt), as sp_run's --dry-run does. With
   --weekly it reads the weekly list (read-only) to print it.
 - Exit (461 item 3(d)): 0 when every step is clean, or its exit is one the list marks routine, and every receipt is
   written; 1 when a step failed, timed out or went unreceipted (a step that could not start, or whose output is not
-  whole, included); 2 for the refusal, nothing run (and for a weekly list that cannot be read, nothing run).
+  whole, included: addendum 469 item 5(2)); 2 for the refusal, nothing run (and for a weekly list that cannot be read,
+  nothing run).
 
 THE DAILY LIST (451 item 3(d) as 461 item 2(a) amends it: 16 steps, renumbered in the same order), the architect's
 block of 2026-11-23. Placeholders are UTC, from sp_run's date_vars ({today}, {yesterday}, {tomorrow}); date_vars has
@@ -123,8 +130,9 @@ WEEKLY_EXCLUDED = ("MLB", "ATP", "WTA", "WC", "NCAA")   # item 3(e): "except MLB
 # 461 item 3(a): "Each entry of the list carries its limit in seconds, a constant in the module: 1,200 for a daily step
 # (each single-day sync counts as its own step), 2,400 for each line of the weekly pass. At the limit the child is sent
 # SIGTERM, then SIGKILL after 10 seconds if it has not ended." A limit changes only by the architect's ruling.
-# AS BUILT, PENDING THE ARCHITECT'S READING: a limit is per child (per command), so WEEKLY_LINE_LIMIT is given to each
-# of a weekly line's two commands, and DAILY_STEP_LIMIT to each command of steps 14 and 15. Open (needs-ruling).
+# RULED (ARCHITECT 2026-11-23 15:20 ET, addendum 469 item 5(1)): "THE LIMIT IS EACH COMMAND'S, AS BUILT: 2,400 s for
+# each command of a weekly line and 1,200 s for each command of a daily step." So WEEKLY_LINE_LIMIT is given to each of
+# a weekly line's two commands, and DAILY_STEP_LIMIT to each command of steps 14 and 15.
 DAILY_STEP_LIMIT = 1200
 WEEKLY_LINE_LIMIT = 2400
 KILL_GRACE = 10
@@ -219,8 +227,8 @@ def routine_vars(today: date) -> dict:
 
 def weekly_steps(lines: list) -> list:
     """The whole-season pass for the list read (item 3(e)): per (code, season), sync-teams then sync-matches, each
-    followed by WEEKLY_WAIT_S and each carrying WEEKLY_LINE_LIMIT (461 item 3(a); per command as built, pending the
-    architect's reading of "each line"). The strings are the database's own, never formatted."""
+    followed by WEEKLY_WAIT_S and each carrying WEEKLY_LINE_LIMIT (461 item 3(a); each command's, as built, ruled by
+    addendum 469 item 5(1)). The strings are the database's own, never formatted."""
     out = []
     for k, (code, season) in enumerate(lines, 1):
         out += [Step(f"W{k}.1", ("sync-teams", "--competition", code, "--season", season), WEEKLY_WAIT_S,
@@ -277,6 +285,17 @@ def not_laptop_reason() -> str | None:
     return desk_policy.not_laptop_reason()
 
 
+def _redacted(text: str, fallback: str) -> str:
+    """c.redact(text), or `fallback` (the error's class name alone) when redacting raises: sp_common.redact reads the
+    checkout's .env (_dotenv), and a .env it cannot decode raises UnicodeDecodeError. Every error path of the module
+    redacts through this one helper (run_step's note and could-not-start message, _receipt, main's role-read error
+    and weekly-list refusal), so no error path raises and the refusal stays exit 2 (461 item 3(d))."""
+    try:
+        return c.redact(text)
+    except Exception:                     # noqa: BLE001 — redact itself failing: the fallback, never raised
+        return fallback
+
+
 def command_text(st: Step) -> str:
     return "python cli.py " + " ".join(st.argv)
 
@@ -324,17 +343,14 @@ def run_step(st: Step, limit_s=None, grace_s=KILL_GRACE) -> tuple:
         proc = _popen(cmd, cwd=c.REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                       errors="replace", env=env, bufsize=1)
     except OSError as e:
-        msg = f"could not start: {e.__class__.__name__}: {e}"
-        return None, [], [c.redact(msg)], time.monotonic() - t0, None, None
+        msg = _redacted(f"could not start: {e.__class__.__name__}: {e}", f"could not start: {e.__class__.__name__}")
+        return None, [], [msg], time.monotonic() - t0, None, None
 
     lock = threading.Lock()               # the reader's lists and state, copied under it below
     state = {"lines": 0, "error": None, "quiet": False}
 
     def note(e):                          # the routine's own error while reading, kept once; never raised
-        try:
-            text = c.redact(f"{e.__class__.__name__}: {e}")
-        except Exception:                 # noqa: BLE001 — redact itself failing: the class name alone
-            text = e.__class__.__name__
+        text = _redacted(f"{e.__class__.__name__}: {e}", e.__class__.__name__)
         with lock:
             state["error"] = state["error"] or text
 
@@ -376,12 +392,14 @@ def run_step(st: Step, limit_s=None, grace_s=KILL_GRACE) -> tuple:
     except subprocess.TimeoutExpired:
         timeout = {"limit_s": limit, "ended_by": _stop(proc, grace_s)}
         rc = None                         # 461 item 3(a): "its exit is recorded as null"
-    # The pipe closes when the child ends, and the reader drains what is left: it is joined for as long as it is
-    # still reading (a slow console included), so a sync's last count line is not lost. Only a reader that reads no
-    # line for grace_s (a grandchild holding the pipe open, a console that takes nothing), or is still reading after
-    # the step's limit again, is left (a daemon thread, from then on silent); the step then says so.
+    # The pipe closes when the child ends, and the reader drains what is left: after a clean exit it is joined for as
+    # long as it is still reading (a slow console included), so a sync's last count line is not lost. Only a reader
+    # that reads no line for grace_s (a grandchild holding the pipe open, a console that takes nothing), or is still
+    # reading after the step's limit again, is left (a daemon thread, from then on silent); the step then says so.
+    # After a timeout the drain is capped at grace_s (461 item 3(a): "the next step runs"): a descendant that outlived
+    # the kill and keeps writing never holds the morning a further limit; the pipe drains silently in the daemon.
     undrained = False
-    end = time.monotonic() + max(limit, grace_s)
+    end = time.monotonic() + (grace_s if timeout else max(limit, grace_s))
     while reader.is_alive():
         with lock:
             seen = state["lines"]
@@ -414,7 +432,7 @@ def _receipt(rec: dict) -> str | None:
         c.append_receipt(rec)
         return None
     except Exception as e:                # noqa: BLE001 — any write failure is printed and counted, never raised
-        msg = c.redact(f"{e.__class__.__name__}: {e}")
+        msg = _redacted(f"{e.__class__.__name__}: {e}", e.__class__.__name__)
         print(f"    receipt NOT written: {msg}", flush=True)
         return msg
 
@@ -486,32 +504,36 @@ def _list_text(lines: list) -> str:
                                                      or "none"))
 
 
+def _run_id(now: datetime) -> str:
+    return f"{now.strftime('%Y%m%dT%H%M%SZ')}-{UNIT}"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="The laptop's morning routine (addendum 451 item 3, amended by 461): the "
                                              "committed step list, run in order on this checkout's cli.py.")
     ap.add_argument("--weekly", action="store_true", help="the whole-season pass before step 8 (451 item 3(e))")
     ap.add_argument("--dry-run", action="store_true", help="print the resolved steps; run nothing")
     a = ap.parse_args(argv)
-    now = c.utc_now()
-    run_id = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{UNIT}"
 
     read_error = None
     try:
         reason = not_laptop_reason()      # FIRST: nothing is resolved, read or run before it
     except Exception as e:                # noqa: BLE001 — a reason that cannot be read is an unknown role: refused
-        read_error = c.redact(f"{e.__class__.__name__}: {e}")
+        read_error = _redacted(f"{e.__class__.__name__}: {e}", e.__class__.__name__)
         reason = f"the role could not be read ({read_error})"
     if reason is not None:
         print(f"✗ laptop-routine refused: {reason}; this command runs on the laptop only "
               "(src.walters.desk_policy.not_laptop_reason). Nothing was run.", flush=True)
-        if not a.dry_run:
-            rec = {"kind": RUN_KIND, "unit": UNIT, "run_id": run_id, "exit": 2, "refused": "not_laptop_reason",
-                   "not_laptop_reason": reason}
+        if not a.dry_run:                 # the run's time and id, resolved only now, for its one receipt
+            rec = {"kind": RUN_KIND, "unit": UNIT, "run_id": _run_id(c.utc_now()), "exit": 2,
+                   "refused": "not_laptop_reason", "not_laptop_reason": reason}
             if read_error:
                 rec["error"] = read_error
             _receipt(rec)
         return 2
 
+    now = c.utc_now()
+    run_id = _run_id(now)
     v = routine_vars(now.date())
     print(dates_line(v, a.weekly), flush=True)
     lines = None
@@ -523,7 +545,8 @@ def main(argv=None) -> int:
                   "Nothing was run.", flush=True)
             if not a.dry_run:
                 _receipt({"kind": RUN_KIND, "unit": UNIT, "run_id": run_id, "exit": 2,
-                          "refused": "weekly_list", "error": c.redact(f"{e.__class__.__name__}: {e}")})
+                          "refused": "weekly_list", "error": _redacted(f"{e.__class__.__name__}: {e}",
+                                                                       e.__class__.__name__)})
             return 2
         print(_list_text(lines), flush=True)
     steps = resolve(now.date(), lines)

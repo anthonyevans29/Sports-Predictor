@@ -143,15 +143,17 @@ competition-season in the laptop's database with a game from 2026-07-01,
 except MLB, ATP, WTA, WC and NCAA. The list itself is `DAILY` in the module.
 Each step has a limit (461 item 3(a)): "1,200 for a daily step (each
 single-day sync counts as its own step), 2,400 for each line of the weekly
-pass". As built, a limit is per command: each of a weekly line's two
-commands gets its own 2,400 s, and each command of daily steps 14 and 15 its
-own 1,200 s. That reading is open for the architect's ruling. At the limit
+pass". The limit is each command's, as built, ruled by addendum 469 item
+5(1): "2,400 s for each command of a weekly line and 1,200 s for each command
+of a daily step" (each of a weekly line's two commands gets its own 2,400 s,
+and each command of daily steps 14 and 15 its own 1,200 s). At the limit
 the step gets SIGTERM, then SIGKILL 10 s later; its line and receipt say
 "timed out after N s", its exit is null, it counts as failed, and the next
 step runs. Exits (461 item 3(d)): 0 when every step is clean or its exit is
 marked routine and every receipt is written; 1 when a step failed, timed
 out, could not start, or went unreceipted (a step whose output could not be
-read whole included); 2 for the refusal. The architect's block
+read whole included: "unreceipted in 461 item 3(d)'s sense; the run exits 1
+and the receipt says why", addendum 469 item 5(2)); 2 for the refusal. The architect's block
 keeps the rest (451 item 3(c)): the backup, first (the command is not
 called if it failed), then `coverage`, then the command; the MLB orphan
 dry run (`retire-orphans`, no `--apply`), by hand, after the command returns

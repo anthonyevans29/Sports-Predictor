@@ -1,14 +1,18 @@
-## 2026-11-23 (#000: 451-laptop-routine — the laptop's morning routine as one committed list and one command (ARCHITECT 2026-11-23, addendum 451 item 3; #1067))
+## 2026-11-23 (#000: 451-laptop-routine — the laptop's morning routine as one committed list and one command (ARCHITECT 2026-11-23, addendum 451 item 3, amended by addendum 461 items 2 to 4; #1067))
 - **deploy/hosting/laptop_routine.py `[--weekly] [--dry-run]`:**
-  - The daily list is `DAILY`, item 3(d) in its order: MLB's five steps and `sync-kalshi`; NBA and NCAAMB one day at a time (today-2 to tomorrow, 6 s after each day); NCAA `sync-teams`, `sync-matches` today-8 to yesterday and the orphans dry run; NHL's three days, its fixtures export and `nhl-goalie-sync`; ATP and WTA with `sync-kalshi-atp` and `sync-kalshi-wta`; `results-tally`.
-  - It refuses (exit 2, nothing run) off the laptop, by `desk_policy.machine_role()`.
+  - The daily list is `DAILY`: 451 item 3(d) less its step 2, 16 steps renumbered in the same order (461 item 2(a)). MLB's five steps (`sync-matches`, `evaluate`, `improve`, `export-results`, `sync-kalshi`); NBA and NCAAMB one day at a time (today-2 to tomorrow, 6 s after each day); NCAA `sync-teams`, `sync-matches` today-8 to yesterday and the orphans dry run; NHL's three days, its fixtures export and `nhl-goalie-sync`; ATP and WTA with `sync-kalshi-atp` and `sync-kalshi-wta`; `results-tally`.
+  - The MLB orphan dry run is not in the list, and no file under deploy/hosting names it. It stays in the architect's block, by hand, after the routine returns (461 item 2(a)).
+  - It refuses (exit 2, nothing run) off the laptop when `desk_policy.not_laptop_reason()` is not None, and prints the reason (461 item 2(d)). It names no fence input (461 item 2(b)).
   - Steps run on the checkout's `cli.py` in order, and a failing step never stops the next.
-  - Console: the UTC dates first; one line per step (number, command, exit, seconds), with a sync's own lines under it; the last line holds steps run and non-zero exits, with routine exits apart. cli.py gives improve's rejection no non-zero exit, so none is marked.
+  - A per-step timeout (461 item 3(a)): "1,200 for a daily step (each single-day sync counts as its own step), 2,400 for each line of the weekly pass" (`DAILY_STEP_LIMIT`, `WEEKLY_LINE_LIMIT`). As built, a limit is per command: each of a weekly line's two commands, and each command of daily steps 14 and 15, has its own. That reading is open for the architect's ruling. At the limit the step gets SIGTERM, then SIGKILL after `KILL_GRACE` 10 s. The line and receipt say "timed out after N s", the exit is null, the step counts as failed, and the next runs. Output keeps streaming (a reader thread).
+  - Console: the UTC dates first; one line per step (number, command, exit, seconds), with a sync's own lines under it; the last line holds steps run, steps failed, non-zero exits, and steps timed out or not started, with routine exits apart. cli.py gives improve's rejection no non-zero exit, so none is marked.
   - Receipts: one per step and one per run, via `append_receipt` unchanged (unit `laptop-routine`, run kind `laptop_routine`).
+  - Exits (461 item 3(d)): 0 when every step is clean or routine and every receipt is written; 1 when a step failed, timed out, could not start or went unreceipted; 2 for the refusal.
+  - A step whose output the routine could not read whole (its own error while reading, or a pipe still open after the step ended) keeps its exit, is named on its line and receipt (`output_error`), never as a timeout, and the run exits 1. The pipe is drained for as long as it is still being read, so a sync's last count line is kept.
   - A receipt that cannot be written is printed and counted on the last line (exit 1), and the next step still runs; a step that could not start carries `not_started`; `nhl-goalie-sync` counts as a sync for the echoed lines.
-  - `--weekly` reads the whole-season list read-only (a game from 2026-07-01, less MLB, ATP, WTA, WC, NCAA) and runs `sync-teams` and `sync-matches` per line, before step 9.
+  - `--weekly` reads the whole-season list read-only (a game from 2026-07-01, less MLB, ATP, WTA, WC, NCAA) and runs `sync-teams` and `sync-matches` per line, before step 8.
   - `--dry-run` runs nothing.
-  - No backup, coverage, roadmap read, mirror push, stale count, college rows read, page, timer, launchd job or soccer-refresh.
-  - sp_run.py, sp_backup.py and chains.py are unchanged.
-- **Tests:** tests/test_laptop_routine.py.
-- **Docs:** README.md and docs/specs/h2-cutover-runbook.md: the two stale passages rewritten (item 3(f) 15). docs/CLI.md: the row. Nothing run.
+  - No backup, coverage, MLB orphan dry run, roadmap read, mirror push, stale count, college rows read, page, timer, launchd job or soccer-refresh.
+  - sp_run.py, sp_backup.py and chains.py are unchanged. No pinned test is touched.
+- **Tests:** tests/test_laptop_routine.py, with 461 item 4's: the timed-out step, the child that ignores SIGTERM, and the refusal on not_laptop_reason's four answers. Also: the last count line kept through the drain, a read error that is not a timeout, and a pipe held open.
+- **Docs:** README.md and docs/specs/h2-cutover-runbook.md: the two stale passages rewritten (451 item 3(f) 15), for 461. docs/CLI.md: the row. Nothing run.

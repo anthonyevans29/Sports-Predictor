@@ -1,14 +1,21 @@
-"""The laptop's morning routine (ARCHITECT 2026-11-23, addendum 451 item 3; #1067): deploy/hosting/laptop_routine.py.
+"""The laptop's morning routine (ARCHITECT 2026-11-23, addendum 451 item 3, amended by addendum 461 items 2 to 4;
+#1067): deploy/hosting/laptop_routine.py.
 
-Item 3(g): every step's command and options exist in cli.py (the law-1 test's method, tests/test_hosting_pack.py, on
-this list); the refusal off the laptop; a failing step does not stop the next; --dry-run runs nothing; the weekly
-list's exclusions. Also: the daily list exactly as item 3(d), soccer-refresh in no list, and the routine-exit marking.
-No step runs for real: the module's one process call (_popen) is replaced by a fake; receipts go to a tmp file; the
-weekly list is read from a throwaway DB of its own (never data/)."""
+451 item 3(g): every step's command and options exist in cli.py (the law-1 test's method, tests/test_hosting_pack.py,
+on this list); the refusal off the laptop; a failing step does not stop the next; --dry-run runs nothing; the weekly
+list's exclusions. 461 item 4: "a step that outlives its limit is ended, recorded as timed out, and the next step runs
+(a child that sleeps, a limit of one second); a child that ignores SIGTERM is killed; the refusal's test reads
+not_laptop_reason on each of its four answers." Also: the daily list exactly as 451 item 3(d) less its step 2 and
+renumbered (461 item 2(a)), soccer-refresh in no list, the limits, and the routine-exit marking. No cli.py step runs
+for real: the module's one process call (_popen) is replaced by a fake, or, for the two timeout tests, by a python -c
+child that sleeps; receipts go to a tmp file; the weekly list is read from a throwaway DB of its own (never data/)."""
 import inspect
 import json
 import re
+import signal
+import subprocess
 import sys
+import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -29,7 +36,7 @@ class FakeProc:
         self.stdout = iter(f"{x}\n" for x in lines)
         self._rc = rc
 
-    def wait(self):
+    def wait(self, timeout=None):
         return self._rc
 
 
@@ -65,43 +72,75 @@ def receipts(tmp):
 
 EXPECTED = [
     ("1", "sync-matches --competition MLB --season 2026 --date-from 2026-10-15 --date-to 2026-11-24"),
-    ("2", "retire-orphans --competition MLB --season 2026"),
-    ("3", "evaluate --sport mlb"),
-    ("4", "improve --sport mlb --hold-on-pass"),
-    ("5", "export-results --sport mlb --competition MLB"),
-    ("6", "sync-kalshi"),
-    ("7.1", "sync-matches --competition NBA --season 2026 --date-from 2026-11-21 --date-to 2026-11-21"),
-    ("7.2", "sync-matches --competition NBA --season 2026 --date-from 2026-11-22 --date-to 2026-11-22"),
-    ("7.3", "sync-matches --competition NBA --season 2026 --date-from 2026-11-23 --date-to 2026-11-23"),
-    ("7.4", "sync-matches --competition NBA --season 2026 --date-from 2026-11-24 --date-to 2026-11-24"),
-    ("8.1", "sync-matches --competition NCAAMB --season 2026 --date-from 2026-11-21 --date-to 2026-11-21"),
-    ("8.2", "sync-matches --competition NCAAMB --season 2026 --date-from 2026-11-22 --date-to 2026-11-22"),
-    ("8.3", "sync-matches --competition NCAAMB --season 2026 --date-from 2026-11-23 --date-to 2026-11-23"),
-    ("8.4", "sync-matches --competition NCAAMB --season 2026 --date-from 2026-11-24 --date-to 2026-11-24"),
-    ("9", "sync-teams --competition NCAA --season 2026"),
-    ("10", "sync-matches --competition NCAA --season 2026 --date-from 2026-11-15 --date-to 2026-11-22"),
-    ("11", "dedupe-matches --competition NCAA --orphans --sample 30"),
-    ("12.1", "sync-matches --competition NHL --season 2026 --date-from 2026-11-22 --date-to 2026-11-22"),
-    ("12.2", "sync-matches --competition NHL --season 2026 --date-from 2026-11-23 --date-to 2026-11-23"),
-    ("12.3", "sync-matches --competition NHL --season 2026 --date-from 2026-11-24 --date-to 2026-11-24"),
-    ("13", "export-fixtures --competition NHL"),
-    ("14", "nhl-goalie-sync --start 2026-11-22 --end 2026-11-23"),
-    ("15.1", "sync-matches --competition ATP --date-from 2026-11-22 --date-to 2026-11-24"),
-    ("15.2", "sync-matches --competition WTA --date-from 2026-11-22 --date-to 2026-11-24"),
-    ("16.1", "sync-kalshi-atp"),
-    ("16.2", "sync-kalshi-wta"),
-    ("17", "results-tally"),
+    ("2", "evaluate --sport mlb"),
+    ("3", "improve --sport mlb --hold-on-pass"),
+    ("4", "export-results --sport mlb --competition MLB"),
+    ("5", "sync-kalshi"),
+    ("6.1", "sync-matches --competition NBA --season 2026 --date-from 2026-11-21 --date-to 2026-11-21"),
+    ("6.2", "sync-matches --competition NBA --season 2026 --date-from 2026-11-22 --date-to 2026-11-22"),
+    ("6.3", "sync-matches --competition NBA --season 2026 --date-from 2026-11-23 --date-to 2026-11-23"),
+    ("6.4", "sync-matches --competition NBA --season 2026 --date-from 2026-11-24 --date-to 2026-11-24"),
+    ("7.1", "sync-matches --competition NCAAMB --season 2026 --date-from 2026-11-21 --date-to 2026-11-21"),
+    ("7.2", "sync-matches --competition NCAAMB --season 2026 --date-from 2026-11-22 --date-to 2026-11-22"),
+    ("7.3", "sync-matches --competition NCAAMB --season 2026 --date-from 2026-11-23 --date-to 2026-11-23"),
+    ("7.4", "sync-matches --competition NCAAMB --season 2026 --date-from 2026-11-24 --date-to 2026-11-24"),
+    ("8", "sync-teams --competition NCAA --season 2026"),
+    ("9", "sync-matches --competition NCAA --season 2026 --date-from 2026-11-15 --date-to 2026-11-22"),
+    ("10", "dedupe-matches --competition NCAA --orphans --sample 30"),
+    ("11.1", "sync-matches --competition NHL --season 2026 --date-from 2026-11-22 --date-to 2026-11-22"),
+    ("11.2", "sync-matches --competition NHL --season 2026 --date-from 2026-11-23 --date-to 2026-11-23"),
+    ("11.3", "sync-matches --competition NHL --season 2026 --date-from 2026-11-24 --date-to 2026-11-24"),
+    ("12", "export-fixtures --competition NHL"),
+    ("13", "nhl-goalie-sync --start 2026-11-22 --end 2026-11-23"),
+    ("14.1", "sync-matches --competition ATP --date-from 2026-11-22 --date-to 2026-11-24"),
+    ("14.2", "sync-matches --competition WTA --date-from 2026-11-22 --date-to 2026-11-24"),
+    ("15.1", "sync-kalshi-atp"),
+    ("15.2", "sync-kalshi-wta"),
+    ("16", "results-tally"),
 ]
 
 
 def test_the_daily_list_is_item_3d_in_its_order():
+    """451 item 3(d) less its step 2, renumbered 1..16 in the same order (461 item 2(a)): 16 steps, 26 commands."""
     got = [(st.label, " ".join(st.argv)) for st in lr.resolve(DAY)]
     assert got == EXPECTED
+    assert sorted({int(lab.split(".")[0]) for lab, _ in EXPECTED}) == list(range(1, 17)) and len(EXPECTED) == 26
     # the six-second wait after each basketball day, and after no other daily step
-    assert {st.label for st in lr.resolve(DAY) if st.wait_s} == {f"{n}.{k}" for n in (7, 8) for k in range(1, 5)}
+    assert {st.label for st in lr.resolve(DAY) if st.wait_s} == {f"{n}.{k}" for n in (6, 7) for k in range(1, 5)}
     assert all(st.wait_s == 6 for st in lr.resolve(DAY) if st.wait_s)
-    # nothing is applied: the two dry runs carry no --apply, improve carries its hold
+    # nothing is applied: the dry run carries no --apply, improve carries its hold
     assert not any("--apply" in st.argv for st in lr.DAILY)
+
+
+def test_the_mlb_orphan_dry_run_left_the_routine():
+    """461 item 2(a): 451's step 2 leaves the routine; the dry run stays in the architect's block, by hand. Five MLB
+    steps stay (451 item 3(f) 7 amended); the module never names the command (test_never_inside_the_watch's pin)."""
+    assert [" ".join(st.argv[:1]) for st in lr.DAILY[:5]] == ["sync-matches", "evaluate", "improve", "export-results",
+                                                            "sync-kalshi"]
+    text = Path(lr.__file__).read_text()
+    assert "retire" + "-orphans" not in text and "retire" + "_orphans" not in text
+    assert "the dry run stays in the architect's block, by hand, after the routine returns" in " ".join(text.split())
+
+
+def test_each_entry_carries_its_limit():
+    """461 item 3(a): "1,200 for a daily step (each single-day sync counts as its own step), 2,400 for each line of the
+    weekly pass"; SIGKILL 10 s after SIGTERM. Constants in the module, set by no environment variable. AS BUILT,
+    PENDING THE ARCHITECT'S READING (needs-ruling): a limit is per command, so W k.1 and W k.2 carry 2,400 s each and
+    the two-command daily steps 14 and 15 carry 1,200 s per command; this pins the build, not the ruling's reading."""
+    assert (lr.DAILY_STEP_LIMIT, lr.WEEKLY_LINE_LIMIT, lr.KILL_GRACE) == (1200, 2400, 10)
+    assert all(st.limit_s == 1200 for st in lr.DAILY) and all(st.limit_s == 1200 for st in lr.resolve(DAY))
+    full = lr.resolve(DAY, [("PL", "2026/27"), ("NFL", "2026")])
+    assert [(st.label, st.limit_s) for st in full if st.label.startswith("W")] == [
+        ("W1.1", 2400), ("W1.2", 2400), ("W2.1", 2400), ("W2.2", 2400)]
+    assert "environ" not in inspect.getsource(lr.run) and "getenv" not in Path(lr.__file__).read_text()
+    # no read of the environment anywhere in the module but the child's env (run_step's `{**os.environ, ...}`): every
+    # os.environ in the module's AST is that one dict unpacking
+    import ast
+    tree = ast.parse(Path(lr.__file__).read_text())
+    environ = [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr == "environ"]
+    unpacked = [v for n in ast.walk(tree) if isinstance(n, ast.Dict) for k, v in zip(n.keys, n.values) if k is None]
+    assert len(environ) == 1 and environ[0] in unpacked
+    assert "getenv" not in {getattr(n, "attr", getattr(n, "id", None)) for n in ast.walk(tree)}
 
 
 def test_the_dates_are_utc_from_date_vars_plus_today_minus_2_and_8():
@@ -180,7 +219,7 @@ def test_a_routine_exit_is_counted_apart(box, monkeypatch, capsys):
     assert lr.main([]) == 0
     out = capsys.readouterr().out.splitlines()
     assert "2 · python cli.py improve --sport mlb · exit 3" in "\n".join(out)
-    assert out[-1] == "✓ laptop-routine: steps run 3/3 · non-zero exits 0 · routine exits 1 · 2 exit 3"
+    assert out[-1] == "✓ laptop-routine: steps run 3/3 · failed 0 · non-zero exits 0 · routine exits 1 · 2 exit 3"
     run = receipts(box.tmp)[-1]
     assert run["routine_exits"] == [{"step": "2", "command": "python cli.py improve --sport mlb", "exit": 3}]
     assert run["nonzero"] == [] and run["exit"] == 0
@@ -189,28 +228,89 @@ def test_a_routine_exit_is_counted_apart(box, monkeypatch, capsys):
 
 # ---------------------------------------------------------------- the refusal off the laptop ----
 
-@pytest.mark.parametrize("role", ["host", None, "something"])
+# not_laptop_reason's four answers (tests/test_not_laptop_reason.py), each driven from the machine's own sources as
+# that file drives them: host.env (SP_HOST_ENV), the environment's role, the checkout's .env (desk_policy.DOTENV).
+FOUR_ANSWERS = {
+    "host": ("SP_EXPORTS_MIRROR_ROLE=host\n", "laptop", "this machine's role is host"),
+    "unset": (None, None, "the role is unknown (SP_EXPORTS_MIRROR_ROLE unset)"),
+    "neither": (None, "something", "the role 'something' is not host or laptop"),
+    "unreadable": (dir, "laptop", "host.env exists but cannot be read: the role is unknown"),
+}
+
+
+@pytest.fixture
+def machine(tmp_path, monkeypatch):
+    """Set this machine's role sources for one of FOUR_ANSWERS (or the laptop), and count the routine's reads of
+    desk_policy.not_laptop_reason (the real function, wrapped)."""
+    from src.walters import desk_policy as dp
+    reads = []
+    real = dp.not_laptop_reason
+
+    def spy():
+        reads.append(real())
+        return reads[-1]
+    monkeypatch.setattr(dp, "not_laptop_reason", spy)
+    monkeypatch.setattr(dp, "DOTENV", tmp_path / "no.env")
+
+    def set_answer(name):
+        host_env, env_role, _reason = FOUR_ANSWERS[name] if name != "laptop" else (None, "laptop", None)
+        h = tmp_path / "host.env"
+        if host_env is dir:
+            h.mkdir()
+        elif host_env is not None:
+            h.write_text(host_env)
+        monkeypatch.setenv("SP_HOST_ENV", str(h))
+        if env_role is None:
+            monkeypatch.delenv("SP_EXPORTS_MIRROR_ROLE", raising=False)
+        else:
+            monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", env_role)
+    set_answer.reads = reads
+    return set_answer
+
+
+@pytest.mark.parametrize("answer", sorted(FOUR_ANSWERS))
 @pytest.mark.parametrize("dry", [False, True])
-def test_refused_off_the_laptop_exit_2_nothing_run(box, monkeypatch, capsys, role, dry):
-    if role is None:
-        monkeypatch.delenv("SP_EXPORTS_MIRROR_ROLE", raising=False)
-    else:
-        monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", role)
+def test_refused_off_the_laptop_on_each_of_the_four_answers_exit_2_nothing_run(box, machine, monkeypatch, capsys,
+                                                                              answer, dry):
+    """461 item 4: 'the refusal's test reads not_laptop_reason on each of its four answers'; 461 item 2(d): 'prints the
+    reason and exits 2 with nothing run when it is not None'."""
+    machine(answer)
+    reason = FOUR_ANSWERS[answer][2]
 
     def no_read(since=lr.WEEKLY_FROM):
         raise AssertionError("the weekly list is read before the refusal")
     monkeypatch.setattr(lr, "weekly_list", no_read)
     assert lr.main(["--weekly"] + (["--dry-run"] if dry else [])) == 2
+    assert machine.reads == [reason]                                  # read once, first, and this is its answer
     assert box.calls == [] and box.sleeps == []
     out = capsys.readouterr().out
-    assert out.startswith("✗ laptop-routine refused: this machine's role is ") and "Nothing was run." in out
-    assert "UTC dates" not in out
+    assert out == (f"✗ laptop-routine refused: {reason}; this command runs on the laptop only "
+                   "(src.walters.desk_policy.not_laptop_reason). Nothing was run.\n")
     rs = receipts(box.tmp)
     if dry:
         assert rs == []
     else:
-        assert [(r["kind"], r["unit"], r["exit"], r["refused"]) for r in rs] == [
-            ("laptop_routine", "laptop-routine", 2, "machine_role")]
+        assert [(r["kind"], r["unit"], r["exit"], r["refused"], r["not_laptop_reason"]) for r in rs] == [
+            ("laptop_routine", "laptop-routine", 2, "not_laptop_reason", reason)]
+
+
+def test_the_laptop_reads_none_and_runs(box, machine):
+    machine("laptop")
+    assert lr.main([]) == 0 and machine.reads == [None] and len(box.calls) == len(EXPECTED)
+
+
+def test_the_routine_names_no_fence_input_and_not_mirror_role():
+    """461 item 2(b) and (c): the routine does not call or name the fence's inputs, in code or in a string, and does
+    not rest on closing's environment-first reading (tests/test_host_watch_after_flip.py pins the first)."""
+    import ast
+    pin = ast.parse((ROOT / "tests" / "test_host_watch_after_flip.py").read_text())
+    (FENCE_INPUTS,) = [ast.literal_eval(n.value) for n in pin.body if isinstance(n, ast.Assign)
+                       and [getattr(t, "id", None) for t in n.targets] == ["FENCE_INPUTS"]]
+    assert "machine_role" in FENCE_INPUTS and "role_reading" in FENCE_INPUTS and "host_fenced" in FENCE_INPUTS
+    text = Path(lr.__file__).read_text()
+    assert not [w for w in FENCE_INPUTS if re.search(rf"\b{w}\b", text)]
+    assert "mirror_role(" not in text.replace("rests on closing.mirror_role(), which reads", "")
+    assert "desk_policy.not_laptop_reason()" in inspect.getsource(lr.not_laptop_reason)
 
 
 def test_a_host_env_saying_host_refuses_whatever_the_checkout_says(box, monkeypatch, tmp_path):
@@ -246,29 +346,32 @@ def test_a_failing_step_does_not_stop_the_next(box, capsys):
     step_lines = [x for x in out if re.match(r"^\d+(\.\d+)? · python cli\.py ", x)]
     assert [x.split(" · ")[0] for x in step_lines] == [lab for lab, _ in EXPECTED]
     assert all(re.search(r" · exit \d+ · \d+\.\d+s$", x) for x in step_lines)
-    assert "6 · python cli.py sync-kalshi · exit 1" in "\n".join(step_lines)
+    assert "5 · python cli.py sync-kalshi · exit 1" in "\n".join(step_lines)
     # a sync step's own lines follow its step line: the counts and the orientation line, never plain progress
-    i = out.index(next(x for x in out if x.startswith("7.1 · ")))
+    i = out.index(next(x for x in out if x.startswith("6.1 · ")))
     assert out[i + 1:i + 3] == ["    > ✓ Matches (NBA): created=0 updated=3 skipped=0",
                                 "    > orientation_reversed 1: 59564 · teams_mismatch_refused 0"]
-    j = out.index(next(x for x in out if x.startswith("15.2 · ")))
+    j = out.index(next(x for x in out if x.startswith("14.2 · ")))
     assert out[j + 1:j + 4] == ["    > ✓ Players (WTA, as teams): created=0 updated=0 skipped=0",
                                 "    > ✗ WTA: a cursor left", "    last line: ✗ WTA: a cursor left"]
     assert "  | plain progress" in out                                          # the step's own output streams
-    assert out[-1] == ("✗ laptop-routine: steps run 27/27 · non-zero exits 2 · 6 exit 1 · 15.2 exit 1 · "
+    assert out[-1] == ("✗ laptop-routine: steps run 26/26 · failed 2 · non-zero exits 2 · 5 exit 1 · 14.2 exit 1 · "
                        "routine exits 0")
     rs = receipts(box.tmp)
     steps = [r for r in rs if r["kind"] == "step"]
     assert [r["step"] for r in steps] == [lab for lab, _ in EXPECTED]
     assert all(r["unit"] == "laptop-routine" for r in rs)
-    assert steps[6]["sync"]["matches"] == {"created": 0, "updated": 3, "skipped": 0}
-    assert steps[6]["sync"]["scores_by_team"]["orientation_reversed"] == {"n": 1, "ids": ["59564"]}
+    assert steps[5]["sync"]["matches"] == {"created": 0, "updated": 3, "skipped": 0}
+    assert steps[5]["sync"]["scores_by_team"]["orientation_reversed"] == {"n": 1, "ids": ["59564"]}
     run = rs[-1]
-    assert run["kind"] == "laptop_routine" and run["exit"] == 1 and run["steps_run"] == 27
-    assert [x["step"] for x in run["nonzero"]] == ["6", "15.2"] and len(rs) == 28
+    assert run["kind"] == "laptop_routine" and run["exit"] == 1 and run["steps_run"] == 26
+    assert [x["step"] for x in run["nonzero"]] == ["5", "14.2"] and run["timed_out"] == [] and len(rs) == 27
+    assert run["not_started"] == [] and run["steps_failed"] == 2
 
 
-def test_a_step_that_cannot_start_is_a_non_zero_exit_and_the_next_runs(box, monkeypatch, capsys):
+def test_a_step_that_cannot_start_is_a_failed_step_with_exit_null_and_the_next_runs(box, monkeypatch, capsys):
+    """A step that could not start has exit null, as a timed-out step has: it is counted under "not started", never
+    as a non-zero exit, and both count in "failed" (461 item 3(a): "it counts as a failed step")."""
     steps = [lr.Step("1", ("evaluate", "--sport", "mlb")), lr.Step("2", ("results-tally",))]
     monkeypatch.setattr(lr, "resolve", lambda today, weekly=None: steps)
     seen = []
@@ -281,8 +384,12 @@ def test_a_step_that_cannot_start_is_a_non_zero_exit_and_the_next_runs(box, monk
     monkeypatch.setattr(lr, "_popen", popen)
     assert lr.main([]) == 1 and seen == ["evaluate", "results-tally"]
     out = capsys.readouterr().out
-    assert "1 · python cli.py evaluate --sport mlb · exit ?" in out and out.rstrip().endswith(
-        "non-zero exits 1 · 1 exit ? · routine exits 0")
+    assert "1 · python cli.py evaluate --sport mlb · exit ?" in out and out.rstrip().splitlines()[-1] == (
+        "✗ laptop-routine: steps run 2/2 · failed 1 · non-zero exits 0 · not started 1 · 1 · routine exits 0")
+    run = receipts(box.tmp)[-1]
+    assert run["nonzero"] == [] and run["steps_failed"] == 1 and run["not_started"] == [
+        {"step": "1", "command": "python cli.py evaluate --sport mlb", "exit": None,
+         "not_started": "could not start: FileNotFoundError: no python"}]
 
 
 def test_a_step_that_cannot_start_is_receipted_as_not_started_with_no_exit_invented(box, monkeypatch):
@@ -300,7 +407,7 @@ def test_a_step_that_cannot_start_is_receipted_as_not_started_with_no_exit_inven
     assert rs[1]["exit"] == 0 and "not_started" not in rs[1]
 
 
-def test_nhl_goalie_sync_is_a_sync_its_counts_and_refusal_lines_follow_step_14(box, capsys):
+def test_nhl_goalie_sync_is_a_sync_its_counts_and_refusal_lines_follow_step_13(box, capsys):
     """cli.py nhl_goalie_sync_cmd prints "  counts: ...", "  REFUSED game <id>: goalie lists ..." and "  not in our DB
     (sample): ..."; its name does not start "sync-", and item 3(b) asks a sync's own lines under its step line."""
     def answer(argv):
@@ -312,7 +419,7 @@ def test_nhl_goalie_sync_is_a_sync_its_counts_and_refusal_lines_follow_step_14(b
     box.answer = staticmethod(answer)
     assert lr.main([]) == 0
     out = capsys.readouterr().out.splitlines()
-    i = out.index(next(x for x in out if x.startswith("14 · python cli.py nhl-goalie-sync ")))
+    i = out.index(next(x for x in out if x.startswith("13 · python cli.py nhl-goalie-sync ")))
     assert out[i + 1:i + 4] == ["    > counts: boxscore_calls 5 · rows_written 20",
                                 "    > REFUSED game 2025020311: goalie lists 3/2",
                                 "    > not in our DB (sample): 2025020312 ×1"]
@@ -333,10 +440,10 @@ def test_a_receipt_that_cannot_be_written_never_stops_the_next_step(box, monkeyp
     assert lr.main([]) == 1
     assert [" ".join(a) for a in box.calls] == [x for _, x in EXPECTED]
     out = capsys.readouterr().out.splitlines()
-    i = out.index(next(x for x in out if x.startswith("3 · python cli.py evaluate ")))
+    i = out.index(next(x for x in out if x.startswith("3 · python cli.py improve ")))
     assert out[i + 1] == "    receipt NOT written: OSError: [Errno 28] No space left on device"
-    assert out[-1] == ("✗ laptop-routine: steps run 27/27 · non-zero exits 0 · routine exits 0 · receipts not written 1"
-                       " · 3")
+    assert out[-1] == ("✗ laptop-routine: steps run 26/26 · failed 0 · non-zero exits 0 · routine exits 0 · receipts "
+                       "not written 1 · 3")
     rs = receipts(box.tmp)
     assert [r["step"] for r in rs if r["kind"] == "step"] == [lab for lab, _ in EXPECTED if lab != "3"]
     assert rs[-1]["kind"] == "laptop_routine" and rs[-1]["exit"] == 1
@@ -354,21 +461,23 @@ def test_a_run_receipt_that_cannot_be_written_still_prints_the_last_line(box, mo
     assert lr.main([]) == 1
     out = capsys.readouterr().out.splitlines()
     assert out[-2] == "    receipt NOT written: PermissionError: read-only logs"
-    assert out[-1] == ("✗ laptop-routine: steps run 27/27 · non-zero exits 0 · routine exits 0 · receipts not written 1"
-                       " · run")
+    assert out[-1] == ("✗ laptop-routine: steps run 26/26 · failed 0 · non-zero exits 0 · routine exits 0 · receipts "
+                       "not written 1 · run")
 
 
-def test_a_role_read_that_raises_is_refused_exit_2_nothing_run(box, monkeypatch, capsys):
+def test_a_reason_read_that_raises_is_refused_exit_2_nothing_run(box, monkeypatch, capsys):
     def boom():
         raise ImportError("no module named src.walters.desk_policy")
-    monkeypatch.setattr(lr, "machine_role", boom)
+    monkeypatch.setattr(lr, "not_laptop_reason", boom)
     monkeypatch.setattr(lr, "weekly_list", lambda since=lr.WEEKLY_FROM: pytest.fail("read before the refusal"))
     assert lr.main(["--weekly"]) == 2 and box.calls == []
     out = capsys.readouterr().out
-    assert out.startswith("✗ laptop-routine refused: this machine's role is unknown, not laptop ")
-    assert "ImportError: no module named src.walters.desk_policy" in out and "UTC dates" not in out
+    assert out.startswith("✗ laptop-routine refused: the role could not be read (ImportError: no module named "
+                          "src.walters.desk_policy); ")
+    assert "Nothing was run." in out and "UTC dates" not in out
     (r,) = receipts(box.tmp)
-    assert (r["exit"], r["refused"], r["machine_role"]) == (2, "machine_role", None)
+    assert (r["exit"], r["refused"]) == (2, "not_laptop_reason")
+    assert r["not_laptop_reason"] == "the role could not be read (ImportError: no module named src.walters.desk_policy)"
     assert r["error"] == "ImportError: no module named src.walters.desk_policy"
 
 
@@ -382,7 +491,7 @@ def test_dry_run_runs_nothing(box, capsys):
     assert out[-1] == f"laptop-routine --dry-run: {len(EXPECTED)} steps resolved; nothing run."
 
 
-def test_weekly_runs_the_whole_season_pass_before_step_9(box, capsys):
+def test_weekly_runs_the_whole_season_pass_before_step_8(box, capsys):
     assert lr.main(["--weekly"]) == 0
     cmds = [" ".join(a) for a in box.calls]
     i = cmds.index("sync-teams --competition NCAA --season 2026")
@@ -401,9 +510,10 @@ def test_weekly_runs_the_whole_season_pass_before_step_9(box, capsys):
 def test_weekly_dry_run_prints_the_list_and_the_pass_and_runs_nothing(box, capsys):
     assert lr.main(["--weekly", "--dry-run"]) == 0 and box.calls == [] and receipts(box.tmp) == []
     out = capsys.readouterr().out
-    assert "W1.1. python cli.py sync-teams --competition NFL --season 2026 [then wait 6s]" in out
+    assert "W1.1. python cli.py sync-teams --competition NFL --season 2026 [limit 2400s] [then wait 6s]" in out
+    assert "\n8. python cli.py sync-teams --competition NCAA --season 2026 [limit 1200s]\n" in out
     assert out.index("W2.2. python cli.py sync-matches --competition PL --season 2026/27") < out.index(
-        "9. python cli.py sync-teams --competition NCAA")
+        "8. python cli.py sync-teams --competition NCAA")
 
 
 def test_an_unreadable_weekly_list_refuses_the_run(box, monkeypatch, capsys):
@@ -413,6 +523,186 @@ def test_an_unreadable_weekly_list_refuses_the_run(box, monkeypatch, capsys):
     assert lr.main(["--weekly"]) == 2 and box.calls == []
     assert receipts(box.tmp)[-1]["refused"] == "weekly_list"
     assert "Nothing was run." in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- the per-step timeout, 461 item 3(a) ----
+
+SLEEPER = "import time; print('started', flush=True); time.sleep(60)"
+DEAF = ("import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('deaf', flush=True); "
+        "time.sleep(60)")
+COUNT_LINE = "✓ Matches (NBA): created=0 updated=3 skipped=0"
+CHILDREN = {
+    # a sync (its name starts "sync-") whose LAST line, printed just before it exits, is its count line (after 2,000
+    # progress lines)
+    # in one write, so most of it is still in the pipe when the child has exited
+    "sync-counter": ("import os, sys; sys.stdout.write(''.join(f'row {i} {chr(120) * 40}\\n' for i in range(1500)) + "
+                     f"{COUNT_LINE!r} + '\\n'); sys.stdout.flush(); os._exit(0)"),
+    # more than a pipe's buffer (5,000 lines of about 70 bytes), then a clean exit
+    "flood": "for i in range(5000): print('x' * 68)",
+    # a grandchild in a new session that holds the pipe open for 4 s after the child has exited 0
+    "holder": ("import subprocess, sys; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(4)'], "
+               "start_new_session=True); print('parent done', flush=True)"),
+}
+
+
+@pytest.fixture
+def children(box, monkeypatch):
+    """The step named "sleeper"/"deaf" runs a real python -c child (SLEEPER, DEAF) through subprocess.Popen with the
+    module's own arguments (its pipe, its cwd, its env); every other step is the box's fake. The children are kept."""
+    procs = []
+
+    def popen(cmd, **kw):
+        code = {"sleeper": SLEEPER, "deaf": DEAF, **CHILDREN}.get(cmd[2])
+        if code is None:
+            box.calls.append(cmd[2:])
+            return FakeProc(["done"], 0)
+        p = subprocess.Popen([sys.executable, "-c", code], **kw)
+        procs.append(p)
+        return p
+    monkeypatch.setattr(lr, "_popen", popen)
+    yield procs
+    for p in procs:                       # never leave a child behind, whatever the test asserted
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+
+
+def test_a_step_that_outlives_its_limit_is_ended_recorded_as_timed_out_and_the_next_runs(box, children, capsys):
+    """461 item 4: a child that sleeps, a limit of one second. It is ended (SIGTERM), its line and receipt say "timed
+    out after 1 s", its exit is null, it counts as a failed step (exit 1), the next step runs, and its output streamed
+    before the limit (the reader thread)."""
+    steps = [lr.Step("1", ("sleeper",)), lr.Step("2", ("results-tally",))]
+    t0 = time.monotonic()
+    r = lr.run(steps, "t", limit_s=1, grace_s=5)
+    took = time.monotonic() - t0
+    (p,) = children
+    assert p.poll() == -signal.SIGTERM and took < 1 + 5
+    assert r["timed_out"] == [("1", "python cli.py sleeper", 1)] and r["failed"] == [] and r["ran"] == 2
+    assert r["not_started"] == [] and r["output_errors"] == []
+    assert box.calls == [["results-tally"]]                                       # the next step ran
+    out = capsys.readouterr().out.splitlines()
+    assert "  | started" in out                                                   # streamed, not lost
+    assert re.fullmatch(r"1 · python cli\.py sleeper · timed out after 1 s · exit null · \d+\.\ds", out[1])
+    assert out[2] == "    last line: started" and out[3] == "  | done" and out[4].startswith("2 · python cli.py "
+                                                                                          "results-tally · exit 0 · ")
+    rs = receipts(box.tmp)
+    assert (rs[0]["step"], rs[0]["exit"], rs[0]["timed_out"], rs[0]["limit_s"], rs[0]["ended_by"]) == (
+        "1", None, "timed out after 1 s", 1, "SIGTERM")
+    assert "not_started" not in rs[0] and rs[0]["tail"] == ["started"] and rs[1]["exit"] == 0
+
+
+def test_a_child_that_ignores_sigterm_is_killed(box, children, capsys):
+    """461 item 4: 'a child that ignores SIGTERM is killed' (it traps SIGTERM); SIGKILL after the grace (a small one
+    here, KILL_GRACE in the module)."""
+    steps = [lr.Step("1", ("deaf",)), lr.Step("2", ("results-tally",))]
+    t0 = time.monotonic()
+    r = lr.run(steps, "t", limit_s=1, grace_s=1)
+    took = time.monotonic() - t0
+    (p,) = children
+    assert p.poll() == -signal.SIGKILL and 2 <= took < 1 + 1 + 4               # gone within the grace
+    assert r["timed_out"] == [("1", "python cli.py deaf", 1)] and box.calls == [["results-tally"]]
+    out = capsys.readouterr().out
+    assert "  | deaf\n" in out and "1 · python cli.py deaf · timed out after 1 s · exit null · " in out
+    (rec, _next) = receipts(box.tmp)
+    assert (rec["exit"], rec["timed_out"], rec["ended_by"]) == (None, "timed out after 1 s", "SIGKILL")
+
+
+def test_a_timed_out_step_makes_the_run_exit_1_and_the_last_line_names_it(box, children, monkeypatch, capsys):
+    """461 item 3(d): exit 1 when a step timed out; the run receipt lists it with its exit null."""
+    steps = [lr.Step("1", ("sleeper",), limit_s=1), lr.Step("2", ("results-tally",))]
+    monkeypatch.setattr(lr, "resolve", lambda today, weekly=None: steps)
+    assert lr.main([]) == 1 and box.calls == [["results-tally"]]
+    out = capsys.readouterr().out.splitlines()
+    assert out[-1] == ("✗ laptop-routine: steps run 2/2 · failed 1 · non-zero exits 0 · timed out 1 · 1 timed out "
+                       "after 1 s · routine exits 0")
+    run = receipts(box.tmp)[-1]
+    assert run["steps_failed"] == 1 and run["not_started"] == []
+    assert run["exit"] == 1 and run["nonzero"] == [] and run["timed_out"] == [
+        {"step": "1", "command": "python cli.py sleeper", "exit": None, "timed_out": "timed out after 1 s"}]
+
+
+class SlowConsole:
+    """A console that takes each line slowly (1 ms): draining the pipe's last 64 KB (about 1,400 lines) after the
+    child has exited takes longer than the grace (0.5 s here)."""
+    def __init__(self, real):
+        self.real = real
+
+    def write(self, s):
+        time.sleep(0.001)
+        return self.real.write(s)
+
+    def flush(self):
+        return self.real.flush()
+
+
+def test_a_syncs_last_count_line_is_kept_when_the_child_exits_right_after_it(box, children, monkeypatch, capsys):
+    """The reader drains the pipe after the child has exited, for as long as it is still reading (a slow console
+    included), not only for the grace: the count line printed just before the exit is in the echo, under the step
+    line, and in the receipt's sync counts, and the output is whole (3 runs, a real child each)."""
+    monkeypatch.setattr(sys, "stdout", SlowConsole(sys.stdout))
+    steps = [lr.Step(str(k), ("sync-counter",)) for k in range(1, 4)]
+    r = lr.run(steps, "t", limit_s=30, grace_s=0.5)
+    assert r["failed"] == [] and r["output_errors"] == [] and r["ran"] == 3
+    out = capsys.readouterr().out.splitlines()
+    for k in range(1, 4):
+        i = out.index(next(x for x in out if x.startswith(f"{k} · python cli.py sync-counter · exit 0 · ")))
+        assert out[i - 1] == f"  | {COUNT_LINE}" and out[i + 1] == f"    > {COUNT_LINE}"
+    rs = receipts(box.tmp)
+    assert [x["sync"]["matches"] for x in rs] == [{"created": 0, "updated": 3, "skipped": 0}] * 3
+    assert all("output_error" not in x and x["tail"][-1] == COUNT_LINE for x in rs)
+
+
+def test_the_routines_own_read_error_is_kept_never_a_timeout(box, children, monkeypatch, capsys):
+    """redact raising on every line (a .env it cannot decode): the pipe is still drained, so a child writing more than
+    the pipe holds is not blocked; its exit (0) stands, no timeout is recorded, and the step and its receipt say its
+    output was not read; the run exits 1 (the receipt is not whole)."""
+    def bad(s):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+    real = lr.c.redact
+    monkeypatch.setattr(lr.c, "redact", bad)
+    t0 = time.monotonic()
+    rc, echo, tail, _dur, timeout, output = lr.run_step(lr.Step("1", ("flood",)), limit_s=20, grace_s=1)
+    assert time.monotonic() - t0 < 10
+    assert (rc, timeout, echo, tail) == (0, None, [], [])
+    assert output == "output not read: UnicodeDecodeError"
+    monkeypatch.setattr(lr.c, "redact", real)
+    monkeypatch.setattr(lr, "run_step", lambda st, limit_s=None, grace_s=lr.KILL_GRACE: (
+        0, [], [], 0.1, None, "output not read: UnicodeDecodeError"))
+    monkeypatch.setattr(lr, "resolve", lambda today, weekly=None: [lr.Step("1", ("evaluate", "--sport", "mlb"))])
+    capsys.readouterr()
+    assert lr.main([]) == 1
+    out = capsys.readouterr().out.splitlines()
+    assert out[-2] == "    output not read: UnicodeDecodeError"
+    assert out[-1] == ("✗ laptop-routine: steps run 1/1 · failed 0 · non-zero exits 0 · routine exits 0 · output not "
+                       "whole 1 · 1")
+    step, run = receipts(box.tmp)
+    assert step["exit"] == 0 and step["output_error"] == "output not read: UnicodeDecodeError"
+    assert "timed_out" not in step and run["exit"] == 1
+    assert run["output_not_whole"] == [{"step": "1", "output_error": "output not read: UnicodeDecodeError"}]
+
+
+def test_a_pipe_held_open_after_the_child_exits_is_named_and_never_holds_the_morning(box, children):
+    """A grandchild in its own session holding the pipe (4 s) after the child exits 0: the step returns after the
+    grace with its exit 0, and says its output was not drained; the next step runs."""
+    t0 = time.monotonic()
+    r = lr.run([lr.Step("1", ("holder",)), lr.Step("2", ("results-tally",))], "t", limit_s=30, grace_s=1)
+    assert time.monotonic() - t0 < 3.5
+    assert r["failed"] == [] and r["timed_out"] == [] and box.calls == [["results-tally"]]
+    assert r["output_errors"] == [("1", "output not drained: the pipe was still open 1 s after the step ended")]
+    rec = receipts(box.tmp)[0]
+    assert rec["exit"] == 0 and rec["output_error"].startswith("output not drained") and "timed_out" not in rec
+
+
+def test_the_exits_are_0_1_and_2(box, machine, monkeypatch):
+    """461 item 3(d): 0 when every step is clean or its exit is routine and every receipt is written; 1 when a step
+    failed, timed out or went unreceipted (the tests above); 2 for the refusal, nothing run."""
+    machine("laptop")
+    assert lr.main([]) == 0
+    box.answer = staticmethod(lambda argv: ([], 1 if argv[0] == "evaluate" else 0))
+    assert lr.main([]) == 1
+    machine("host")
+    n = len(box.calls)
+    assert lr.main([]) == 2 and len(box.calls) == n
 
 
 # ---------------------------------------------------------------- the weekly list, on a throwaway DB ----

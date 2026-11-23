@@ -127,26 +127,40 @@ addendum 271 item 3(h); addendum 284 item 1(b)).
 (`deploy/hosting/systemd/sp-soccer-refresh.service`; `deploy/hosting/chains.py`, H0-6).
 
 **Laptop.** The morning routine's steps are one committed list and one
-command (addendum 451 item 3): `python deploy/hosting/laptop_routine.py
-[--weekly] [--dry-run]`. It refuses (exit 2, nothing run) unless the
-machine's role reads `laptop`, and runs each step on the checkout's `cli.py`
-in order, a failing step never stopping the next. The daily list, in its
-order: MLB (`sync-matches` from 2026-10-15 to tomorrow, the
-`retire-orphans` dry run, `evaluate`, `improve --hold-on-pass`,
-`export-results`, `sync-kalshi`), NBA and NCAAMB one day at a time (today-2
-to tomorrow), NCAA (`sync-teams`, `sync-matches` today-8 to yesterday, the
-`dedupe-matches --orphans` dry run), NHL's three days, its fixtures export
-and `nhl-goalie-sync`, ATP and WTA with their two Kalshi syncs, and
-`results-tally`. `--weekly` adds the whole-season pass before NCAA's
-`sync-teams`: `sync-teams` and `sync-matches` for every competition-season
-in the laptop's database with a game from 2026-07-01, except MLB, ATP, WTA,
-WC and NCAA. The list itself is `DAILY` in the module. The architect's
-block keeps the rest (item 3(c)): the backup, first (the command is not
-called if it failed), then `coverage`, then the command; the roadmap read,
-the mirror push, the stale count and the read of the four guarded college
-rows. No timer, no launchd job, no page, and never `soccer-refresh`. The
-six MLB steps stay through the off-season; `mlb-preslate` is ruled when the
-season nears (item 3(f) 7). docs/CLI.md "MLB daily operation" holds an
+command (addendum 451 item 3, amended by addendum 461 items 2 to 4):
+`python deploy/hosting/laptop_routine.py [--weekly] [--dry-run]`. It
+refuses (exit 2, nothing run) when `desk_policy.not_laptop_reason()` gives a
+reason, and prints it. It runs each step on the checkout's `cli.py` in
+order, a failing step never stopping the next. The daily list is 16 steps,
+in order: MLB (`sync-matches` from 2026-10-15 to tomorrow, `evaluate`,
+`improve --hold-on-pass`, `export-results`, `sync-kalshi`), NBA and NCAAMB
+one day at a time (today-2 to tomorrow), NCAA (`sync-teams`, `sync-matches`
+today-8 to yesterday, the `dedupe-matches --orphans` dry run), NHL's three
+days, its fixtures export and `nhl-goalie-sync`, ATP and WTA with their two
+Kalshi syncs, and `results-tally`. `--weekly` adds the whole-season pass
+before NCAA's `sync-teams`: `sync-teams` and `sync-matches` for every
+competition-season in the laptop's database with a game from 2026-07-01,
+except MLB, ATP, WTA, WC and NCAA. The list itself is `DAILY` in the module.
+Each step has a limit (461 item 3(a)): "1,200 for a daily step (each
+single-day sync counts as its own step), 2,400 for each line of the weekly
+pass". As built, a limit is per command: each of a weekly line's two
+commands gets its own 2,400 s, and each command of daily steps 14 and 15 its
+own 1,200 s. That reading is open for the architect's ruling. At the limit
+the step gets SIGTERM, then SIGKILL 10 s later; its line and receipt say
+"timed out after N s", its exit is null, it counts as failed, and the next
+step runs. Exits (461 item 3(d)): 0 when every step is clean or its exit is
+marked routine and every receipt is written; 1 when a step failed, timed
+out, could not start, or went unreceipted (a step whose output could not be
+read whole included); 2 for the refusal. The architect's block
+keeps the rest (451 item 3(c)): the backup, first (the command is not
+called if it failed), then `coverage`, then the command; the MLB orphan
+dry run (`retire-orphans`, no `--apply`), by hand, after the command returns
+(461 item 2(a)); the roadmap
+read, the mirror push, the stale count and the read of the four guarded
+college rows. No timer, no launchd job, no page, and never `soccer-refresh`.
+Five MLB steps stay in the command through the off-season and the sixth is
+the architect's; `mlb-preslate` is ruled when the season nears (451 item
+3(f) 7, amended by 461 item 2(a)). docs/CLI.md "MLB daily operation" holds an
 earlier two-phase text of the morning chain (architect 2026-10-01).
 
 ## CLI reference

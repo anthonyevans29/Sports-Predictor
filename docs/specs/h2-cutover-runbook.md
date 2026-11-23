@@ -469,23 +469,35 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
    (backup, MLB, read-only receipts, tally, mirror) so no PL/NFL/NHL/NCAA sync ever runs on the laptop again." Its
    sync list is superseded: the later blocks synced NCAA, NHL and tennis on the laptop (addendum 390 item 5(c)), a
    weekly whole-season pass joined the routine (390 item 5(e), 391 item 3), and the routine's steps are now one
-   committed list and one command (ARCHITECT 2026-11-23, addendum 451 item 3):
+   committed list and one command (ARCHITECT 2026-11-23, addendum 451 item 3, amended by addendum 461 items 2 to 4):
    `python deploy/hosting/laptop_routine.py [--weekly] [--dry-run]`. In order, every morning, by the architect's block:
    1. **Backup:** the daily `.backup` (the `.backup` API, never a file copy), outside `data/`, before anything writes.
       The block does not call the command if the backup failed (451 item 3(c)).
    2. **Coverage:** `coverage`, after the backup and before the command (451 item 3(c)).
    3. **The command:** `python deploy/hosting/laptop_routine.py`, with `--weekly` when the block runs the weekly pass. It refuses
-      (exit 2, nothing run) unless `desk_policy.machine_role()` reads `laptop`, prints the UTC dates it resolved,
-      runs each step on the checkout's `cli.py` in order, a failing step never stopping the next, and writes one
-      receipt line per step and one for the run. The daily list (451 item 3(d); `DAILY` in the module): MLB's
-      `sync-matches` (2026-10-15 to tomorrow), the `retire-orphans` dry run, `evaluate`, `improve --hold-on-pass`,
-      `export-results` and `sync-kalshi`; NBA and NCAAMB `sync-matches` one day at a time (today-2, yesterday, today,
-      tomorrow), 6 seconds after each day; NCAA `sync-teams`, `sync-matches` today-8 to yesterday and the
-      `dedupe-matches --orphans --sample 30` dry run; NHL `sync-matches` one day at a time (yesterday, today,
-      tomorrow), `export-fixtures --competition NHL` and `nhl-goalie-sync`; ATP and WTA `sync-matches` (yesterday to
-      tomorrow), `sync-kalshi-atp`, `sync-kalshi-wta`; `results-tally`. `--weekly` runs, before NCAA's `sync-teams`,
-      `sync-teams` then `sync-matches` for every competition-season in the laptop's database with a game from
-      2026-07-01, except MLB, ATP, WTA, WC and NCAA, 6 seconds after each (451 item 3(e)).
+      (exit 2, nothing run) when `desk_policy.not_laptop_reason()` is not None, printing the reason (461 item 2(d)),
+      prints the UTC dates it resolved, runs each step on the checkout's `cli.py` in order, a failing step never
+      stopping the next, and writes one receipt line per step and one for the run. The daily list is 16 steps (451 item
+      3(d) less its step 2, renumbered in the same order, 461 item 2(a); `DAILY` in the module): MLB's `sync-matches`
+      (2026-10-15 to tomorrow), `evaluate`, `improve --hold-on-pass`, `export-results` and `sync-kalshi`; NBA and NCAAMB
+      `sync-matches` one day at a time (today-2, yesterday, today, tomorrow), 6 seconds after each day; NCAA
+      `sync-teams`, `sync-matches` today-8 to yesterday and the `dedupe-matches --orphans --sample 30` dry run; NHL
+      `sync-matches` one day at a time (yesterday, today, tomorrow), `export-fixtures --competition NHL` and
+      `nhl-goalie-sync`; ATP and WTA `sync-matches` (yesterday to tomorrow), `sync-kalshi-atp`, `sync-kalshi-wta`;
+      `results-tally`. `--weekly` runs, before NCAA's `sync-teams` (step 8), `sync-teams` then `sync-matches` for every
+      competition-season in the laptop's database with a game from 2026-07-01, except MLB, ATP, WTA, WC and NCAA, 6
+      seconds after each (451 item 3(e)).
+      Each step carries its limit (461 item 3(a)): "1,200 for a daily step (each single-day sync counts as its own
+      step), 2,400 for each line of the weekly pass". As built, a limit is per command (each of a weekly line's two
+      commands gets its own 2,400 s, each command of daily steps 14 and 15 its own 1,200 s); that reading is open for
+      the architect's ruling. At the limit the child gets SIGTERM, then SIGKILL 10 s later if it has not ended; the
+      step's line and receipt say "timed out after N s", its exit is recorded as null, it counts as a failed step and
+      the next step runs. The exits (461 item 3(d)): 0 when every step is clean, or its exit is one the list marks
+      routine, and every receipt is written; 1 when a step failed, timed out, could not start or went unreceipted (a
+      step whose output could not be read whole included); 2 for the refusal, nothing run.
+   4. **The MLB orphan dry run:** `retire-orphans --competition MLB --season 2026` (no `--apply`), by hand, in the
+      block, after the command returns (461 item 2(a); no file under deploy/hosting names it). Five MLB steps stay in the command through the off-season, and this sixth is the
+      architect's (451 item 3(f) 7, amended).
 
    The block's own reads and writes stay in the architect's block, which places them (451 item 3(c) names them and
    gives them no position): the roadmap read, the mirror push

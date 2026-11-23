@@ -1,4 +1,4 @@
-**2026-11-23 — The laptop's morning routine as one committed list and one command: deploy/hosting/laptop_routine.py, ops tooling, no host file changed (addendum 451 item 3; #1067).**
+**2026-11-23 — The laptop's morning routine as one committed list and one command: deploy/hosting/laptop_routine.py, ops tooling, no host file changed (addendum 451 item 3, amended by addendum 461 items 2 to 4; #1067).**
 - **Ruling (ARCHITECT 2026-11-23 08:17 ET, addendum 451 items 2 and 3), verbatim:**
   > 2. #1067, THE LAPTOP-MORNING PLAN, READ WHOLE. It is careful work and its findings stand: sp_run has no
   >    machine guard; a per-step mirror push would fire; three ruled pins would break; the backup kinds are
@@ -63,20 +63,67 @@
   >        weekly list's exclusions.
   >    (h) Review by the stop rule as ops tooling. A reviewable head by Monday 2026-11-30. Until it is
   >        merged I keep writing the block by hand from item (d).
+- **The amendment (ARCHITECT 2026-11-23 12:45 ET, addendum 461 items 2 to 4), verbatim:**
+  > 2. THE LAPTOP ROUTINE, YOUR TWO FAILING TESTS (your report on #1067, 17:27Z). You were right to stop.
+  >    NEITHER TEST IS TOUCHED AND NEITHER PIN IS WIDENED. Both failures come from my own text in 451, and I
+  >    amend 451, not the tests.
+  >    (a) tests/test_mlb_retire_orphans.py, test_never_inside_the_watch. The pin says no file under
+  >        deploy/hosting names the command, and it stands as written. 451 item 3(d) step 2 LEAVES THE
+  >        ROUTINE. The dry run stays in my block, by hand, after the routine returns. The daily list is 16
+  >        steps: renumber them, in the same order. 451 item 3(f) 7 is amended to match: five MLB steps stay
+  >        in the routine through the off-season, and the sixth is mine.
+  >    (b) tests/test_host_watch_after_flip.py, the fence's inputs. The pin says no production file outside
+  >        desk_policy references a fence input, and it stands as written. 451 item 3(b) named
+  >        desk_policy.machine_role(), which is a fence input; that was my error. The routine does not call
+  >        it and does not name it, in code or in a string.
+  >    (c) closing.mirror_role() is NOT the substitute. It reads the environment first, so a routine typed
+  >        by hand on the host could be answered by the checkout's .env, which on the host says laptop
+  >        (role_reading's own docstring, the #410 review). The refusal must rest on the fence's reading.
+  >    (d) WHAT IS BUILT: desk_policy.not_laptop_reason(), beside not_host_reason() and on its pattern (178
+  >        R6). None on the laptop; otherwise why this machine is not the laptop, by role_reading, read only:
+  >        the role is host, unset, a value that is neither, or host.env exists and cannot be read. Its
+  >        docstring says, as not_host_reason's does, that it is not a fence input: host_fenced never reads
+  >        it. The routine calls it, prints the reason and exits 2 with nothing run when it is not None.
+  >    (e) THAT FUNCTION SHIPS FIRST, AS ITS OWN SMALL PR: the function and its tests, nothing else.
+  >        desk_policy is money-path code and is read alone; by the stop rule its P2s after round two are
+  >        listed for me. A reviewable head by Tuesday 2026-11-24. The routine's PR follows on it and stays
+  >        ops tooling. If either pinned test still fails with (a) and (d) built, name it to me before
+  >        touching it, as before.
+  >
+  > 3. YOUR THREE QUESTIONS, RULED.
+  >    (a) A PER-STEP TIMEOUT: YES. The agent runs this command, and a step that hangs must not hold the
+  >        morning. Each entry of the list carries its limit in seconds, a constant in the module: 1,200 for
+  >        a daily step (each single-day sync counts as its own step), 2,400 for each line of the weekly
+  >        pass. At the limit the child is sent SIGTERM, then SIGKILL after 10 seconds if it has not ended.
+  >        The step's line and receipt say "timed out after N s", its exit is recorded as null, it counts as
+  >        a failed step, and the next step runs. A limit changes only by my ruling; the seconds printed per
+  >        step are what I rule it from.
+  >    (b) FAC 2026/27: AS BUILT. The module adds no competition by name; FAC stays in my block (406 item
+  >        3(c)).
+  >    (c) A RECEIPT THAT CANNOT BE WRITTEN: AS BUILT. The line is printed, the next step runs, the run
+  >        receipt lists the steps, and the run exits 1.
+  >    (d) THE EXITS, so the block can read them: 0 when every step is clean, or its exit is one the list
+  >        marks routine, and every receipt is written; 1 when a step failed, timed out or went
+  >        unreceipted; 2 for the refusal, nothing run.
+  >
+  > 4. TESTS ADDED TO 451 item 3(g): a step that outlives its limit is ended, recorded as timed out, and the
+  >    next step runs (a child that sleeps, a limit of one second); a child that ignores SIGTERM is killed;
+  >    the refusal's test reads not_laptop_reason on each of its four answers. The date stands: a reviewable
+  >    head of the routine by Monday 2026-11-30.
 - **What landed:**
-  - `deploy/hosting/laptop_routine.py`: the daily list (`DAILY`, item 3(d), in the block's order, items 7, 8 and 12 one day at a time, 15 and 16 as two steps each, 6 seconds after each basketball day) and its runner, `python deploy/hosting/laptop_routine.py [--weekly] [--dry-run]`.
-  - The refusal comes first: exit 2, nothing resolved, read or run, unless `src.walters.desk_policy.machine_role()` reads `laptop`. A real run's refusal writes one receipt (`refused: machine_role`); a dry run's writes none, as sp_run's dry runs write none.
-  - Each step runs as `sys.executable cli.py ...` from the checkout, in order. A failing step never stops the next, and none is retried. The step's output streams indented; then one line per step (number, command, exit, seconds), and a sync step's own count, orientation, refusal, collision, skipped-listing and held lines under it (a sync: every `sync-` command, and `nhl-goalie-sync`, step 14, whose `  counts:`, `REFUSED game` and `not in our DB` lines are echoed). A non-zero step also prints its last output line. Last line: steps run, non-zero exits, routine exits apart.
+  - `deploy/hosting/laptop_routine.py`: the daily list (`DAILY`) and its runner, `python deploy/hosting/laptop_routine.py [--weekly] [--dry-run]`. The list is 451 item 3(d) less its step 2, renumbered 1 to 16 in the same order (461 item 2(a)): steps 6 and 7 (NBA, NCAAMB) and 11 (NHL) one day at a time, 14 and 15 two steps each, 6 seconds after each basketball day; 26 commands in all.
+  - The MLB orphan dry run is not in the list and no file under deploy/hosting names the command (461 item 2(a); the pin stands as written). It stays in the architect's block, by hand, after the routine returns. Five MLB steps stay in the routine through the off-season; the sixth is the architect's (451 item 3(f) 7, amended).
+  - The refusal comes first: exit 2, nothing resolved, read or run, when `desk_policy.not_laptop_reason()` is not None; the reason is printed (461 item 2(d)). The routine names no fence input, in code or in a string (461 item 2(b)), and never rests on closing's environment-first reading (461 item 2(c)). A real run's refusal writes one receipt (`refused: not_laptop_reason`, the reason beside it); a dry run's writes none, as sp_run's dry runs write none. A read that raises is refused the same way, its error printed and receipted.
+  - Each step runs as `sys.executable cli.py ...` from the checkout, in order. A failing step never stops the next, and none is retried. The step's output streams indented; then one line per step (number, command, exit, seconds), and a sync step's own count, orientation, refusal, collision, skipped-listing and held lines under it (a sync: every `sync-` command, and `nhl-goalie-sync`, step 13, whose `  counts:`, `REFUSED game` and `not in our DB` lines are echoed). A non-zero step also prints its last output line. Last line: steps run, steps failed (a non-zero exit, a timed-out step and a step that could not start; the last two with exit null), non-zero exits, steps timed out and steps not started, routine exits apart.
+  - The per-step timeout (461 item 3(a)): each entry carries its limit (`Step.limit_s`), a module constant: `DAILY_STEP_LIMIT` = 1200 and `WEEKLY_LINE_LIMIT` = 2400, for 461's "1,200 for a daily step (each single-day sync counts as its own step), 2,400 for each line of the weekly pass". As built, a limit is per command: each of a weekly line's two commands gets its own 2,400 s, and each command of daily steps 14 and 15 (451's 15 and 16) its own 1,200 s. That reading is the builder's, open for the architect's ruling (needs-ruling). At the limit the child gets SIGTERM, then SIGKILL after `KILL_GRACE` = 10 s. The step's line and receipt say "timed out after N s", its exit is null, it counts as a failed step, and the next step runs. The routine keeps its own Popen loop: a reader thread streams the output while the main thread waits out the limit. After the child ends, the reader is waited for as long as it is still reading, so a sync's last count line is kept. A reader that reads nothing for the grace (a pipe held open) is left, silent; the step is then marked `output not drained`. The routine's own error while reading is marked `output not read` and the pipe is still drained, so it never reads as a timeout. Either keeps the child's exit, is named on the step's line and receipt (`output_error`), and makes the run exit 1. No environment variable or option sets a limit; `run()` takes an override for the tests alone.
+  - The exits (461 item 3(d)): 0 when every step is clean, or its exit is one the list marks routine, and every receipt is written; 1 when a step failed, timed out, could not start or went unreceipted (a step whose output is not whole included); 2 for the refusal, nothing run.
   - The placeholders come from sp_run's `date_vars` (UTC). It has no today-2 or today-8, so the module derives `today_minus2` and `today_minus8` the same way.
   - Routine exits, read from cli.py: `improve --sport mlb --hold-on-pass` gives a rejection NO non-zero exit. `improve_cmd` prints `✓ Candidate <v>: REJECTED` and returns 0. Its one `SystemExit(2)` is for `LegacySoccerImproveRefused`, which `training.improve` raises for soccer only. So no step carries a routine exit, and every non-zero exit counts as one. The marking (`Step.routine`) and its separate count are built and tested.
-  - Receipts go through `sp_common.append_receipt` unchanged: one per step (kind `step`, unit `laptop-routine`, the shape bootstrap.py uses for its own steps) and one for the run (kind `laptop_routine`, never `chain`). A step that could not start is receipted with exit null (no exit invented) and `not_started` naming why. A receipt that cannot be written is printed (`receipt NOT written: ...`) and the run goes on to the next step; the run receipt lists those steps, the last line counts them, and the run exits 1. A role read that raises is an unknown role: refused, exit 2.
-  - `--weekly`: the list is read with `readonly_scope` (mode=ro, never created) and printed. Per line, `sync-teams` then `sync-matches`, 6 s after each, inserted before step 9. An unreadable list refuses the run (exit 2).
-  - It does none of the backup, coverage, the roadmap read, the mirror push, the stale count or the guarded college rows read. No page is sent (an `SP-PAGE:` line is printed, never delivered), and there is no timer, no launchd job and no soccer-refresh.
-  - sp_run.py, sp_backup.py and chains.py are unchanged. No pin is widened.
-- **Pins that fail on the new module (item 3(f) 17: named before any test is touched; no test edited; NEEDS A RULING):**
-  - tests/test_mlb_retire_orphans.py::test_never_inside_the_watch: no file under deploy/hosting may name `retire-orphans`; item 3(d) step 2 is that command.
-  - tests/test_host_watch_after_flip.py::test_c_one_switch_the_cutover_pr_turns_off_and_the_pinned_routes_stay_shut (the fence's pinned routes, addendum 166 / #580): no tracked production file but desk_policy may reference a fence input; item 3(b) requires the `desk_policy.machine_role()` call. It fails only once the module is tracked (it reads `git ls-files`).
-- **Open for the architect:** a per-step timeout (none ruled; sp_run has none); the weekly list cannot carry a competition the laptop holds no row of (FAC 2026/27, 406 item 3(c)).
-- **Tests:** tests/test_laptop_routine.py. Subprocess is faked throughout and cli.py never runs.
-- **Docs:** README.md's laptop routine and docs/specs/h2-cutover-runbook.md's standing routine are rewritten (item 3(f) 15). docs/CLI.md gains a row.
-- **Next:** review by the stop rule as ops tooling (item 3(h)). The architect's block calls the command. Code ships no block (198 item 6(i)).
+  - Receipts go through `sp_common.append_receipt` unchanged: one per step (kind `step`, unit `laptop-routine`, the shape bootstrap.py uses for its own steps) and one for the run (kind `laptop_routine`, never `chain`). A step that could not start is receipted with exit null (no exit invented) and `not_started` naming why; a step that timed out with exit null, `timed_out`, `limit_s` and `ended_by` (SIGTERM or SIGKILL). A receipt that cannot be written is printed (`receipt NOT written: ...`) and the run goes on to the next step; the run receipt lists those steps, the last line counts them, and the run exits 1 (461 item 3(c): as built).
+  - `--weekly`: the list is read with `readonly_scope` (mode=ro, never created) and printed. Per line, `sync-teams` then `sync-matches`, 6 s after each, inserted before step 8 (NCAA's `sync-teams`, 451's step 9). An unreadable list refuses the run (exit 2). No competition is added by name; FAC 2026/27 stays in the architect's block (461 item 3(b): as built).
+  - It does none of the backup, coverage, the MLB orphan dry run, the roadmap read, the mirror push, the stale count or the guarded college rows read. No page is sent (an `SP-PAGE:` line is printed, never delivered), and there is no timer, no launchd job and no soccer-refresh.
+  - sp_run.py, sp_backup.py and chains.py are unchanged. No pin is widened and neither pinned test is touched (461 item 2).
+- **The two pins (451 item 3(f) 17; 461 item 2):** tests/test_mlb_retire_orphans.py::test_never_inside_the_watch and tests/test_host_watch_after_flip.py::test_c_one_switch_the_cutover_pr_turns_off_and_the_pinned_routes_stay_shut both pass on the amended module, unedited. The refusal's function, desk_policy.not_laptop_reason(), shipped first as its own small PR (#1091, 461 item 2(e)).
+- **Tests:** tests/test_laptop_routine.py. cli.py never runs: the process call is faked, and the two timeout tests (461 item 4) run a `python -c` child that sleeps (one with SIGTERM trapped) under a limit of one second. The refusal's test reads not_laptop_reason on each of its four answers. Real `python -c` children also cover the drain: a sync whose last line is its count line, behind a slow console; the routine's own read error; and a pipe held open by a grandchild.
+- **Docs:** README.md's laptop routine and docs/specs/h2-cutover-runbook.md's standing routine are rewritten (item 3(f) 15) for 16 steps, the dry run in the block, the limits and the exits. docs/CLI.md gains a row.
+- **Next:** review by the stop rule as ops tooling (451 item 3(h)); a reviewable head by Monday 2026-11-30 (461 item 4). Until it merges the architect writes the morning block by hand from 451 item 3(d), all 17 steps (461 item 5). The architect's block calls the command. Code ships no block (198 item 6(i)).

@@ -44,8 +44,8 @@ the bar is 155 item 4(b)'s (below the close's log-loss), not league_gate's."
   which must equal the soccer-expansion-v1 RUN RECORD's (run.result: v22 / -0.1 / 0.0008), never the current
   production model's. Missing or different: REFUSED (exit 2). An entry whose `verdict` is set has its verdict
   recorded: the fence lifts after a REJECT, and after a PASS once the confirmation is recorded, CONFIRMED or
-  NOT_CONFIRMED; while the PASS is confirming it holds from the opening's kickoff, inclusive (addendum 448 items
-  1(a)-(b); THE FENCE below).
+  NOT_CONFIRMED (lifted(): read from the records, never from a status); until then it holds from the opening's
+  kickoff, inclusive (addendum 448 items 1(a)-(b); THE FENCE below).
 - MEMBERSHIP (R3, R4; 155 item 4(b): "the first 60 FINISHED 2026/27 games per league with a three-way close, counted
   from the declaration"; 158 item 2(c): "Historical October games never enter the window"): the league's 2026/27
   rows (soccer_expansion.CURRENT_SEASON, the string paper and leagues_candidate read) in order of their ACTUAL stored
@@ -363,7 +363,7 @@ def fence_cutoff(code, season=None) -> datetime | None:
     if e is None:
         return PRE_DECLARATION_CUT
     if verdict_recorded(e):
-        if e.get("status") != CONFIRMING:
+        if lifted(e):
             return None              # 448 item 1(b): a REJECT, or the confirmation recorded either way: lifted
         op = opening(e)
         if op is None:               # law 4: a confirming entry with no opening read keeps the window's own fence
@@ -396,6 +396,20 @@ def plan_refusal(e: dict | None) -> str | None:
             "checkout without it cannot carry the entry back to main). Read from a checkout of main that holds it.")
 
 
+def lifted(e: dict | None) -> bool:
+    """448 item 1(b), read from the RECORDS, never inferred from a status: the verdict is a REJECT, or the entry holds
+    its recorded confirmation (registry.record_confirmation's `confirmation`, outcome CONFIRMED or NOT_CONFIRMED). A
+    PASS without one, whatever its status says, is still confirming (law 4)."""
+    v = (e or {}).get("verdict")
+    if isinstance(v, dict) and v.get("verdict") == "REJECT":
+        return True
+    c = (e or {}).get("confirmation")
+    return isinstance(c, dict) and c.get("outcome") in CONFIRMATION_OUTCOMES
+
+
+CONFIRMATION_OUTCOMES = ("CONFIRMED", "NOT_CONFIRMED")
+
+
 def opening(e: dict | None) -> tuple[datetime, int] | None:
     """THE OPENING (ARCHITECT 2026-11-22, addendum 447 item 3 C1): the 60th member's (kickoff, match id), as the one
     read wrote it into the run record (leagues_read: result["confirmation_opens_after"]); None when the run record
@@ -408,7 +422,8 @@ def opening(e: dict | None) -> tuple[datetime, int] | None:
     text, mid = o.get("kickoff"), o.get("match_id")
     if not isinstance(text, str) or not INSTANT_Z.fullmatch(text) or isinstance(mid, bool) or not isinstance(mid, int):
         return None
-    return parse_instant(text), mid
+    ko = parse_instant(text)                 # the form's shape is not a date: 2026-99-40T25:00:00Z reads as none
+    return None if ko is None else (ko, mid)
 
 
 def fence_refusal(code, season=None, through: datetime | None = None) -> str | None:
@@ -423,16 +438,17 @@ def fence_refusal(code, season=None, through: datetime | None = None) -> str | N
                 f"cut at {cut:%Y-%m-%dT%H:%M:%SZ}; a walk is allowed only when cut at or before it. The window's "
                 f"outcomes have one reader, {READER}. {PRE_DECLARATION_RULING}. {FENCE_RULING}")
     e = declaration(c)
-    op = opening(e) if e is not None and e.get("status") == CONFIRMING else None
+    confirming = e is not None and verdict_recorded(e) and not lifted(e)
+    op = opening(e) if confirming else None
     if op is not None:               # 448 item 1(a): the confirming case's own wording, the opening named inclusive
-        return (f"{c} {SEASON}'s verdict is a PASS and its confirmation is not recorded ({DECLARATION_IDS[c]} "
-                f"confirming): every game kicking off AT OR AFTER the opening, the 60th member's kickoff "
+        return (f"{c} {SEASON}'s verdict is a PASS and its confirmation is not recorded ({DECLARATION_IDS[c]}): "
+                f"every game kicking off AT OR AFTER the opening, the 60th member's kickoff "
                 f"{op[0]:%Y-%m-%dT%H:%M:%SZ} (match {op[1]}), is fenced until the confirmation is recorded; a walk "
                 f"is allowed only when cut before it. {FENCE_RULING}")
     at = "an unreadable declared_at: the whole season" if cut == datetime.min else f"{cut:%Y-%m-%dT%H:%M:%SZ}"
-    if e is not None and e.get("status") == CONFIRMING and verdict_recorded(e):   # law 4: no opening to cut at
-        return (f"{c} {SEASON}'s verdict is a PASS and its confirmation is not recorded ({DECLARATION_IDS[c]} "
-                f"confirming), but its run record holds no readable opening ({OPENING_FIELD}): the window's own "
+    if confirming:                   # law 4: no opening to cut at
+        return (f"{c} {SEASON}'s verdict is a PASS and its confirmation is not recorded ({DECLARATION_IDS[c]}), "
+                f"but its run record holds no readable opening ({OPENING_FIELD}): the window's own "
                 f"fence stands, cut at declared_at {at}, until the opening is read or the confirmation is recorded "
                 f"(law 4). {FENCE_RULING}")
     return (f"{c} {SEASON} is declared ({DECLARATION_IDS[c]}, declared_at {at}) and its verdict is not recorded: the "

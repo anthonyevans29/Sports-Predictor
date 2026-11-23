@@ -465,6 +465,17 @@ def freeze_confirmation_cohort(eid: str, cohort_ids: list[int], basis: dict,
 INSTANT_Z = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 
+def _instant_z(v) -> bool:
+    """INSTANT_Z's form AND a real calendar instant (2026-99-40T25:00:00Z has the form and is no instant)."""
+    if not isinstance(v, str) or not INSTANT_Z.fullmatch(v):
+        return False
+    try:
+        datetime.strptime(v, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return True
+
+
 def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: str,
                         path: str = LEDGER, ids_dir: str = IDS_DIR) -> dict:
     """The confirmation READ, executed against the declared plan (never a
@@ -494,10 +505,11 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     if len(ids) < plan["n_games"]:
         raise RegistryError(f"{eid}: confirmation scored {len(ids)} games < the plan's {plan['n_games']} — incomplete")
     first = result.get("first_game_at")
-    verdict_at = (e.get("verdict") or {}).get("at")
+    verdict_at = e["verdict"].get("at") if isinstance(e.get("verdict"), dict) else None
     res = (e.get("run") or {}).get("result") if isinstance(e.get("run"), dict) else None
-    opening = res.get("confirmation_opens_after") if isinstance(res, dict) else None
-    if opening is not None:
+    held = isinstance(res, dict) and "confirmation_opens_after" in res     # present, even as null: never a fall-back
+    opening = res.get("confirmation_opens_after") if held else None
+    if held:
         # ARCHITECT 2026-11-22, addendum 447 item 3 C1(b): an entry whose run record carries the opening (the 60th
         # member's kickoff and match id, written by the one read before any verdict) checks the first game against
         # the opening's kickoff, NOT EARLIER than it (a game tied at that kickoff with a higher id enters); the reader
@@ -505,10 +517,12 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
         # 1(d): both are written to the second with the Z and compared as strings; any other form refuses. An
         # opening the run record holds but that cannot be read (no such kickoff, no integer match id) refuses too:
         # it never falls back to verdict.at (law 4), and leagues_window.opening() reads it the same way.
+        if not isinstance(e.get("verdict"), dict) or e["verdict"].get("verdict") != "PASS":
+            raise RegistryError(f"{eid}: a confirmation needs a recorded PASS verdict; the entry holds "
+                                f"{e.get('verdict')!r}")
         o_at = opening.get("kickoff") if isinstance(opening, dict) else None
         mid = opening.get("match_id") if isinstance(opening, dict) else None
-        if (not isinstance(first, str) or not INSTANT_Z.fullmatch(first) or not isinstance(o_at, str)
-                or not INSTANT_Z.fullmatch(o_at) or isinstance(mid, bool) or not isinstance(mid, int)
+        if (not _instant_z(first) or not _instant_z(o_at) or isinstance(mid, bool) or not isinstance(mid, int)
                 or first < o_at):
             raise RegistryError(f"{eid}: confirmation games must not start earlier than the opening (the 60th "
                                 f"member's kickoff {o_at!r}, match {mid!r}; each written to the second with the Z, "

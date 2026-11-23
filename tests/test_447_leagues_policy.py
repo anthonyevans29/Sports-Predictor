@@ -64,6 +64,7 @@ def ledger(tmp_path, monkeypatch):
 
 
 PASS = {"verdict": "PASS", "ruling": "r", "at": "2026-12-07T12:00:00Z"}
+CONF = {"production": {"outcome": "CONFIRMED"}, "closed": {"outcome": "NOT_CONFIRMED"}}
 
 
 # ------------------------------------------------------------------------------------------- C2: the fence --
@@ -79,7 +80,7 @@ def test_c2_while_confirming_the_fence_is_cut_at_the_openings_kickoff_inclusive(
     assert lw.fence_refusal("SA", SEASON, through=OPEN_KO - timedelta(seconds=1)) is None
     why = lw.fence_refusal("SA", SEASON, through=OPEN_KO)
     assert "AT OR AFTER the opening, the 60th member's kickoff 2026-12-06T15:00:00Z (match 4242)" in why
-    assert "confirming" in why and "14:59:59" not in why                # its own wording, never the shifted cut
+    assert "its confirmation is not recorded" in why and "14:59:59" not in why   # its own wording, not the cut
     assert sx.guards_backtest("SA", SEASON) == why                      # every guard reads the one site
     assert sx.guards_backtest("SA", SEASON, through=cut) is None
 
@@ -90,8 +91,18 @@ def test_c2_while_confirming_the_fence_is_cut_at_the_openings_kickoff_inclusive(
     ("closed", PASS),                                                                   # NOT_CONFIRMED
 ])
 def test_c2_the_fence_lifts_after_a_reject_and_once_the_confirmation_is_recorded_either_way(ledger, status, verdict):
-    ledger(_entry(status=status, verdict=verdict))
+    ledger(_entry(status=status, verdict=verdict, confirmation=CONF.get(status) if verdict is PASS else None))
     assert lw.fence_cutoff("SA", SEASON) is None and lw.fence_refusal("SA", SEASON) is None
+
+
+@pytest.mark.parametrize("status, conf", [("production", None), ("closed", None), ("declared", None),
+                                          ("production", {"outcome": "SOMETHING"}), ("production", "CONFIRMED")])
+def test_c2_a_pass_lifts_only_on_its_recorded_confirmation_never_on_a_status(ledger, status, conf):
+    """Codex on #1086: the lift is read from the records (448 item 1(b): "AFTER THE CONFIRMATION IS RECORDED"),
+    never inferred from a status; a PASS with no confirmation record, whatever its status, is still confirming."""
+    ledger(_entry(status=status, verdict=PASS, confirmation=conf))
+    assert lw.fence_cutoff("SA", SEASON) == OPEN_KO - timedelta(microseconds=1)
+    assert "AT OR AFTER the opening" in lw.fence_refusal("SA", SEASON, through=OPEN_KO)
 
 
 def test_c2_a_confirming_entry_with_no_opening_keeps_the_windows_own_fence(ledger):
@@ -215,7 +226,7 @@ def test_c3b_a_leagues_entry_at_production_changes_no_export_and_no_desk_call(le
     from src.walters import desk_policy as dp
     ledger(_entry())
     before = sx.shadow_binding("SA")
-    ledger(_entry(status="production", verdict=PASS))
+    ledger(_entry(status="production", verdict=PASS, confirmation=CONF["production"]))
     after = sx.shadow_binding("SA")
     assert {k: after[k] for k in ("state", "candidate", "declared_at", "frozen_constants")} == {
         k: before[k] for k in ("state", "candidate", "declared_at", "frozen_constants")}
@@ -283,7 +294,7 @@ def test_448_1c_the_print_names_the_fence_as_the_rule_has_it(iso_db, ledger, sta
     from src.db.schema import Competition, Sport
     with session_scope() as s:
         s.add(Competition(sport=Sport.SOCCER, code="SA", name="SA", area="X", type="LEAGUE"))
-    ledger(_entry(status=status, verdict=PASS))
+    ledger(_entry(status=status, verdict=PASS, confirmation=CONF.get(status)))
     now = datetime(2026, 12, 8, 12, 0)
     out = lw.lines(lw.read(("SA",), now=now), now)
     line = next(x for x in out if "the verdict is recorded in leagues-sa-v1" in x)
@@ -342,4 +353,47 @@ def test_448_1d_an_opening_without_an_integer_match_id_refuses_in_the_registry_a
     p = _confirming_file(tmp_path, opening=o)
     with pytest.raises(reg.RegistryError, match="not start earlier than the opening"):
         reg.record_confirmation("x-v1", list(range(1, 61)), _res("2026-12-08T00:00:00Z"), "r", p,
+                                str(tmp_path / "ids"))
+
+
+# ------------------------------------------------------------------------ Codex on #1086, round 1 (60136cfd) --
+
+def test_a_calendar_invalid_opening_reads_as_none_in_the_window_and_refuses_in_the_registry(ledger, tmp_path):
+    bad = {"kickoff": "2026-99-40T25:00:00Z", "match_id": 4242}          # INSTANT_Z's shape, no instant
+    assert reg.INSTANT_Z.fullmatch(bad["kickoff"]) and not reg._instant_z(bad["kickoff"])
+    ledger(_entry(status="confirming", verdict=PASS, opening=bad))
+    assert lw.opening(lw.declaration("SA")) is None
+    assert lw.fence_cutoff("SA", SEASON) == lw.parse_instant(AT)       # law 4: never a crash, never lifted
+    assert "no readable opening" in lw.fence_refusal("SA", SEASON)
+    p = _confirming_file(tmp_path, opening=bad)
+    with pytest.raises(reg.RegistryError, match="not start earlier than the opening"):
+        reg.record_confirmation("x-v1", list(range(1, 61)), _res("2026-12-08T00:00:00Z"), "r", p,
+                                str(tmp_path / "ids"))
+    p = _confirming_file(tmp_path)                                       # a first game with no calendar instant
+    with pytest.raises(reg.RegistryError, match="not start earlier than the opening"):
+        reg.record_confirmation("x-v1", list(range(1, 61)), _res("2026-12-99T00:00:00Z"), "r", p,
+                                str(tmp_path / "ids2"))
+
+
+def test_an_opening_stored_as_null_refuses_and_never_falls_back_to_verdict_at(tmp_path):
+    p = tmp_path / "x.json"
+    e = {"id": "x-v1", "status": "confirming", "confirmation_plan": dict(PLAN),
+         "verdict": {"verdict": "PASS", "at": "2026-12-07T12:00:00Z"},
+         "run": {"result": {"confirmation_opens_after": None}, "ids_file": None}}
+    p.write_text(json.dumps([e]))
+    before = p.read_text()
+    with pytest.raises(reg.RegistryError, match="not start earlier than the opening"):
+        reg.record_confirmation("x-v1", list(range(1, 61)), _res("2026-12-08T00:00:00Z"), "r", str(p),
+                                str(tmp_path / "ids"))                  # after verdict.at: the old rule would admit
+    assert p.read_text() == before
+
+
+@pytest.mark.parametrize("verdict", [None, {"verdict": "REJECT", "at": "2026-12-07T12:00:00Z"}, {"at": "x"}, "PASS"])
+def test_with_an_opening_a_confirmation_still_needs_a_recorded_pass(tmp_path, verdict):
+    p = tmp_path / "x.json"
+    e = {"id": "x-v1", "status": "confirming", "confirmation_plan": dict(PLAN), "verdict": verdict,
+         "run": {"result": {"confirmation_opens_after": OPENING}, "ids_file": None}}
+    p.write_text(json.dumps([e]))
+    with pytest.raises(reg.RegistryError, match="needs a recorded PASS verdict"):
+        reg.record_confirmation("x-v1", list(range(1, 61)), _res("2026-12-08T00:00:00Z"), "r", str(p),
                                 str(tmp_path / "ids"))

@@ -224,7 +224,8 @@ def inside_checkout(folder) -> bool:
     """B2(b): the folder, by its absolute path and by its resolved path, is a checkout's root or under it (compared by
     device and inode, so a symlink or another spelling of the same folder is found). A path that does not exist yet is
     judged by its nearest existing ancestor: under the checkout it is inside (refused), elsewhere it is not (and the
-    pages check then refuses it as missing)."""
+    pages check then refuses it as missing). A path under a regular file reads as missing (NotADirectoryError); any
+    other stat error is raised, and check_pages refuses on it (#1087)."""
     roots = []
     for r in _roots():
         try:
@@ -236,8 +237,8 @@ def inside_checkout(folder) -> bool:
         for p in (cand, *cand.parents):
             try:
                 st = os.stat(p)
-            except FileNotFoundError:
-                continue
+            except (FileNotFoundError, NotADirectoryError):   # #1087 (459 item 1(b)): a path under a regular file
+                continue                                      # is a missing folder; the pages check refuses it
             if (st.st_dev, st.st_ino) in roots:
                 return True
     return False
@@ -246,7 +247,12 @@ def inside_checkout(folder) -> bool:
 def check_pages(exports, given: str) -> dict:
     """Refused: the folder inside the checkout (B2(b)); missing, empty or unreadable (pages_digest); a digest that is
     not the given one (the laptop proves it holds exactly the pages the host digested, B2(c))."""
-    if inside_checkout(exports):
+    try:
+        inside = inside_checkout(exports)
+    except (OSError, RuntimeError) as err:    # #1087 (459 item 1(b)): any other stat error (a permission refused, a
+        raise ReadRefused(f"--exports {exports}: the folder cannot be checked ({type(err).__name__}: {err}); "  # loop)
+                          "nothing read") from err
+    if inside:
         raise ReadRefused(f"--exports {exports}: inside the checkout (addendum 447 item 2 B2(b): the read REFUSES an "
                           "--exports folder inside the checkout); pull the host's pages into a folder outside it and "
                           "outside data/; nothing read")

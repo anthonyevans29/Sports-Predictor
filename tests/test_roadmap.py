@@ -852,13 +852,16 @@ def test_one_moved_line_records_one_move():
     assert rm.validate(base) == []
     head = copy.deepcopy(base)
     hl = _lane(head, "unl")
-    hl["earliest_live"] = "2026-11-20"
-    hl["steps"][-1]["due"] = "2026-11-20"
-    hl["moved"].append(_mv("earliest_live", old, "2026-11-20"))
+    # the new date lies after every step of the real lane, so the dues still run forward (addendum 480 item 3(c)
+    # appended steps due in 2027 before the last one)
+    new = (date.fromisoformat(old) + timedelta(days=30)).isoformat()
+    hl["earliest_live"] = new
+    hl["steps"][-1]["due"] = new
+    hl["moved"].append(_mv("earliest_live", old, new))
     assert rm.validate(head) == []
     errs = rm.check_moves(base, head)
     assert len(errs) == 1 and errs[0].startswith("lane 'unl' step "), errs
-    hl["moved"].append(_mv("earliest_live", old, "2026-11-20", why="the step's own line"))
+    hl["moved"].append(_mv("earliest_live", old, new, why="the step's own line"))
     assert rm.check_moves(base, head) == []
 
 

@@ -310,7 +310,8 @@ def test_the_one_registry_entry_is_the_declaration_of_449_and_unrun():
 
 def test_the_command_is_documented():
     rows = [ln for ln in (ROOT / "docs" / "CLI.md").read_text().splitlines() if ln.startswith("| `soccer-v23-gate` ")]
-    assert len(rows) == 1 and "NEVER RUN BEFORE THE DECLARATION" in rows[0]
+    assert len(rows) == 1 and "DECLARED BY ADDENDUM 449 (2026-11-23T13:05:00Z), NOT RUN" in rows[0]   # 449: declared
+    assert "NEVER RUN BEFORE THE DECLARATION" not in rows[0]
 
 
 def _names(p: str) -> set[str]:

@@ -14,7 +14,7 @@
   - A null bar on any other plan refuses.
   - Every other plan keeps today's rule.
 - **Tests:**
-  - tests/test_449_v23_declaration.py (17): the real file read for each of items 1-6(a), 6(b) both ways, and 6(c) (constants_state, slots_state and bar_state read it clean; check_plan takes its plan; `declared_unrun` returns it).
+  - tests/test_449_v23_declaration.py (14): the real file read for each of items 1-6(a), 6(b) both ways, and 6(c) (constants_state, slots_state and bar_state read it clean; check_plan takes its plan; `declared_unrun` returns it).
   - The leagues pin by position is found by id (test_leagues_declaration_220.py).
   - The harness's real-registry test now holds the declared, unrun entry, and its synthetic fixture drops the real entry.
   - The text test that no entry exists now holds exactly one, declared and unrun.

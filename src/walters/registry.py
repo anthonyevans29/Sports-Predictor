@@ -495,19 +495,24 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
         raise RegistryError(f"{eid}: confirmation scored {len(ids)} games < the plan's {plan['n_games']} — incomplete")
     first = result.get("first_game_at")
     verdict_at = (e.get("verdict") or {}).get("at")
-    opening = (((e.get("run") or {}).get("result") or {}).get("confirmation_opens_after")
-               if isinstance(e.get("run"), dict) else None)
-    if isinstance(opening, dict) and opening.get("kickoff"):
+    res = (e.get("run") or {}).get("result") if isinstance(e.get("run"), dict) else None
+    opening = res.get("confirmation_opens_after") if isinstance(res, dict) else None
+    if opening is not None:
         # ARCHITECT 2026-11-22, addendum 447 item 3 C1(b): an entry whose run record carries the opening (the 60th
         # member's kickoff and match id, written by the one read before any verdict) checks the first game against
         # the opening's kickoff, NOT EARLIER than it (a game tied at that kickoff with a higher id enters); the reader
         # holds the order, the registry is the backstop. No overlap with the run's ids, as before (below). 448 item
-        # 1(d): both are written to the second with the Z and compared as strings; any other form refuses.
-        o_at = opening["kickoff"]
+        # 1(d): both are written to the second with the Z and compared as strings; any other form refuses. An
+        # opening the run record holds but that cannot be read (no such kickoff, no integer match id) refuses too:
+        # it never falls back to verdict.at (law 4), and leagues_window.opening() reads it the same way.
+        o_at = opening.get("kickoff") if isinstance(opening, dict) else None
+        mid = opening.get("match_id") if isinstance(opening, dict) else None
         if (not isinstance(first, str) or not INSTANT_Z.fullmatch(first) or not isinstance(o_at, str)
-                or not INSTANT_Z.fullmatch(o_at) or first < o_at):
+                or not INSTANT_Z.fullmatch(o_at) or isinstance(mid, bool) or not isinstance(mid, int)
+                or first < o_at):
             raise RegistryError(f"{eid}: confirmation games must not start earlier than the opening (the 60th "
-                                f"member's kickoff {opening['kickoff']}); first_game_at {first!r}")
+                                f"member's kickoff {o_at!r}, match {mid!r}; each written to the second with the Z, "
+                                f"the match id an integer); first_game_at {first!r}")
     elif not first or not verdict_at or str(first) <= str(verdict_at):
         raise RegistryError(f"{eid}: confirmation games must all start AFTER the verdict ({verdict_at}); "
                             f"first_game_at {first!r}")

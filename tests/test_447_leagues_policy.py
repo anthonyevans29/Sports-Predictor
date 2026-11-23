@@ -288,3 +288,58 @@ def test_448_1c_the_print_names_the_fence_as_the_rule_has_it(iso_db, ledger, sta
     out = lw.lines(lw.read(("SA",), now=now), now)
     line = next(x for x in out if "the verdict is recorded in leagues-sa-v1" in x)
     assert line.endswith(": " + text)
+
+
+# ------------------------------------------------------------------- the review's cases (adversarial, pre-push) --
+
+def test_c2_a_run_recorded_with_its_opening_but_no_verdict_keeps_the_declared_at_fence(ledger):
+    """The one read writes the opening into the run record before any verdict: until the verdict is recorded the fence
+    is the window's own, from declared_at, never the opening's (which would release the 60 members early)."""
+    ledger(_entry(status="declared", run={"result": {"confirmation_opens_after": OPENING}}, verdict=None))
+    assert lw.opening(lw.declaration("SA")) == (OPEN_KO, 4242)
+    assert lw.fence_cutoff("SA", SEASON) == lw.parse_instant(AT)
+    assert lw.fenced(lw.fence_cutoff("SA", SEASON), G(lw.parse_instant(AT) + timedelta(hours=1)))
+    why = lw.fence_refusal("SA", SEASON, through=OPEN_KO - timedelta(seconds=1))
+    assert why and "its verdict is not recorded" in why
+
+
+@pytest.mark.parametrize("bad", [None, {"kickoff": "soon", "match_id": 1}, {"kickoff": "2026-12-06T15:00:00",
+                                 "match_id": 1}, {"kickoff": "2026-12-06T15:00:00Z", "match_id": "4242"},
+                                 {"kickoff": "2026-12-06T15:00:00Z", "match_id": None},
+                                 {"kickoff": "2026-12-06T15:00:00Z", "match_id": True}])
+def test_c2_law4_a_confirming_entry_with_no_readable_opening_says_so_in_the_refusal_and_the_print(iso_db, ledger, bad):
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Sport
+    with session_scope() as s:
+        s.add(Competition(sport=Sport.SOCCER, code="SA", name="SA", area="X", type="LEAGUE"))
+    ledger(_entry(status="confirming", verdict=PASS, opening=bad))
+    assert lw.opening(lw.declaration("SA")) is None and lw.fence_cutoff("SA", SEASON) == lw.parse_instant(AT)
+    why = lw.fence_refusal("SA", SEASON)
+    assert "its run record holds no readable opening" in why and "cut at declared_at 2026-11-02T18:10:00Z" in why
+    assert "its verdict is not recorded" not in why and "(law 4)" in why
+    now = datetime(2026, 12, 8, 12, 0)
+    line = next(x for x in lw.lines(lw.read(("SA",), now=now), now) if "the verdict is recorded in leagues-sa-v1" in x)
+    assert line.endswith("the run record holds no readable opening: the window's own fence stands from declared_at "
+                         "(law 4)")
+
+
+@pytest.mark.parametrize("first", ["2026-12-07T00:00:00", "2026-12-07T00:00:00+00:00", "2026-12-07T00:00:00.5Z",
+                                   "2026-12-07T00:00Z"])
+def test_448_1d_a_first_game_later_than_the_opening_but_not_in_the_form_refuses(tmp_path, first):
+    """Each of these sorts AFTER the opening as a string, so only the form check refuses it (not vacuous)."""
+    assert first > OPENING["kickoff"]
+    p = _confirming_file(tmp_path)
+    with pytest.raises(reg.RegistryError, match="not start earlier than the opening"):
+        reg.record_confirmation("x-v1", list(range(1, 61)), _res(first), "r", p, str(tmp_path / "ids"))
+
+
+@pytest.mark.parametrize("mid", ["4242", None, True, 4242.0])
+def test_448_1d_an_opening_without_an_integer_match_id_refuses_in_the_registry_as_the_window_reads_it(tmp_path, mid):
+    """registry.record_confirmation and leagues_window.opening() read a run record's opening the same way: present
+    but unreadable is refused, never a fall-back to verdict.at."""
+    o = {"kickoff": OPENING["kickoff"], "match_id": mid}
+    assert lw.opening({"run": {"result": {"confirmation_opens_after": o}}}) is None
+    p = _confirming_file(tmp_path, opening=o)
+    with pytest.raises(reg.RegistryError, match="not start earlier than the opening"):
+        reg.record_confirmation("x-v1", list(range(1, 61)), _res("2026-12-08T00:00:00Z"), "r", p,
+                                str(tmp_path / "ids"))

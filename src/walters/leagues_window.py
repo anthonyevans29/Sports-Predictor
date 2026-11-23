@@ -404,10 +404,11 @@ def opening(e: dict | None) -> tuple[datetime, int] | None:
     o = res.get(OPENING_FIELD) if isinstance(res, dict) else None
     if not isinstance(o, dict):
         return None
-    ko, mid = parse_instant(o.get("kickoff")), o.get("match_id")
-    if ko is None or isinstance(mid, bool) or not isinstance(mid, int):
+    from src.walters.registry import INSTANT_Z          # 448 item 1(d): the form the registry's backstop compares
+    text, mid = o.get("kickoff"), o.get("match_id")
+    if not isinstance(text, str) or not INSTANT_Z.fullmatch(text) or isinstance(mid, bool) or not isinstance(mid, int):
         return None
-    return ko, mid
+    return parse_instant(text), mid
 
 
 def fence_refusal(code, season=None, through: datetime | None = None) -> str | None:
@@ -429,6 +430,11 @@ def fence_refusal(code, season=None, through: datetime | None = None) -> str | N
                 f"{op[0]:%Y-%m-%dT%H:%M:%SZ} (match {op[1]}), is fenced until the confirmation is recorded; a walk "
                 f"is allowed only when cut before it. {FENCE_RULING}")
     at = "an unreadable declared_at: the whole season" if cut == datetime.min else f"{cut:%Y-%m-%dT%H:%M:%SZ}"
+    if e is not None and e.get("status") == CONFIRMING and verdict_recorded(e):   # law 4: no opening to cut at
+        return (f"{c} {SEASON}'s verdict is a PASS and its confirmation is not recorded ({DECLARATION_IDS[c]} "
+                f"confirming), but its run record holds no readable opening ({OPENING_FIELD}): the window's own "
+                f"fence stands, cut at declared_at {at}, until the opening is read or the confirmation is recorded "
+                f"(law 4). {FENCE_RULING}")
     return (f"{c} {SEASON} is declared ({DECLARATION_IDS[c]}, declared_at {at}) and its verdict is not recorded: the "
             f"window's outcomes have one reader, {READER}. {FENCE_RULING}")
 
@@ -1123,9 +1129,13 @@ def lines(res: dict, now: datetime) -> list[str]:
                     "file(s) there)"))
         if w.get("verdict_recorded"):
             cut = fence_cutoff(code, SEASON)
+            ent = declaration(code)
             L.append(f"  - {code} · the verdict is recorded in {w['id']}: "
                      + ("the fence is lifted" if cut is None else
-                        "the confirmation is open: the fence holds from the opening, inclusive (448 item 1(a))"))
+                        "the confirmation is open: the fence holds from the opening, inclusive (448 item 1(a))"
+                        if opening(ent) is not None else
+                        "the confirmation is open, but the run record holds no readable opening: the window's own "
+                        "fence stands from declared_at (law 4)"))
         elif w["state"] == "ready":
             L.append(f"  - {code} · READY: {WINDOW_GAMES} members, none pending before the {WINDOW_GAMES}th. The one "
                      "read is addendum 178 PR ORDER item 5's PR; nothing is scored here")

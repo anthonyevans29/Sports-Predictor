@@ -535,8 +535,16 @@ def pages_digest(export_dir) -> dict:
     those, so its line would not be the name's bytes). Reads nothing else, writes nothing."""
     import hashlib
     import os
+    import stat
     d = Path(export_dir)
-    if not d.is_dir():
+    try:                                     # #1087 (459 item 1(b)): every stat error is a refusal, never a traceback
+        dst = os.stat(d)
+    except (FileNotFoundError, NotADirectoryError):
+        dst = None
+    except OSError as err:
+        raise WindowRefused(f"--exports {export_dir}: the folder cannot be read ({type(err).__name__}: {err}); "
+                            "nothing read") from err
+    if dst is None or not stat.S_ISDIR(dst.st_mode):
         raise WindowRefused(f"--exports {export_dir}: not a folder (missing or not a directory); nothing read")
     names = sorted((p.name for p in d.glob(f"{EXPORT_PREFIX}*.json")), key=os.fsencode)
     if not names:
@@ -545,7 +553,6 @@ def pages_digest(export_dir) -> dict:
     if bad:
         raise WindowRefused(f"--exports {export_dir}: a page name sha256sum would escape (a backslash, newline or "
                             f"carriage return): {bad!r}; nothing read")
-    import stat
     lines = []
     for n in names:
         f = d / n
@@ -558,8 +565,15 @@ def pages_digest(export_dir) -> dict:
         if not stat.S_ISREG(st.st_mode):
             raise WindowRefused(f"--exports {export_dir}: {n} is not a regular file; nothing read")
         h = hashlib.sha256()
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        try:                                 # opened without following a link, and the open file checked regular:
+            fd = os.open(f, flags)           # a page swapped for a link or a fifo after the lstat is refused too
+        except OSError as err:
+            raise WindowRefused(f"--exports {export_dir}: {n} cannot be read ({err}); nothing read") from err
         try:
-            with open(f, "rb") as fh:
+            with os.fdopen(fd, "rb") as fh:
+                if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                    raise WindowRefused(f"--exports {export_dir}: {n} is not a regular file; nothing read")
                 for chunk in iter(lambda: fh.read(1 << 20), b""):
                     h.update(chunk)
         except OSError as err:

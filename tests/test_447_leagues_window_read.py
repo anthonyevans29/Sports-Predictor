@@ -205,7 +205,56 @@ def test_1087_an_exports_path_under_a_file_or_with_a_refused_stat_is_refused_not
     monkeypatch.setattr(lr.os, "stat", stat)
     with pytest.raises(lr.ReadRefused, match="the folder cannot be checked .PermissionError"):
         _pre(world, exports=str(blocked / "pages"))
-    assert not os.path.lexists(lr.reservation_path("leagues-sa-v1"))
+    # the read itself, not only the preflight: refused at the pages check, before the reservation
+    for bad, why in ((f / "pages", "not a folder"), (blocked / "pages", "the folder cannot be checked")):
+        with pytest.raises(lr.ReadRefused, match=why) as ex:
+            _run(world, "f" * 64, exports=str(bad))
+        assert type(ex.value) is lr.ReadRefused
+        assert not os.path.lexists(lr.reservation_path("leagues-sa-v1"))
+
+
+def test_1087_the_digest_refuses_a_folder_whose_stat_is_refused_or_a_link_loop_never_a_traceback(tmp_path,
+                                                                                                   monkeypatch,
+                                                                                                   capsys):
+    """The host's --pages-digest reads pages_digest alone: a folder whose stat is refused (EACCES) or a name too long
+    (ENAMETOOLONG) refuses by name and exit 2; a link loop refuses on both interpreters (the review on #1087)."""
+    real_stat = os.stat
+    blocked = tmp_path / "blocked"
+
+    def stat(p, *a, **k):
+        if Path(p) == blocked:
+            raise PermissionError(13, "Permission denied", str(p))
+        return real_stat(p, *a, **k)
+    monkeypatch.setattr(os, "stat", stat)
+    with pytest.raises(lw.WindowRefused, match="the folder cannot be read .PermissionError"):
+        lw.pages_digest(blocked)
+    assert script.main(["--exports", str(blocked), "--pages-digest"]) == 2
+    assert capsys.readouterr().out.startswith("REFUSED: ")
+    monkeypatch.setattr(os, "stat", real_stat)
+    with pytest.raises(lw.WindowRefused, match="cannot be read|not a folder"):
+        lw.pages_digest(tmp_path / ("a" * 300))
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    with pytest.raises(lw.WindowRefused):
+        lw.pages_digest(loop)
+    assert script.main(["--exports", str(loop / "pages"), "--pages-digest"]) == 2
+
+
+def test_1087_a_page_swapped_for_a_link_after_the_lstat_is_refused_at_the_open(tmp_path, monkeypatch):
+    d = tmp_path / "pages"
+    names = _fixture_pages(d)
+    (tmp_path / "other.json").write_text("OTHER")
+    real_lstat, victim = os.lstat, d / names[0]
+
+    def lstat(p, *a, **k):
+        st = real_lstat(p, *a, **k)
+        if Path(p) == victim and not victim.is_symlink():       # swap the page for a link right after its lstat
+            victim.unlink()
+            victim.symlink_to(tmp_path / "other.json")
+        return st
+    monkeypatch.setattr(os, "lstat", lstat)
+    with pytest.raises(lw.WindowRefused, match="cannot be read"):
+        lw.pages_digest(d)
 
 
 # --------------------------------------------------------------------------------------- the preflight --

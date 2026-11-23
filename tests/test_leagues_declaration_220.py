@@ -59,14 +59,20 @@ MOVED = ("BL1's declaration moves from 2026-11-06 to 2026-11-09: the parity rece
 
 def test_220_the_four_entries_then_bl1_close_the_file_in_declared_at_order_and_the_file_keeps_its_format():
     """The four of addendum 220, then BL1's entry (ARCHITECT 2026-11-09 09:45 ET, addendum 303 item 1, declared_at
-    2026-11-09T14:45:00Z), appended at the end in declared-at order."""
+    2026-11-09T14:45:00Z), appended in declared-at order. Found BY ID, never by their position at the end of the file
+    (ARCHITECT 2026-11-23, addendum 449 item 6(a): soccer-v23's entry is appended after leagues-bl1-v1)."""
     text = Path(reg.LEDGER).read_text()
     entries = json.loads(text)
     assert text == json.dumps(entries, indent=2) + "\n"            # json.dumps(indent=2), ensure_ascii, a newline
-    assert [e["id"] for e in entries[-5:]] == [*DECLARED_IDS, "leagues-bl1-v1"]
-    before = [lw.parse_instant(e.get("declared_at")) for e in entries[:-5]]
-    assert all(t is None or t <= STAMP for t in before)            # appended at the end, in declared-at order
-    assert lw.parse_instant(entries[-1]["declared_at"]) == datetime(2026, 11, 9, 14, 45) > STAMP
+    ids = [e["id"] for e in entries]
+    at = ids.index(DECLARED_IDS[0])
+    assert ids[at:at + 5] == [*DECLARED_IDS, "leagues-bl1-v1"]     # the five together, in this order
+    before = [lw.parse_instant(e.get("declared_at")) for e in entries[:at]]
+    assert all(t is None or t <= STAMP for t in before)            # appended after every earlier entry, in order
+    bl1 = entries[at + 4]
+    assert lw.parse_instant(bl1["declared_at"]) == datetime(2026, 11, 9, 14, 45) > STAMP
+    after = [lw.parse_instant(e.get("declared_at")) for e in entries[at + 5:]]
+    assert all(t is not None and t > lw.parse_instant(bl1["declared_at"]) for t in after)   # later entries, later
 
 
 @pytest.mark.parametrize("eid, code", list(zip(DECLARED_IDS, ("PD", "SA", "FL1", "ELC"))))

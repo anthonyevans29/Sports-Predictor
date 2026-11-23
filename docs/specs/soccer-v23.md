@@ -6,9 +6,10 @@ arms, the walk, the availability term, the gate), `soccer-v23-gate` (cli.py; doc
 tests/test_soccer_v23_fit.py, tests/test_soccer_v23_harness.py, tests/test_soccer_v23_text.py, on synthetic stores
 only.
 
-**State: a design.** No registry entry exists (an undeclared candidate holds none; the registry has no undeclared
-status). The declaration, its slots and the entry are the architect's (11-20). The one run is the operator's block on
-the architect's word (11-27). Nothing in this design has been run on real data, and no result exists. Addendum 251
+**State: DECLARED, not run** (ARCHITECT 2026-11-23 08:05 ET, addendum 449: declared_at 2026-11-23T13:05:00Z; the entry
+`soccer-v23` in docs/registry/experiments.json holds the slots, the frozen constants, BAR_TEXT as the gate and the
+confirmation's criterion). Before it no registry entry existed (an undeclared candidate holds none). The one run is
+the operator's block on the architect's word (11-27, if the declaration PR merges by 11-25: 449 item 7). Nothing in this design has been run on real data, and no result exists. Addendum 251
 item 2 (D8) is built in: g and b are defined AS-OF, identically in the harness and the production path (§5a); v22 is
 re-walked on this harness beside v23; the bar is at least 0.0050 below the re-walked figure on the pot AND, as
 addendum 443 item 1(c) rules it like for like (D11), below EACH of v22's recorded figures over that figure's own
@@ -815,6 +816,6 @@ source and its attrs key come with the soccer feed's adapter PR, none today), re
 kind is no input, never read); no soccer feed writes the
 record, so the term is off in both paths everywhere today. No soccer source is declared in `SOCCER_SOURCES`.
 
-No run of v23 on any real data; no result; no declaration; no registry entry; no ModelVersion; no change to v22, its
+No run of v23 on any real data; no result; no ModelVersion (the declaration and its registry entry are addendum 449's); no change to v22, its
 constants, its path (poisson.py, training.py, soccer_backtest.py, elo.py, factors.py untouched), any existing bar or
 threshold, or any roadmap date. The market is read nowhere.

@@ -532,7 +532,7 @@ scores; only the match ids are kept, and no figure of either arm is computed, ke
 said on the preflight's closing line). (The earlier heading put the reservation before any outcome was read; that was inaccurate and is
 corrected here.) The missing-fingerprint refusal MATCHES the precedents (addendum 254 item 3: the run's order
 matches theirs): a MISSING `--stream-fingerprint` is refused right after the word, before any load and before `--db`
-is read (soccer_v23.py:1997, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
+is read (soccer_v23.py:1999, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after
 the load, as in both. Either way nothing is reserved.
 
 `soccer-v23-gate` refuses, reserving nothing and recording nothing, when: there is no entry, its status is not
@@ -701,6 +701,101 @@ rewritten; the finding Issue #827 cited." No run before the declaration.
     (F3's rule), and the preflight names each with its count. Should the architect rule a label's placement, the
     ruling is a code change through this PR's successor, never a guess.
     **RULED (addendum 263 item 16):** "UNPLACEABLE STAGE LABELS — as built: a label `placement` cannot place REFUSES the run under LEAGUE_REGULAR, and the preflight names each with its count before the reservation; a ruling on a label's placement is a code change through a PR before the declaration, never a guess at run time." Built: as before; the preflight names each unplaceable label before the reservation and gives no fingerprint.
+    *(AMENDED FOR THIS CASE by addendum 456 item 3, kept and never deleted: the placements of item 4 are ruled AFTER the
+    declaration (449) and BEFORE any result, any fingerprint and any reservation; 263 item 16's answer above stands for
+    every other case.)*
+    **RULED (ARCHITECT 2026-11-23 09:26 ET, addendum 456), whole and verbatim:**
+    >
+    > 1. MERGED: #1080 at 3de674de; main is d1637122. soccer-v23 is declared and unrun.
+    >
+    > 2. THE PREFLIGHT, TODAY, ON TWO COPIES (my block; the laptop's backup of this morning and the host's
+    >    backup of 09:30Z, sha256 c42b9760d2b053fe...2973; both mode=ro, immutable; 4 and 3 seconds):
+    >    (a) Both read the entry clean: the slots, the constants, "the entry's gate is BAR_TEXT", production
+    >        v22 on each copy with the same poisson parameters.
+    >    (b) The two consoles differ in ONE line, the copy's path. Every count by competition and season is
+    >        the same on both machines.
+    >    (c) NO FINGERPRINT, on either: "the run refuses while a walked row's stage label cannot be placed
+    >        (never guessed); the architect rules first." Six competition-seasons hold such labels.
+    >    (d) Nothing was fitted, priced, reserved or recorded. No figure of either arm exists. The registry
+    >        is clean and no reservation file stands.
+    >
+    > 3. MY ERROR, SAID PLAINLY. 263 item 16 ruled that "a ruling on a label's placement is a code change
+    >    through a PR before the declaration". I declared this morning (449) without first ordering a count
+    >    of the stored labels. The preflight could not have shown them sooner, since it loads nothing
+    >    before the slots are declared; a plain census could have, and I did not ask for one.
+    >    I AMEND 263 ITEM 16 FOR THIS CASE ONLY: the placements below are ruled AFTER the declaration and
+    >    BEFORE any result, any fingerprint and any reservation. What "before the declaration" guarded was
+    >    a placement chosen with a result in sight. None is in sight: item 2(d). The declaration stands as
+    >    449 wrote it; no slot, no constant and no word of BAR_TEXT changes.
+    >
+    > 4. THE CENSUS (my block, the host's copy, FINISHED games to the cut, by label form; no score read)
+    >    AND THE PLACEMENTS, EACH RULED BY WHAT THE LABEL IS IN ITS LEAGUE'S FORMAT, on counts and dates only.
+    >    The principle is the one already built and ruled (F3; 263 item 2): the rounds every club plays
+    >    are regular; the rounds after a league splits are left out by cause, as "Championship Round",
+    >    "Relegation Round" and "Relegation Group" already are.
+    >    (a) "Championship Group - N" is PLAY-OFF in AUT, BEL, CZE, GRE, SCO and SUI. In each it begins after
+    >        the last regular round and runs beside "Relegation Group", which the code already leaves out.
+    >        In five of them it is last season's "Championship Round" under a new name, with the same
+    >        number of rounds and games (AUT 10 and 30; BEL 10 and 30; CZE 5 and 15; GRE 6 and 12; SUI 5 and
+    >        15), and the regular season is whole without it (AUT 132, BEL 240, CZE 240, GRE 182, SUI 198).
+    >        In SCO it is rounds 34 to 38, 15 games, after the 33 rounds of (c).
+    >    (b) "Conference League Group - N" is PLAY-OFF in BEL and GRE: last season's "Conference League
+    >        Play-off Group", the same counts (BEL 10 and 30; GRE 6 and 12), after the regular season.
+    >    (c) "1st Phase - N" is REGULAR in SCO. 2024/25 and 2025/26 each hold 33 such rounds and 198 games,
+    >        from early August to mid April: twelve clubs meeting three times, the whole league before its
+    >        split, as SUI's 33 rounds and 198 games are. The same league's 2026/27 rounds are stored as
+    >        "Regular Season - N". Without this ruling the code counts no regular Scottish game in two
+    >        seasons and scores 2026/27 as the league's first.
+    >    (d) "2nd Phase - N" is PLAY-OFF in SCO: 5 rounds and 30 games after the split in 2024/25, the rounds
+    >        that 2025/26 stores as "Championship Group" and "Relegation Group" 34 to 38.
+    >    (e) NOTHING ELSE IS RULED. A form above in a competition not named beside it stays unplaced and
+    >        refuses. Any other form stays as the code reads it.
+    >    (f) WHAT IT DOES TO THE POT, said before any figure: Scotland's 396 regular games of 2024/25 and
+    >        2025/26 enter both arms' walk and the scored set, and its first pot season becomes 2024/25.
+    >        The 189 games of (a), (b) and (d) (117, 42 and 30) are left out of both. Both arms score the
+    >        same rows.
+    >
+    > 5. DEV 2 — THE PLACEMENT PR, YOUR NEXT BUILD, AHEAD OF 447's PR 2. Gate-class, small, its own PR.
+    >    (a) A RULED TABLE IN soccer_v23.py, keyed by competition code and label form (the label without its
+    >        number), holding exactly item 4(a) to (d), each with this addendum's number. The harness asks
+    >        soccer_expansion.placement first and reads the table only where that returns nothing. One
+    >        function, used at every place soccer_v23 calls placement today (I count four).
+    >    (b) soccer_expansion.py IS NOT EDITED. Its placement serves frozen experiments; a test holds that
+    >        its answers for every label in item 4 are what they were.
+    >    (c) The table is NOT a model constant: code_constants() and the entry's frozen_constants do not
+    >        change, and BAR_TEXT's sha256 does not move. If you find the fingerprint or the run record
+    >        should bind the table, say how in the PR and do not touch the entry.
+    >    (d) The preflight and the run record mark every label placed by the table as "by ruling 456", with
+    >        its count, beside the labels the code places itself.
+    >    (e) TESTS: each ruled pair; a ruled form in another competition refuses; an unruled form refuses;
+    >        Scotland's first season in scope on a synthetic store; (b)'s pin.
+    >    (f) The spec's question 16 carries this addendum verbatim; 263 item 16's answer is kept and marked
+    >        amended for this case, never deleted.
+    >    (g) Your adversarial review; the stop rule as written; I read it whole. A reviewable head today if
+    >        you can. Nothing of soccer-v23 runs on real data in building it.
+    >
+    > 6. THE RUN'S COPY, RULED NOW, BEFORE ANY RESULT: THE HOST'S. 216 item 3 says "a .backup copy" and names
+    >    no machine. Soccer's writer of record is the host, and the shadow that follows a PASS reads the
+    >    host's v22. So the one run reads the host's backup of its morning, pulled by my block. The
+    >    laptop's own backup is preflighted beside it; if the two fingerprints differ the run does not
+    >    start and I rule first.
+    >
+    > 7. THE RUN'S DATE. 2026-11-27 stands ONLY IF: the placement PR is merged by Wednesday 2026-11-25; my
+    >    block's preflight that day gives a fingerprint on both copies; and it names nothing else that
+    >    needs a ruling (it has not yet reached the thin seasons, the fences or the recorded sets'
+    >    counts). If any of the three fails, the run moves by a moved line the same day. No date moves the
+    >    bar, and none shortens your review.
+    >
+    > 8. DEV 1 — the roadmap's soccer-v23 lines of 449 item 8(a) go ahead now that #1080 is merged. The run's
+    >    step keeps 2026-11-27 until I say otherwise.
+    >
+    > Nothing in this addendum moves a bar or a held timer. The run's date stands on item 7's conditions.
+    Built (456 item 5): `RULED_PLACEMENTS` in soccer_v23.py, exactly items 4(a)-(d), keyed by (competition code,
+    label form); `placement_with_source` asks `soccer_expansion.placement` first and reads the table only where it
+    returns nothing; it is the one function at the four call sites (`stage_census` calls it directly; `in_scope`,
+    `_first_season_census` and `scored_rows` through its row wrapper `placement_of`); the preflight and the run record mark every label the table places "by ruling 456" with its
+    count, and the record carries the table's sha256 (`ruled_placements_sha256`); soccer_expansion.py is not edited;
+    no constant, slot or word of BAR_TEXT changes.
 17. **The v22 arm's tie order.** Production's backfill tie order is SQL-undefined; the arm reads SQLite's id-ascending
     order (pinned). Accepted as "v22's" for the bar?
     **RULED (addendum 263 item 17):** "THE v22 ARM'S TIE ORDER — SQLite's id-ascending, pinned, accepted as "v22's" for the bar and stated in the record (production's own order is SQL-undefined; a pinned order is the only reproducible one)." Built: `record_labels` carries `V22_TIE_ORDER_LABEL` on every verdict and in the record.
@@ -801,7 +896,7 @@ rewritten; the finding Issue #827 cited." No run before the declaration.
     → reservation → walk → record)". Verified: the two precedents agree with each other, and soccer-v23 agrees with
     both on every ruled step (§9, file:line); no ruled step's order changed; run()'s docstring and §9 now say
     "before any outcome is scored or priced". The missing-fingerprint refusal now MATCHES both precedents (§9):
-    refused right after the word, before any load (soccer_v23.py:1997, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
+    refused right after the word, before any load (soccer_v23.py:1999, nfl_v2_gate.py:642, ncaa_v1r_gate.py:792).
 
 ## 12. What is NOT done
 

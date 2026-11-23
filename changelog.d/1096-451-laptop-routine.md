@@ -1,4 +1,4 @@
-## 2026-11-23 (#000: 451-laptop-routine — the laptop's morning routine as one committed list and one command (ARCHITECT 2026-11-23, addendum 451 item 3, amended by addendum 461 items 2 to 4; #1067))
+## 2026-11-23 (#1096: 451-laptop-routine — the laptop's morning routine as one committed list and one command (ARCHITECT 2026-11-23, addendum 451 item 3, amended by addendum 461 items 2 to 4; #1067))
 - **deploy/hosting/laptop_routine.py `[--weekly] [--dry-run]`:**
   - The daily list is `DAILY`: 451 item 3(d) less its step 2, 16 steps renumbered in the same order (461 item 2(a)). MLB's five steps (`sync-matches`, `evaluate`, `improve`, `export-results`, `sync-kalshi`); NBA and NCAAMB one day at a time (today-2 to tomorrow, 6 s after each day); NCAA `sync-teams`, `sync-matches` today-8 to yesterday and the orphans dry run; NHL's three days, its fixtures export and `nhl-goalie-sync`; ATP and WTA with `sync-kalshi-atp` and `sync-kalshi-wta`; `results-tally`.
   - The MLB orphan dry run is not in the list, and no file under deploy/hosting names it. It stays in the architect's block, by hand, after the routine returns (461 item 2(a)).

@@ -157,6 +157,7 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
                                                                  "pl-availability",       # addendum 198
                                                                  "nfl-confirm",           # addendum 215 item 1
                                                                  "nfl-v2",                # addendum 265 item 4
+                                                                 "mlb-retire",            # addendum 472 item 1: earliest_live null
                                                                  "cups",                  # addendum 256 item 5
                                                                  "availability-record",   # addendum 252 item 7
                                                                  "soccer-v23",            # addendum 216 item 3
@@ -320,6 +321,7 @@ BROKEN = [
 # pd keeps [PD] for its own confirmation; a competition in two lanes is the truth").
 # ARCHITECT 2026-11-05 11:40 ET, addendum 261 item 1: "LANE basketball-market-only (Issue: Code files it; competitions
 # NBA, NCAAMB, WNBA; Sport.BASKETBALL = "basketball")".
+# ARCHITECT 2026-11-23 15:51 ET, addendum 472 item 1: lane mlb-retire on #746, "competitions ["MLB"]".
 RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["PD", "SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
                       "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "nfl-v2": ["NFL"],
                       "nfl-confirm": ["NFL"], "mlb-pitchers": ["MLB"], "pl-availability": ["PL"],
@@ -327,7 +329,8 @@ RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["PD", "SA", "BL1
                       "soccer-v23": ["PL"],       # addendum 216 item 3: the PASS shadow is on the host's PL pages
                       "basketball-market-only": ["NBA", "NCAAMB", "WNBA"],   # addendum 261 item 1: market-only
                       "tennis-market-only": ["ATP", "WTA"],   # addendum 261 item 2: "competitions ATP, WTA"
-                      "inferred-layer": None}   # addendum 375 item 3(c): a data layer across sports, no competitions ruled
+                      "inferred-layer": None,   # addendum 375 item 3(c): a data layer across sports, no competitions ruled
+                      "mlb-retire": ["MLB"]}   # addendum 472 item 1: competitions ["MLB"]
 
 
 def test_each_lane_carries_the_ruled_competitions():

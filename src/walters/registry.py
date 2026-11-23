@@ -459,6 +459,17 @@ def freeze_confirmation_cohort(eid: str, cohort_ids: list[int], basis: dict,
     return e
 
 
+def _instant(v) -> datetime | None:
+    """An ISO-8601 instant as naive UTC (a trailing Z or an offset read as such), or None when it cannot be read."""
+    if not isinstance(v, str) or not v.strip():
+        return None
+    try:
+        d = datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
+
+
 def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: str,
                         path: str = LEDGER, ids_dir: str = IDS_DIR) -> dict:
     """The confirmation READ, executed against the declared plan (never a
@@ -488,7 +499,18 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
         raise RegistryError(f"{eid}: confirmation scored {len(ids)} games < the plan's {plan['n_games']} — incomplete")
     first = result.get("first_game_at")
     verdict_at = (e.get("verdict") or {}).get("at")
-    if not first or not verdict_at or str(first) <= str(verdict_at):
+    opening = (((e.get("run") or {}).get("result") or {}).get("confirmation_opens_after")
+               if isinstance(e.get("run"), dict) else None)
+    if isinstance(opening, dict) and opening.get("kickoff"):
+        # ARCHITECT 2026-11-22, addendum 447 item 3 C1(b): an entry whose run record carries the opening (the 60th
+        # member's kickoff and match id, written by the one read before any verdict) checks the first game against
+        # the opening's kickoff, NOT EARLIER than it (a game tied at that kickoff with a higher id enters); the reader
+        # holds the order, the registry is the backstop. No overlap with the run's ids, as before (below).
+        f_at, o_at = _instant(first), _instant(opening["kickoff"])
+        if f_at is None or o_at is None or f_at < o_at:
+            raise RegistryError(f"{eid}: confirmation games must not start earlier than the opening (the 60th "
+                                f"member's kickoff {opening['kickoff']}); first_game_at {first!r}")
+    elif not first or not verdict_at or str(first) <= str(verdict_at):
         raise RegistryError(f"{eid}: confirmation games must all start AFTER the verdict ({verdict_at}); "
                             f"first_game_at {first!r}")
     seen = _ids_of(e, ids_dir) or set()

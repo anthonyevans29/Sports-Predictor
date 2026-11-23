@@ -1,4 +1,4 @@
-## 2026-11-23 (#PR: 449-v23-declaration — soccer-v23's declaration, and check_plan's reference-only bar (ARCHITECT 2026-11-23 08:05 ET, addendum 449 items 1-6; GATE-CLASS; lane soccer-v23, #656))
+## 2026-11-23 (#1080: 449-v23-declaration — soccer-v23's declaration, and check_plan's reference-only bar (ARCHITECT 2026-11-23 08:05 ET, addendum 449 items 1-6; GATE-CLASS; lane soccer-v23, #656))
 - **docs/registry/experiments.json:** the `soccer-v23` entry, written by hand and appended after leagues-bl1-v1 (item 6(a)), as addendum 449 states it:
   - declared_at 2026-11-23T13:05:00Z;
   - the gate is BAR_TEXT as #1070 merged it, sha256 `d4778a27…2371c4`;

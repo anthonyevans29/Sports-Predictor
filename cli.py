@@ -7146,17 +7146,27 @@ def kalshi_disagreement_cmd(since):
 _RPS_NOTE = "RPS reported only — not an acceptance criterion"
 
 
-def _soccer_prod_poisson():
+def _soccer_prod_poisson(s=None):
     """(version, rho, elo_goal_coeff) of the PRODUCTION soccer model's stored
-    poisson config, or None when there is no production model (never faked)."""
+    poisson config, or None when there is no production model (never faked).
+    `s`: a session to read through (soccer-expansion-confirm --db: the copy's, addendum 453 item 3(d)); None reads
+    the app's database, as before. With `s`, a database error on the copy is RAISED, never read as "no production
+    model" (law 4): soccer_expansion.on_copy refuses it ("the copy could not be read"), so the NOTE line never vanishes
+    unlabelled on a copy it could not read (review of 453 item 3(d))."""
+    from contextlib import nullcontext as _given
+    from sqlalchemy.exc import DBAPIError
     from src.walters.training import _resolve_model_version
     from src.db.database import session_scope as _scope
     from src.models.poisson import PoissonConfig
     try:
-        with _scope() as _s:
+        with (_scope() if s is None else _given(s)) as _s:
             mv = _resolve_model_version(_s, None, Sport.SOCCER)
             pz = {**PoissonConfig().as_dict(), **((mv.parameters or {}).get("poisson") or {})}
             return mv.version, float(pz["dixon_coles_rho"]), float(pz["elo_goal_coeff"])
+    except DBAPIError:
+        if s is not None:
+            raise
+        return None
     except Exception:
         return None
 
@@ -7715,7 +7725,14 @@ def soccer_expansion_shadow_grade_cmd(days):
 @click.option("--no-fetch", "no_fetch", is_flag=True,
               help="With --freeze-cohort, cross-ref guard (#329): skip fetching origin laptop/*; only the refs this "
                    "clone knows are checked and the receipt says other clones were not checked.")
-def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5; addendum 453 item 3(d), intl-elo-confirm "
+                   "--db's fence): the whole read on the copy, opened mode=ro + immutable=1, never created, refused "
+                   "under data/, as the app's configured database, when missing, or with a -wal/-shm/-journal beside "
+                   "it; its path and sha256 are printed first. Serves the no-flag read, --record and --substitute "
+                   "(the pick printed before anything is written; the evidence carries the copy's file name and "
+                   "sha256); --freeze-cohort is refused with it. Registry writes land in this checkout as before.")
+def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch, db):
     """soccer-expansion-v1 CONFIRMATION READ (ARCHITECT 2026-10-08, addendum 11, item 4; declared window): the first
     60 league games of the surviving set kicking off after the verdict, pooled, regular-season rounds only (F3),
     priced by the gate's own walk (per league-season from a cold start, min_prior 40, same-kickoff batching, the run
@@ -7725,7 +7742,14 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
     UNSCOREABLE one (cancelled / abandoned / awarded / walkover, or AET/PEN without a 90-minute score) is released,
     replaced by the next eligible fixture after the cohort and recorded with the raw code (--substitute).
     Without flags: progress only. --record: registry.record_confirmation computes CONFIRMED / NOT_CONFIRMED on
-    exactly the frozen cohort. Refused unless the registry holds the run and a PASS verdict."""
+    exactly the frozen cohort. Refused unless the registry holds the run and a PASS verdict.
+    --db COPY (ARCHITECT 2026-11-23, addendum 453 item 3(d); intl-elo-confirm --db's twin, addendum 346 item 1): the
+    read runs on a .backup copy outside data/ (soccer_expansion.check_copy: mlb_pitchers_gate.check_db's fence, no
+    sidecar beside it) through mlb_pitchers_gate.readonly_session (mode=ro + immutable=1), the copy's path and sha256
+    printed first. It serves the no-flag read, --record and --substitute (453 item 3(b) amends 346 item 1 for
+    --substitute only): the pick is printed before anything is written, and the substitution's evidence gains the
+    copy's file name and sha256. The registry writes land in this checkout's docs/registry/ as before (commit them in
+    a PR). --freeze-cohort is REFUSED with --db. Without --db nothing changes."""
     from collections import Counter
 
     from src.db.database import session_scope
@@ -7733,7 +7757,18 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
     from src.walters import registry as reg
     from src.walters import soccer_expansion as sx
     iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    if db is not None and freeze_cohort:
+        click.echo("REFUSED: --db reads a copy; --freeze-cohort is never run on a copy (addendum 346 item 1, kept by "
+                   "addendum 453 item 3(b): \"--freeze-cohort stays refused on a copy: nothing needs it.\"). Nothing "
+                   "was read or written.")
+        raise SystemExit(2)
+    copy = sha = prod_copy = None
     try:
+        if db is not None:                           # the copy's path and sha256 FIRST, before any read (453 3(d))
+            from src.walters import mlb_pitchers_gate as _mpg
+            copy, sha = sx.open_copy(db)
+            click.echo(f"--db {copy} · sha256 {sha} · a .backup copy, opened {_mpg.COPY_URI_QUERY.lstrip('?')} (the "
+                       "app's database is not read)")
         if freeze_cohort:
             e, surv, _ = sx.confirming()
             with session_scope() as s:
@@ -7767,10 +7802,15 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
             return
         if substitute:
             e, surv, _ = sx.confirming()
-            with session_scope() as s:
-                due = sx.substitutions_due(e, s, surv)
-                unpl = sx.eligible_fixtures(s, e, surv)[1]
-                s.rollback()
+            if db is None:
+                with session_scope() as s:
+                    due = sx.substitutions_due(e, s, surv)
+                    unpl = sx.eligible_fixtures(s, e, surv)[1]
+                    s.rollback()
+            else:                                    # the same calls on the copy's session (453 item 3(b))
+                due, unpl = sx.on_copy(copy, sha, lambda s: (sx.substitutions_due(e, s, surv),
+                                                             sx.eligible_fixtures(s, e, surv)[1]),
+                                       nothing="nothing substituted")
             if not due:
                 click.echo("SUBSTITUTE: no unscoreable fixture in the cohort — nothing released")
                 return
@@ -7781,22 +7821,38 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
                            "before a replacement's kickoff (F3; never guessed, never skipped): " + "; ".join(bad))
                 raise SystemExit(2)
             ledger, ids_dir = sx._reg_paths()
+            if db is not None:                       # 453 item 3(d): the pick PRINTED before anything is written
+                for d in due:
+                    f, rep, last = d["released"], d["replacement"], d["last"]
+                    frm = (f"the first eligible fixture after the latest (kickoff, id) in or ever in the cohort, "
+                           f"({iso(last[0])}, {last[1]})" if last is not None else "no (kickoff, id) in the cohort "
+                           "is stored as eligible")
+                    click.echo(f"  PICK (the rule as built, 453 item 2(b); nothing written yet): release {f['id']} "
+                               f"(raw {f['status_raw'] or 'NULL'}, {f['status']}, reason {d['reason']}, {f['code']} "
+                               f"{iso(f['kickoff'])}) -> "
+                               + (f"{rep['id']} ({rep['code']}, kickoff {iso(rep['kickoff'])}), {frm}"
+                                  if rep is not None else f"none stored yet (WAITING), {frm}"))
             for d in due:
                 f, rep = d["released"], d["replacement"]
                 if rep is None:
                     click.echo(f"  WAITING: {f['id']} ({f['status_raw'] or f['status']}) — no eligible fixture after "
                                "the cohort is stored yet; sync the schedule")
                     continue
-                reg.substitute_cohort_fixture(sx.EID, f["id"], rep["id"], d["reason"], {
-                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,  # incl. STALE_ORPHAN
-                    "kickoff": iso(f["kickoff"]), "code": f["code"],
-                    "replacement_kickoff": iso(rep["kickoff"]), "replacement_code": rep["code"]},
-                    path=ledger, ids_dir=ids_dir)
+                ev = {"status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,  # incl. STALE_ORPHAN
+                      "kickoff": iso(f["kickoff"]), "code": f["code"],
+                      "replacement_kickoff": iso(rep["kickoff"]), "replacement_code": rep["code"]}
+                if db is not None:                   # 453 item 3(b): the evidence carries the copy's name and sha256
+                    ev.update(copy_file=copy.name, copy_sha256=sha)
+                reg.substitute_cohort_fixture(sx.EID, f["id"], rep["id"], d["reason"], ev,
+                                              path=ledger, ids_dir=ids_dir)
                 click.echo(f"  SUBSTITUTED: {f['id']} ({d['reason']}, {f['code']} {iso(f['kickoff'])}) -> {rep['id']} "
                            f"({rep['code']} {iso(rep['kickoff'])})")
             click.echo("  commit docs/registry/ in a PR")
             return
-        r = sx.confirmation_read()
+        if db is None:
+            r = sx.confirmation_read()
+        else:                                        # the read and the production model's NOTE, both on the copy
+            r, prod_copy = sx.on_copy(copy, sha, lambda s: (sx.confirmation_read(s=s), _soccer_prod_poisson(s)))
     except (sx.ExpansionRefused, reg.RegistryError) as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
@@ -7808,7 +7864,7 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
     click.echo(f"  model: the run record's {p['production_version']} (rho {p['rho']}, elo_goal_coeff "
                f"{p['elo_goal_coeff']}; never refit) · walk min_prior {sx.MIN_PRIOR}, regular season, same-kickoff "
                "batched")
-    prod = _soccer_prod_poisson()
+    prod = _soccer_prod_poisson() if db is None else prod_copy
     if prod is not None and (prod[0], prod[1], prod[2]) != (p["production_version"], p["rho"], p["elo_goal_coeff"]):
         click.echo(f"  NOTE: the current production soccer model is {prod[0]} (rho {prod[1]}, elo_goal_coeff "
                    f"{prod[2]}), not the run record's — the read stays on the candidate as gated")

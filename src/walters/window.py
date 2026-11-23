@@ -18,6 +18,13 @@ The venue-edge CHARTER (>=4 books, two-sided, >=5pp) is Cockpit policy v1.1
 and is NOT re-implemented here. The card carries its inputs, and the
 Cockpit's venue engine decides eligibility. `engine` is model_edge when a
 canonical model row exists, else market_only.
+
+THE LABEL IS READ (ARCHITECT 2026-11-23, addendum 473 item 3(a), verbatim: "the certification as the registry reads it
+for the row's family and model version, the way closing.nfl_certification does. A read that fails prints
+"certification not read" and never blocks the page (law 4)"). Each fixture's model block carries `certification`
+(473 item 3(b)): registry.certification_of(the row's `family`, the model block's `model_version`), the registry's
+word "certified", "uncertified" or "unread". Any failure to import or read is "unread", never the card's failure.
+sp_window_page prints the label from this field.
 """
 from __future__ import annotations
 
@@ -99,6 +106,23 @@ def canonical_models(export_dir: str | os.PathLike) -> dict[int, dict]:
     return out
 
 
+CERT_STATES = ("certified", "uncertified")   # the registry's words; anything else reads "unread" (law 4)
+
+
+def certification(family, model_version) -> str:
+    """A window row's model certification as the registry reads it now (addendum 473 item 3(a)):
+    registry.certification_of(family, model_version)'s state, keyed by the row's FAMILY and its model block's
+    version, never the version alone (addendum 299 item 3(a)). "certified", "uncertified" or "unread": a read that
+    fails (the import, the file, no entry for that family and version, no family) is "unread", and never the card's
+    failure, as closing.nfl_certification degrades (law 4: a certification that was not read is never certified)."""
+    try:
+        from src.walters import registry
+        state = registry.certification_of(family, model_version)[0]
+    except Exception:                                  # noqa: BLE001  (a label, never the card's failure)
+        return "unread"
+    return state if state in CERT_STATES else "unread"
+
+
 def short_name(team) -> str | None:
     """The phone card's team label: the three-letter code, else the short
     name, else the club's last word for long names (card page, 2026-10-01)."""
@@ -134,6 +158,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     now = now or utc_now_naive()
     hi = now + timedelta(hours=hours)
     models = canonical_models(export_dir)
+    certs: dict = {}                                 # (family, model_version) -> the registry's word, read once a build
     labels: Counter = Counter()
     counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0, "close_unpriced": 0,
               "kalshi_two_sided": 0, "kalshi_one_sided": 0, "kalshi_partial": 0,
@@ -158,6 +183,16 @@ def build_card(now: datetime | None = None, hours: int = 24,
             # requests freshen:<family>. Stored snapshots only, no provider calls.
             lm = line_move_for_match(s, m, now, with_ticker=True)   # addendum 165 item 1: the card only
             model = models.get(m.id)
+            if model:
+                # addendum 473 item 3(b): additive, appended last; the shared canonical row is never mutated
+                key = (row.get("family"), model.get("model_version"))
+                try:
+                    if key not in certs:
+                        certs[key] = certification(*key)
+                    cert = certs[key]
+                except TypeError:                    # an unhashable version from a malformed export: not read, never
+                    cert = "unread"                  # the card's failure (473 item 3(a), law 4)
+                model = {**model, "certification": cert}
             edge = None
             if model and model["top_pick"] and model["top_pick_prob"] is not None \
                     and fair.get(model["top_pick"]) is not None:

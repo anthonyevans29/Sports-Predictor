@@ -22,8 +22,13 @@ def row(mid, comp, home, away, utc, *, sport="nfl", model=None, fair=None, tier=
     return r
 
 
-def model(pick, p, tier, desk=None, mv="v1"):
-    return {"top_pick": pick, "top_pick_prob": p, "tier": tier, "model_version": mv, "desk": desk}
+def model(pick, p, tier, desk=None, mv="v1", cert="certified"):
+    # addendum 473 item 3(b): the card's model block carries the registry's word; these 2026-10-01 examples are rows
+    # of a model read certified, so they render byte for byte as before (tests/test_473_window_certification.py).
+    # A pager-only fixture: the page prints what the card says. The NFL rows here (PIT @ CLE, mv "v1") are NOT the
+    # live NFL state, which reads nfl_elo_v1 "uncertified" (addendum 214); that read is pinned in the 473 test file.
+    return {"top_pick": pick, "top_pick_prob": p, "tier": tier, "model_version": mv, "desk": desk,
+            "certification": cert}
 
 
 PIT = row(1, "NFL", "CLE", "PIT", "2026-10-02T00:15:00", tier="toss-up",
@@ -125,5 +130,8 @@ def test_window_card_carries_short_names_and_the_desk(tmp_path):
     assert (r["competition"], r["home_short"], r["away_short"]) == ("NCAA", "BAMA", "Bulldogs")
     assert r["model"]["desk"] == {"call": "PLAY", "units": 1, "pass_kind": None, "reference": "books",
                                   "market_ref": 0.55, "edge_pp": 7.0}
+    # addendum 473 item 3(a): no registry entry for family NCAAF and this row's version (none stored): unread, labelled
+    assert r["model"]["certification"] == "unread"
     t = page.row_text(page.snapshot({"fixtures": [r]})[str(mid)])
-    assert t == "Fri 8:00p NCAA Bulldogs @ BAMA · model BAMA 62.0% (lean) · books 55.0% · +7.0pp · PLAY 1u"
+    assert t == ("Fri 8:00p NCAA Bulldogs @ BAMA · model (certification not read) BAMA 62.0% (lean) · books 55.0% · "
+                 "+7.0pp · PLAY 1u")

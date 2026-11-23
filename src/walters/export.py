@@ -1191,7 +1191,10 @@ def competition_family(sport, competition_code: str | None) -> str:
     football is stored in the Sport.NFL family under competition NCAA, so a
     football row says which one it is: "NCAAF" for NCAA, "NFL" for NFL (the
     Kalshi series families KXNCAAFGAME / KXNFLGAME). Any other sport's family
-    is its sport, upper-cased. A label only: nothing downstream keys on it."""
+    is its sport, upper-cased. The window card keys its certification read on
+    it (addendum 473 item 3(a): window.build_card reads
+    registry.certification_of(family, model_version)), so a change to a family
+    value changes that read."""
     sp = str(getattr(sport, "value", sport) or "").lower()
     if sp == "nfl":
         return "NCAAF" if str(competition_code or "").upper() == "NCAA" else "NFL"

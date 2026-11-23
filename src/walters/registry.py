@@ -122,7 +122,10 @@ def check_plan(plan) -> dict:
     """The EXECUTABLE confirmation plan (review on #222, 2026-10-02): the window
     is not prose. Required: n_games (> 0) future games scored after the
     verdict, the metric (lower is better), the bar the metric must meet, and
-    whether it must also beat a named reference scored on the SAME games."""
+    whether it must also beat a named reference scored on the SAME games.
+    THE REFERENCE-ONLY BAR (ARCHITECT 2026-11-23, addendum 449 item 6(b); 447 item 3 C3, (c1)): `bar` may be null
+    ONLY with must_beat_reference true and a named reference; the outcome is then metric < reference alone, strict
+    (record_confirmation). Every other plan keeps the rule above: bar a number."""
     if not isinstance(plan, dict):
         raise RegistryError("confirmation_plan must be a dict {n_games, metric, bar, must_beat_reference, reference}")
     n, metric, bar = plan.get("n_games"), plan.get("metric"), plan.get("bar")
@@ -130,14 +133,22 @@ def check_plan(plan) -> dict:
         raise RegistryError("confirmation_plan.n_games must be a positive integer")
     if metric not in PLAN_METRICS:
         raise RegistryError(f"confirmation_plan.metric must be one of {PLAN_METRICS}")
-    if not isinstance(bar, (int, float)) or isinstance(bar, bool):
-        raise RegistryError("confirmation_plan.bar must be a number")
     beat = plan.get("must_beat_reference")
+    if "bar" not in plan:            # a missing bar is never a null one: today's refusal (449 admits null, not absent)
+        raise RegistryError("confirmation_plan.bar must be a number (or null with must_beat_reference true and a "
+                            "named reference); the plan has no bar")
+    if bar is None:
+        if beat is not True or not isinstance(plan.get("reference"), str) or not plan["reference"].strip():
+            raise RegistryError("confirmation_plan.bar may be null only with must_beat_reference true and a named "
+                                "reference (addendum 449 item 6(b): the reference is the bar)")
+    elif not isinstance(bar, (int, float)) or isinstance(bar, bool):
+        raise RegistryError("confirmation_plan.bar must be a number (or null with must_beat_reference true and a "
+                            "named reference)")
     if not isinstance(beat, bool):
         raise RegistryError("confirmation_plan.must_beat_reference must be true or false")
     if beat and not plan.get("reference"):
         raise RegistryError("confirmation_plan.reference must name the reference model")
-    return {"n_games": n, "metric": metric, "bar": float(bar), "must_beat_reference": beat,
+    return {"n_games": n, "metric": metric, "bar": None if bar is None else float(bar), "must_beat_reference": beat,
             "reference": plan.get("reference")}
 
 
@@ -456,7 +467,10 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     (`result["first_game_at"]`, ISO UTC), none of them was in the scored test
     set, and the result carries the plan's metric (and the reference's when
     the plan requires beating it). The outcome is COMPUTED: CONFIRMED iff
-    metric <= bar and, when required, metric < reference (a tie fails)."""
+    metric <= bar and, when required, metric < reference (a tie fails). A plan
+    whose bar is null (addendum 449 item 6(b): admitted by check_plan only with
+    must_beat_reference true and a named reference) is CONFIRMED iff
+    metric < reference alone, strict; a null bar on any other plan refuses."""
     entries = load(path)
     e = next((x for x in entries if x["id"] == eid), None)
     if e is None or e.get("status") != "confirming":
@@ -488,7 +502,12 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     if plan["must_beat_reference"] and not isinstance(ref, (int, float)):
         raise RegistryError(f"{eid}: the plan requires beating {plan['reference']}; result lacks "
                             f"'reference_{plan['metric']}'")
-    ok = metric <= plan["bar"] and (not plan["must_beat_reference"] or metric < ref)
+    if plan["bar"] is None:          # 449 item 6(b): the reference is the bar
+        if plan["must_beat_reference"] is not True:
+            raise RegistryError(f"{eid}: the plan's bar is null without must_beat_reference true: no bar to read")
+        ok = metric < ref
+    else:
+        ok = metric <= plan["bar"] and (not plan["must_beat_reference"] or metric < ref)
     outcome = "CONFIRMED" if ok else "NOT_CONFIRMED"
     os.makedirs(ids_dir, exist_ok=True)
     fname = f"{eid}.confirm.txt"

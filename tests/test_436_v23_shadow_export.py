@@ -117,7 +117,7 @@ def _baseline(monkeypatch):
 # ============================================================================== (a) DORMANT IS BYTE-IDENTICAL --
 
 DORMANT = {
-    "no entry (today)": (None, "no soccer-v23 entry in the registry"),
+    "no entry": (None, "no soccer-v23 entry in the registry"),
     "declared and unrun": (entry(status="declared", verdict=None, run=None), "verdict reads null, not PASS"),
     "REJECT": (entry(status="closed", verdict={"verdict": "REJECT", "ruling": "t", "at": VERDICT_AT}),
                "verdict reads REJECT, not PASS"),

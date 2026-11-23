@@ -104,11 +104,19 @@ its test season."
 | NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024) | 7 before v8 (v1–v5 seeds, v6, v7); v8 is the 8th | `nhl-v8` | NHL 2026-27 regular season, as it accrues (≥ 600 games) |
 | NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024) | `ncaa-elo-v1r`, once (ARCHITECT 2026-10-09, addendum 24) | `ncaa-elo-v1r` | the NCAA FBS 2027 regular season as it accrues (2024-2026 training; declared in the off-season with its spread pre-check) (addendum 24 named the 2026 season, retired since by addendum 302; pointed on to 2027 by addendum 358 item 6(1)) |
 | NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025) | `ncaa-elo-v2`, once (ARCHITECT 2026-11-09, addendum 302) | `ncaa-elo-v2` | the NCAA FBS 2027 regular season as it accrues (2024-2026 training; declared in the off-season with its spread pre-check) |
+| NFL 2025 regular season + postseason (nfl-backtest's scored window; warm-up 2024, preseason excluded) | v1's gate run and its re-runs, and the four R-track variants (ARCHITECT 2026-11-23, addendum 465 item 4(b)) | `nfl-elo-v1` | the NFL test season that the gate-class addendum of 465 item 4(a) rules (by Friday 2026-12-18; no season is named here before it) |
+| NFL 2025 regular season + postseason (285 games on the corrected stream, #775; warm-up 2024 complete, 285; preseason excluded) | v2's run, once (ARCHITECT 2026-11-23, addendum 465 item 4(b)) | `nfl-elo-v2` | the same |
 
 - **The college sets.** Addendum 24 item 2(b) retired 2025 with ncaa-elo-v1r's FAIL. Addendum 302 retired 2026 with
   ncaa-elo-v2's FAIL; item 3, verbatim: "2026 is RETIRED as a college test season; NCAA is MARKET-ONLY; the 2027
   candidate declares in the off-season." The 2026 refusal went into code by addendum 309 item 6 (#901). Each set is
   keyed on its last candidate's `test_set`, exactly, and the refusal names the ruling (`registry.RETIRED_BY`).
+- **The NFL set** (ARCHITECT 2026-11-23, addendum 465 item 4(b), verbatim: "NFL 2025 IS RETIRED AS A TEST SEASON: read
+  by v1's gate run and its re-runs, the four R-track variants and v2's run; 215 item 2 said it is read once ... it is
+  keyed into registry.RETIRED_TEST_SETS under BOTH stored test_set strings, v1's and v2's ... 2024 is not retired: it
+  was never a test set, and it stays training data."). One season, two stored strings, so two keys, each with its own
+  entry as the last candidate. The refusal names no season to declare instead (`registry.NFL_INSTEAD`): 465 item 4(a)
+  rules the candidate's test season by a gate-class addendum by Friday 2026-12-18, and no season is named before it.
 - **The key is exact, and a new set's wording is ruled at its declaration** (ARCHITECT 2026-11-12, addendum 358 item
   6(2), verbatim: "The exact `test_set` string STANDS as the key: a declaration is my ruling, so a re-worded 2026
   college set cannot be declared without passing me"). No fuzzy key.

@@ -92,8 +92,8 @@ PLAN_METRICS = ("log_loss",)
 # refusal that sends a candidate to a retired season is wrong on its face. Change the tuple's text to the 2026 entry's
 # own words for 2027". (2), verbatim: "The exact `test_set` string STANDS as the key: a declaration is my ruling, so a
 # re-worded 2026 college set cannot be declared without passing me". No fuzzy key.
-NFL_INSTEAD = ("the NFL test season the gate-class addendum ruling 465 item 4(a) names (2026, or 2027 as it accrues; "
-               "ruled by Friday 2026-12-18), never 2025")
+NFL_INSTEAD = ("the NFL test season that the gate-class addendum of 465 item 4(a) rules (by Friday 2026-12-18; no "
+               "season is named here before it)")
 RETIRED_TEST_SETS = {
     "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)":
         ("nhl-v8", "NHL 2026-27 regular season as it accrues (>= 600 games)"),

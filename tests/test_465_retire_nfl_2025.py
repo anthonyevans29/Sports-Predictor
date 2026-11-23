@@ -10,6 +10,7 @@ last candidates on their own strings. The refusal names no season to declare ins
 candidate's test season by its own gate-class addendum. Every registry write goes to tmp_path; the committed ledger is
 only read."""
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -65,7 +66,7 @@ def test_an_entry_on_either_string_already_in_a_ledger_is_refused_its_run(tmp_pa
 def test_the_refusal_sends_a_candidate_to_no_season_and_2024_is_not_retired(tmp_path):
     """465 item 4(a): the candidate's test season is ruled by its own addendum, so the refusal names none (358 item
     6(1): a refusal that sends a candidate to a retired season is wrong on its face). 2024 "was never a test set"."""
-    assert "never 2025" in reg.NFL_INSTEAD and "465 item 4(a)" in reg.NFL_INSTEAD
+    assert "465 item 4(a)" in reg.NFL_INSTEAD and not re.search(r"\b20\d\d\b(?!-\d)", reg.NFL_INSTEAD)  # no season
     assert not any(k.startswith("NFL 2024") for k in reg.RETIRED_TEST_SETS)
     path = str(tmp_path / "x.json")
     reg.declare(_decl("nfl-elo-v3", "NFL 2027 regular season as it accrues (tests only)"), path=path)

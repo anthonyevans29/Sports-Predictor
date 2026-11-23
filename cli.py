@@ -6658,10 +6658,10 @@ def nfl_v2_fit_warmup_cmd(db):
               help="Cross-ref guard (#329): skip fetching origin laptop/*.")
 def soccer_v23_gate_cmd(preflight, word, fingerprint, db, no_fetch):
     """soccer-v23 GATE (ARCHITECT 2026-11-04, addendum 248 item 2(b); addendum 230 item 1(d); addendum 216 items
-    1-3; addendum 251 item 2; addendum 443 item 1(c); GATE-CLASS; lane soccer-v23, #656). REGISTERED, NEVER RUN
-    BEFORE THE DECLARATION: the
-    run refuses (exit 2, nothing reserved, nothing recorded) while the registry holds no declared soccer-v23 entry, and
-    it holds none until the architect's declaration (11-20); the one run is the operator's block on the architect's
+    1-3; addendum 251 item 2; addendum 443 item 1(c); GATE-CLASS; lane soccer-v23, #656). DECLARED BY ADDENDUM 449
+    (2026-11-23T13:05:00Z), NOT RUN: the
+    run refuses (exit 2, nothing reserved, nothing recorded) without a declared, unrun soccer-v23 entry (the registry
+    holds it since addendum 449: the slots, the constants, the gate); the one run is the operator's block on the architect's
     word (11-27). THE BAR (src/walters/soccer_v23.py BAR_TEXT, docs/specs/soccer-v23.md): soccer-v23's mean three-way
     log-loss at least 0.0050 BELOW v22 re-walked on this harness on the frozen pot (as-of context, same scored set,
     skip zero) AND, for EACH of v22's recorded figures (the declaration slot v22_recorded, a list, never recomputed),

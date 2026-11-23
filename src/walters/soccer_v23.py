@@ -7,8 +7,8 @@ and every declaration slot.
 NOTHING HERE HAS RUN ON REAL DATA. "NO run before 11-20's declaration" (248 item 2(b)); "NO run and NO declaration
 before 11-20 (a date is never a reason to run early)" (230 item 1(d)). The one run is the operator's block on the
 architect's word on 11-27 (216 item 3), through `soccer-v23-gate`, which refuses (exit 2, nothing reserved, nothing
-recorded) while the registry holds no declared entry: and it holds none (an undeclared candidate holds no entry:
-tests/test_leagues_declaration_220.py; registry.py has no "undeclared" status). v22 is not changed: this module
+recorded) without a declared, unrun entry: DECLARED by ARCHITECT 2026-11-23, addendum 449 (declared_at 13:05:00Z;
+docs/registry/experiments.json; tests/test_449_v23_declaration.py), nothing run. v22 is not changed: this module
 imports poisson.estimate_strengths / predict_match and elo's own functions and calls them unchanged.
 
 ONE PREDICTION FUNCTION (216 item 4's lane, #789): `predict(snapshot, fixture, arm)` is pure (no database, no clock,
@@ -273,8 +273,8 @@ BAR_TEXT = (
 WITHIN_SEASON_SKIP = 0                          # 216 item 3: "no 40-match skip for this candidate ... it is zero"
 
 # ------------------------------------------------------------------------------------- THE DECLARATION SLOTS --
-# Every slot is the architect's (11-20). The code holds the allowed values only; the run reads the values from the
-# declared registry entry's `declaration_slots` and refuses while any is missing or null. RECOMMENDED is printed for
+# Every slot is the architect's (filled by addendum 449). The code holds the allowed values only; the run reads the
+# values from the declared entry's `declaration_slots`, refusing while any is missing or null. RECOMMENDED is printed for
 # the architect; it is never a default.
 SLOTS_KEY = "declaration_slots"
 #: The stage scopes and first-season rules the builders implement. The slots admit only the RULED ones (ARCHITECT
@@ -1651,7 +1651,7 @@ def constants_state(e: dict | None) -> str | None:
 def slots_state(e: dict | None) -> tuple[dict | None, str | None]:
     blk = (e or {}).get(SLOTS_KEY)
     if not isinstance(blk, dict):
-        return None, f"the registry entry has no {SLOTS_KEY} block (every slot is the architect's, 11-20)"
+        return None, f"the registry entry has no {SLOTS_KEY} block (every slot is the architect's: addendum 449)"
     for k in SLOT_KEYS:
         v = blk.get(k)
         if v is None:
@@ -1691,7 +1691,7 @@ def declared_unrun() -> dict:
     e = reg.get(EID, reg.LEDGER)
     if e is None or e.get("status") != "declared" or e.get("run") is not None:
         raise GateRefused(f"{EID} must be declared and unrun in the registry (status "
-                          f"{e.get('status') if e else 'absent'}; the declaration is the architect's, 11-20): the pot "
+                          f"{e.get('status') if e else 'absent'}; the declaration is the architect's, addendum 449): the pot "
                           "is read once for this candidate")
     if os.path.exists(reservation_path()):
         raise GateRefused(f"{EID}: a run was started ({os.path.relpath(reservation_path())}); nothing reruns without "

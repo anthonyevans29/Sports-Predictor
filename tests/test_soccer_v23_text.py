@@ -279,9 +279,16 @@ def test_every_declaration_slot_is_in_the_spec_and_none_has_a_value_in_code():
 def test_the_lane_is_appended_as_216_item_3_dates_it():
     lanes = {ln["lane"]: ln for ln in json.loads((ROOT / "docs" / "roadmap.json").read_text())["lanes"]}
     ln = lanes["soccer-v23"]
-    assert ln["issue"] == 656 and ln["registry_id"] is None and ln["state"] == "to declare"
+    # ARCHITECT 2026-11-23 08:05 ET, addendum 449 item 8(a): after #1080 merged, the declaration step is done-marked
+    # (its receipt cites 443 item 1(c), 444 item 4), the state is "declared", registry_id "soccer-v23" (validate()
+    # takes any id in any state), and live_needs gains item 5's criterion; the run's step stays 2026-11-27
+    assert ln["issue"] == 656 and ln["registry_id"] == "soccer-v23" and ln["state"] == "declared"
     assert [(s["owner"], s["due"], s["done"] and s["done"]["date"]) for s in ln["steps"]] == [
-        ("code", "2026-11-13", "2026-11-05"), ("architect", "2026-11-23", None), ("operator", "2026-11-27", None)]
+        ("code", "2026-11-13", "2026-11-05"), ("architect", "2026-11-23", "2026-11-23"), ("operator", "2026-11-27", None)]
+    assert ln["steps"][1]["done"]["receipt"].startswith("#1080 merged 2026-11-23 (d1637122)")
+    assert "addendum 443 item 1(c)" in ln["steps"][1]["done"]["receipt"]
+    assert ln["live_needs"].endswith("\"CONFIRMED iff soccer-v23's is BELOW live v22's on the same 60 games; equal or "
+                                     "above is NOT CONFIRMED.\"")
     # addendum 281 item 4(a): the design PR step done-marked by #832 (merged 2026-11-05); its due stays as the record
     assert ln["steps"][0]["done"]["receipt"].startswith("#832 merged 2026-11-05")
     assert ln["earliest_live"] is None and ln["competitions"] == ["PL"]

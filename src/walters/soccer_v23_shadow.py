@@ -21,7 +21,8 @@ As built:
         the pass pricing v22 is v22's.
   Anything else is DORMANT with its reason (law 4): no entry, declared and unrun (today, 449), REJECT, INVALID, FAIL, a PASS
   with any other status, an unreadable registry, constants or slots that do not read, a gate that is not BAR_TEXT, a
-  run record without v22_params_sha256 or with one the store's v22 params do not hash to (440 item 4), another
+  run record without v22_params_sha256 or with one the store's v22 params do not hash to (440 item 4), a run record
+  without ruled_placements_sha256 or with one this checkout's ruled placement table does not hash to (456), another
   production version, or off the host. Dormant writes NOTHING: no stored arm, no key on any page, no file (436 item 7(a): the pages, the stored
   rows, the Desk blocks and desk_meta byte-identical). The predict and export receipts print one line, RECEIPT.
 - THE ARM (plan point 2), at the soccer predict pass (training._generate_predictions_soccer), beside pl-availability's:
@@ -69,6 +70,7 @@ RULING = "ARCHITECT 2026-11-21 08:04 ET, addendum 436 item 7"
 RECEIPT = "soccer-v23 shadow: {state}"
 PRODUCTION_UNREAD = "the store's production soccer model was not read"
 PARAMS_KEY = "v22_params_sha256"         # 440 item 4(b): the run record's field (soccer_v23.record / params_sha256)
+TABLE_KEY = "ruled_placements_sha256"    # 456 item 5(c): the ruled placement table the run walked under (record)
 SESSION_KEY = "soccer_v23_shadow_gate"   # the page gate, read once per session (Session.info)
 
 
@@ -167,6 +169,16 @@ def state(entry: dict | None, host_why: str | None = None, production: tuple | N
     if not (isinstance(run_sha, str) and len(run_sha) == 64 and all(c in "0123456789abcdef" for c in run_sha)):
         return _off(f"{EID}'s run record carries no {PARAMS_KEY} (440 item 4(b)): the shadow prices only on the v22 "
                     "params the run read")
+    # addendum 456 item 5(c) (Codex on #1082, P1): the live snapshots place labels with THIS checkout's ruled table
+    # (soccer_v23.in_scope); a table that is not the run's would price another history than the one gated
+    run_table = res.get(TABLE_KEY)
+    if not isinstance(run_table, str) or not run_table:
+        return _off(f"{EID}'s run record carries no {TABLE_KEY} (addendum 456 item 5(c)): the shadow prices only under "
+                    "the ruled placements the run walked")
+    if run_table != sv.ruled_placements_sha256():
+        return _off(f"this checkout's ruled placement table (sha256 {sv.ruled_placements_sha256()[:16]}…) is not the "
+                    f"one the run walked ({run_table[:16]}…; addendum 456 item 5(c)): the shadow prices only under the "
+                    "placements the run gated")
     if production is None:
         return _off(PRODUCTION_UNREAD)
     version, v22p = production

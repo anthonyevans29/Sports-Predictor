@@ -1,6 +1,7 @@
 """ARCHITECT 2026-11-03 07:55 ET, addendum 226 item 4(a) (the records PR, #322 / #754): the roadmap's records. Lane pd:
 item 3's moved line (the confirmation record step and earliest_live 2026-11-23 -> 2026-12-22; the 11-22 calendar step
-stays) and its live_needs rewritten as the union (addendum 223 item 2(a)). Lane leagues: PD into `competitions`, the
+stays; ARCHITECT 2026-11-23 08:54 ET, addendum 453 item 4, later moved it to 2026-11-27 by a third moved line, which
+the pin now reads) and its live_needs rewritten as the union (addendum 223 item 2(a)). Lane leagues: PD into `competitions`, the
 title naming La Liga, step (c)'s text of item 2 (due unchanged, no moved line). Lane pl-availability: addendum 224 item
 3's two moved lines (12-20 -> 12-14; 12-21 -> 12-15), the #754 console's count in the step texts (224 items 1 and 4).
 The quoted texts below are the architect's, verbatim."""
@@ -62,21 +63,27 @@ def test_226_the_file_validates():
     assert rm.validate(_doc()) == []
 
 
-def test_226_lane_pd_the_record_step_and_earliest_live_moved_the_calendar_step_stays():
+def test_226_lane_pd_the_record_step_and_earliest_live_moved_then_the_calendar_step_by_453():
     ln = _lane(_doc(), "pd")
     assert (ln["registry_id"], ln["competitions"], ln["state"]) == ("soccer-expansion-v1", ["PD"], "confirming")
     cal, rec = ln["steps"]
+    # the calendar step stood at 2026-11-22 here; ARCHITECT 2026-11-23 08:54 ET, addendum 453 item 4 moved it to
+    # 2026-11-27 (16257 re-dated, 16204 CANCELLED and replaced) by its own moved line, the third below; words unchanged
     assert (cal["what"], cal["owner"], cal["due"], cal["done"]) == (
-        "the 60th cohort fixture (kickoff 2026-11-22T16:00Z) is played", "calendar", "2026-11-22", None)  # a fact
+        "the 60th cohort fixture (kickoff 2026-11-22T16:00Z) is played", "calendar", "2026-11-27", None)  # a fact
     assert (rec["what"], rec["due"], rec["done"]) == ("the confirmation record step, in the morning block",
                                                       "2026-12-22", None)
     assert ln["earliest_live"] == "2026-12-22"
     # one line of the architect's moves two dates; the base check takes one moved line per move (Codex on #503: "one
     # line records one move"), so the line is entered once per date, its text verbatim in why each time
-    assert [(m["moved_on"], m["which"], m["was"], m["now"], m["why"]) for m in ln["moved"]] == [
+    assert [(m["moved_on"], m["which"], m["was"], m["now"], m["why"]) for m in ln["moved"][:2]] == [
         ("2026-11-03", rec["what"], "2026-11-23", "2026-12-22", PD_LINE),
         ("2026-11-03", "earliest_live", "2026-11-23", "2026-12-22", PD_LINE)]
-    assert all(m["ruling"].startswith("ARCHITECT 2026-11-03 07:55 ET, addendum 226 item 3") for m in ln["moved"])
+    assert all(m["ruling"].startswith("ARCHITECT 2026-11-03 07:55 ET, addendum 226 item 3") for m in ln["moved"][:2])
+    # addendum 453 item 4: one line appended (the head only appends, addendum 62 item 3)
+    assert [(m["moved_on"], m["which"], m["was"], m["now"]) for m in ln["moved"][2:]] == [
+        ("2026-11-23", cal["what"], "2026-11-22", "2026-11-27")]
+    assert ln["moved"][2]["ruling"].startswith("ARCHITECT 2026-11-23 08:54 ET, addendum 453 item 4")
 
 
 def test_226_lane_pd_live_needs_are_the_union():

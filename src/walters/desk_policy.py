@@ -1160,6 +1160,25 @@ def not_host_reason() -> str | None:
     return f"the role is unknown ({ROLE_ENV} unset)"
 
 
+def not_laptop_reason() -> str | None:
+    """None on the laptop; else why this machine is not the laptop, by role_reading (read-only): the role is host,
+    unset, a value that is neither, or host.env exists and cannot be read (its value is never consulted past it). For
+    a command that runs on the laptop only (ARCHITECT 2026-11-23, addendum 461 item 2(d): deploy/hosting/
+    laptop_routine.py, the laptop's morning routine). Not a fence input: host_fenced never reads it, so a file that
+    rebinds it changes no Desk call; callers outside this module reference it, never role_reading or machine_role
+    (tests/test_host_watch_after_flip.py pins that)."""
+    role, value = role_reading()
+    if role == "laptop":
+        return None
+    if value is HOST_ENV_UNREADABLE:
+        return "host.env exists but cannot be read: the role is unknown"
+    if role == "host":
+        return "this machine's role is host"
+    if value:
+        return f"the role {value!r} is not host or laptop"
+    return f"the role is unknown ({ROLE_ENV} unset)"
+
+
 def machine_role(env=None) -> str | None:
     """This machine's role, host or laptop; None when it is unknown (role_reading)."""
     return role_reading(env)[0]

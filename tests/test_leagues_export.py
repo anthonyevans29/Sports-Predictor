@@ -28,6 +28,9 @@ from tests.test_leagues_window import (AT, AT_TEXT, FROZEN, NOW, SEASON, _comps,
                                        decl, ledger)  # noqa: F401  (ledger: a fixture)
 from tests.test_record_vs_close import iso_db  # noqa: F401  (a fixture: a throwaway SQLite, cwd = tmp_path)
 
+# a PASS whose confirmation is recorded (ARCHITECT 2026-11-22, addendum 448 item 1(b); leagues_window.lifted)
+CONFIRMED = {"verdict": {"verdict": "PASS"}, "status": "production", "confirmation": {"outcome": "CONFIRMED"}}
+
 pytestmark = pytest.mark.usefixtures("iso_db")
 
 
@@ -121,11 +124,11 @@ def _league_season(code, base, start=datetime(2026, 8, 15, 14, 0), n_rounds=20):
 def test_1_shadow_entry_equals_the_gate_path_row_for_row(ledger, code):
     """158 item 2(a) on the export's own function: every finished regular-round game the gate scores is priced by
     shadow_entry (prospective=False) within PARITY_TOL, and equal once rounded by shadow_prob; nothing priced by one
-    path only. PD and SA each with its verdict recorded (the fence lifted; PD is fenced as the four are, ARCHITECT
-    2026-11-02, addendum 222 item 4(b))."""
+    path only. PD and SA each with its verdict recorded and its confirmation recorded (the fence lifted, 448 item
+    1(b); PD is fenced as the four are, ARCHITECT 2026-11-02, addendum 222 item 4(b))."""
     from src.db.database import session_scope
     from src.walters.soccer_expansion import unscoreable
-    _world(ledger, decl("SA", verdict={"verdict": "PASS"}), decl("PD", verdict={"verdict": "PASS"}))
+    _world(ledger, decl("SA", **CONFIRMED), decl("PD", **CONFIRMED))
     _league_season(code, 5000)
     gate = {r["match_id"]: r for r in lc.gate_rows(code, SEASON, -0.1, 0.0008)}
     assert gate
@@ -473,9 +476,9 @@ def test_10_the_consumers_read_the_new_rows(ledger, tmp_path):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "deploy" / "hosting"))
     import coverage_map as cm
     assert lw.EXPORT_PREFIX == sx.FILE_PREFIX
-    # PD with its leagues-pd-v1 verdict recorded (addendum 222 item 4(b): PD is fenced as the four are; a recorded
-    # verdict lifts it), so PD's game is graded; SA's window game is fenced
-    _world(ledger, decl("SA"), decl("PD", verdict={"verdict": "PASS"}))
+    # PD with its leagues-pd-v1 verdict and confirmation recorded (addendum 222 item 4(b): PD is fenced as the four
+    # are; 448 item 1(b): the recorded confirmation lifts it), so PD's game is graded; SA's window game is fenced
+    _world(ledger, decl("SA"), decl("PD", **CONFIRMED))
     now = AT + timedelta(days=1)
     for code, base in (("PD", 1000), ("SA", 3000)):
         t = _teams(code)

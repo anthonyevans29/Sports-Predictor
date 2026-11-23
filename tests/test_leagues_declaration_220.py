@@ -35,6 +35,8 @@ STAMP = datetime(2026, 11, 2, 18, 10)
 FROZEN = {"production_version": "v22", "rho": -0.1, "elo_goal_coeff": 0.0008}
 DECLARED_IDS = ("leagues-pd-v1", "leagues-sa-v1", "leagues-fl1-v1", "leagues-elc-v1")
 REAL = {e["id"]: e for e in reg.load(reg.LEDGER)}          # read before any monkeypatch: the tracked file
+LEAGUES_PLAN = {"n_games": 60, "metric": "log_loss", "bar": None, "must_beat_reference": True,     # 447 item 3 C3(a)
+                "reference": "the close (the grader's close, on the same games)"}
 
 # addendum 220, verbatim (the architect's text; items 1-3 and item 4's MOVED LINE)
 ITEM1 = ("THE CANDIDATE, per league, identical in form: soccer_elo_poisson's CURRENT constants, trained to "
@@ -88,7 +90,9 @@ def test_220_each_entry_carries_items_1_to_3_verbatim_and_the_run_records_consta
     assert ITEM3[ITEM3.index("PASS →"):] in e["confirmation_window"]
     assert e["frozen_constants"] == FROZEN
     assert e["frozen_constants"] == {k: REAL[sx.EID]["run"]["result"][k] for k in lw.CONSTANTS}
-    assert e["confirmation_plan"] is None and e["n"] == 60
+    # ARCHITECT 2026-11-22, addendum 447 item 3 C3(a): the one plan, written before the first window read (it was null)
+    assert e["confirmation_plan"] == LEAGUES_PLAN and reg.check_plan(e["confirmation_plan"]) == LEAGUES_PLAN
+    assert e["n"] == 60
 
 
 def test_220_bl1_held_no_entry_until_303_and_no_status_was_invented():
@@ -896,3 +900,23 @@ def test_222_4b_the_soccer_expansion_confirmation_walks_pd_through_the_cut_and_l
     key = {"H": "p_home", "D": "p_draw", "A": "p_away"}
     pre = [sx.ll3(rows[m][key[rows[m]["actual"]]]) for m in before]
     assert r["log_loss"] == sum(pre) / len(pre)                     # the cut walk's figures are the uncut walk's
+    # ARCHITECT 2026-11-22, addendum 447 item 3 C2 (PD): with leagues-pd-v1 CONFIRMING (a PASS), its fence holds from
+    # its opening, which lies after soccer-expansion-v1's cohort: the same 30 score, nothing fenced, --record not
+    # refused by the fence; a cohort game at or after the opening would stay fenced
+    last = max(ko for _, ko in cohort)
+    opening = {"kickoff": (last + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"), "match_id": 9999}
+    _pd_confirming(real_ledger, verdict.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                   {**REAL["leagues-pd-v1"], "status": "confirming",
+                    "verdict": {"verdict": "PASS", "ruling": "r", "at": "2026-12-08T12:00:00Z"},
+                    "run": {"result": {"confirmation_opens_after": opening}}})
+    assert lw.fence_cutoff("PD", SEASON) == last + timedelta(days=1) - timedelta(microseconds=1)
+    passed = sx.confirmation_read()
+    assert passed["fenced_window"] == [] and passed["n"] == 30 and passed["complete"] == full["complete"]
+    opening = {"kickoff": last.strftime("%Y-%m-%dT%H:%M:%SZ"), "match_id": 1}      # an opening AT the cohort's last
+    _pd_confirming(real_ledger, verdict.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                   {**REAL["leagues-pd-v1"], "status": "confirming",
+                    "verdict": {"verdict": "PASS", "ruling": "r", "at": "2026-12-08T12:00:00Z"},
+                    "run": {"result": {"confirmation_opens_after": opening}}})
+    assert [x["id"] for x in sx.confirmation_read()["fenced_window"]] == [cohort[-1][0]]   # inclusive: fenced
+
+

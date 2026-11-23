@@ -742,6 +742,32 @@
       ]
     },
     {
+      "lane": "mlb-retire",
+      "title": "MLB: the snapshot pitcher layer retired from the live path (addendum 469)",
+      "issue": 746,
+      "registry_id": null,
+      "competitions": ["MLB"],
+      "state": "declared",
+      "steps": [
+        {
+          "what": "the plan of addendum 469 item 3(a) on #746: every reader of the layer's fields outside the probability, each with what it shows today and what it would show after (no build)",
+          "owner": "code",
+          "due": "2026-12-04",
+          "done": null
+        },
+        {
+          "what": "the live MLB path prices pitcher-less, the OFF arm (addendum 469 item 3(b))",
+          "owner": "code",
+          "due": "2026-12-18",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "RULED (ARCHITECT 2026-11-23 15:20 ET, addendum 469; the lane by ARCHITECT 2026-11-23 15:51 ET, addendum 472 item 1). 469 item 2(a), verbatim: \"THE PITCHER LAYER IS RETIRED FROM THE LIVE MLB PATH BEFORE THE 2027 SEASON. The 2027 model is the OFF arm: v2 as the backtest walks it, pitcher-less.\" 469 item 3(b), verbatim: \"THEN ONE GATE-CLASS PR, a reviewable head by Friday 2026-12-18: the live path's raw home probability is the OFF arm's, with a parity test that the two agree on the same fixture rows, its tolerance written in the PR body. The PR body quotes the recorded run (OFF 0.690177, ON 0.688769, 1,553 games); no walk is run for it and none on 2026. It merges and is tagged before the first 2027 MLB price.\" 472 item 1, verbatim: \"It merges and is tagged before the first 2027 MLB price.\"",
+      "vs_close": "not a model lane: none",
+      "moved": []
+    },
+    {
       "lane": "pl-availability",
       "title": "PL: injury entries counted for their own fixture only",
       "issue": 754,

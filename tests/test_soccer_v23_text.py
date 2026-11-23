@@ -297,15 +297,21 @@ def test_the_lane_is_appended_as_216_item_3_dates_it():
     assert names.index("soccer-v23") == names.index("availability-record") + 1
 
 
-def test_no_registry_entry_exists_before_the_declaration():
+def test_the_one_registry_entry_is_the_declaration_of_449_and_unrun():
+    """No registry entry existed before the declaration (this test's earlier form). ARCHITECT 2026-11-23, addendum 449
+    declared it: exactly one soccer-v23 entry, declared at 449's stamp, unrun, with no reservation."""
     entries = json.loads((ROOT / "docs" / "registry" / "experiments.json").read_text())
-    assert v.EID not in {e["id"] for e in entries}
+    mine = [e for e in entries if e["id"] == v.EID]
+    assert len(mine) == 1 and mine[0]["declared_at"] == "2026-11-23T13:05:00Z" and mine[0]["ratified"] == (
+        "ARCHITECT 2026-11-23, addendum 449")
+    assert mine[0]["status"] == "declared" and mine[0]["run"] is None and mine[0]["verdict"] is None
     assert not (ROOT / "docs" / "registry" / f"{v.EID}.started.json").exists()
 
 
 def test_the_command_is_documented():
     rows = [ln for ln in (ROOT / "docs" / "CLI.md").read_text().splitlines() if ln.startswith("| `soccer-v23-gate` ")]
-    assert len(rows) == 1 and "NEVER RUN BEFORE THE DECLARATION" in rows[0]
+    assert len(rows) == 1 and "DECLARED BY ADDENDUM 449 (2026-11-23T13:05:00Z), NOT RUN" in rows[0]   # 449: declared
+    assert "NEVER RUN BEFORE THE DECLARATION" not in rows[0]
 
 
 def _names(p: str) -> set[str]:

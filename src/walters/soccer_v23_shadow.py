@@ -19,7 +19,7 @@ As built:
     (d) the store's production soccer_elo_poisson is exactly one row, "v22", with poisson params
         (soccer_v23.production_params) whose soccer_v23.params_sha256 equals the run record's (440 item 4(b)), and
         the pass pricing v22 is v22's.
-  Anything else is DORMANT with its reason (law 4): no entry (today), declared and unrun, REJECT, INVALID, FAIL, a PASS
+  Anything else is DORMANT with its reason (law 4): no entry, declared and unrun (today, 449), REJECT, INVALID, FAIL, a PASS
   with any other status, an unreadable registry, constants or slots that do not read, a gate that is not BAR_TEXT, a
   run record without v22_params_sha256 or with one the store's v22 params do not hash to (440 item 4), another
   production version, or off the host. Dormant writes NOTHING: no stored arm, no key on any page, no file (436 item 7(a): the pages, the stored

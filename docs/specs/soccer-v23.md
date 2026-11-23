@@ -1,4 +1,4 @@
-# soccer-v23 — the joint log-linear successor to v22 (THE DESIGN; not declared, not run)
+# soccer-v23 — the joint log-linear successor to v22 (THE DESIGN; declared by addendum 449, not run)
 
 Lane `soccer-v23` (docs/roadmap.json), Issue #656, designed with the one-prediction-function lane #789. Code:
 src/models/joint_poisson.py (the fit), src/walters/soccer_v23.py (the snapshot, the one prediction function, both
@@ -6,9 +6,10 @@ arms, the walk, the availability term, the gate), `soccer-v23-gate` (cli.py; doc
 tests/test_soccer_v23_fit.py, tests/test_soccer_v23_harness.py, tests/test_soccer_v23_text.py, on synthetic stores
 only.
 
-**State: a design.** No registry entry exists (an undeclared candidate holds none; the registry has no undeclared
-status). The declaration, its slots and the entry are the architect's (11-20). The one run is the operator's block on
-the architect's word (11-27). Nothing in this design has been run on real data, and no result exists. Addendum 251
+**State: DECLARED, not run** (ARCHITECT 2026-11-23 08:05 ET, addendum 449: declared_at 2026-11-23T13:05:00Z; the entry
+`soccer-v23` in docs/registry/experiments.json holds the slots, the frozen constants, BAR_TEXT as the gate and the
+confirmation's criterion). Before it no registry entry existed (an undeclared candidate holds none). The one run is
+the operator's block on the architect's word (11-27, if the declaration PR merges by 11-25: 449 item 7). Nothing in this design has been run on real data, and no result exists. Addendum 251
 item 2 (D8) is built in: g and b are defined AS-OF, identically in the harness and the production path (§5a); v22 is
 re-walked on this harness beside v23; the bar is at least 0.0050 below the re-walked figure on the pot AND, as
 addendum 443 item 1(c) rules it like for like (D11), below EACH of v22's recorded figures over that figure's own
@@ -475,7 +476,7 @@ directly on the same cases, and `run()`'s `min_delta` is
 `training.DEFAULT_PROMOTION_DELTA` = 0.005. A test runs 0, 0.0049999 and 0.0050 through `candidate_gate_verdict` with
 the imported constant. There is no other decision path.
 
-## 7. The declaration slots (the architect's, 11-20; the run refuses while any is null)
+## 7. The declaration slots (the architect's, filled by addendum 449; the run refuses while any is null)
 
 The declared registry entry carries them as `declaration_slots`; the code holds only the allowed values.
 
@@ -804,7 +805,7 @@ rewritten; the finding Issue #827 cited." No run before the declaration.
 
 ## 12. What is NOT done
 
-No v22 recorded figure is filled (the `v22_recorded` list, the architect's at the declaration, 443 item 3); no change to soccer_backtest.py (the sibling
+The `v22_recorded` list is filled by the declaration (addendum 449 item 2: PL 2024/25 and 2025/26, n 340 each), nothing else of the run; no change to soccer_backtest.py (the sibling
 parity PR's optional `context` parameter is not depended on). The harness calls the soccer gate's walk
 (`run_soccer_backtest`) in one place only, as addendum 443 item 1(c) requires: `recorded_rows`, at its default
 context, for each recorded figure's match ids.
@@ -815,6 +816,6 @@ source and its attrs key come with the soccer feed's adapter PR, none today), re
 kind is no input, never read); no soccer feed writes the
 record, so the term is off in both paths everywhere today. No soccer source is declared in `SOCCER_SOURCES`.
 
-No run of v23 on any real data; no result; no declaration; no registry entry; no ModelVersion; no change to v22, its
+No run of v23 on any real data; no result; no ModelVersion (the declaration and its registry entry are addendum 449's); no change to v22, its
 constants, its path (poisson.py, training.py, soccer_backtest.py, elo.py, factors.py untouched), any existing bar or
 threshold, or any roadmap date. The market is read nowhere.

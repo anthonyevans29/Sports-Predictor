@@ -1292,11 +1292,15 @@ def test_no_number_outside_the_designs_own_literals():
 
 # --------------------------------------------------------------------------------------------- the gate --
 
-def test_the_real_registry_holds_no_soccer_v23_entry_and_the_run_refuses():
+def test_the_real_registry_holds_the_declared_unrun_entry_and_the_run_refuses_without_a_copy():
+    """ARCHITECT 2026-11-23, addendum 449: soccer-v23 is DECLARED (status declared, run and verdict null). On the real
+    registry the run still refuses before any load without --db, and nothing is reserved."""
     from src.walters import registry as reg
-    assert reg.get(v.EID, reg.LEDGER) is None
-    with pytest.raises(v.GateRefused, match="must be declared"):
-        v.run("word", "fp", db="/nonexistent")
+    e = reg.get(v.EID, reg.LEDGER)
+    assert e["status"] == "declared" and e["run"] is None and e["verdict"] is None
+    assert v.declared_unrun() == e
+    with pytest.raises(v.GateRefused, match="pass --db"):
+        v.run("word", "fp", db=None)
     assert not Path(v.reservation_path()).exists()
 
 
@@ -1404,6 +1408,7 @@ def declared(tmp_path, monkeypatch):
     from src.walters import registry as reg
     p = tmp_path / "experiments.json"
     entries = json.loads((ROOT / "docs" / "registry" / "experiments.json").read_text())
+    entries = [x for x in entries if x["id"] != v.EID]   # the real declaration (449) gives way to the synthetic one
     slots = {**v.RECOMMENDED, "v22_recorded": RECORDED}
     entries.append({"id": v.EID, "status": "declared", "run": None, "verdict": None,
                     "test_set": "synthetic (tests only)", "gate": v.BAR_TEXT, "frozen_constants": v.code_constants(),

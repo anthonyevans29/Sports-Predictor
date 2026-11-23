@@ -207,6 +207,10 @@ def test_449_6b_record_confirmation_keeps_todays_rule_for_a_numeric_bar_and_refu
     assert e["confirmation"]["outcome"] == "NOT_CONFIRMED"                     # below the reference, above the bar
     bare = {"n_games": 60, "metric": "log_loss", "bar": None, "must_beat_reference": False, "reference": None}
     p = _confirming(tmp_path, bare)
-    with pytest.raises(reg.RegistryError, match="no bar to read"):
+    before = open(p).read()
+    # ARCHITECT 2026-11-22, addendum 448 item 2: record_confirmation runs check_plan on the STORED plan, so a bare null
+    # is refused there first, in check_plan's words (449 item 6(b)'s rule, unchanged), before anything is written
+    with pytest.raises(reg.RegistryError, match="bar may be null only with must_beat_reference true"):
         reg.record_confirmation("x-v1", list(range(1, 61)), {"first_game_at": "2026-12-02T00:00:00Z",
                                                               "log_loss": 0.98}, "r", p, str(tmp_path / "ids2"))
+    assert open(p).read() == before

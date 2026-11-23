@@ -14,6 +14,7 @@
   - tests/test_447_leagues_policy.py (new): the fence, the opening, the string comparison, check_plan on the stored plan, the notes, the refusal, the print, and C3(b): an entry at production changes no export and no Desk call.
   - tests/test_leagues_declaration_220.py: the plan pin, amended to the ruled plan (448 item 2).
   - tests/test_leagues_window.py: the six old fixtures carry the status the rule reads (448 item 1(c)).
+  - tests/test_449_v23_declaration.py: a bare-null stored plan is now refused by `check_plan`, in its own words, before anything is written (448 item 2). It was refused before too, but later, in `record_confirmation`'s "no bar to read".
 - **docs/CLI.md:** the soccer-expansion-confirm row's fence sentence follows 448 items 1(a)-(b).
 
   No bar, threshold or verdict moves. Nothing is run on real data. No prediction output changes.

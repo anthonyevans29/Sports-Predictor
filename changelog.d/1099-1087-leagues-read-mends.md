@@ -1,4 +1,4 @@
-## 2026-11-23 (#0000: 1087-leagues-read-mends — #1075's two follow-ups, mended before the first read (ARCHITECT 2026-11-23, addendum 459 item 1(c); #1087))
+## 2026-11-23 (#1099: 1087-leagues-read-mends — #1075's two follow-ups, mended before the first read (ARCHITECT 2026-11-23, addendum 459 item 1(c); #1087))
 - **src/walters/leagues_window.py, `pages_digest`:** each page is read by `lstat`. A page that is a symbolic link is refused, never followed (459 item 1(a)): "is a symbolic link, not a page; nothing read". Anything else that is not a regular file is refused as before.
   - The folder's own stat is read in a try. Missing, or not a directory, is "not a folder". Any other stat error (a permission refused, a name too long, a link loop) is "the folder cannot be read", where Python 3.13's `is_dir` let them through as a traceback. This applies on the host's `--pages-digest` and on the read's second digest alike.
   - Each page is opened without following a link (`O_NOFOLLOW`, `O_NONBLOCK`), and the open file is checked to be a regular file. A page swapped for a link or a fifo between the lstat and the open is refused, never followed and never waited on.

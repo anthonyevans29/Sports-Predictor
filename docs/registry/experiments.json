@@ -1374,7 +1374,26 @@
         "by_code": {
           "PD": 60
         }
-      }
+      },
+      "substitutions": [
+        {
+          "released": 16204,
+          "replacement": 16267,
+          "reason": "ABD",
+          "evidence": {
+            "status": "cancelled",
+            "status_raw": "ABD",
+            "unscoreable": true,
+            "kickoff": "2026-10-10T12:00:00Z",
+            "code": "PD",
+            "replacement_kickoff": "2026-11-27T20:00:00Z",
+            "replacement_code": "PD",
+            "copy_file": "sports_2026-11-23_093001.db",
+            "copy_sha256": "c42b9760d2b053fe75aff4034f5a56c213bcd19171577e5b08109a2876852973"
+          },
+          "at": "2026-11-23T17:24:56Z"
+        }
+      ]
     }
   },
   {
@@ -2610,5 +2629,82 @@
     "prior_reads_note": "known at the declaration: the soccer-expansion-v1 run record on the test seasons 2024/25 + 2025/26 (its verdict reports the closing market ahead of the candidate in every league), the leagues close and parity receipts on 2026/27 games kicking off before the cut (addendum 155 item 4(a), 158 item 2(a)), and addendum 303's parity receipt and close-coverage lines (the #322 comment 6742654029; addendum 303's opening and item 2: BL1 1.0683 is the close's own log-loss on the games it priced, the bar's denominator, nothing about the verdict read from it); the window holds no game kicking off at or before 2026-11-09T14:45:00Z, and the 18 games fenced between the pre-declaration cut 2026-10-30T15:00:00Z and the declaration are never in it (addendum 303 item 1)",
     "parity_receipt": "the #322 comment 6742654029 (the LAPTOP on the host's pulled backup sports_2026-11-09_134946.db, mode=ro + immutable=1, main 5f9cf13d); addendum 303's opening, verbatim: \"ARCHITECT 2026-11-09 09:45 ET \u2014 addendum 303: BL1 IS DECLARED. The parity receipt with rows (the #322 comment 6742654029; the LAPTOP on the host's pulled backup sports_2026-11-09_134946.db, mode=ro + immutable=1, main 5f9cf13d, prediction stamp 2026-11-09 14:33:39Z): BL1 2026/27 \u2014 finished regular-round 63, gate scored 21, compared 21, UNEQUAL 0 (max |diff| 0, equal within 1e-12), priced by the shadow only 0, by the gate only 0, fenced 18; the retired arithmetic unequal 0 of 21. The prospective path IS the gate's walk for the Bundesliga, row for row, as 158 item 2(a) requires, and the declaration follows the same day as 220 item 4 said.\"",
     "ruled_exclusions": []
+  },
+  {
+    "id": "soccer-v23",
+    "sport": "soccer",
+    "lane": "#656 (soccer-v23, v22's successor: ARCHITECT 2026-11-02 10:50 ET, addendum 216 item 3; roadmap lane soccer-v23; declared ARCHITECT 2026-11-23, addendum 449)",
+    "candidate": "soccer_joint_poisson on v22 (addendum 216 item 3; addendum 263 item 1): the joint log-linear model log lambda_H = mu + h + alpha_H + delta_A + beta*dE, log lambda_A = mu + alpha_A + delta_H - beta*dE, fitted per competition window as docs/specs/soccer-v23.md states it, the Dixon-Coles correction kept at v22's stored rho, the per-team early-season continuity built in. The code is src/models/joint_poisson.py and src/walters/soccer_v23.py as on main at this entry's merge base; the constants are frozen_constants; no ModelVersion is minted.",
+    "declaration": "ARCHITECT 2026-11-23, addendum 449 (the slots, the constants, the test set, the confirmation); the bar by addenda 216 item 3, 230 item 1(d), 248 item 2(b), 251 item 2 and 443 item 1(c); the design's questions by addenda 254 item 3 and 263; docs/specs/soccer-v23.md",
+    "training_cutoff": "nothing is fitted on the pot ahead of the walk: at each fixture soccer-v23's parameters are estimated from the finished games visible before it under the day rule (a game visible at its kickoff plus RESULT_LAG_HOURS), as BAR_TEXT states; the constants are frozen_constants and none is selected by this candidate; v22's rho and Elo goal coefficient are read from the copy's production row and bound in the run record (v22_params_sha256)",
+    "test_set": "THE FROZEN POT (addendum 216 item 3; addendum 263 items 2, 3, 7 and 14): every regular-round match of the store's LEAGUE-type competitions that soccer-v23's harness scores under the declaration slots, kicking off at or before the cut 2026-10-30T15:00:00Z, each competition's first pot season scored under the weak prior, the within-season skip zero, a competition-season with no home or no away goal excluded by cause; read on the run's .backup copy and bound by the stream fingerprint. Its count is the run record's (CLAUDE.md's label, 16,546 matches / 24 competitions, is a label and never a pass condition). Within it, v22's two recorded sets: PL 2024/25 and PL 2025/26, 340 matches each, as soccer-backtest's own walk names them on the copy.",
+    "gate": "THE BAR (ARCHITECT, addendum 216 item 3; addendum 230 item 1(d); addendum 248 item 2(b); addendum 251 item 2; addendum 443 item 1(c)), written before any result: soccer-v23's mean three-way log-loss must be at least 0.0050 BELOW v22's on EVERY comparison: v22's figure re-walked on soccer-v23's harness, on the frozen pot; and, FOR EACH of v22's recorded figures, that figure, over the same matches. ADDENDUM 443 ITEM 1(c) (ARCHITECT 2026-11-21 18:57 ET), verbatim: \"THE RULING: THE LEG IS MADE LIKE FOR LIKE AND TAKES EVERY RECORDED FIGURE. In place of \"at least 0.0050 below v22's recorded figure\" the bar reads: FOR EACH of v22's recorded figures, soccer-v23's mean three-way log-loss OVER THE SAME MATCHES is at least 0.0050 below it. - The same matches: the rows soccer-backtest scores for that competition and season on the run's copy, by its own rule (the row-by-row walk at min_prior = 40, exactly as run_soccer_backtest applies it). They must number exactly the recorded n and lie whole inside soccer-v23's scored set. - The recorded figure stands as recorded, to its four places, and is never recomputed. soccer-v23's figure on those rows is its own walk's, by soccer_calibration, unrounded. - Two recorded figures, so two comparisons. With the re-walked comparison on the whole pot, which does not change, THREE. PASS iff ALL THREE hold. A difference under 0.0050 on any one REJECTS; exactly 0.0050 passes that one. - A recorded set that is not whole on the copy is found by the preflight and REFUSES THE RUN BEFORE ITS RESERVATION: nothing spent, nothing scored.\" PASS iff (v22's re-walked mean three-way log-loss on the pot \u2212 soccer-v23's mean three-way log-loss on the pot) \u2265 0.0050 AND, for EACH recorded figure, (that recorded figure \u2212 soccer-v23's mean three-way log-loss over that figure's matches) \u2265 0.0050, every computed figure unrounded. The recorded figures are read from the declaration slot v22_recorded, a list the architect fills, each with its competition, season, n, log-loss and source; the run refuses an empty list. Each recorded figure STANDS as recorded and is never recomputed; its matches are the rows soccer_backtest.run_soccer_backtest itself scores for that competition and season on the run's copy at min_prior = 40 (its own output, never a rule copied by hand), with the copy's v22 rho and Elo goal coefficient. v22's re-walked figure is v22 walked by the same harness beside soccer-v23, on the identical scored set, under the same context definition (as-of: g and b, and soccer-v23's mu and h, estimated at each fixture's instant from the finished games visible before it under the day visibility rule (addendum 254 item 3 Q4: a game kicking off on a UTC date before the fixture's), a game visible only once its result is known, at its kickoff plus RESULT_LAG_HOURS = 4 hours, the bound a result is known, frozen by the declaration; the stored trained context never read; for the v22 arm, the default context (g 1.4, b 1.15) only where the competition has no visible game, which is production's own fallback (training.py:217), and for soccer-v23, G0 and B0 as frozen constants, never pot figures: the first season's prior centre, G0 also setting that season's prior precision (K_PRIOR\u00b7G0) and, in every window, beta's weak prior precision (BETA_PRIOR_PRECISION = K_PRIOR\u00b7G0); neither fallback is a pot figure; in the harness and the production path alike; \"v22 re-walked\" is v22 on THIS harness, not live v22 reproduced: both arms read the harness's admitted rows, an AET or PEN league row at its 90-minute score where live v22 reads the full score, so on a store holding such a row it differs from live v22, by about 3.7e-4 in a probability on the design's synthetic one-row probe (a synthetic receipt, not a pot figure; the run record counts the AET and PEN rows; addendum 254 item 3 Q22)) and the same within-season skip (zero). Each recorded figure is read from the slot as recorded, by whatever scorer its own gate used, and is never recomputed; soccer-v23's figures (on the pot, and over each recorded figure's matches) and v22's re-walked one are computed by soccer_backtest.soccer_calibration. Each comparison is decided by soccer_backtest.candidate_gate_verdict with min_delta = training.DEFAULT_PROMOTION_DELTA (0.005). Written as \"below\", so a tie on ANY comparison is a rejection: a difference of zero, or any difference under 0.0050, on any one REJECTS; a difference of exactly 0.0050 passes that comparison. INVALID, never a pass, when the two arms' scored sets differ, are empty, or number under MIN_GATE_N = 30 (soccer_backtest.compare_candidate). The early-season matches are INCLUDED in the scored set: this candidate's declared within-season skip is zero (no 40-match skip). THE \u00a711 RULINGS (ARCHITECT, addendum 263), frozen with this text: the frozen pot is the LEAGUE-type competitions' regular rounds only (item 2: scope LEAGUE_REGULAR; cups take cup_strengths in production and have their own exam, and are not in this pot's log-loss); each competition's first pot season is scored under soccer-v23's weak prior, as built, and the v22 arm reads its own fallback for the same rows, like for like (item 3); the constants are as built and frozen by the declaration (item 5): K_PRIOR = 5, the promoted prior ln 0.85 / ln 1.15, which sits on v22's scale (v22's PoissonConfig promoted priors, set on v22's deflated ratings, read here as log offsets on S\u22121's zero mean), the S\u22121 carry 1.0, and beta's weak prior centred at 0 with precision K_PRIOR\u00b7G0 on \u0394E/100 in every window; v22's \u03c1 and c were selected on this pot, and S19, dc-fit, s14 and soccer-expansion-v1 read it: a tilt toward the incumbent, the conservative direction, accepted, and a PASS is read against it (item 9); a competition-season with no home or no away goal is excluded by cause, out of the scored set and out of soccer-v23's window (the v22 arm's history and the ladder keep it), counted and labelled in the run record, the preflight naming every such season before the reservation, so the exclusion set is frozen with the declaration and an exclusion that first appears after the reservation is a failure (item 14); an arrival off the declared pyramid (PYRAMIDS: PL > ELC > EL1 > EL2) takes the outside-the-store prior, counted and labelled: the run never stops on a club's provenance (item 15). The availability record's backfill cadence is record.SOURCE_CADENCE_HOURS filtered to soccer sources (addendum 262 item 2): no soccer source declared; every fact carrying a source_stamp is excluded, counted. RPS and Brier are printed for the record and gate nothing; the market is a reference, never a feature, and gates nothing. One run, on the architect's word, on a .backup copy opened mode=ro&immutable=1. No date moves this bar.",
+    "confirmation_window": "ARCHITECT 2026-11-23, addendum 449 item 5: A PASS opens the 60-game prospective shadow of addendum 216 item 3 on the host's PL pages, beside live v22. THE WINDOW: PL 2026/27 games kicking off strictly after window_opens_at, the first PL kickoff strictly after the first host page that carries the v23_ keys, recorded from that page's receipt. THE COHORT: in kickoff order, then match id, the first 60 FINISHED games with a 90-minute result whose stored Prediction row on the host, last written before kickoff, carries both arms: v22's production probabilities and soccer-v23's shadow probabilities. A game whose row lacks the shadow arm, or carries its error, or was written at or after kickoff, takes no slot and is EXCLUDED BY CAUSE, named and counted; more than three such games before the 60th REFUSES the read, and the window is then the architect's to rule. A postponed game enters by its real kickoff. THE READ, ONE, by the architect, the day after the 60th game is final: each arm's mean three-way log-loss on the 60, by soccer_calibration, unrounded, both arms from the one stored row. CONFIRMED iff soccer-v23's is BELOW live v22's on the same 60 games; equal or above is NOT CONFIRMED. No fixed ceiling is added. The close's log-loss, Brier and RPS are printed beside both and gate nothing. Availability is OFF in the shadow (263 item 6). No other read of either arm on the window before the read. CONFIRMED does not switch the engine: soccer-v23 goes live by the architect's ruling and a version-bump PR, earliest the day after the read. NOT CONFIRMED: v22 stays, the entry closes, and the lane names its next candidate the same day. No date moves this.",
+    "confirmation_plan": {
+      "n_games": 60,
+      "metric": "log_loss",
+      "bar": null,
+      "must_beat_reference": true,
+      "reference": "live v22: the production probabilities on the same stored row, on the same 60 games"
+    },
+    "declared_at": "2026-11-23T13:05:00Z",
+    "status": "declared",
+    "run": null,
+    "verdict": null,
+    "declaration_slots": {
+      "scope": "LEAGUE_REGULAR",
+      "first_season": "score_under_prior",
+      "visibility": "day",
+      "cut": "2026-10-30T15:00:00Z",
+      "availability_on": false,
+      "v22_recorded": [
+        {
+          "competition": "PL",
+          "season": "2024/25",
+          "n": 340,
+          "log_loss": 0.9956,
+          "source": "soccer-backtest with v22 in production (production's rho -0.1 and Elo goal coefficient 0.0008 since #142, min_prior 40, soccer_calibration): the operator's console of 2026-10-08 on the laptop at c3a3744, recorded that day in BACKLOG under READ (ARCHITECT, addendum 10, item 2): 340 predictions per season, log-loss 0.9956 (2024/25) and 1.0465 (2025/26). Named the record's figures by ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 1(a)."
+        },
+        {
+          "competition": "PL",
+          "season": "2025/26",
+          "n": 340,
+          "log_loss": 1.0465,
+          "source": "soccer-backtest with v22 in production (production's rho -0.1 and Elo goal coefficient 0.0008 since #142, min_prior 40, soccer_calibration): the operator's console of 2026-10-08 on the laptop at c3a3744, recorded that day in BACKLOG under READ (ARCHITECT, addendum 10, item 2): 340 predictions per season, log-loss 0.9956 (2024/25) and 1.0465 (2025/26). Named the record's figures by ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 1(a)."
+        }
+      ]
+    },
+    "frozen_constants": {
+      "K_PRIOR": 5.0,
+      "G0": 1.4,
+      "B0": 1.15,
+      "PROMOTED_ATTACK_MULT": 0.85,
+      "PROMOTED_DEFENCE_MULT": 1.15,
+      "CARRY": 1.0,
+      "ELO_SCALE": 100.0,
+      "MAX_ITER": 100,
+      "MAX_HALVINGS": 60,
+      "TOL": 1e-12,
+      "PRECISION_FLOOR": 1e-12,
+      "V22_MIN_MATCHES": 30,
+      "V22_BACKFILL_LIMIT": 500,
+      "WITHIN_SEASON_SKIP": 0,
+      "RESULT_LAG_HOURS": 4,
+      "BETA_PRIOR_MEAN": 0.0,
+      "BETA_PRIOR_PRECISION": 7.0,
+      "RELEGATED_ATTACK": 0.0,
+      "RELEGATED_DEFENCE": 0.0,
+      "PYRAMIDS": [
+        [
+          "PL",
+          "ELC",
+          "EL1",
+          "EL2"
+        ]
+      ],
+      "SOURCE_CADENCE_HOURS": {}
+    },
+    "prior_reads_note": "The pot has been read before, and BAR_TEXT says so (263 item 9): v22's rho and Elo goal coefficient were selected on it, and S19, dc-fit, s14 and soccer-expansion-v1 read it. That tilts toward the incumbent, the conservative direction, accepted, and a PASS is read against it.",
+    "ratified": "ARCHITECT 2026-11-23, addendum 449"
   }
 ]

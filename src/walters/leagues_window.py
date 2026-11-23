@@ -130,6 +130,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -179,6 +180,8 @@ RULED_ITEM_KEYS = ("match_id", "kickoff", "cause", "ruling")
 RULED = "ruled_exclusion"              # the excluded counter's key and the window's list of the items applied
 RULED_TEXT = "excluded by ruled cause (each named with its cause and ruling below)"
 NO_ROW = "no_prospective_row"         # addendum 222 item 4(a)'s cause: its key; its text as 223 item 2(c) amends it
+TOOK_NO_SLOT = "took_no_slot"     # 447 B2(e): (match id, kickoff, cause) of each reached game that took no slot
+LAST_MEMBER = "last_member"       # 447 C1: (match id, kickoff) of the 60th member, its place in the window's order
 NO_ROW_TEXT = "no prospective row under the entry: the entry was not on the host's tag"
 LEAGUE_FIELD = "competition"                  # the entry's league field (181 item 6: equal to the code looked up)
 # Addendum 181 item 1(b): the pre-declaration fence's cut, the addendum's posted instant (11:00 ET), naive UTC as the
@@ -432,6 +435,55 @@ def stored_rows(code: str, declared_at: str | None, export_dir: str = "exports")
     return out
 
 
+@contextmanager
+def _session(s=None):
+    """`s` itself when given (the --db copy's session: addendum 447 item 2 B2); else one readonly_scope session on the
+    app's database, as read() and score() always opened."""
+    if s is not None:
+        yield s
+        return
+    from src.db.database import readonly_scope
+    with readonly_scope() as s2:
+        yield s2
+
+
+def pages_digest(export_dir) -> dict:
+    """THE PAGES DIGEST (ARCHITECT 2026-11-22 09:18 ET, addendum 447 item 2 B2(c)): "One line per page, the file's
+    sha256 in hex, two spaces, the file name, a newline (what sha256sum prints); the lines sorted by file name
+    bytewise; the digest is the sha256 of those lines." The pages are export_pages' own: every
+    soccer_expansion_shadow_*.json directly in `export_dir` (the same glob). Returns {"digest", "pages", "first",
+    "last"}. REFUSES (WindowRefused, law 4): a folder that is missing or not a folder; no page; a page that is not a
+    regular file or cannot be read; a name holding a backslash, a newline or a carriage return (sha256sum escapes
+    those, so its line would not be the name's bytes). Reads nothing else, writes nothing."""
+    import hashlib
+    import os
+    d = Path(export_dir)
+    if not d.is_dir():
+        raise WindowRefused(f"--exports {export_dir}: not a folder (missing or not a directory); nothing read")
+    names = sorted((p.name for p in d.glob(f"{EXPORT_PREFIX}*.json")), key=os.fsencode)
+    if not names:
+        raise WindowRefused(f"--exports {export_dir}: no {EXPORT_PREFIX}*.json page in it; nothing read")
+    bad = [n for n in names if any(ch in n for ch in "\\\n\r")]
+    if bad:
+        raise WindowRefused(f"--exports {export_dir}: a page name sha256sum would escape (a backslash, newline or "
+                            f"carriage return): {bad!r}; nothing read")
+    lines = []
+    for n in names:
+        f = d / n
+        if not f.is_file():
+            raise WindowRefused(f"--exports {export_dir}: {n} is not a regular file; nothing read")
+        h = hashlib.sha256()
+        try:
+            with open(f, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+        except OSError as err:
+            raise WindowRefused(f"--exports {export_dir}: {n} cannot be read ({err}); nothing read") from err
+        lines.append(h.hexdigest().encode("ascii") + b"  " + os.fsencode(n) + b"\n")
+    return {"digest": hashlib.sha256(b"".join(lines)).hexdigest(), "pages": len(names), "first": names[0],
+            "last": names[-1]}
+
+
 def export_pages(export_dir: str = "exports") -> list[tuple[Path, dict]]:
     """Every shadow export file in `export_dir` (EXPORT_PREFIX*.json, sorted by name), parsed: [(path, doc)].
     REFUSES (WindowRefused) naming every file that cannot be read, does not parse as a JSON object, or holds no
@@ -632,13 +684,16 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
            "stored_games": len(games), "at_or_before": 0, "postponed_before": 0, "members": [],
            "excluded": Counter(), "pending": Counter(), "to_come": 0, "not_placed": 0, "blocking": 0,
            "awarded_released": [], "no_raw_code_members": [], "score_disagreement": [], "disagreement_before": 0,
-           NO_ROW: [], "first_carrying_page": first_page, RULED: [], "ruled_not_applied": []}
+           NO_ROW: [], "first_carrying_page": first_page, RULED: [], "ruled_not_applied": [], TOOK_NO_SLOT: []}
     ruled = dict(ruled or {})
     apply_ruled(code, ruled, games, declared_at)
     applied: set[int] = set()
     reached: set[int] = set()            # the games the window's loop looked at (counting stops at the 60th)
     premise: list[str] = []              # listed games whose premise (no row after a carrying page) does not hold
     on_tag = []                      # RULING_223_2B: no row although a page carrying the entry precedes the kickoff
+
+    def took(m, cause):              # 447 B2(e): each game the loop reached that took no slot, by id, with its cause
+        out[TOOK_NO_SLOT].append((m.id, m.utc_date, cause))
     for m in games:
         if m.utc_date is not None and m.utc_date > declared_at:
             continue
@@ -663,47 +718,59 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
         st = _status(m)
         if st == "stale_orphan":
             out["excluded"]["stale_orphan"] += 1
+            took(m, "stale_orphan")
             continue
         if st == "cancelled":
             out["excluded"]["cancelled"] += 1
+            took(m, "cancelled")
             continue
         if st == "postponed":
             out["not_placed"] += 1   # no new kickoff stored: never a member, never blocking
+            took(m, "not_placed")
             continue
         if placement(m.stage) == "playoff":
             out["excluded"]["not_regular"] += 1
+            took(m, "not_regular")
             continue
         if st == "live":
             out["pending"]["live"] += 1
             out["blocking"] += 1
+            took(m, "live")
             continue
         if st != "finished":         # scheduled
             if m.utc_date <= now:
                 out["pending"]["uningested"] += 1
+                took(m, "uningested")
             else:
                 out["to_come"] += 1
+                took(m, "to_come")
             out["blocking"] += 1
             continue
         if _raw(m) in AWARDED:
             out["excluded"]["awarded"] += 1
+            took(m, "awarded")
             continue
         if disagrees(m):             # 184 item 2: a data finding before any slot or cause, never one figure or other
             out["pending"]["score_disagreement"] += 1
             out["blocking"] += 1
             out["score_disagreement"].append(m)
+            took(m, "score_disagreement")
             continue
         if result_of(m) is None:     # 181 item 3: no score stored, or a non-FT code with no 90' score: R4's PENDING
             out["pending"]["no_result_90"] += 1
             out["blocking"] += 1
+            took(m, "no_result_90")
             continue
         cl, why = paper._guarded_three_way(m, snaps.get(m.id, []), m.utc_date, mism, tickers, homes,
                                            current.get(m.id))
         if cl is None:
             out["excluded"][why] += 1
+            took(m, why)
             continue
         pred, why = lc.predict_as_of(rows, m, constants["rho"], constants["elo_goal_coeff"])
         if pred is None:
             out["excluded"][why] += 1
+            took(m, why)
             continue
         if m.id not in stored:       # addendum 222 item 4(a): no stored prospective row -> excluded by cause, no slot
             if first_page is not None and m.utc_date.isoformat() > first_page:
@@ -711,6 +778,7 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
                     out["excluded"][RULED] += 1
                     out[RULED].append(ruled[m.id])
                     applied.add(m.id)
+                    took(m, RULED)
                     continue
                 on_tag.append((m.id, m.utc_date))   # its premise does not hold: the read refuses (223 item 2(b))
                 continue
@@ -720,6 +788,7 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
                                "the list does not relabel")
             out["excluded"][NO_ROW] += 1
             out[NO_ROW].append((m.id, m.utc_date))
+            took(m, NO_ROW)
             continue
         if m.id in ruled:            # #803: a listed game holding its stored row is a member; the list never removes one
             premise.append(f"match {m.id} holds its stored prospective row: there is no refusal for the list to clear")
@@ -772,17 +841,20 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
         out["score_disagreement"] = [c2_line(m, names) for m in out["score_disagreement"]]   # both figures (184 item 2)
     out["n"] = n
     out["state"] = ("accruing" if n < WINDOW_GAMES else "waiting" if out["blocking"] else "ready")
+    # 447 C1: the 60th member's PLACE in this order (kickoff, then match id), the confirmation's opening
+    out[LAST_MEMBER] = ((out["members"][-1], last_ko) if n >= WINDOW_GAMES else None)
     return out
 
 
-def read(codes=READ_CODES, now: datetime | None = None, export_dir: str = "exports") -> dict:
+def read(codes=READ_CODES, now: datetime | None = None, export_dir: str = "exports", s=None) -> dict:
     """{code: window | {"declared": False} | {"refused": why}} for each league (READ_CODES: PD and the four). Read-only:
     one mode=ro session per league (src.db.database.readonly_scope: no connect hook, no commit, a missing file
     refused, never created). The stored rows are read from `export_dir` BEFORE membership, which excludes a game
     without one by cause (addendum 222 item 4(a)), or refuses the league when the game kicks off after a page whose
     binding carried the entry (addendum 223 item 2(b)); an export file that cannot be read refuses the league (law 4,
-    export_pages), never excludes its games. Never scores (R2)."""
-    from src.db.database import ReadOnlyRefused, readonly_scope
+    export_pages), never excludes its games. Never scores (R2). `s`: a session to read through instead (the one read's
+    --db copy, opened mode=ro + immutable=1: addendum 447 item 2 B2); None reads the app's database as before."""
+    from src.db.database import ReadOnlyRefused
     from src.timeutil import utc_now_naive
     now = now or utc_now_naive()
     out: dict = {}
@@ -796,8 +868,8 @@ def read(codes=READ_CODES, now: datetime | None = None, export_dir: str = "expor
             stored = stored_rows(code, e.get("declared_at"), export_dir)     # refuses on an unreadable export file
             page = carrying_page(code, e.get("id"), e.get("declared_at"), export_dir)
             ruled = ruled_items(code, e)                                   # #803: refuses a malformed item
-            with readonly_scope() as s:
-                w = membership(s, code, at, constants, now, stored, page["first"], page["path"], ruled)
+            with _session(s) as s_:
+                w = membership(s_, code, at, constants, now, stored, page["first"], page["path"], ruled)
         except (WindowRefused, ReadOnlyRefused) as err:
             out[code] = {"code": code, "declared": True, "id": e["id"], "refused": str(err)}
             continue
@@ -933,7 +1005,7 @@ def ruled_lines(code: str, items, not_applied=()) -> list[str]:
     return L
 
 
-def score(window: dict, export_dir: str | None = None, now: datetime | None = None) -> dict:
+def score(window: dict, export_dir: str | None = None, now: datetime | None = None, s=None) -> dict:
     """THE SCORING PATH (R1), for item 5's PR: refused unless the window is "ready" (60 members, nothing pending
     before the 60th). Every member is recomputed at read time: predict_as_of on the finished rows strictly before
     its kickoff at the frozen constants; the close by paper's own rule (_guarded_three_way at the kickoff); the
@@ -944,8 +1016,7 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
     the cohort is re-derived on those rows, so its games with none (addendum 222 item 4(a)) are excluded by cause again
     and named on the audit receipt (`audit`'s `no_prospective_row`), and a no-row game kicking off after a page whose
     binding carried the entry refuses the score as it refuses the read (addendum 223 item 2(b)). Read-only: one
-    mode=ro session (readonly_scope)."""
-    from src.db.database import readonly_scope
+    mode=ro session (readonly_scope), or `s` (the one read's --db copy, addendum 447 item 2 B2)."""
     from src.db.schema import Match
     from src.walters import kalshi_legs
     from src.walters import leagues_candidate as lc
@@ -964,7 +1035,7 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
     ruled = ruled_items(code, declaration(code))       # #803: the entry's list now, validated as the read validates it
     key = {"H": 0, "D": 1, "A": 2}
     pairs, recomputed, problems = [], {}, []
-    with readonly_scope() as s:
+    with _session(s) as s:
         # Codex on #733: the cohort is re-derived in THIS transaction; a fixture, result or close ingested since the
         # read could put another game before the 60th, so the ids and the state must match the read's or nothing
         # is scored (never games 2-61 for 1-60).
@@ -1002,7 +1073,10 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
     if fresh[RULED] or fresh["ruled_not_applied"]:   # #803: named on the receipt; an empty list prints as before
         a[RULED] = list(fresh[RULED])
         a["ruled_not_applied"] = list(fresh["ruled_not_applied"])
-    out.update({"code": code, "match_ids": ids, "constants": dict(c), "audit": a})
+    out.update({"code": code, "match_ids": ids, "constants": dict(c), "audit": a,
+                # 447 B2(e) and C1, from the score's own derivation: every reached game that took no slot, and the
+                # 60th member's place
+                TOOK_NO_SLOT: list(fresh[TOOK_NO_SLOT]), LAST_MEMBER: fresh[LAST_MEMBER]})
     return out
 
 

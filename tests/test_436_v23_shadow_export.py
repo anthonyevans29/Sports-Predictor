@@ -30,6 +30,7 @@ from tests.test_record_vs_close import iso_db  # noqa: F401  (a fixture: a throw
 VERDICT_AT = "2026-11-01T12:00:00Z"
 V22_POISSON = {"dixon_coles_rho": -0.1}              # the world's v22 row (tests.test_pl_availability._world)
 V22_SHA = sv.params_sha256(V22_POISSON)              # 440 item 4(b): what the run record carries
+TABLE_SHA = sv.ruled_placements_sha256()             # 456 item 5(c): the ruled placement table the run walked under
 NOW = KICK - timedelta(hours=20)                       # the run's clock: the fixture inside the horizon
 SLOTS = {"cut": "2026-10-30T15:00:00Z", "availability_on": True,
          "v22_recorded": [{"competition": "PL", "season": "2024/25", "n": 16, "log_loss": 1.0,
@@ -42,7 +43,8 @@ def entry(**kw) -> dict:
     otherwise. availability_on is TRUE here on purpose: the shadow keeps the term off whatever the slot reads."""
     e = {"id": sv.EID, "status": "confirming", "verdict": {"verdict": "PASS", "ruling": "test", "at": VERDICT_AT},
          "frozen_constants": sv.code_constants(), sv.SLOTS_KEY: dict(SLOTS), "gate": sv.BAR_TEXT,
-         "run": {"result": {"verdict": "PASS", "thin_excluded": [], "v22_params_sha256": V22_SHA}}}
+         "run": {"result": {"verdict": "PASS", "thin_excluded": [], "v22_params_sha256": V22_SHA,
+                            "ruled_placements_sha256": TABLE_SHA}}}
     e.update(kw)
     return e
 
@@ -117,7 +119,7 @@ def _baseline(monkeypatch):
 # ============================================================================== (a) DORMANT IS BYTE-IDENTICAL --
 
 DORMANT = {
-    "no entry (today)": (None, "no soccer-v23 entry in the registry"),
+    "no entry": (None, "no soccer-v23 entry in the registry"),
     "declared and unrun": (entry(status="declared", verdict=None, run=None), "verdict reads null, not PASS"),
     "REJECT": (entry(status="closed", verdict={"verdict": "REJECT", "ruling": "t", "at": VERDICT_AT}),
                "verdict reads REJECT, not PASS"),
@@ -134,8 +136,17 @@ DORMANT = {
     "a run record without v22's params sha": (
         entry(run={"result": {"verdict": "PASS", "thin_excluded": []}}), "carries no v22_params_sha256"),
     "v22's params are not the ones the run read": (
-        entry(run={"result": {"verdict": "PASS", "thin_excluded": [], "v22_params_sha256": "0" * 64}}),
+        entry(run={"result": {"verdict": "PASS", "thin_excluded": [], "v22_params_sha256": "0" * 64,
+                              "ruled_placements_sha256": TABLE_SHA}}),
         "are not the params the run read"),
+    # addendum 456 item 5(c) (Codex on #1082, P1): the run's ruled placement table, bound
+    "a run record without the ruled table's sha": (
+        entry(run={"result": {"verdict": "PASS", "thin_excluded": [], "v22_params_sha256": V22_SHA}}),
+        "carries no ruled_placements_sha256"),
+    "a ruled table that is not the run's": (
+        entry(run={"result": {"verdict": "PASS", "thin_excluded": [], "v22_params_sha256": V22_SHA,
+                              "ruled_placements_sha256": "0" * 64}}),
+        "is not the one the run walked"),
 }
 
 
@@ -387,7 +398,8 @@ def test_the_run_records_thin_set_reaches_the_arms_params():
     """The arm prices on the run record's own exclusion set (a list of [code, season] as soccer_v23.record writes it)."""
     on = sh.state(entry(), None, ("v22", V22_POISSON))
     thin = sh.state(entry(run={"result": {"verdict": "PASS", "thin_excluded": [["ELC", "2019/20"]],
-                                          "v22_params_sha256": V22_SHA}}), None, ("v22", V22_POISSON))
+                                          "v22_params_sha256": V22_SHA, "ruled_placements_sha256": TABLE_SHA}}),
+                    None, ("v22", V22_POISSON))
     assert on.on and thin.on and on.params_sha != thin.params_sha
     assert json.loads(thin.params_json)["thin_excluded"] == [["ELC", "2019/20"]]
     assert json.loads(on.params_json)["thin_excluded"] == [] and json.loads(thin.params_json)["availability_on"] is False

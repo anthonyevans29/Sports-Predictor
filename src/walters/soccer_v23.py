@@ -2129,6 +2129,7 @@ def run_lines(r: dict) -> list[str]:
     if c["verdict"] == "INVALID":                         # the per-era line on every verdict (253 item 2(d))
         L += availability_lines(r["walk"]["availability"])
         L += record_labels(r)                             # 254 item 3 Q4 / Q22: on every verdict too
+        L += ruled_census_lines(r["ruled_placements"])    # addendum 456 item 5(d): on every verdict too
         L.append(f"  VERDICT (computed; the architect rules): INVALID — {c['reason']}")
         return L
     L.append(f"  n={c['n']} · soccer-v23 log-loss {c['v23_log_loss']:.6f} · min delta {c['min_delta']} · context "
@@ -2145,7 +2146,7 @@ def run_lines(r: dict) -> list[str]:
     L += strata_lines(r["walk"])
     L += availability_lines(r["walk"]["availability"])
     L += record_labels(r)
-    L += ruled_census_lines(r.get("ruled_placements") or [])     # addendum 456 item 5(d)
+    L += ruled_census_lines(r["ruled_placements"])     # addendum 456 item 5(d): never defaulted (law 4)
     L.append(f"  VERDICT (computed; the architect rules): {c['verdict']}")
     return L
 
@@ -2166,7 +2167,7 @@ def record(r: dict, word: str) -> dict:
                 # One recorded field: no bar, no fingerprint and no scored row reads it.
                 "v22_params_sha256": params_sha256(r["v22_poisson"]),
                 # addendum 456 item 5(d): every label placed "by ruling 456", with its count, and the table's sha256
-                "placed_by_ruling_456": list(r.get("ruled_placements") or []),
+                "placed_by_ruling_456": list(r["ruled_placements"]),
                 "ruled_placements_sha256": ruled_placements_sha256()})
     return reg.record_run(EID, list(r["scored_ids"]), res, reg.LEDGER, reg.IDS_DIR)
 
@@ -2355,8 +2356,9 @@ def placement_with_source(code: str | None, label: str | None) -> tuple[str | No
 
 
 def placement_of(r) -> str | None:
-    """THE ONE FUNCTION soccer_v23 places a row's stage label with (addendum 456 item 5(a): in_scope,
-    _first_season_census, stage_census and scored_rows; the replay and the live path alike)."""
+    """A row's placement through THE ONE FUNCTION, placement_with_source (addendum 456 item 5(a)): in_scope,
+    _first_season_census and scored_rows call this row wrapper; stage_census calls placement_with_source itself, for
+    its by_ruling flag. The replay and the live path alike."""
     return placement_with_source(r.code, r.stage)[0]
 
 

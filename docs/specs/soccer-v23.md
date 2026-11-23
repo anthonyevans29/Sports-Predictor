@@ -792,8 +792,8 @@ rewritten; the finding Issue #827 cited." No run before the declaration.
     > Nothing in this addendum moves a bar or a held timer. The run's date stands on item 7's conditions.
     Built (456 item 5): `RULED_PLACEMENTS` in soccer_v23.py, exactly items 4(a)-(d), keyed by (competition code,
     label form); `placement_with_source` asks `soccer_expansion.placement` first and reads the table only where it
-    returns nothing; `placement_of` at the four call sites (`in_scope`, `_first_season_census`, `stage_census`,
-    `scored_rows`); the preflight and the run record mark every label the table places "by ruling 456" with its
+    returns nothing; it is the one function at the four call sites (`stage_census` calls it directly; `in_scope`,
+    `_first_season_census` and `scored_rows` through its row wrapper `placement_of`); the preflight and the run record mark every label the table places "by ruling 456" with its
     count, and the record carries the table's sha256 (`ruled_placements_sha256`); soccer_expansion.py is not edited;
     no constant, slot or word of BAR_TEXT changes.
 17. **The v22 arm's tie order.** Production's backfill tie order is SQL-undefined; the arm reads SQLite's id-ascending

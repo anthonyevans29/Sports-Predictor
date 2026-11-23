@@ -2081,11 +2081,16 @@ def test_the_labels_on_an_invalid_verdict_and_off_the_day_rule():
     record_labels refuses one loudly should anything else hand it one, never a silent label."""
     r = {"compare": {"verdict": "INVALID", "reason": "empty"}, "walk": {"availability": []}, "rows": 0,
          "stream_fingerprint": "0" * 64, "slots": {**SLOTS, "visibility": "day"}, "aet_pen": {"scored": 0, "history": 2},
-         "thin_excluded": [], "thin_rows": 0, "off_pyramid": []}
+         "thin_excluded": [], "thin_rows": 0, "off_pyramid": [],
+         "ruled_placements": [["SCO", "2024/25", "1st Phase - 1", "regular", 6]]}
     lines = v.run_lines(r)
-    assert lines[-6:-1] == v.record_labels(r) and lines[-1].startswith("  VERDICT (computed; the architect rules): "
+    # ARCHITECT 2026-11-23, addendum 456 item 5(d): the "by ruling 456" lines on every verdict, INVALID included
+    assert lines[-8:-3] == v.record_labels(r) and lines[-1].startswith("  VERDICT (computed; the architect rules): "
                                                                        "INVALID")
-    assert "0 scored, 2 in the walked history" in lines[-5]
+    assert lines[-3:-1] == v.ruled_census_lines(r["ruled_placements"]) and "6 row(s)" in lines[-3]
+    assert "0 scored, 2 in the walked history" in lines[-7]
+    with pytest.raises(KeyError):                         # never defaulted to "none in this store" (law 4)
+        v.run_lines({k: x for k, x in r.items() if k != "ruled_placements"})
     with pytest.raises(ValueError, match="'kickoff' is not the day rule addendum 254 item 3 Q4 ruled"):
         v.record_labels({**r, "slots": {**SLOTS, "visibility": "kickoff"}})
 

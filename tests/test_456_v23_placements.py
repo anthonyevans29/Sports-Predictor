@@ -140,3 +140,49 @@ def test_456_5c_the_table_is_not_a_model_constant_and_the_entry_is_untouched():
         "d4778a276359f11cb89fe7b0694458ba7e01da6fa2a7971a320f5e90eb2371c4")
     rows = sorted([c, f, pl, why] for (c, f), (pl, why) in v.RULED_PLACEMENTS.items())
     assert v.ruled_placements_sha256() == hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
+
+
+from tests.test_soccer_v23_harness import _fp, declared  # noqa: E402,F401  (a fixture: the declared synthetic store)
+
+
+def _ruled_copy(declared) -> str:
+    """A copy of the declared store on which the first PL 2025/26 row (a prior of soccer-backtest's walk, never one of
+    its recorded rows) carries the label 'Championship Group - 1'. A throwaway file; never data/."""
+    import shutil
+    import sqlite3
+    dst = declared["tmp"] / "ruled" / "copy.db"
+    dst.parent.mkdir()
+    shutil.copyfile(declared["copy"], dst)
+    con = sqlite3.connect(str(dst))
+    try:
+        (mid,) = con.execute("SELECT m.id FROM matches m JOIN competitions c ON c.id = m.competition_id WHERE c.code = "
+                             "'PL' AND m.season = '2025/26' ORDER BY m.utc_date, m.id LIMIT 1").fetchone()
+        con.execute("UPDATE matches SET stage = 'Championship Group - 1' WHERE id = ?", (mid,))
+        con.commit()
+    finally:
+        con.close()
+    return str(dst)
+
+
+def test_456_5d_the_marks_through_the_real_preflight_run_and_record(declared, monkeypatch):
+    """Item 5(d) end to end, on the harness's synthetic store: the table (widened for this test only with a PL row, to
+    exercise the wiring; the ruled table itself is pinned above) places the label; the preflight prints it "by ruling
+    456" with its count and still gives a fingerprint; the run returns the census; the record carries it with the
+    table's sha256, as JSON."""
+    from src.walters import registry as reg
+    monkeypatch.setattr(v, "RULED_PLACEMENTS", {**v.RULED_PLACEMENTS,
+                                                ("PL", "Championship Group"): ("playoff", "tests only")})
+    copy = _ruled_copy(declared)
+    L = v.preflight_lines(reg.get(v.EID, reg.LEDGER), copy)
+    assert ("  stage labels placed by ruling 456 (ARCHITECT 2026-11-23, addendum 456 items 4(a)-(d); the code places "
+            "the rest itself): 1 row(s)") in L
+    assert "    stages PL 2025/26, by ruling 456: 'Championship Group - 1' play-off 1" in L
+    fp = _fp(L)
+    r = v.run("ARCHITECT test word", fp, db=copy)
+    want = [["PL", "2025/26", "Championship Group - 1", "playoff", 1]]
+    assert r["ruled_placements"] == want
+    assert "    stages PL 2025/26, by ruling 456: 'Championship Group - 1' play-off 1" in v.run_lines(r)
+    e = v.record(r, "ARCHITECT test word")
+    res = e["run"]["result"]
+    assert res["placed_by_ruling_456"] == want and res["ruled_placements_sha256"] == v.ruled_placements_sha256()
+    json.dumps(res, allow_nan=False)

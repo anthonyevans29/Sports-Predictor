@@ -9,6 +9,7 @@
   - One function, `placement_with_source`, serves the four call sites: `stage_census` calls it directly, and `in_scope`, `_first_season_census` and `scored_rows` call it through its row wrapper `placement_of`. The replay and the live path go through it alike.
   - The preflight and the run record mark every label the table places "by ruling 456" with its count (item 5(d)): `stage_census`'s `ruled`, `ruled_placement_census`, one console line, and the record's `placed_by_ruling_456`.
   - The record also carries the table's sha256 (`ruled_placements_sha256`).
+  - The PASS shadow is bound to it (Codex on #1082, P1): `soccer_v23_shadow.state` stays dormant unless the run record's table hash equals this checkout's. Its live snapshots place labels with the checkout's table, so a different table would price another history than the gated one.
 - **Unchanged (item 5(c)):** soccer_expansion.py, `code_constants()`, the entry and BAR_TEXT (sha256 `d4778a27…`).
 - **Line citation:** the fingerprint check's `soccer_v23.py:NNNN` citation is re-pointed to :1999 in the run docstring, the spec and docs/CLI.md.
 - **Tests:** tests/test_456_v23_placements.py (33):

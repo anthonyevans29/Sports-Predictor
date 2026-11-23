@@ -1,4 +1,4 @@
-## 2026-11-23 (#0000: 447-leagues-policy — the leagues' confirmation policy, 447's PR 2 (ARCHITECT 2026-11-22, addendum 447 item 3 C1-C3 and item 4; addendum 448 items 1-2; GATE-CLASS; lane leagues, #322))
+## 2026-11-23 (#1086: 447-leagues-policy — the leagues' confirmation policy, 447's PR 2 (ARCHITECT 2026-11-22, addendum 447 item 3 C1-C3 and item 4; addendum 448 items 1-2; GATE-CLASS; lane leagues, #322))
 - **src/walters/leagues_window.py:**
   - **The fence while confirming (447 C2; 448 item 1(a), one site):** while an entry is `confirming`, `fence_cutoff` returns the opening's kickoff less one microsecond. Every consumer's "after the cut" therefore fences every game at or after the opening's kickoff. The opening is the 60th member's kickoff and id, `run.result.confirmation_opens_after`, read by `opening()`.
     - A confirming entry with no readable opening keeps the window's own fence (law 4). Its refusal and its print say so; they never say the verdict is unrecorded or that the fence holds from the opening.

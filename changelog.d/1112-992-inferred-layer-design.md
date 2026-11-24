@@ -24,6 +24,12 @@
     - the ledger's lock is held per write, so overlapping domain runs do not refuse each other;
     - the gate judges each status word and lead-time bucket on its own, with its own sample, margin and calibration criterion, as 375 item 2(d) rules.
   - **The three P2s go to the PR's follow-up Issue** under the review stop rule (docs).
+  - **Codex's third review (4 P1, 3 P2), the round cap.** The four P1s are fixed:
+    - the resolver collapses matches by `goalie_id`;
+    - the landing baseline is the last observation at or before each claim;
+    - one claim per read slot, so retries are counted as repeats and never scored;
+    - the score's report is defined (path, schema, atomic write, destroyed with its domain) as the gate's one input.
+  - **The three P2s go to #1114.** No further review is requested (the stop rule's cap).
   - **§12 lists twelve points for the ruling of 12-03.**
 
   Nothing is built and nothing is run. No bar, date or held timer moves.

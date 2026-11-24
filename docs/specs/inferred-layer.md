@@ -208,6 +208,7 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
   - **The cost:** a game read from three domains is three calls and three claims (§10 counts calls per domain). Each domain's claims are their own lineage (§7.5) and are scored and gated on their own (§7.4), so the report also says which domain is worth its calls.
 - **One timer per domain.** The reader is a templated unit, `sp-inferred@<domain>.service` with its `.timer`, one instance per domain. Disabling one domain is disabling its instance, so 368 item 3(d)'s "the timer stops the same day" applies to that domain alone (§4).
 - **The score's key.** The score counts one claim per (`call_id`, side, element), since one call answers for both sides (§5).
+- **One claim per read slot.** A read slot is (domain, game, side, element, lead-time bucket). A rerun of a bucket after a restart or a partial failure gets a new `call_id`, so the score would otherwise count the same slot twice. The score keeps the slot's FIRST settled claim, by its call's start time, then `call_id`. It counts every later one as a repeat, by cause, and never scores it. So the gate's sample (§7.4), one claim per game, side and read, cannot be inflated by retries.
 
 ### 3.3 The Provider plug
 
@@ -320,7 +321,13 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
 
 ## 7. Scored and gated (375 item 2(d)): `cli.py inferred-score --element nhl_starting_goalie --sports-copy <a sports .backup copy> --private-backup-dir <the private backups' folder>`
 
-Every copy opens mode=ro + immutable=1 (198 item 6(ii)). The score reads every inferred domain's backup of the same day, as the graph does (§9), because each domain's claims are in its own file (§3.2). It counts each (`call_id`, side, element) once, and reports by domain as well as in total.
+Every copy opens mode=ro + immutable=1 (198 item 6(ii)). The score reads every inferred domain's backup of the same day, as the graph does (§9), because each domain's claims are in its own file (§3.2). It counts each (`call_id`, side, element) once, keeps one claim per read slot (§3.2), and reports by domain as well as in total.
+
+**The score's report, the gate's one input.** `inferred-score` writes, per lineage, one JSON report on the host only, at `<SP_PRIVATE_DIR>/<domain>/reports/<element>/<lineage>/<YYYY-MM-DD>.json`.
+- **Its schema:** the lineage key; the copies it read (paths and sha256); the rule versions (the resolver's, the truth's); and per stratum (status word × lead-time bucket), the counts, the matches, the calibration bands and each baseline's share, every unscored cause counted.
+- **The write:** a temporary file in the same folder, fsynced and renamed over the name, so a reader never sees half a report. A report is never rewritten; a later run writes a later date.
+- **Its lifecycle:** it lives in its domain's folder, so the domain's destroy (§4) removes it with everything else.
+- **What reads it:** `inferred-gate` reads the latest report of the lineage and prints the verdict from it alone, so a verdict is reproducible from one file. The summary that leaves the host (§8) is made from it.
 
 ### 7.1 The truth
 
@@ -344,16 +351,16 @@ So each claim's name is resolved to an id by one fixed rule before it is scored:
 - **The season:** `nhl_goalies.season_label(game_start)`, applied to the claimed game's start and to each appearance row's `game_start` alike. It is never read from `matches.season`, which is int-style and would match nothing.
 - **The pool:** the goalies stored in `nhl_goalie_appearances` with that `team_abbrev` in that season, in games that started before the claim was made. Rows with a NULL `team_abbrev` are left out. The resolver reads them from the sports copy.
 - **The normalisation:** Unicode NFKD, accents stripped, case-folded, every character that is not a letter turned into one space, and spaces collapsed. It is applied to the answer's name and to each stored `goalie_name` alike.
-- **The match:** exact equality after normalisation, against the pool.
-  - Exactly one goalie matches: the claim carries that id.
-  - None matches, or more than one: the claim is unscored and counted by cause ("not in the pool" or "ambiguous"). There is no fuzzy match, no initials rule and no guess (law 4).
+- **The match:** exact equality after normalisation, against the pool. The pool holds one row per game a goalie played, so matches are collapsed by `goalie_id` first.
+  - The name maps to exactly one distinct `goalie_id`: the claim carries that id.
+  - It maps to none, or to two or more distinct ids: the claim is unscored and counted by cause ("not in the pool" or "ambiguous"). There is no fuzzy match, no initials rule and no guess (law 4).
 - **A known cost:** a goalie with no stored game for this team this season is never in the pool: a debut, a recall, a trade or waiver arrival whose games were all for another club, or a backup not yet used. Early in a season that is common. A claim naming him is counted "not in the pool", and the report prints that count by cause beside the score.
 - The resolver's id, its rule's version and the cause are stored with the score's rows, never written back to the claim.
 
 ### 7.2 The two free baselines, as they stand
 
 - **"The same as the side's last game":** available at every lead time.
-- **The API layer's own listing, the landing page's projected starter, where the watch stored one.**
+- **The API layer's own listing, the landing page's projected starter, where the watch stored one, AS OF THE CLAIM.** Each claim's baseline value is the last landing observation whose own fetch time is at or before the claim's fetch time. A later observation (T-60 to T-0 after a T-90 claim) is never read for it, so no baseline value carries what was known only after the claim. With no observation by then, there is no API baseline for that claim.
   - The watch polls only from T-120: its pregame labels are T-120, T-90, T-60, T-45, T-35, T-30, T-15 and T-0 (nhl_landing.py). So a read made earlier than T-120 has no stored API baseline, and only "the same as last game" applies to it.
   - Addendum 428 item 5(b) read this listing as "not a pregame starter signal": it "does not move before the game and named the starter on fewer than half the sides". It stays a baseline because 375 item 2(d) names "the API layer's own listing where one exists". It is a weak one, and the report says so beside it.
 

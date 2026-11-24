@@ -2649,15 +2649,20 @@ def test_504_a_closing_refusal_is_marked_only_when_a_channel_took_it(box, monkey
 
 def test_504_a_refused_closing_does_not_hold_its_own_refusals_resend(box, monkeypatch):
     """The second review's P1: a refusal is no attempt, so the refused closing stays open with its T-35 past and was
-    the closing_ahead that held its own refusal's resend to T-5 (lost). A closing the tick refused, or found feed-down,
-    starts no chain on the next tick either, so it no longer holds a resend (no_chain)."""
+    the closing_ahead that held its own refusal's resend to T-5 (lost). A closing refusal_checks refused (the
+    machine's settings) starts no chain on the next tick either, so it no longer holds a resend (no_chain); a
+    refusal that clears by itself does not enter no_chain."""
     no_channel(box, monkeypatch)
     monkeypatch.setenv("NTFY_CARD_TOPIC", "")
     assert mc.watch(now=NOW, families=("NFL",)) == 2
     first = runs()[-1]
+    base = {k: first[k] for k in ("kind", "family", "run_id", "trigger", "queued_at")}
+    other = {}
+    mc._refuse("an export path that exists", "NFL", first["start"], base, "watch", dry_run=False, tick=other)
+    assert not other.get("no_chain")                                     # #442's kind: clears by itself
     tick = {}
-    assert mc._refuse(first["refused"], "NFL", first["start"], {k: first[k] for k in ("kind", "family", "run_id",
-                      "trigger", "queued_at")}, "watch", dry_run=False, tick=tick) == 2
+    assert mc._refuse(first["refused"], "NFL", first["start"], base, "watch", dry_run=False, tick=tick,
+                      config=True) == 2
     (item,) = tick["resends"]
     assert (item["kind"], item["start"]) == ("closing_refusal", first["start"]) and tick["no_chain"]
     sent = []
@@ -2695,3 +2700,4 @@ def test_504_a_refusal_by_hand_is_not_the_watchs_earlier_notice(box, monkeypatch
     assert mc._refuse(r["refused"], "NFL", r["start"], {"kind": "closing", "family": "NFL", "run_id": "x",
                       "trigger": "watch", "queued_at": r["queued_at"]}, "watch", dry_run=False, tick=tick) == 2
     assert not tick.get("resends") and runs()[-1]["failure_notification"]   # sent at once, as a first notice
+

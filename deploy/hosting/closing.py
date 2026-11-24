@@ -1948,7 +1948,7 @@ def _untaken_before(kind: str, match) -> bool:
 
 
 def _refuse(why: str, fam: str, start: str | None, base: dict, trigger: str, dry_run: bool,
-            tick: dict | None = None, bounded: bool = False) -> int:
+            tick: dict | None = None, bounded: bool = False, config: bool = False) -> int:
     """A receipted refusal (exit 2). Reading 7 (ARCHITECT, addendum 22 item 4): "A refusal is receipted and notified
     once for a first pitch and a reason. The same refusal on a later tick for that first pitch writes nothing and
     posts nothing." Addendum 504 item 4(b): the mark is set when a channel took the notice, so a refusal whose notice
@@ -1961,8 +1961,8 @@ def _refuse(why: str, fam: str, start: str | None, base: dict, trigger: str, dry
     def match(r):                     # a watch's own refusal line (one by hand sent no notice)
         return (r.get("family") == fam and r.get("start") == start and r.get("refused") == why
                 and r.get("trigger") == "watch")
-    if tick is not None and start:    # a refused closing starts no chain on the next tick either (send_resend)
-        try:
+    if tick is not None and start and config:   # refusal_checks' own refusal (the machine's settings): this closing
+        try:                                    # starts no chain on the next tick either (send_resend's bound)
             tick.setdefault("no_chain", set()).add((fam, parse_utc(start)))
         except (TypeError, ValueError):
             pass
@@ -2414,7 +2414,7 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
     for check in refusal_checks(fam, folder, start):
         why = check()
         if why:
-            return _refuse(why, fam, start, base, trigger, dry_run, tick=tick)
+            return _refuse(why, fam, start, base, trigger, dry_run, tick=tick, config=True)
     try:
         p = plan(fam, now, start)
     except (FileNotFoundError, sqlite3.Error) as e:
@@ -2569,7 +2569,6 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
             ok, detail = feed_answers()
             feed_probe.update(ok=ok, detail=detail)
             if not ok:                # B6: one miss per first pitch; later ticks keep trying, silently
-                tick_q.setdefault("no_chain", set()).add((fam, s))      # feed down: no chain on the next tick either
                 miss = record_miss(fam, start, "feed unreachable", detail=detail, text=FEED_MISS_TEXT, tick=tick_q)
                 if isinstance(miss, dict):
                     print(f"✗ {FEED_MISS_TEXT} ({detail}) — nothing run; miss recorded for {fam} {start}; the "
@@ -3155,8 +3154,11 @@ def send_resend(item: dict, tick_at: datetime, now: datetime, fams: tuple[str, .
     the tick (watch(), after its closings, its slate stage and the slate pages), by the slate pages' own rule (#613
     P1-1, P1-2; 138 item 3(c): "no page costs a closing its T-35"): cut at NOTIFY_MAX_S, and only where that bound ends
     before the first tick that could start the next closing (closing_ahead). `no_chain`: the (family, start) pairs
-    this tick refused or found feed-down; they start no chain on the next tick either, so they do not hold a resend
-    (else a refused closing would hold its own refusal's resend to T-5, and it would never go out). Sent: its line
+    this tick refused by refusal_checks (the machine's settings: the backup folder, the mirror, the role, the card
+    topic), which start no chain on the next tick either, so they do not hold a resend (else a refused closing would
+    hold its own refusal's resend to T-5, and it would never go out). A refusal that clears by itself (#442's export
+    path, an unreadable schedule) and a feed-down MLB closing stay in the bound, as 138 item 3(c) rules for the pages
+    ("feed-down MLB closings included"): the next tick may run them. Sent: its line
     written (`resent`), exit NOTIFIED where a channel took it, 1 where none did, NOTIFIED where the send was cut at
     its bound (504 item 4(b); not taken, so a later tick sends it again); a refusal's is 2 whatever its notice. Not
     sent: it waits for a later tick, nothing written, and this tick exits 1 (a refusal's 2)."""

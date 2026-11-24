@@ -1,4 +1,4 @@
-## 2026-11-24 (#0000: 503-injuries-both-empty — both injury lists empty get no Desk call (addendum 502 item 2 Q3; addendum 503 item 1 Q3-Q4, item 2 PR 1; POLICY, money-path))
+## 2026-11-24 (#1115: 503-injuries-both-empty — both injury lists empty get no Desk call (addendum 502 item 2 Q3; addendum 503 item 1 Q3-Q4, item 2 PR 1; POLICY, money-path))
 - **The Desk (`src/walters/desk_policy.py`).** A soccer row whose two injury counts are both the integer 0 is now PASS, with units 0, no order, no exec block and no value shadow.
   - Its pass kind is its own, `injuries_both_empty` (503 Q3), and its reason names both teams.
   - It covers exactly the rows the one-sided rule covers (503 Q4): soccer rows with both counts integers, the slate and the closing alike, whatever emptied the list.

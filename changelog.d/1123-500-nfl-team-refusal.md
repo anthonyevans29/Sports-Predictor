@@ -1,4 +1,4 @@
-## 2026-11-24 (#000: 500-nfl-team-refusal — the NFL-team refusal of Q9 with its count line (ARCHITECT 2026-11-24, addendum 500 Q9 and item 3(a); the finding 493 item 2(d); #1108))
+## 2026-11-24 (#1123: 500-nfl-team-refusal — the NFL-team refusal of Q9 with its count line (ARCHITECT 2026-11-24, addendum 500 Q9 and item 3(a); the finding 493 item 2(d); #1108))
 - **src/ingestion/service.py:** `_upsert_match` refuses a college ("NCAA") listing either of whose teams holds a membership of the NFL competition.
   - The check sits before the lookup by id, so it covers the update by id, both re-keys and the create. Nothing is written for the listing: no row, no key, no cache entry, no re-key claim.
   - `_nfl_members` reads the NFL competition's member team ids (any season) once per run, in sync_matches' prefetch cache; empty, with no query, for any other competition.

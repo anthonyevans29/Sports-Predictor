@@ -220,7 +220,11 @@ NOTIFIED = 3                 # addendum 45 P3: the watch's exit for what it alre
 # queued for the end of the tick (tick["resends"]), after the tick's closings and its slate stage, and sent there by
 # send_resend under the slate pages' bound (_bounded_notify, NOTIFY_MAX_S) and only where that bound ends before the
 # first tick that could start the next closing; otherwise it waits, and the tick exits 1 (not notified). A send cut at
-# its bound (no channel known to have taken it) is not taken either (law 4): its line carries the key, exit 1. The
+# its bound (no channel known to have taken it): ARCHITECT 2026-11-24, addendum 504 item 4(b), "The slate page cut at
+# its bound staying exit 3 and being sent again stands": its tick exits NOTIFIED, no key, and, not taken, a later tick
+# sends it again (a cut resend the same). 504 item 4(b): "THE REFUSALS' ONCE-PER-REASON MARK FOLLOWS THE SAME RULE: it
+# is set when a channel took the notice, not when one was sent" (a refusal that pages nothing by design, the slate's
+# family refusal, stays marked when receipted); a refusal's resend is queued as a miss's is, and stays exit 2. The
 # notices after a closing's page (the closing file, the push, the bulletin) are 502 item 3's and unchanged.
 QUEUED = "queued"            # record_miss / record_slate_miss: a resend queued for the end of the tick
 NOTICE_NOT_TAKEN = "notice_not_taken"
@@ -1919,8 +1923,10 @@ def notice_taken(n) -> bool:
 
 def mark_notice(rec: dict, n) -> dict:
     """Set NOTICE_NOT_TAKEN on a receipt line whose notice (sent, `n`) no channel took (502 item 2 Q5: "its receipt
-    says so"; 503 item 1 Q7: "the same receipt key"). Returns the line."""
-    if not notice_taken(n):
+    says so"; 503 item 1 Q7: "the same receipt key"). A send cut at its bound (`cut_at_bound_s`) is not marked: its
+    tick stays NOTIFIED (addendum 504 item 4(b)), and, not taken (notice_taken), a later tick sends it again. Returns
+    the line."""
+    if not notice_taken(n) and not (isinstance(n, dict) and "cut_at_bound_s" in n):
         rec[NOTICE_NOT_TAKEN] = True
     return rec
 
@@ -1941,20 +1947,32 @@ def _untaken_before(kind: str, match) -> bool:
     return bool(mine) and not any(notice_taken(r.get("notified")) for r in mine)
 
 
-def _refuse(why: str, fam: str, start: str | None, base: dict, trigger: str, dry_run: bool) -> int:
+def _refuse(why: str, fam: str, start: str | None, base: dict, trigger: str, dry_run: bool,
+            tick: dict | None = None, bounded: bool = False) -> int:
     """A receipted refusal (exit 2). Reading 7 (ARCHITECT, addendum 22 item 4): "A refusal is receipted and notified
     once for a first pitch and a reason. The same refusal on a later tick for that first pitch writes nothing and
-    posts nothing." """
+    posts nothing." Addendum 504 item 4(b): the mark is set when a channel took the notice, so a refusal whose notice
+    no channel took is notified again on a later tick: queued for the end of the tick when `tick` is given
+    (send_resend), still exit 2 (503 item 1 Q7), its line carrying the key."""
     print(("DRY RUN closing-run: would REFUSE: " if dry_run else f"✗ closing-run {fam} REFUSED: ") + why)
     if dry_run:
         return 2
-    if trigger == "watch" and any(r.get("family") == fam and r.get("start") == start and r.get("refused") == why
+
+    def match(r):
+        return r.get("family") == fam and r.get("start") == start and r.get("refused") == why
+    if trigger == "watch" and any(match(r) and notice_taken(r.get("failure_notification"))
                                   for r in receipts(("closing",))):
-        return 2                      # reading 7: already receipted and notified for this start time and reason
+        return 2                      # reading 7: already receipted and notified (taken) for this start and reason
+    if trigger == "watch" and tick is not None and any(match(r) for r in receipts(("closing",))):
+        tick.setdefault("resends", []).append({"kind": "closing_refusal", "fam": fam, "start": start, "why": why,
+                                               "base": base})
+        return 2                      # a resend: at the tick's end, never ahead of a closing (send_resend)
     rec = {**base, "start": start, "exit": 2, "refused": why, "steps": [], "export": None, "desk_rows": [],
-           "push": None}
+           "push": None, **({"resent": True} if bounded else {})}
     if trigger == "watch":
-        rec["failure_notification"] = notify_failure(failure_text(fam, start, refused=why), fam)
+        text = failure_text(fam, start, refused=why)
+        rec["failure_notification"] = (_bounded_notify(text, fam, title=f"{fam} closing") if bounded
+                                       else notify_failure(text, fam))
         mark_notice(rec, rec["failure_notification"])      # 503 item 1 Q7: still exit 2, the key set
     c.append_receipt(rec)
     return 2
@@ -2299,7 +2317,8 @@ def _failed_exit(trigger: str, rec: dict | None = None) -> int:
     return notice_exit(rec) if trigger == "watch" else 1
 
 
-def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, trigger: str, run_id: str) -> int:
+def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, trigger: str, run_id: str,
+                tick: dict | None = None) -> int:
     """380.4 (ARCHITECT): "A run decides under the lock. Once it holds the chain lock it reads the clock and its
     receipts again. A watch-started run whose start time by then has a successful closing, or three attempts, ends
     there: no step, no push, no page. It is receipted as superseded, which is neither an attempt nor a refusal, and
@@ -2322,7 +2341,7 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
             return notice_exit(miss)
     why = _export_path_refusal(fam, s, held, run_id)
     if why:                           # #442 (addendum 44 item 8): before any step, as R4 and R5 are
-        return _refuse(why, fam, start, base, trigger, dry_run=False)
+        return _refuse(why, fam, start, base, trigger, dry_run=False, tick=tick)
     games = with_called_off(fam, schedule(fam, held), held)     # Codex 4233123800
     covers = cover(games, s, held)
     rec = {**base, "start": start, "start_et": et(s), "covers": _covers_rec(covers or p["covers"]),
@@ -2375,7 +2394,7 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
 
 
 def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, trigger: str = "operator",
-        now: datetime | None = None) -> int:
+        now: datetime | None = None, tick: dict | None = None) -> int:
     fam = family.upper()
     if fam not in FAMILIES:
         print(f"✗ no closing run for {family!r}: the families are {', '.join(FAMILIES)} (C1)")
@@ -2389,7 +2408,7 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
     for check in refusal_checks(fam, folder, start):
         why = check()
         if why:
-            return _refuse(why, fam, start, base, trigger, dry_run)
+            return _refuse(why, fam, start, base, trigger, dry_run, tick=tick)
     try:
         p = plan(fam, now, start)
     except (FileNotFoundError, sqlite3.Error) as e:
@@ -2424,7 +2443,7 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
                 f"{mirror_role()} --label closing")
         return 0
     if p.get("refused"):
-        return _refuse(p["refused"], fam, start, base, trigger, dry_run=False)
+        return _refuse(p["refused"], fam, start, base, trigger, dry_run=False, tick=tick)
     timeout = None
     if trigger == "watch":            # C2: waits while the lock is held, until T-5 at the latest (380.4)
         timeout = max(0.0, (parse_utc(p["start"]) - timedelta(minutes=NO_ATTEMPT_INSIDE_MIN) - now).total_seconds())
@@ -2433,7 +2452,7 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
         with acquire_lock(timeout):
             entered = True
             held = now + timedelta(seconds=time.time() - t_entry)
-            return _under_lock(fam, p, base, folder, held, trigger, run_id)
+            return _under_lock(fam, p, base, folder, held, trigger, run_id, tick)
     except TimeoutError:
         if entered:
             raise
@@ -2550,7 +2569,8 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
                           "watch keeps trying")
                 rc = worse(rc, notice_exit(miss))
                 continue
-        r = run(family=fam, start=start, trigger="watch", now=clock() if fixed_now is None else utc(fixed_now))
+        r = run(family=fam, start=start, trigger="watch", now=clock() if fixed_now is None else utc(fixed_now),
+                tick=tick_q)
         rc = worse(rc, r)
     # THE SLATE RUN (ARCHITECT 2026-10-18, addendum 126 item 2(a)): after the tick's closings, which keep their T-35
     # (a closing is the row that counts; the slate is the morning file). `now` is the tick's time (the ET day, the due
@@ -3106,11 +3126,11 @@ def send_slate_page(p: dict, now: datetime) -> int:
                                                                              bound["run_at"]):
         n = _bounded_notify(p["text"], fam)
         line = c.append_receipt(mark_notice({**p["line"], "held_page": {"text": p["text"], "notified": n}}, n))
-        # 503 item 1 Q5: a page sent and not known to be taken (no channel, or cut at the bound: law 4) is not a
-        # notice: exit 1, the key on its line, and a later tick sends it again (_page_owed)
+        # 503 item 1 Q5: a page no channel took is not a notice: exit 1, the key on its line; one cut at its bound
+        # stays exit 3 (addendum 504 item 4(b)); either way, not taken, a later tick sends it again (_page_owed)
         print(f"✗ {p['text']}" + ("" if notice_taken(n) else
-                                  f" — the send was cut at {NOTIFY_MAX_S} s (exit 1)" if "cut_at_bound_s" in n else
-                                  " — no channel took the page (exit 1)"))
+                                  f" — the send was cut at {NOTIFY_MAX_S} s (a later tick sends it again)"
+                                  if "cut_at_bound_s" in n else " — no channel took the page (exit 1)"))
         return notice_exit(line)
     print(f"· slate {fam} {day_s}: the HELD page waits for a later tick ({_closing_text(bound)} is due before a page "
           "could end)")
@@ -3130,9 +3150,15 @@ def send_resend(item: dict, tick_at: datetime, now: datetime, fams: tuple[str, .
     bound = closing_ahead(tuple(fams or (fam,)), utc(now))
     if bound is not None and utc(now) + timedelta(seconds=NOTIFY_MAX_S) >= next_tick(utc(tick_at), utc(now),
                                                                                     bound["run_at"]):
-        print(f"· {fam}: a miss no channel took waits for a later tick ({_closing_text(bound)} is due before a send "
-              "could end) — exit 1")
-        return 1
+        print(f"· {fam}: a notice no channel took waits for a later tick ({_closing_text(bound)} is due before a "
+              "send could end)")
+        return 2 if item["kind"].endswith("_refusal") else 1
+    if item["kind"] == "closing_refusal":     # 504 item 4(b): a refusal stays exit 2 whatever its notice
+        _refuse(item["why"], fam, item["start"], item["base"], "watch", dry_run=False, bounded=True)
+        return 2
+    if item["kind"] == "slate_refusal":
+        _slate_refuse(item["why"], fam, item["day"], item["base"], bounded=True)
+        return 2
     if item["kind"] == "closing_miss":
         line = record_miss(fam, item["start"], item["reason"], detail=item.get("detail"), text=item["text"],
                            bounded=True)
@@ -3251,17 +3277,28 @@ def _slate_rec(base: dict, fam: str, day: date, attempt: int, at: datetime, tick
              "exit": 1}, late)
 
 
-def _slate_refuse(why: str, fam: str, day: date, base: dict) -> int:
+def _slate_refuse(why: str, fam: str, day: date, base: dict, tick: dict | None = None, bounded: bool = False) -> int:
     """A receipted refusal (exit 2), once per family, day and reason. The family refusal pages nothing (#590 (d));
-    every other refusal is notified, as a closing's is (reading 7)."""
-    if any(r.get("family") == fam and r.get("date") == day.isoformat() and r.get("refused") == why
-           for r in receipts((SLATE_KIND,))):
+    every other refusal is notified, as a closing's is (reading 7). Addendum 504 item 4(b): the once-per-reason mark
+    is set when a channel took the notice, so a refusal no channel took is notified again on a later tick (queued for
+    the tick's end when `tick` is given); the family refusal, which pages nothing, stays marked when receipted."""
+    silent = why == _family_refusal(fam)
+
+    def match(r):
+        return r.get("family") == fam and r.get("date") == day.isoformat() and r.get("refused") == why
+    mine = [r for r in receipts((SLATE_KIND,)) if match(r)]
+    if mine and (silent or any(notice_taken(r.get("failure_notification")) for r in mine)):
         return 2
-    rec = {**base, "exit": 2, "refused": why, "steps": [], "file": None, "rows": None, "calls": None, "push": None}
-    if why != _family_refusal(fam):
-        rec["failure_notification"] = notify_failure(
-            f"SLATE {fam} {day.isoformat()} REFUSED: {why} — RUN BY HAND: {slate_block(fam, day)}", fam,
-            title=f"{fam} slate")
+    if mine and tick is not None:     # a resend: at the tick's end (send_resend), still exit 2
+        tick.setdefault("resends", []).append({"kind": "slate_refusal", "fam": fam, "day": day, "why": why,
+                                               "base": base})
+        return 2
+    rec = {**base, "exit": 2, "refused": why, "steps": [], "file": None, "rows": None, "calls": None, "push": None,
+           **({"resent": True} if bounded else {})}
+    if not silent:
+        text = f"SLATE {fam} {day.isoformat()} REFUSED: {why} — RUN BY HAND: {slate_block(fam, day)}"
+        rec["failure_notification"] = (_bounded_notify(text, fam) if bounded
+                                       else notify_failure(text, fam, title=f"{fam} slate"))
         mark_notice(rec, rec["failure_notification"])      # 503 item 1 Q7: still exit 2, the key set
     print(f"✗ slate {fam} {day.isoformat()} REFUSED: {why}")
     c.append_receipt(rec)
@@ -3479,7 +3516,7 @@ def _slate_under_lock(fam: str, day: date, base: dict, folder: Path, held: datet
     # exports/ file too). Under the lock, before the backup and every step; a refusal, no attempt.
     why = _export_path_refusal(fam, min(g["start"] for g in covers), held, base["run_id"])
     if why:
-        return _slate_refuse(why, fam, day, base)
+        return _slate_refuse(why, fam, day, base, tick=tick)
     # late runs from the due time to this run's start; the first tick is the earliest that found the slate due
     rec, late = _slate_rec(base, fam, day, st["attempts"] + 1, held, tick_at, due_at, covers)
     if tick is not None:
@@ -3628,7 +3665,7 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
     for check in refusal_checks(fam, folder):
         why = check()
         if why:
-            return _slate_refuse(why, fam, day, base)
+            return _slate_refuse(why, fam, day, base, tick=tick)
     if not any(not started(g, now) for g in games):
         return notice_exit(record_slate_miss(fam, day, SLATE_ALL_STARTED,
                                              text=f"SLATE {fam} {day.isoformat()} MISSED: {SLATE_ALL_STARTED} — no "

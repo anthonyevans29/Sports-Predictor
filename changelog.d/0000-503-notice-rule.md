@@ -11,15 +11,14 @@
   - It is queued for the end of the tick, after its closings and its slate stage.
   - It is sent there by `send_resend` under the slate pages' 57 s bound, and only where the send ends before the first tick that could start the next closing. Otherwise it waits, and that tick exits 1.
   - The resent line carries `resent: true`. `closing_state`'s miss count is one per reason.
-- **A send cut at its bound** (HELD page or resend) is not known to be taken (law 4). Its line carries the key, the tick exits 1, and a later tick sends it again.
+- **A send cut at its bound** (HELD page or resend) stays exit 3, with no key, and is sent again on a later tick: ARCHITECT 2026-11-24, addendum 504 item 4(b), "The slate page cut at its bound staying exit 3 and being sent again stands".
+- **Refusals follow the same rule** (504 item 4(b): "THE REFUSALS' ONCE-PER-REASON MARK FOLLOWS THE SAME RULE: it is set when a channel took the notice, not when one was sent"). A closing or slate refusal no channel took is notified again on a later tick. It is queued for the tick's end like a miss's resend, and stays exit 2 with the key. The slate's family refusal, which pages nothing, stays marked when receipted.
 - **Unchanged:**
   - a tick with nothing to send;
   - a run by hand;
   - the notices after a closing's page (the closing file, the push, the bulletin), which are 502 item 3's;
-  - the refusals' own once-per-reason rule.
 - **`deploy/hosting/sp_receipts.py`:** such a line's key text ends `NOTICE NOT TAKEN: no channel took it`, and it counts as failing.
 - **Words:** docs/CLI.md, cli.py's closing-watch help, and sp-closing-watch.service's comment (no directive).
 - **Tests:**
-  - 15 new tests, closing and slate, among them the resend queue and its bound;
-  - the cut-page test now pins exit 1 and the key;
+  - 17 new tests, closing and slate, among them the resend queue and its bound, and the refusals' mark on delivery;
   - every other existing closing, slate and hosting test unchanged.

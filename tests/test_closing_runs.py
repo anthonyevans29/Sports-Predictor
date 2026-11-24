@@ -2629,3 +2629,19 @@ def test_503_closing_state_counts_one_miss_per_reason(box, monkeypatch):
     for _ in range(3):
         mc.record_miss("NFL", at(80), "x")
     assert mc.closing_state("NFL", at(80))["misses"] == 1
+
+
+def test_504_a_closing_refusal_is_marked_only_when_a_channel_took_it(box, monkeypatch):
+    """Addendum 504 item 4(b): a refusal no channel took is notified again on a later tick, at the tick's end, exit 2;
+    once a channel took it, the same refusal writes and sends nothing (reading 7)."""
+    ops = []
+    no_channel(box, monkeypatch, ops)
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "")
+    assert mc.watch(now=NOW, families=("NFL",)) == 2 and len(ops) == 1
+    assert runs()[-1][mc.NOTICE_NOT_TAKEN] is True
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: ops.append(b) or {"accepted": True, "http": 200})
+    assert mc.watch(now=NOW + timedelta(minutes=1), families=("NFL",)) == 2 and len(ops) == 2      # sent again
+    assert runs()[-1].get("resent") is True and mc.NOTICE_NOT_TAKEN not in runs()[-1]
+    n = len(receipts())
+    assert mc.watch(now=NOW + timedelta(minutes=2), families=("NFL",)) == 2 and len(ops) == 2      # taken: once
+    assert len(receipts()) == n

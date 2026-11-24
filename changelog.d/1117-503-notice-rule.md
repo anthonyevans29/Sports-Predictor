@@ -1,4 +1,4 @@
-## 2026-11-24 (#0000: 503-notice-rule — a notice no channel took is not a notice (addendum 502 item 2 Q5, in part; addendum 503 item 1 Q5-Q7, item 2 PR 3; money-path))
+## 2026-11-24 (#1117: 503-notice-rule — a notice no channel took is not a notice (addendum 502 item 2 Q5, in part; addendum 503 item 1 Q5-Q7, item 2 PR 3; money-path))
 - **`deploy/hosting/closing.py`.** A notice whose `channel` is null (no card, screen or operator topic took it) now sets `notice_not_taken: true` on its receipt line. A watch-started tick that sent it exits 1 (the unit's OnFailure → sp_notify), never 3. That covers every case 503 Q5 names:
   - a failed closing run;
   - a closing miss;

@@ -19,7 +19,7 @@
     - a source lock that every writer and the destroy hold, and the graph rebuild's own lock;
     - a token reservation before each timer call, as append-only reservation and settlement rows, with `max_retries=0`;
     - a fixed name-to-NHL-id rule, with no fuzzy match;
-    - then a second check of those fixes, which held 30 more findings, all fixed: the evidence rule, one `sp-inferred@` instance per domain, the domain in the lineage and the gate per lineage, §10 per domain, and the bench outside the ledger and the cap.
+    - then a second check of those fixes, which held 32 more findings, all fixed: the evidence rule, one `sp-inferred@` instance per domain, the domain in the lineage and the gate per lineage, §10 per domain, and the bench outside the ledger and the cap.
   - **§12 lists twelve points for the ruling of 12-03.**
 
   Nothing is built and nothing is run. No bar, date or held timer moves.

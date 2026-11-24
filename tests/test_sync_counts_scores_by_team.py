@@ -44,6 +44,21 @@ def test_the_line_is_one_of_the_lines_run_step_collects():
     assert not any(r.match("orientation reversed 1 · teams mismatch refused 0") for r in sp_run._SYNC_LINES)
 
 
+def test_the_placeholder_fill_line_is_collected_counted_and_echoed():
+    """ARCHITECT 2026-11-24, addendum 500 Q1, verbatim: "The fill is never silent: its own receipt line with the match
+    ids." sync-matches prints "placeholder_filled N: <ids>" only when N > 0 (service.placeholder_filled_line): run_step
+    collects it, sync_counts carries it on the step's receipt (each line of the step ADDS), and the laptop routine keeps
+    it in the step's echo."""
+    import laptop_routine as lr
+    line = "placeholder_filled 2: 33608, 33611"
+    assert any(r.match(line) for r in sp_run._SYNC_LINES)
+    assert any(r.match(line) for r in lr._COUNT_LINES)
+    got = sp_run.sync_counts(["✓ Matches (NCAA): created=0 updated=9 skipped=0", line, "placeholder_filled 1: 33612",
+                              "orientation_reversed 0 · teams_mismatch_refused 0"])
+    assert got["placeholder_filled"] == {"n": 3, "ids": ["33608", "33611", "33612"]}
+    assert "placeholder_filled" not in sp_run.sync_counts(["orientation_reversed 0 · teams_mismatch_refused 0"])
+
+
 FAKE_CLI = '''import sys
 a = sys.argv[1:]
 code = a[a.index("--competition") + 1]

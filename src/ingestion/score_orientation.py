@@ -11,6 +11,7 @@ A reversed pair on a row of the SAME season is a reversal; across seasons it is 
 
 Callers (item 3(b)): src/ingestion/service.py `_upsert_match` (the update-by-id and re-key branches) and
 src/ingestion/refresh_by_id.py. The create path never calls it: a new row takes the listing's own orientation.
+placeholder_fill (addendum 500 Q1) is read by the upsert's update-by-id branch only (service.py `_fill_placeholder`).
 This module decides and translates only; it writes nothing and imports no ORM session (no cycle: schema only): the
 callers assign what with_orientation_key returns.
 """
@@ -41,6 +42,28 @@ def orientation(stored: tuple, listed: tuple) -> str:
     if (lh, la) == (sa, sh) and sh != sa:
         return REVERSED
     return MISMATCH
+
+
+# THE PLACEHOLDER FILL (ARCHITECT 2026-11-24, addendum 500 Q1, verbatim): "YES, A FILL IS A RULED CARVE-OUT, in your
+# words of (b) and no wider: position by position, every side that differs is the stored placeholder, the other side is
+# equal, each filled team is stored, is not the placeholder and is not the row's other team. A flip stays refused (292
+# item 3(d)); another game stays refused (3(a))." The verdict only: the caller (src/ingestion/service.py
+# `_fill_placeholder`) holds the kickoff window and the pair collision (Q5), and writes.
+def placeholder_fill(stored: tuple, listed: tuple, placeholder) -> bool:
+    """True when the listing's (home, away) fills the stored row's placeholder side(s) and nothing else: every side
+    present (a filled team is stored), the pair a MISMATCH (SAME and REVERSED keep their own paths), every side that
+    differs is the stored placeholder, no listed side is the placeholder, and the listed pair is two teams (a filled
+    team is not the row's other team). (P,B)->(B,X) is a flip and (P,B)->(X,Y) another game: both False. (P,P)->(X,P),
+    a half-fill that leaves the row holding the placeholder, is not among (b)'s filled shapes ((P,P) to (X,Y); (P,B) to
+    (X,B)): False, refused as today until ruled (law 4; Q1 "no wider")."""
+    if placeholder is None or None in tuple(stored) + tuple(listed):
+        return False
+    if orientation(stored, listed) != MISMATCH:
+        return False
+    differs = [i for i in (0, 1) if stored[i] != listed[i]]
+    if any(stored[i] != placeholder for i in differs) or placeholder in tuple(listed):
+        return False
+    return listed[0] != listed[1]
 
 
 def scores_by_team(stored: tuple, listed: tuple, values: dict) -> tuple[str, dict | None]:

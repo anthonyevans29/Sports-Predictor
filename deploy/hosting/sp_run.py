@@ -308,8 +308,12 @@ ODDS_BY_TEAM_KEYS = ("orientation_swapped", "orientation_mismatch_unpriced")
 # one, intl-sync one per held code of its plan):
 #   "HELD <CODE> (SP_SYNC_HOLD)"
 HELD_LINE = re.compile(r"^HELD (?P<code>\S+) \(SP_SYNC_HOLD\)$")
+# THE PLACEHOLDER FILL (ARCHITECT 2026-11-24, addendum 500 Q1, verbatim): "The fill is never silent: its own receipt
+# line with the match ids." The line sync-matches prints only when N > 0 (cli._print_placeholder_filled):
+#   sync-matches         "placeholder_filled N: <ids>"                              (service.placeholder_filled_line)
+PLACEHOLDER_FILLED_LINE = re.compile(r"^placeholder_filled (?P<n>\d+)(?:: (?P<ids>.*))?$")
 _SYNC_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE, SCORES_BY_TEAM_LINE,
-               ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE, HELD_LINE)
+               ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE, HELD_LINE, PLACEHOLDER_FILLED_LINE)
 
 
 def _ids(text) -> list:
@@ -325,7 +329,9 @@ def sync_counts(lines: list[str]) -> dict:
     re-read's too), so no reversed or refused row printed by the step is dropped from the receipt (addendum 295 item
     4). `odds_by_team` (addendum 297 C(iii)): {orientation_swapped: {n, ids}, orientation_mismatch_unpriced: {n, ids}},
     each key present only when the step printed its line, and every such line of the step ADDS, as the scores-by-team
-    line does. `held` (addendum 332 item 3, #921): the codes the step printed a HELD line for, in order, each once."""
+    line does. `held` (addendum 332 item 3, #921): the codes the step printed a HELD line for, in order, each once.
+    `placeholder_filled` (addendum 500 Q1): {n, ids}, present only when the step printed the line; every such line of
+    the step ADDS (a --seasons run prints one per season)."""
     out: dict = {}
     for s in lines:
         s = s.rstrip()
@@ -334,6 +340,12 @@ def sync_counts(lines: list[str]) -> dict:
             held = out.setdefault("held", [])
             if m.group("code") not in held:
                 held.append(m.group("code"))
+            continue
+        m = PLACEHOLDER_FILLED_LINE.match(s)
+        if m:
+            pf = out.setdefault("placeholder_filled", {"n": 0, "ids": []})
+            pf["n"] += int(m.group("n"))
+            pf["ids"] += _ids(m.group("ids"))
             continue
         m = TEAMS_LINE.match(s)
         if m:

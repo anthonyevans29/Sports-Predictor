@@ -19,7 +19,9 @@ from src.db.database import init_db, session_scope
 from src.db.schema import Competition, Match, MatchStatus, Result, Sport, Team
 from src.ingestion import refresh_by_id as rbi
 from src.ingestion import service as svc
-from src.ingestion.score_orientation import MISMATCH, REVERSED, SAME, orientation, scores_by_team
+from src.ingestion.match_dedupe import TWIN_H
+from src.ingestion.placeholder import PLACEHOLDER_RESOLVE_H, PLACEHOLDER_TEAM_ID, is_placeholder_team
+from src.ingestion.score_orientation import MISMATCH, REVERSED, SAME, orientation, placeholder_fill, scores_by_team
 from src.ingestion.service import IngestionService
 from src.timeutil import utc_now_naive
 
@@ -363,8 +365,11 @@ def test_a_natural_key_rekey_takes_the_same_pair_as_today():
 
 
 def test_a_placeholder_kickoff_row_keeps_its_own_path():
-    """The NCAA placeholder (04:00Z, src/ingestion/placeholder.py) is a KICKOFF, never a team: its teams are real and
-    its re-key window takes the same pair only, so the helper reads SAME and nothing changes."""
+    """The NCAA placeholder KICKOFF (04:00Z, src/ingestion/placeholder.py) on a row whose teams are real keeps its own
+    path: its re-key window takes the same pair only, so the helper reads SAME and nothing changes. The provider's
+    placeholder TEAM (provider id 345) is the fill's rule (the section at the end of this file), which supersedes the
+    premise "never a team ... no TBD team row exists" (BACKLOG.md:3383; ARCHITECT 2026-11-24, addendum 500 Q1 and
+    Q10)."""
     (h, hp), (a, ap) = _teams(Sport.NFL, AF)
     ph = datetime(2026, 11, 14, 4, 0)
     mid = _stored("NCAA", Sport.NFL, AF, "sbt-ph-old", h, a, when=ph)
@@ -457,3 +462,386 @@ def test_intl_history_receipt_lists_a_reversed_row_and_writes_its_scores_by_team
     assert f"  orientation_reversed 1: {mid} · teams_mismatch_refused 0" in out.output.splitlines(), out.output
     row = _raw(mid)
     assert (row["home_score"], row["away_score"]) == (2, 1)                # by team: the stored home (880001) 2
+
+
+# ---------------------------------------------------------------------------- the placeholder fill (addendum 500)
+# ARCHITECT 2026-11-24, addendum 500 Q1, verbatim: "YES, A FILL IS A RULED CARVE-OUT, in your words of (b) and no wider:
+# position by position, every side that differs is the stored placeholder, the other side is equal, each filled team is
+# stored, is not the placeholder and is not the row's other team. A flip stays refused (292 item 3(d)); another game
+# stays refused (3(a)). The fill is never silent: its own receipt line with the match ids." Q2: the placeholder is the
+# provider's team id 345, never a name. Q3: the same pass. Q4: the upsert alone. Q5: PLACEHOLDER_RESOLVE_H and TWIN_H.
+# The rows sit in test competition codes, one per test, none of them "NCAA" and none in PLACEHOLDER_REKEY_COMPETITIONS
+# (no suite that reads the "NCAA" rows ever sees them): the fill is the provider's placeholder team's rule, in no
+# competition list (Q1: "in your words of (b) and no wider"; (b) names no competition).
+
+PH_KICK = datetime(2026, 12, 5, 4, 0)       # the placeholder kickoff of eight of the nine rows (500 item 1(b))
+PH_SERVED = PH_KICK + timedelta(hours=15)   # a served kickoff within PLACEHOLDER_RESOLVE_H of it
+
+
+def _placeholder():
+    """ONE Sport.NFL team carrying the provider's TBD team id (addendum 500 Q2), got or created: (our id, its id). Its
+    NAME is deliberately not "TBD": Q2's "never matched by name" (a name match would fill nothing here; the TBD-named
+    team without the id is test_a_team_named_like_the_placeholder_without_its_id_is_never_filled)."""
+    init_db()
+    with session_scope() as s:
+        for t in s.execute(select(Team).where(Team.sport == Sport.NFL)).scalars():
+            if (t.external_ids or {}).get(AF) == PLACEHOLDER_TEAM_ID:
+                return t.id, PLACEHOLDER_TEAM_ID
+        t = Team(sport=Sport.NFL, name="SBT placeholder by id", external_ids={AF: PLACEHOLDER_TEAM_ID})
+        s.add(t)
+        s.flush()
+        return t.id, PLACEHOLDER_TEAM_ID
+
+
+def _teams_of(mid):
+    with session_scope() as s:
+        m = s.get(Match, mid)
+        return m.home_team_id, m.away_team_id
+
+
+def _assert_refused_as_today(mid, before, res):
+    """The unchanged MISMATCH path (292 item 3(a); 297 C(ii)): every column but the key untouched, the key `mismatch`,
+    listed in teams_mismatch_refused, nothing filled."""
+    import json
+    after = _raw(mid)
+    assert _but_ext(after) == _but_ext(before)
+    assert json.loads(after["external_ids"]).get("provider_orientation") == "mismatch"
+    assert res.teams_mismatch_refused == [mid] and res.placeholder_filled == [] and res.updated == 0
+
+
+def test_the_fill_verdict_is_position_by_position_and_no_wider():
+    P, A, B, X, Y = 1, 2, 3, 4, 5
+    assert placeholder_fill((P, P), (X, Y), P)                     # 33608's shape
+    assert placeholder_fill((P, B), (X, B), P) and placeholder_fill((B, P), (B, X), P)
+    assert not placeholder_fill((P, B), (B, X), P)                 # a flip stays refused (292 item 3(d))
+    assert not placeholder_fill((P, B), (X, Y), P)                 # another game stays refused (292 item 3(a))
+    assert not placeholder_fill((P, B), (P, X), P)                 # the differing side is a real team
+    assert not placeholder_fill((A, B), (X, B), P)                 # no stored side is the placeholder
+    assert not placeholder_fill((P, B), (B, B), P)                 # the filled team is the row's other team
+    assert not placeholder_fill((P, P), (X, X), P)
+    assert not placeholder_fill((P, B), (B, P), P)                 # REVERSED keeps its own path
+    assert not placeholder_fill((P, B), (P, B), P)                 # SAME keeps its own path
+    assert not placeholder_fill((P, B), (X, B), None)
+    assert not placeholder_fill((P, B), (None, B), P) and not placeholder_fill((None, B), (X, B), P)
+    # (P,P) listed (X,P) or (P,X): a half-fill that leaves the placeholder on the row is not among (b)'s filled shapes
+    # ((P,P) to (X,Y); (P,B) to (X,B)): refused until ruled (law 4; Q1 "no wider")
+    assert not placeholder_fill((P, P), (X, P), P) and not placeholder_fill((P, P), (P, X), P)
+
+
+def test_the_placeholder_team_is_its_provider_id_never_a_name():
+    """Q2, verbatim: "ONE ID, 345, held as data in placeholder.py beside the kickoff's definition, never matched by
+    name"."""
+    assert PLACEHOLDER_TEAM_ID == "345"
+    assert is_placeholder_team("345") and is_placeholder_team(345)
+    assert not is_placeholder_team(None) and not is_placeholder_team("TBD") and not is_placeholder_team("3450")
+
+
+def test_a_row_with_the_placeholder_on_both_sides_takes_the_listed_pair_on_the_same_pass():
+    """33608's shape (addendum 493 item 2(c), 500 item 1(b)): stored (P,P) at 19:00Z carrying the mismatch key; the
+    listing names two teams. Q3: the pair then reads SAME and the unchanged SAME path writes scores, status and
+    kickoff, and removes the key."""
+    p, _ = _placeholder()
+    (x, xp), (y, yp) = _teams(Sport.NFL, AF)
+    when = datetime(2026, 12, 5, 19, 0)
+    mid = _stored("PHF2", Sport.NFL, AF, "phf-2", p, p, when=when,
+                  ext={AF: "phf-2", "provider_orientation": "mismatch"})
+    res = _sync("PHF2", AF, [_nm("PHF2", Sport.NFL, AF, "phf-2", xp, yp, when=when + timedelta(minutes=30),
+                                 home_score=24, away_score=17, full_time_result=Result.HOME)])
+    with session_scope() as s:
+        m = s.get(Match, mid)
+        assert (m.home_team_id, m.away_team_id) == (x, y)
+        assert (m.home_score, m.away_score, m.full_time_result) == (24, 17, Result.HOME)
+        assert m.status == MatchStatus.FINISHED and m.utc_date == when + timedelta(minutes=30) and m.status_raw == "FT"
+        assert m.external_ids == {AF: "phf-2"}                       # the key removed (SAME)
+    assert res.placeholder_filled == [mid] and res.teams_mismatch_refused == [] and res.orientation_reversed == []
+    assert res.updated == 1 and res.skipped == 0 and res.created == 0
+
+
+def test_a_row_with_the_placeholder_on_one_side_takes_the_listed_team_the_other_side_kept():
+    p, _ = _placeholder()
+    (b, bp), (x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored("PHF3", Sport.NFL, AF, "phf-3", p, b, when=PH_KICK)
+    res = _sync("PHF3", AF, [_nm("PHF3", Sport.NFL, AF, "phf-3", xp, bp, when=PH_KICK + timedelta(hours=15),
+                                 status=MatchStatus.SCHEDULED)])
+    with session_scope() as s:
+        m = s.get(Match, mid)
+        assert (m.home_team_id, m.away_team_id) == (x, b)
+        assert m.utc_date == PH_KICK + timedelta(hours=15) and m.status == MatchStatus.SCHEDULED
+    assert res.placeholder_filled == [mid] and res.teams_mismatch_refused == [] and res.updated == 1
+
+
+def test_a_flip_of_a_placeholder_row_stays_refused():
+    """(P,B) listed (B,X): the away side differs and is B, not the placeholder (292 item 3(d))."""
+    p, _ = _placeholder()
+    (b, bp), (_x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored("PHF4", Sport.NFL, AF, "phf-4", p, b, when=PH_KICK)
+    before = _raw(mid)
+    res = _sync("PHF4", AF, [_nm("PHF4", Sport.NFL, AF, "phf-4", bp, xp, when=PH_KICK + timedelta(hours=15))])
+    _assert_refused_as_today(mid, before, res)
+    assert _teams_of(mid) == (p, b)
+
+
+def test_another_game_on_a_placeholder_row_stays_refused():
+    """(P,B) listed (X,Y): B differs and is not the placeholder (292 item 3(a))."""
+    p, _ = _placeholder()
+    (b, _bp), (_x, xp), (_y, yp) = _teams(Sport.NFL, AF, 3)
+    mid = _stored("PHF5", Sport.NFL, AF, "phf-5", p, b, when=PH_KICK)
+    before = _raw(mid)
+    res = _sync("PHF5", AF, [_nm("PHF5", Sport.NFL, AF, "phf-5", xp, yp, when=PH_KICK + timedelta(hours=15))])
+    _assert_refused_as_today(mid, before, res)
+
+
+def test_a_filled_team_not_stored_goes_the_unknown_team_path():
+    """Q1: "each filled team is stored". A listed team never team-synced is the unknown-team refusal, as built."""
+    import json
+    p, _ = _placeholder()
+    (b, bp), = _teams(Sport.NFL, AF, 1)
+    mid = _stored("PHF6", Sport.NFL, AF, "phf-6", p, b, when=PH_KICK)
+    res = _sync("PHF6", AF, [_nm("PHF6", Sport.NFL, AF, "phf-6", "phf-never-synced", bp,
+                                 when=PH_KICK + timedelta(hours=15))])
+    assert res.skipped_ids == ["phf-6"] and res.teams_mismatch_refused == [mid] and res.placeholder_filled == []
+    assert json.loads(_raw(mid)["external_ids"])["provider_orientation"] == "mismatch"
+    assert _teams_of(mid) == (p, b)
+
+
+def test_a_filled_team_that_is_the_rows_other_team_stays_refused():
+    """Q1: each filled team "is not the row's other team": (P,B) listed (B,B), and (P,P) listed (X,X)."""
+    p, _ = _placeholder()
+    (b, bp), (_x, xp) = _teams(Sport.NFL, AF)
+    one = _stored("PHF7", Sport.NFL, AF, "phf-7a", p, b, when=PH_KICK)
+    two = _stored("PHF7", Sport.NFL, AF, "phf-7b", p, p, when=PH_KICK + timedelta(days=4))
+    res = _sync("PHF7", AF, [_nm("PHF7", Sport.NFL, AF, "phf-7a", bp, bp, when=PH_KICK + timedelta(hours=15)),
+                             _nm("PHF7", Sport.NFL, AF, "phf-7b", xp, xp, when=PH_KICK + timedelta(days=4, hours=15))])
+    assert res.teams_mismatch_refused == [one, two] and res.placeholder_filled == [] and res.updated == 0
+    assert _teams_of(one) == (p, b) and _teams_of(two) == (p, p)
+
+
+def test_a_served_kickoff_outside_the_placeholders_own_window_is_refused():
+    """Q5: the kickoff window is PLACEHOLDER_RESOLVE_H (24h, inclusive as placeholder_resolved reads it): +25h is
+    refused as a mismatch (the #902 class); +24h exactly is filled."""
+    p, _ = _placeholder()
+    (b1, b1p), (_x1, x1p), (b2, b2p), (x2, x2p) = _teams(Sport.NFL, AF, 4)
+    far = _stored("PHF8", Sport.NFL, AF, "phf-8a", p, b1, when=PH_KICK)
+    edge = _stored("PHF8", Sport.NFL, AF, "phf-8b", p, b2, when=PH_KICK)
+    before = _raw(far)
+    res = _sync("PHF8", AF, [
+        _nm("PHF8", Sport.NFL, AF, "phf-8a", x1p, b1p, when=PH_KICK + timedelta(hours=PLACEHOLDER_RESOLVE_H + 1)),
+        _nm("PHF8", Sport.NFL, AF, "phf-8b", x2p, b2p, when=PH_KICK + timedelta(hours=PLACEHOLDER_RESOLVE_H))])
+    after = _raw(far)
+    assert _but_ext(after) == _but_ext(before)
+    assert res.teams_mismatch_refused == [far] and res.placeholder_filled == [edge]
+    assert _teams_of(edge) == (x2, b2)
+
+
+@pytest.mark.parametrize("code,status,offset,filled", [("PHF9A", MatchStatus.SCHEDULED, TWIN_H, False),
+                                                       ("PHF9E", MatchStatus.SCHEDULED, TWIN_H + 1, True),
+                                                       ("PHF9B", MatchStatus.CANCELLED, TWIN_H, True),
+                                                       ("PHF9D", MatchStatus.STALE_ORPHAN, TWIN_H, True)])
+def test_a_live_row_holding_the_filled_pair_within_twin_h_refuses_the_fill(code, status, offset, filled):
+    """Q5: the pair-collision window is the dry run's TWIN_H (48h), measured from the SERVED kickoff. A live stored
+    (X,B) row of the season exactly TWIN_H after the served kickoff (15h + TWIN_H after the stored one) refuses the
+    fill; one at TWIN_H + 1h does not; a CANCELLED or STALE_ORPHAN one at TWIN_H does not."""
+    p, _ = _placeholder()
+    (b, bp), (x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored(code, Sport.NFL, AF, f"{code}-s", p, b, when=PH_KICK)
+    _stored(code, Sport.NFL, AF, f"{code}-held", x, b, when=PH_SERVED + timedelta(hours=offset), status=status)
+    before = _raw(mid)
+    res = _sync(code, AF, [_nm(code, Sport.NFL, AF, f"{code}-s", xp, bp, when=PH_SERVED)])
+    if filled:
+        assert res.placeholder_filled == [mid] and _teams_of(mid) == (x, b)
+    else:
+        _assert_refused_as_today(mid, before, res)
+
+
+def test_a_row_of_another_season_holding_the_filled_pair_never_refuses_the_fill():
+    """The collision is "a live row of the season" (plan (d)): a live (X,B) row stored under season 2025 at the served
+    kickoff itself does not refuse the fill (the run's pair index is keyed by season)."""
+    p, _ = _placeholder()
+    (b, bp), (x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored("PHF9F", Sport.NFL, AF, "phf-9f", p, b, when=PH_KICK)
+    other = _stored("PHF9F", Sport.NFL, AF, "phf-9f-2025", x, b, when=PH_SERVED)
+    with session_scope() as s:
+        s.get(Match, other).season = "2025"
+    res = _sync("PHF9F", AF, [_nm("PHF9F", Sport.NFL, AF, "phf-9f", xp, bp, when=PH_SERVED)])
+    assert res.placeholder_filled == [mid] and _teams_of(mid) == (x, b)
+
+
+def test_a_row_created_earlier_in_the_listing_holding_the_filled_pair_refuses_the_fill():
+    p, _ = _placeholder()
+    (b, bp), (x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored("PHF9C", Sport.NFL, AF, "phf-9c", p, b, when=PH_KICK)
+    before = _raw(mid)
+    res = _sync("PHF9C", AF, [
+        _nm("PHF9C", Sport.NFL, AF, "phf-9c-new", xp, bp, when=PH_KICK + timedelta(hours=15)),
+        _nm("PHF9C", Sport.NFL, AF, "phf-9c", xp, bp, when=PH_KICK + timedelta(hours=15))])
+    assert res.created == 1
+    after = _raw(mid)
+    assert _but_ext(after) == _but_ext(before)
+    assert res.teams_mismatch_refused == [mid] and res.placeholder_filled == []
+
+
+def test_a_filled_row_is_reindexed_so_a_later_listing_in_the_run_never_twins_it():
+    """The run's pair index (__pairs__) moves the filled row to its new pair: a new id for (X,B) an hour on finds it and
+    is refused by the re-key ("its id ... is still in this listing"), never created beside it."""
+    p, _ = _placeholder()
+    (b, bp), (x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored("PHF10", Sport.NFL, AF, "phf-10", p, b, when=PH_KICK)
+    res = _sync("PHF10", AF, [
+        _nm("PHF10", Sport.NFL, AF, "phf-10", xp, bp, when=PH_KICK + timedelta(hours=15)),
+        _nm("PHF10", Sport.NFL, AF, "phf-10-new", xp, bp, when=PH_KICK + timedelta(hours=16))])
+    assert res.placeholder_filled == [mid] and res.rekey_refused == 1 and res.created == 0
+    with session_scope() as s:
+        c = s.execute(select(Competition).where(Competition.code == "PHF10")).scalar_one()
+        assert s.execute(select(Match.id).where(Match.competition_id == c.id)).scalars().all() == [mid]
+
+
+def test_a_filled_row_leaves_its_old_pair_so_a_new_id_for_that_pair_is_created_not_refused():
+    """The run's pair index drops the filled row from its old (P,B) key: a later listing in the run with a new id for
+    (P,B), within REKEY_WINDOW_H of the filled row's new kickoff, finds no row under (P,B) and is created as today (a
+    stale entry would find the filled row and refuse it as "still in this listing")."""
+    p, pp = _placeholder()
+    (b, bp), (x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored("PHF11", Sport.NFL, AF, "phf-11", p, b, when=PH_KICK)
+    res = _sync("PHF11", AF, [
+        _nm("PHF11", Sport.NFL, AF, "phf-11", xp, bp, when=PH_SERVED),
+        _nm("PHF11", Sport.NFL, AF, "phf-11-new", pp, bp, when=PH_SERVED + timedelta(hours=5),
+            status=MatchStatus.SCHEDULED)])
+    assert res.placeholder_filled == [mid] and res.rekey_refused == 0 and res.created == 1
+    assert _teams_of(mid) == (x, b)
+
+
+def test_a_filled_row_holds_what_a_fresh_create_would_but_its_id():
+    """Q3, verbatim: "The test shows the row then holds what a fresh create would, but its id." The reference row is
+    the listing created into an empty competition, read and deleted (throwaway DB); then the same id is stored as a
+    (P,P) placeholder row by the create path and the listing synced over it."""
+    from dataclasses import replace
+    p, pp = _placeholder()
+    (x, xp), (y, yp) = _teams(Sport.NFL, AF)
+    with session_scope() as s:
+        _comp(s, "PHFR", Sport.NFL)
+    nm_xy = replace(_nm("PHFR", Sport.NFL, AF, "phf-r", xp, yp, when=PH_KICK + timedelta(hours=15),
+                        home_score=31, away_score=28, full_time_result=Result.HOME), matchday=14, stage="FCS")
+    nm_pp = replace(_nm("PHFR", Sport.NFL, AF, "phf-r", pp, pp, when=PH_KICK, status=MatchStatus.SCHEDULED),
+                    matchday=14, stage="FCS")
+    assert _sync("PHFR", AF, [nm_xy]).created == 1
+    with session_scope() as s:
+        c = s.execute(select(Competition).where(Competition.code == "PHFR")).scalar_one()
+        ref = s.execute(select(Match.id).where(Match.competition_id == c.id)).scalar_one()
+    want = _raw(ref)
+    with session_scope() as s:
+        s.delete(s.get(Match, ref))
+    assert _sync("PHFR", AF, [nm_pp]).created == 1
+    with session_scope() as s:
+        mid = s.execute(select(Match.id).where(Match.competition_id == c.id)).scalar_one()
+    assert _teams_of(mid) == (p, p)
+    res = _sync("PHFR", AF, [nm_xy])
+    assert res.placeholder_filled == [mid] and res.updated == 1
+    got = _raw(mid)
+    assert {k: v for k, v in got.items() if k != "id"} == {k: v for k, v in want.items() if k != "id"}
+
+
+def test_refresh_by_id_is_not_touched_and_keeps_refusing(_rbi_quiet):
+    """Q4, verbatim: "THE UPSERT ALONE. refresh-by-id is not touched and keeps refusing until the sync fills." The
+    by-id answer names a team the row does not hold: refused, the row's teams kept."""
+    import json
+    p, _ = _placeholder()
+    (b, bp), (_x, xp) = _teams(Sport.NFL, AF)
+    day = datetime.combine(utc_now_naive().date() + timedelta(days=2), datetime.min.time()) + timedelta(hours=4)
+    mid = _stored("PHF12", Sport.NFL, AF, "phf-12", p, b, when=day)
+    r = rbi.refresh("PHF12", Listing(AF, by_id={"phf-12": _nm("PHF12", Sport.NFL, AF, "phf-12", xp, bp,
+                                                              when=day + timedelta(hours=15))}), days=7)
+    assert r["teams_mismatch_refused"] == [mid]
+    assert _teams_of(mid) == (p, b)
+    assert json.loads(_raw(mid)["external_ids"])["provider_orientation"] == "mismatch"
+
+
+def test_the_fill_follows_the_providers_placeholder_team_in_no_competition_list():
+    """Q1 "no wider" and (b), which names no competition: a row of a competition outside PLACEHOLDER_REKEY_COMPETITIONS
+    (the NCAA 04:00Z re-key window's list) fills, as an NFL row holding the team would. The id is api_american_football's
+    (item 1(a)): another source's team carrying "345" is no placeholder, and its row is refused as today."""
+    p, _ = _placeholder()
+    (b, bp), (x, xp) = _teams(Sport.NFL, AF)
+    assert "PHFX" not in svc.PLACEHOLDER_REKEY_COMPETITIONS
+    mid = _stored("PHFX", Sport.NFL, AF, "phf-x", p, b, when=PH_KICK)
+    res = _sync("PHFX", AF, [_nm("PHFX", Sport.NFL, AF, "phf-x", xp, bp, when=PH_SERVED)])
+    assert res.placeholder_filled == [mid] and _teams_of(mid) == (x, b)
+    init_db()
+    with session_scope() as s:
+        soc = Team(sport=Sport.SOCCER, name="SBT soccer 345", external_ids={SOC: PLACEHOLDER_TEAM_ID})
+        s.add(soc)
+        s.flush()
+        sp = soc.id
+    (sb, sbp), (_sx, sxp) = _teams(Sport.SOCCER, SOC)
+    smid = _stored("PHFS", Sport.SOCCER, SOC, "phf-s", sp, sb, when=PH_KICK)
+    before = _raw(smid)
+    sres = _sync("PHFS", SOC, [_nm("PHFS", Sport.SOCCER, SOC, "phf-s", sxp, sbp, when=PH_SERVED)])
+    _assert_refused_as_today(smid, before, sres)
+
+
+def test_a_team_named_like_the_placeholder_without_its_id_is_never_filled():
+    """Q2: "never matched by name". A stored team named "TBD" whose provider id is not 345 is a team like any other:
+    its row listed with another team there is refused as today."""
+    init_db()
+    with session_scope() as s:
+        tbd = Team(sport=Sport.NFL, name="TBD", external_ids={AF: f"sbt-tbd-{utc_now_naive():%H%M%S%f}"})
+        s.add(tbd)
+        s.flush()
+        n = tbd.id
+    (b, bp), (_x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored("PHF13", Sport.NFL, AF, "phf-13", n, b, when=PH_KICK)
+    before = _raw(mid)
+    res = _sync("PHF13", AF, [_nm("PHF13", Sport.NFL, AF, "phf-13", xp, bp, when=PH_SERVED)])
+    _assert_refused_as_today(mid, before, res)
+
+
+def test_the_cli_receipt_prints_the_fill_on_its_own_line_with_the_ids(monkeypatch):
+    """Q1: "its own receipt line with the match ids", before the scores-by-team line; none when nothing is filled."""
+    import cli
+    p, _ = _placeholder()
+    (b, bp), (x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored("PHF14", Sport.NFL, AF, "phf-14", p, b, when=PH_KICK)
+    fake = Listing(AF, [_nm("PHF14", Sport.NFL, AF, "phf-14", xp, bp, when=PH_KICK + timedelta(hours=15))])
+    monkeypatch.setattr(cli, "_adapter_for_competition", lambda c: fake)
+    monkeypatch.setattr(cli, "_mlb_fallback", lambda c: False)
+    res = CliRunner().invoke(cli.cli, ["sync-matches", "--competition", "PHF14", "--season", "2026"])
+    assert res.exit_code == 0, res.output
+    lines = res.output.splitlines()
+    sbt = "orientation_reversed 0 · teams_mismatch_refused 0"
+    assert f"placeholder_filled 1: {mid}" in lines and sbt in lines, res.output
+    assert lines.index(f"placeholder_filled 1: {mid}") < lines.index(sbt)
+    assert _teams_of(mid) == (x, b)
+    again = CliRunner().invoke(cli.cli, ["sync-matches", "--competition", "PHF14", "--season", "2026"])
+    assert again.exit_code == 0 and "placeholder_filled" not in again.output, again.output
+
+
+def test_the_admin_sync_job_carries_the_fill(monkeypatch):
+    from src.web.routes import admin
+    p, _ = _placeholder()
+    (b, bp), (x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored("PHF14A", Sport.NFL, AF, "phf-14a", p, b, when=PH_KICK)
+    fake = Listing(AF, [_nm("PHF14A", Sport.NFL, AF, "phf-14a", xp, bp, when=PH_KICK + timedelta(hours=15))])
+    monkeypatch.setattr(admin, "_adapter_for_competition", lambda c: fake)
+    out = admin._job_sync_matches(competition_code="PHF14A", season="2026", seasons=0)
+    assert out.endswith(f"orientation_reversed 0 · teams_mismatch_refused 0 · placeholder_filled 1: {mid}"), out
+
+
+def test_the_admin_multi_season_job_logs_the_fill_in_its_seasons_block(monkeypatch):
+    """Q1 "never silent": a --seasons job's own season block carries the fill's line, beside the collision line."""
+    from src.web.routes import admin
+
+    class _Log:
+        def __init__(self):
+            self.lines = []
+
+        def append_log(self, s):
+            self.lines.append(s)
+
+    p, _ = _placeholder()
+    (b, bp), (x, xp) = _teams(Sport.NFL, AF)
+    mid = _stored("PHF14B", Sport.NFL, AF, "phf-14b", p, b, when=PH_KICK)
+    fake = Listing(AF, [_nm("PHF14B", Sport.NFL, AF, "phf-14b", xp, bp, when=PH_SERVED)])
+    monkeypatch.setattr(admin, "_adapter_for_competition", lambda c: fake)
+    job = _Log()
+    out = admin._job_sync_matches(competition_code="PHF14B", season=None, seasons=1, job=job)
+    assert f"  placeholder_filled 1: {mid}" in job.lines, job.lines
+    assert out.endswith(f"placeholder_filled 1: {mid}"), out

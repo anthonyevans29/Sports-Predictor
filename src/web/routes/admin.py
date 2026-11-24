@@ -25,8 +25,8 @@ from sqlalchemy import select
 from src.adapters.registry import get_adapter
 from src.db.database import session_scope
 from src.db.schema import Competition, Sport
-from src.ingestion.service import (IngestionService, SyncResult, provider_id_collision_line, scores_by_team_line,
-                                   season_unknown_line)
+from src.ingestion.service import (IngestionService, SyncResult, placeholder_filled_line, provider_id_collision_line,
+                                   scores_by_team_line, season_unknown_line)
 from src.web.guards import require_localhost
 from src.web.jobs import Job, runner
 from src.timeutil import utc_now_naive
@@ -106,12 +106,15 @@ def _job_sync_matches(
             both.teams_mismatch_refused += r.teams_mismatch_refused
             both.provider_id_collision += r.provider_id_collision
             both.provider_id_season_unknown += r.provider_id_season_unknown
+            both.placeholder_filled += r.placeholder_filled              # addendum 500 Q1: never silent
             if job:
                 job.append_log(
                     f"  created={r.created} updated={r.updated} skipped={r.skipped}"
                 )
                 if r.provider_id_collision:     # addendum 310 3(b); 312 item 2: creations only, when N > 0
                     job.append_log(f"  {provider_id_collision_line(r.provider_id_collision)}")
+                if r.placeholder_filled:        # addendum 500 Q1: its own line, in the season's block, when N > 0
+                    job.append_log(f"  {placeholder_filled_line(r.placeholder_filled)}")
                 job.append_log(f"  {scores_by_team_line(r)}")
         return (
             f"created={totals['created']} updated={totals['updated']} "
@@ -129,6 +132,8 @@ def _collisions(r) -> str:
     out = f" · {provider_id_collision_line(r.provider_id_collision)}" if r.provider_id_collision else ""
     if r.provider_id_season_unknown:
         out += f" · {season_unknown_line(r.provider_id_season_unknown)}"
+    if r.placeholder_filled:                # addendum 500 Q1: "its own receipt line with the match ids"
+        out += f" · {placeholder_filled_line(r.placeholder_filled)}"
     return out
 
 

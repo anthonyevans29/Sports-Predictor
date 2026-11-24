@@ -134,8 +134,8 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))            # src.walters.desk_policy and, for --weekly, src.db (after the hosting pack)
 
 import sp_common as c  # noqa: E402
-from sp_run import (FALLBACK_TEAMS_LINE, HELD_LINE, MATCHES_LINE, SCORES_BY_TEAM_LINE,  # noqa: E402
-                    SKIPPED_LISTINGS_LINE, TEAMS_LINE, date_vars, sync_counts)
+from sp_run import (FALLBACK_TEAMS_LINE, HELD_LINE, MATCHES_LINE, PLACEHOLDER_FILLED_LINE,  # noqa: E402
+                    SCORES_BY_TEAM_LINE, SKIPPED_LISTINGS_LINE, TEAMS_LINE, date_vars, sync_counts)
 
 UNIT = "laptop-routine"                   # the receipts' unit: never a host chain's name (chains.CHAINS has no such key)
 RUN_KIND = "laptop_routine"               # the run's receipt kind: never "chain"
@@ -216,6 +216,7 @@ WEEKLY_BEFORE = "8"                       # 451 item 3(e): the pass runs BEFORE 
 #   "skipped N listing(s) of clubs not in the DB: <ids>"   service.skipped_listings_line
 #   "provider_id_collision N: ..." / "provider_id_season_unknown N: ..."   service.provider_id_collision_line /
 #                                                                          season_unknown_line
+#   "placeholder_filled N: <ids>"                           service.placeholder_filled_line (addendum 500 Q1)
 #   "orientation_reversed N: <ids> · teams_mismatch_refused M: <ids>"     service.scores_by_team_line (and the
 #                                                                          tennis re-read's "CODE re-read: ..." line)
 #   "... id N NOT created — ..."                            service.sync_matches' re-key refusal (a log warning)
@@ -227,12 +228,14 @@ WEEKLY_BEFORE = "8"                       # 451 item 3(e): the pass runs BEFORE 
 #   "  counts: k v · ...", "  REFUSED game <id>: goalie lists ...", "  not in our DB (sample): ..." and
 #   "✗ NHL-GOALIE-SYNC: ..."                                cli.py nhl_goalie_sync_cmd (step 13, a sync whose name
 #                                                           does not start "sync-"; SYNC_STEPS below)
-# sp_run's own count regexes (TEAMS_LINE ... HELD_LINE) are read first; sync_counts puts the counts on the receipt.
+# sp_run's own count regexes (TEAMS_LINE ... HELD_LINE, PLACEHOLDER_FILLED_LINE) are read first; sync_counts puts the
+# counts on the receipt.
 SYNC_ECHO = re.compile(r"^\s*[✓✗]|orientation_|teams_mismatch_refused|provider_id_collision|provider_id_season_unknown"
                        r"|skipped \d+ listing|NOT created|names kept:|(?i:refus)|^\s*\S+ listing:|^\s*series .*matched"
                        r"|^\s*counts: |^\s*not in our DB")
 SYNC_STEPS = ("nhl-goalie-sync",)          # item 3(b)'s "a sync": every "sync-" command, and these
-_COUNT_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE, SCORES_BY_TEAM_LINE, HELD_LINE)
+_COUNT_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE, SCORES_BY_TEAM_LINE, HELD_LINE,
+                PLACEHOLDER_FILLED_LINE)
 
 _popen = subprocess.Popen                 # tests replace these two; nothing else in the module runs a process
 _sleep = time.sleep

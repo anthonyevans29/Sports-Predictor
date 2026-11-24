@@ -506,7 +506,9 @@ def test_the_window_card_copies_the_fence_and_the_pager_reads_pass(role, tmp_pat
                     "utc_date": "2026-10-18T15:30:00", "status": "scheduled",
                     "market": {"fair_prob": {"HOME": 0.50, "DRAW": 0.27, "AWAY": 0.23}}, "kalshi": None,
                     "tier": m["tier"], "quarantine": False, "venue_flag": None, "edge_pp": 6.0,
-                    "engine": "model_edge", "model": m}
+                    # addendum 473 item 3(b): the card adds the registry's word (v22 on the PL: certified)
+                    "engine": "model_edge", "model": {**m, "certification": window.certification("SOCCER",
+                                                                                                m["model_version"])}}
         g = page.snapshot({"fixtures": [card_row]})["410001"]
         texts[who] = (m["desk"], page.row_text(g))
     lap_desk, lap_text = texts["laptop"]

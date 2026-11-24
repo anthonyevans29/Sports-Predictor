@@ -40,6 +40,15 @@ reference (books, or Kalshi when kalshi-only) · edge · Desk call/units when th
 file carries desk · flags"; market-only rows say so. A delta adds one "↳" line
 with the change. Lines stay near 100 characters for the phone. The digest lists
 the Desk's calls first.
+THE LABEL (ARCHITECT 2026-11-23, addendum 473 item 3(c)): a model the card's
+`certification` reads "uncertified" prints "model (uncertified) SIDE PROB (TIER)";
+a read that failed ("unread"), or a card with no `certification` (written before
+473), prints "model (certification not read) SIDE PROB (TIER)": Code's reading of
+3(a) with 3(c), 3(a)'s words in 3(c)'s label place, as bulletin.certification_line
+words it (law 4: never judged certified); "certified" prints
+the row as before 473. A Desk PASS of pass_kind market_only reads "PASS
+market-only". window.py reads the certification from the registry; this page only
+prints it, never decides it (473 item 3(a)).
 Quiet hours are 00:00-07:00 America/New_York: everything except the
 quarantine-class deltas (quarantine flips and line moves, ruling 2026-09-29) is
 suppressed there, and still receipted. Plus ONE fixed daily digest
@@ -77,6 +86,11 @@ URGENT = ("quarantine", "line_move")
 # in-process as the window chain's post, so stdout is the window's log (the journal).
 CAPTURE_ONLY = frozenset(WINDOW_KALSHI_CAPTURE_ONLY) - frozenset(WINDOW_KALSHI)
 CAPTURE_ONLY_MOVE = "· capture-only line move (addendum 165 item 1):"
+# THE LABEL (addendum 473 item 3(c)): the registry's word as window.py wrote it into the model block, read here, never
+# decided here. "certified" prints no label (the row as before 473); "uncertified" its word; anything else, an absent
+# field included, is a read that did not happen and prints "certification not read" (473 item 3(a), law 4).
+CERTIFIED, UNCERTIFIED = "certified", "uncertified"
+NOT_READ = "certification not read"
 
 
 def _capture_only_move(d: dict) -> bool:
@@ -136,6 +150,7 @@ def snapshot(card: dict) -> dict:
             "time_flag": r.get("time_flag"),
             # card page (2026-10-01)
             "pick": pick, "prob": model.get("top_pick_prob"), "model_version": model.get("model_version"),
+            "certification": model.get("certification"),          # addendum 473 item 3(b): the registry's word
             "ref_src": "kalshi" if kal_only else "books",
             # with a Desk call, the reference the call was made on; else the card's repriced books
             "ref_p": desk.get("market_ref") if desk else (fair.get(pick) if pick else None),
@@ -348,7 +363,8 @@ def _call_text(g) -> str | None:
     if not g.get("call"):
         return None
     if g["call"] == "PASS":
-        return "PASS" + {"noref": " no-ref", "floor": " floor"}.get(g.get("pass_kind") or "", "")
+        return "PASS" + {"noref": " no-ref", "floor": " floor",
+                         "market_only": " market-only"}.get(g.get("pass_kind") or "", "")   # 473 item 3(c)
     u = g.get("units")
     return f"{g['call']} {u:g}u" if isinstance(u, (int, float)) else g["call"]
 
@@ -365,13 +381,23 @@ def _market_text(g) -> str:
     return "unpriced"
 
 
+def _cert_label(g) -> str:
+    """The label after "model" (addendum 473 item 3(c)): none when the card reads the model certified, else
+    " (uncertified)", else " (certification not read)" (473 item 3(a): a failed or missing read, law 4)."""
+    cert = g.get("certification")
+    if cert == CERTIFIED:
+        return ""
+    return f" ({UNCERTIFIED})" if cert == UNCERTIFIED else f" ({NOT_READ})"
+
+
 def row_text(g) -> str:
     """One card row for the phone (architect 2026-10-01): competition, teams,
     kickoff ET, model pick/prob/tier, reference, edge, Desk call, flags."""
     parts = [f"{_ko(g)} {g.get('competition') or str(g.get('sport')).upper()} {g.get('away')} @ {g.get('home')}"]
     if g.get("engine") == "model_edge" and g.get("pick"):
         prob = g.get("prob")
-        parts.append(f"model {_side(g, g['pick'])} " + (f"{prob * 100:.1f}%" if prob is not None else "?")
+        parts.append(f"model{_cert_label(g)} {_side(g, g['pick'])} "
+                     + (f"{prob * 100:.1f}%" if prob is not None else "?")
                      + (f" ({g['tier']})" if g.get("tier") else ""))
         ref = g.get("ref_p")
         parts.append(f"{g.get('ref_src') or 'books'} " + (f"{ref * 100:.1f}%" if ref is not None else "—"))

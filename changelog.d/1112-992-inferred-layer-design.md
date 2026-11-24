@@ -12,6 +12,13 @@
     - "series" is renamed "lineage".
   - **496 item 4(d)'s one paragraph (§7.6):** what the NHL pilot would measure now that no NHL model input waits on it. It sets out four readings and chooses none.
   - **My adversarial review** (two critics, two skeptics each): 18 findings held, all fixed. Among them: the calls ledger that the daily caps count (the review's P1); 496's closure stated no wider than it rules; the key's value kept in host.env; the bench's forward-only rule; a side's truth with two goalies in net; the destroy leaving the graph's rebuild to its own unit.
+  - **Codex's first review (3 P1, 3 P2), all verified and fixed:**
+    - one domain per call, so a destroy never leaves a claim made from the destroyed text;
+    - each call's ordered input manifest;
+    - `InaccessiblePaths` on host.env for the other units, beside `UnsetEnvironment`, because host.env is re-read in-process (my own review had wrongly refuted this);
+    - a source lock that every writer and the destroy hold;
+    - a token reservation before each call;
+    - a fixed name-to-NHL-id rule, with no fuzzy match.
   - **§12 lists twelve points for the ruling of 12-03.**
 
   Nothing is built and nothing is run. No bar, date or held timer moves.

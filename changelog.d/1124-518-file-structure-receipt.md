@@ -1,4 +1,4 @@
-## 2026-11-24 (#0000: 518-file-structure-receipt — the file structure receipt, read-only tooling (DEV 4, Lane D; the brief of addendum 518 item 5, ruled by addendum 521 item 6; Refs #105, #838))
+## 2026-11-24 (#1124: 518-file-structure-receipt — the file structure receipt, read-only tooling (DEV 4, Lane D; the brief of addendum 518 item 5, ruled by addendum 521 item 6; Refs #105, #838))
 - **scripts/file_structure_receipt.py**, new, stdlib only, Python 3.10 floor, no f-strings. It reads CSV files (plain, `.csv.gz`, `.zip` members), as a file or a folder (`--recursive` opt-in), and prints per file:
   - the name, the size and the sha256 of the bytes on disk; for a `.gz` file or a zip member, also the decompressed bytes read and their sha256;
   - the rows, blank records and ragged rows, and the columns in order (blank and duplicate names flagged);

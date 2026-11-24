@@ -20,6 +20,10 @@
     - a token reservation before each timer call, as append-only reservation and settlement rows, with `max_retries=0`;
     - a fixed name-to-NHL-id rule, with no fuzzy match;
     - then a second check of those fixes, which held 32 more findings, all fixed: the evidence rule, one `sp-inferred@` instance per domain, the domain in the lineage and the gate per lineage, §10 per domain, and the bench outside the ledger and the cap.
+  - **Codex's second review (2 P1, 3 P2).** The two P1s are fixed:
+    - the ledger's lock is held per write, so overlapping domain runs do not refuse each other;
+    - the gate judges each status word and lead-time bucket on its own, with its own sample, margin and calibration criterion, as 375 item 2(d) rules.
+  - **The three P2s go to the PR's follow-up Issue** under the review stop rule (docs).
   - **§12 lists twelve points for the ruling of 12-03.**
 
   Nothing is built and nothing is run. No bar, date or held timer moves.

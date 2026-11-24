@@ -4,7 +4,7 @@
 
 It is the proposal Dev 2 posted on #992 on 2026-11-14 (issuecomment-6877950027), done-marked by addendum 385 item 3(c) as "the design proposal to the architect". It is written as addenda 375 and 376 declared the layer (addendum 496 item 4(d)). Each fact it cites about the repository is re-read on main `822ff041`, and §13 lists what changed since the proposal.
 
-The rulings are quoted word for word below and govern this document. Where a later addendum changed an earlier one, the later text governs (addendum 501 item 2). Nothing here is ruled by this document. Every choice it makes is a proposal for the ruling of 2026-12-03, and §12 lists them.
+The rulings are quoted word for word below and govern this document. Where a later addendum changed an earlier one, the later text governs (addendum 501 item 2). Nothing here is ruled by this document. Every choice it makes is a proposal for the ruling of 2026-12-03. §12 lists the points that most need it; every other choice in the body stands only if that ruling leaves it standing.
 
 ---
 
@@ -136,8 +136,15 @@ Each tier has its own tables. No table holds both tiers, and every row still car
     - the prompt file and its sha256;
     - `lineage` (§7.5);
     - `confidence`;
-    - the call's `call_id`;
-    - the per-call usage as input and output tokens.
+    - the call's `call_id`.
+- **The calls ledger, its own source (the P1 of the design's review).** `inferred_calls` lives in its own folder, `<SP_PRIVATE_DIR>/inferred_calls/`, and holds one row per provider call, written whatever the outcome. Each row carries:
+  - `call_id`, the element, the games and sides asked;
+  - the provider, its model, and the prompt's sha256;
+  - the start and end times;
+  - the provider's own input and output token counts;
+  - the outcome: answered, no evidence, refused, or failed.
+
+  It holds no page text and no answer text. The daily caps count it (§6), so a call that writes no claim (375 item 2(g)) is still counted, and a claim copied into several domains' files (§3.2) is counted once. On an objection to the provider, it goes with the provider's destroy (§3.3).
 - A source's file holds only its own tier's tables. An api source's file has no inferred tables, and an inferred reader's file has no api tables.
 - There is no `test` column. Test rows exist only in the bench files (§6), never in a store (376 item 2(d)).
 
@@ -161,6 +168,11 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
   - `schema_ddl_check.py`'s DUMP compiles both MetaData;
   - CONTRIBUTING's stated limits name the second MetaData. Its sentence "Every table is declared in src/db/schema.py (a test pins it)" becomes false and is rewritten; the test that pins the limits is updated with it.
 - **The readiness predicate** is `private.migrated(session, <file>)`, on the pattern of `record.migrated(rs)`, which takes a session.
+- **The first private tables and the DDL check.** Once DUMP compiles the private MetaData, CI's rule that a new table ships with its migrate file (CONTRIBUTING, 358 item 2) covers them. So the PR that first adds them ships `migrate_private_0001.py`:
+  - it applies the schema to every private store that exists;
+  - it creates nothing where none exists, so it is a no-op on a host with no stores.
+
+  `private-init` makes a new store at the current schema and records the migrate files as applied. That is how 368 item 5(iv) is answered: the store's own init makes it, and a migrate file carries each change after.
 
 ## 2. Backup on the host itself, never pulled (368 item 5(ii))
 
@@ -193,7 +205,7 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
   - Destroying one domain removes its folder: its pages, and every row that cited it.
   - The other domains' rows stand, each with only its own evidence.
   - A row whose evidence was all from the destroyed domain goes with it, because no evidence means no row (375 item 2(g)).
-- **Copies of one claim.** Every copy carries the call's `call_id`, and the score counts one claim per `call_id`. A claim written to two domains is never counted twice.
+- **Copies of one claim.** Every copy carries the call's `call_id`. The score counts one claim per (`call_id`, side, element), since one call answers for both sides (§5). A claim written to two domains is never counted twice.
 
 ### 3.3 The Provider plug
 
@@ -206,11 +218,12 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
 - **TWO FACTS for the ruling (§12(h)):**
   - **host.env says keys don't live there.** `deploy/hosting/etc/host.env.example`'s header reads: "API keys do NOT live here: they travel in the checkout's .env (H0-15 manifest) and are read by config.py as on the laptop." 376 item 1(a) rules the key into host.env, so that comment changes with the build.
   - **Eleven units load host.env** (`EnvironmentFile=-/etc/sports-predictor/host.env`), so each would hold the key in its environment. They are sp-availability-observe, sp-backup-prune, sp-backup, sp-boot-receipt, sp-chain@, sp-closing-watch, sp-cup-observe, sp-exports-squash, sp-notify@, sp-soccer-refresh and sp-web.
-  - **The proposal:** the key's NAME and value live in host.env as ruled, and the inferred reader's unit is the only unit that receives them. Two ways do that: a second EnvironmentFile read only by that unit, or `UnsetEnvironment=ANTHROPIC_API_KEY` on the other eleven. The choice is the architect's.
+  - **The proposal:** the key's NAME and value live in host.env, as 376 item 1(a) rules, and only the inferred reader's unit receives the value. The other eleven units carry `UnsetEnvironment=ANTHROPIC_API_KEY`.
+  - A second file read only by the reader's unit would also do it, but it would move the value out of host.env. That departs from 376 item 1(a), so it is set out only as the architect's to rule (§12(h)), never proposed as within the ruling.
 - **The provider's destroy path.** What the provider holds is our calls' inputs and outputs; our own copies are the store's rows and payloads, which go by §4, per source. On an objection to the provider:
   - the timer stops;
   - the block disables the provider plug;
-  - every inferred source made through that provider is destroyed by §4.
+  - every inferred source made through that provider, and the calls ledger, is destroyed by §4.
 
   The provider's own retention is a matter of its terms. The terms phase reads them and keeps the facts (375 item 2(i)), and the provider plug's PR quotes those facts. None is quoted here, because none has been read yet.
 
@@ -242,12 +255,12 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
   - the receipts;
   - the private backups.
 - **What it removes:** the source's folder (`<source>/`: the store, the payloads, the bench and the receipts), and its private backups.
-- **Then the graph.** It rebuilds the graph without that source, or removes the graph file if the rebuild cannot run. The graph's copy of the rows does not wait for the night.
+- **Then the graph.** It removes the graph file. It never rebuilds in-process: the rebuild runs only in its own unit (347 item 5(b)), and the next run, which the block may start at once, rebuilds without the source. The graph's copy of the rows does not wait for the night.
 - **The receipt line** (368 item 5(iii): "a receipt line saying what was destroyed, when and on whose ruling"). It appends one record through `sp_common.append_receipt`: `{"kind": "private-destroy", "source", "rows", "payloads", "bench", "receipts", "backups", "graph", "ruling"}`. The `·` line is the console only.
 - **The NBA probe's receipts.**
-  - Today the probe's report phase REQUIRES `--out` under the checkout's own resolved `logs/availability/` (`refuse_report_out` in scripts/nba_injury_report_probe.py); `--out` has no default.
-  - The build changes that rule so the report phase writes under `<source>/receipts/`.
-  - Until that merges, `private-destroy` also names the probe's receipts under `logs/availability/` and removes them.
+  - Today the probe's report phase REQUIRES `--out` under the checkout's own resolved `logs/availability/` (`refuse_report_out` in scripts/nba_injury_report_probe.py, which enforces 368 item 4(ii)); `--out` has no default.
+  - **A proposal against a ruled rule (§12(l)):** the report phase would write under `<source>/receipts/` instead. 368 item 4(ii) rules the location, so this moves only on the architect's ruling.
+  - Until such a move, the destroy removes no file under `logs/availability/` on its own judgement. That tree also holds every record source's append-only payloads and the graph's folder. It removes only the paths the block names with `--also <path>`. Each must be a regular file under `logs/availability/` that is in no record source's payload folder (`logs/availability/<source>/<date>/`) and not in the graph's folder, and each is printed before it goes.
 - Nothing else is touched.
 
 ## 5. The inferred reader, and 376 item 3's question
@@ -264,7 +277,7 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
 - **The landing projection is NOT given to the model.** It is a baseline (§7), and giving it to the model would make the score circular.
 - **The answer.** The fixed prompt asks for one JSON answer per side: the goalie, the status word, the evidence links with their shown times, and the confidence.
 - **No evidence, no row** (375 item 2(g)).
-- **Forward only** (375 item 2(e)). The bench and the timer refuse any game whose start has passed, and any game before its lineage opened. Nothing is backfilled.
+- **Forward only** (375 item 2(e)). The bench and the timer both refuse any game whose start has passed. The timer also refuses any game before its lineage's declared start, which is written in the register with the gate (§7.4; 376 item 2(d): "the pilot's scored series starts only at its declared start"). The bench's rows are test rows in no lineage (§6), so only the first rule binds it. Nothing is backfilled.
 - **Context notes** (375 item 2(c)). A context note is kind `context_note`, labelled "reading". It is never scored and never a model input; every model input refuses the kind, by test.
   - A note becomes a tracked element only by promotion from the CANDIDATE REGISTER, `docs/inferred/register.json`. Each entry holds the note's definition, the truth that scores it, and its free baseline.
   - The architect reviews the register monthly and the operator approves it (375 item 2(c)). The PR that promotes a note carries both.
@@ -272,22 +285,32 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
 ## 6. The bench for the controlled tests (376 item 2; 376 item 3)
 
 - **The command:** `cli.py inferred-bench --provider claude --prompt prompts/nhl_goalie/v1.md --games <ids…> --max-calls N --max-pages M`.
-  - It runs on the host only and by hand (376 item 2(a)). It refuses under systemd (an `INVOCATION_ID` check) and is never on a chain or a timer.
+  - It runs on the host only, by hand, by the architect's block (376 item 2(a)). It refuses under systemd (an `INVOCATION_ID` check) and is never on a chain or a timer.
 - **What it prints.** First the two bounds, at which it stops (376 item 2(b)). Then, per call and in total, the input and output tokens and the model name (376 item 2(c)). No dollar figure is printed or written.
 - **Where its output goes:**
   - its inputs, outputs and rows go to `<source>/bench/<ts>/` under the private folder. The scoring report never reads them, and §4 destroys them with the source (376 item 2(d));
   - the prompts are files in the repo, each with its version and sha256 (376 item 3).
-- **The caps.** No spend cap applies during the controlled tests (376 item 1(b)). Before any timer runs, `SP_INFERRED_DAILY_CALLS` and `SP_INFERRED_DAILY_TOKENS` (NAMES in host.env) are set by the operator from the bench's measured counts.
+- **The caps.** No spend cap applies during the controlled tests (376 item 1(b)). Before any timer runs, the daily cap is set by the operator on the measured cost (376 item 1(b)), which the operator and the architect work out from the bench's token counts (376 item 2(c)).
+  - **Its unit is a proposal:** 375 item 1(iii) rules "a daily spend cap", and this design holds it as two NAMES in host.env, `SP_INFERRED_DAILY_CALLS` and `SP_INFERRED_DAILY_TOKENS`, in calls and tokens rather than money. No dollar figure is written anywhere (376 item 2(c)). That unit is the architect's to rule (§12(e)).
   - The timer refuses if either is unset.
-  - It stops at either cap, counted from the stores' own usage columns for the UTC day.
+  - It stops at either cap, counted from the calls ledger (§1.1) for the UTC day, one count per call whatever its outcome.
 
-## 7. Scored and gated (375 item 2(d)): `cli.py inferred-score --element nhl_starting_goalie --sports-copy <a sports .backup copy> --private-copy <a private .backup copy>`
+## 7. Scored and gated (375 item 2(d)): `cli.py inferred-score --element nhl_starting_goalie --sports-copy <a sports .backup copy> --private-backup-dir <the private backups' folder>`
 
-Both copies open mode=ro + immutable=1 (198 item 6(ii)).
+Every copy opens mode=ro + immutable=1 (198 item 6(ii)). The score reads every inferred domain's backup of the same day, as the graph does (§9), because a claim's copies are spread over the domains it cited (§3.2). It counts each (`call_id`, side, element) once.
 
 ### 7.1 The truth
 
-The truth is in sports.db: the landing watch's `eventual_starter` (`src/availability/nhl_landing.py`: every goalie with time on ice above zero, so a game with two goalies in net has two rows). The boxscore's own starter flag, `is_starter` in `nhl_goalie_appearances` (`src/ingestion/nhl_goalies.py`), is the cross-check. That flag is a sports.db column, not an attribute of the assertion.
+The truth is in sports.db, from two stored readings:
+- **The landing watch's `eventual_starter`** (`src/availability/nhl_landing.py`). It writes one row per goalie with time on ice above zero, per side, and marks `two_in_net` when a side has two or more. A normal game has one row a side; a side with a relief appearance has two.
+- **The boxscore's own starter flag**, `is_starter` in `nhl_goalie_appearances` (`src/ingestion/nhl_goalies.py`). It is a sports.db column, not an attribute of the assertion.
+
+The proposal for a side's truth (part of §12(f)):
+- the one goalie whose `is_starter` is TRUE, where exactly one is;
+- otherwise the side's single `eventual_starter` row, where there is exactly one;
+- otherwise no truth, and the side is left out by cause and counted (law 4).
+
+A claim that names a reliever is never counted correct.
 
 ### 7.2 The two free baselines, as they stand
 
@@ -313,7 +336,7 @@ The lead times are the reads the reader makes (§10: a morning read at T-8h and 
   - It prints PASS, FAIL, or NOT YET (the sample is not reached), and writes nothing else.
   - A tie is a rejection.
 - **What a PASS allows.** An element that passes may only be DECLARED as an input to a candidate, which then runs at that sport's UNCHANGED gate (375 item 2(d)). Nothing inferred changes a call or a stake before its gates (375 item 2(k)).
-- **For the NHL starting goalie, 496 item 4(a) shuts that route:** "I build no as-of estimate and no projected starter of this quantity as an NHL model input." §7.6 is what is left.
+- **For the NHL starting goalie, 496 item 4(a) closes the quantity the ceiling read:** "I build no as-of estimate and no projected starter of this quantity as an NHL model input." 496 item 4(d) says no NHL model input waits on the pilot. A goalie route in another form is not closed: it "is a new idea and declares 2026-27" (491 item 6(a); 496 item 4(c)). §7.6 sets out what the pilot is then for.
 
 ### 7.5 Lineage (375 item 2(h))
 
@@ -323,8 +346,8 @@ The lead times are the reads the reader makes (§10: a morning read at T-8h and 
 
 ### 7.6 What the NHL pilot would measure now that no NHL model input waits on it (496 item 4(d))
 
-This paragraph sets out readings; it chooses none, and the architect rules on 12-03. Since 496, a passing goalie element can no longer become an NHL model input (496 items 4(a) and 4(c)). The pilot's own measure (§7.3: the inferred starter against the truth, by status word and lead time, against the free baselines, with its calls and tokens counted) is unchanged by that. What changes is what its result would be for:
-- **(A) A test of the layer's method.** The goalie is the one element whose truth arrives after every game. The pilot would measure whether a fixed-source reader names a fact better than the free baselines, how early and at what cost. The result would decide whether the layer is built for the sports that follow in 375 item 1(v)'s order. No NHL input follows from it, whatever it reads.
+This paragraph sets out readings; it chooses none, and the architect rules on 12-03. Since 496, no NHL model input waits on the pilot (496 item 4(d)): the projected starter of the ceiling's quantity is closed as an input (4(a)), and a goalie route in another form would be a new idea declared on 2026-27 (491 item 6(a); 496 item 4(c)). The pilot's own measure (§7.3: the inferred starter against the truth, by status word and lead time, against the free baselines, with its calls and tokens counted) is unchanged by that. What changes is what its result would be for:
+- **(A) A test of the layer's method.** The goalie is the one element whose truth arrives after every game. The pilot would measure whether a fixed-source reader names a fact better than the free baselines, how early and at what cost. The result would decide whether the layer is built for the sports that follow in 375 item 1(v)'s order. No NHL model input waits on it.
 - **(B) Labelled context beside the NHL's market-only pages.** The starter would be shown as reading, never as a model input. Under 375 item 1(iv) it would appear only after the first scored read; the score would tell a reader how far to trust the label.
 - **(C) The pilot moves to an element that a model input does wait on**, in a later sport of 375 item 1(v)'s order. NHL goalies would not be built. This would change 375 item 1(i)'s "ONE pilot, NHL starting goalies", which is the architect's to change, and it would rewrite §7.1 to §7.3 and §10 for that element.
 - **(D) No pilot for now.** The design would stand as the record, and nothing would be built until a lane names an input that waits on the layer.
@@ -335,7 +358,7 @@ Under (A) and (B), §§1 to 11 stand as written. Under (C), the truth, the basel
 
 - **The summary:** `exports/inferred/<element>.md`, holding the gate report's counts and shares, labelled "inferred, shadow, not a fact".
 - **It needs a SECOND kept subtree in `exports_mirror.py`:** `exports/inferred/** -> <role>/inferred/**`, .md only, the way 250 item 4 ruled the first (bulletins). Today the mirror carries no subfolder but `bulletins/**` (§12(c)).
-- **The other carriers.** `pull_exports.py` never reaches the subtree, because it lists the top level only; that is tested. `sp_migrate.py pack` leaves it out (§1).
+- **The other carriers.** `pull_exports.py` never reaches the subtree, because it lists the top level only. No test on main pins that yet; the build adds one (§1). `sp_migrate.py pack` leaves it out (§1).
 - **What never leaves:** no row, no name, no evidence text and no NBA content (368 item 3(a)).
 - **Bulletins:** inferred context reaches a bulletin only after the pilot's first scored read (375 item 1(iv)).
 
@@ -346,7 +369,7 @@ Under (A) and (B), §§1 to 11 stand as written. Under (C), the truth, the basel
 - **An inferred claim is a node** (379 item 2), with edges:
   - to its evidence: one node per cited page, carrying the shown publication time;
   - to its successor: the next claim in its lineage for the same game, side and element;
-  - to its truth: the `eventual_starter` fact for that game and side, once stored.
+  - to its truth: the side's truth as §7.1 defines it, once stored, or no truth edge where the side has none.
 
   An api fact for the same question is its own node, and the precedence of §3.4 is read on the projection.
 - **The unit.** The graph unit runs as sp under `ProtectSystem=strict`, with `InaccessiblePaths=/etc/sports-predictor` and data/ masked read-only by `TemporaryFileSystem` (378 item 3).
@@ -390,13 +413,20 @@ These are estimates, to be replaced by the bench's measured figures. No dollar f
 - (d) The market-word list and the trim rule (§5), as data. The proposal:
   - the words: odds, line, spread, moneyline, sportsbook, betting, and a signed price such as +/-<digits>;
   - the trim: keep a paragraph only if it names a listed goalie, or names both teams and the date.
-- (e) The two daily cap NAMES (§6), and the register's path and shape (§5, §7.4).
-- (f) The pilot's truth and baselines (§7.1, §7.2), and keeping the landing projection out of the model's inputs (§5).
+- (e) The cap's unit: calls and tokens, against 375 item 1(iii)'s "spend cap". Its two NAMES; the calls ledger that counts them (§1.1, §6); and the register's path and shape (§5, §7.4).
+- (f) The pilot's truth, its rule for a side with two goalies in net, and its baselines (§7.1, §7.2). Keeping the landing projection out of the model's inputs (§5).
 - (g) 376 item 3's question: the fixed list of domains, fetched by the reader (§5).
-- (h) Where the key's value is read from: host.env as ruled, with the inferred unit the only unit that receives it (§3.3).
+- (h) The key: its value in host.env as ruled, with `UnsetEnvironment` on the other eleven units, against a second file that departs from 376 item 1(a) (§3.3).
 - (i) The graph's second input, and the node shape of an inferred claim (§9).
 - (j) What the NHL pilot is now for (§7.6). This document does not choose.
-- (k) The pilot's gate: its sample, its margin, its lead-time buckets and its confidence bands (§7.3, §7.4). The private backups' retention (§2).
+- (k) The pilot's gate: its sample, its margin, its lead-time buckets, its confidence bands and its lineage's declared start (§5, §7.3, §7.4). The private backups' retention (§2).
+- (l) Choices in the body that change or add to something already built or ruled:
+  - the NBA probe's receipts moving from 368 item 4(ii)'s `logs/availability/` (§4);
+  - the destroy's `--also` list until then (§4);
+  - the new kind `inferred_starter`, and the kind-plus-tier precedence (§3.4);
+  - the bench's `INVOCATION_ID` refusal (§6);
+  - the masking line on every sp unit that does not need the live stores (§9);
+  - the first private migrate file (§1.4).
 
 ## 13. Since the proposal of 11-14: the repository facts re-read on main `822ff041`
 

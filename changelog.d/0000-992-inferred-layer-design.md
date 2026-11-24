@@ -11,6 +11,7 @@
     - 428 item 5(b)'s reading of the landing listing sits beside its baseline;
     - "series" is renamed "lineage".
   - **496 item 4(d)'s one paragraph (§7.6):** what the NHL pilot would measure now that no NHL model input waits on it. It sets out four readings and chooses none.
-  - **§12 lists eleven points for the ruling of 12-03.**
+  - **My adversarial review** (two critics, two skeptics each): 18 findings held, all fixed. Among them: the calls ledger that the daily caps count (the review's P1); 496's closure stated no wider than it rules; the key's value kept in host.env; the bench's forward-only rule; a side's truth with two goalies in net; the destroy leaving the graph's rebuild to its own unit.
+  - **§12 lists twelve points for the ruling of 12-03.**
 
   Nothing is built and nothing is run. No bar, date or held timer moves.

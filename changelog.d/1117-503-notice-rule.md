@@ -13,6 +13,9 @@
   - **A closing refused by the run's own checks never holds a resend.** These are the machine's settings: the backup folder, the mirror, the role and the card topic. Such a closing starts no chain on the next tick either. Without this, a refused closing, still open with its T-35 past, would hold its own refusal's resend until T-5, when it is lost (my second adversarial review's P1).
   - **Two kinds still bound a resend:** a refusal that clears by itself (#442's export path, an unreadable schedule) and a feed-down MLB closing, as 138 item 3(c) rules for the pages. So a feed-down MLB closing's own miss resend waits until T-5 (exit 1 each tick). That is listed for the architect.
   - The resent line carries `resent: true`. `closing_state`'s miss count is one per reason.
+- **A try is not always a line** (ARCHITECT 2026-11-24, addendum 509 item 3). A resend whose outcome is the same as that notice's last line writes nothing. A line is written when the outcome changes: taken, always; or cut where the last line was not a cut. This covers the misses, the refusals and the HELD and deferral pages. The tick's exit does not change.
+- **A closing miss is sent again only while its start is still ahead** (509 item 4, as built). One no channel took by the start keeps its key.
+- **The feed-down MLB closing's own miss stays in the bound** (509 item 2, as built). The laptop's missing failure path is #1118.
 - **A send cut at its bound** (HELD page or resend) stays exit 3, with no key, and is sent again on a later tick: ARCHITECT 2026-11-24, addendum 504 item 4(b), "The slate page cut at its bound staying exit 3 and being sent again stands".
 - **Refusals follow the same rule** (504 item 4(b): "THE REFUSALS' ONCE-PER-REASON MARK FOLLOWS THE SAME RULE: it is set when a channel took the notice, not when one was sent"). A closing or slate refusal no channel took is notified again on a later tick. It is queued for the tick's end like a miss's resend, and stays exit 2 with the key. The slate's family refusal, which pages nothing, stays marked when receipted.
 - **Unchanged:**
@@ -22,5 +25,5 @@
 - **`deploy/hosting/sp_receipts.py`:** such a line's key text ends `NOTICE NOT TAKEN: no channel took it`, and it counts as failing.
 - **Words:** docs/CLI.md, cli.py's closing-watch help, and sp-closing-watch.service's comment (no directive).
 - **Tests:**
-  - 20 new tests, closing and slate, among them the resend queue and its bound, the refusals' mark on delivery, a cut resend, and a refused closing that no longer holds its own refusal's resend;
+  - 22 new tests, closing and slate, among them 509 item 3's outcome rule, among them the resend queue and its bound, the refusals' mark on delivery, a cut resend, and a refused closing that no longer holds its own refusal's resend;
   - every other existing closing, slate and hosting test unchanged.

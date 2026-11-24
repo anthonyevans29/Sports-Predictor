@@ -2534,13 +2534,13 @@ def test_503_a_closing_miss_no_channel_took_is_sent_again_until_one_takes_it(box
     (first,) = soccer_misses()
     assert first["reason"].startswith("inside T-5") and first[mc.NOTICE_NOT_TAKEN] is True and len(miss_pages()) == 1
     assert mc.watch(now=NOW + timedelta(minutes=32), families=("SOCCER",)) == 1       # sent again, not taken again
-    assert len(soccer_misses()) == 2 and len(miss_pages()) == 2
+    assert len(soccer_misses()) == 1 and len(miss_pages()) == 2      # 509 item 3: the same outcome, no line
     monkeypatch.setattr(mc, "page_operator", lambda t, b: ops.append(b) or {"accepted": True, "http": 200})
     assert mc.watch(now=NOW + timedelta(minutes=33), families=("SOCCER",)) == mc.NOTIFIED   # every notice taken
     taken = soccer_misses()[-1]
     assert taken["notified"]["channel"] == "operator" and mc.NOTICE_NOT_TAKEN not in taken and len(miss_pages()) == 3
     assert mc.watch(now=NOW + timedelta(minutes=34), families=("SOCCER",)) == mc.NOTIFIED   # the miss: nothing sent
-    assert len(soccer_misses()) == 3 and len(miss_pages()) == 3
+    assert len(soccer_misses()) == 2 and len(miss_pages()) == 3
 
 
 def test_503_record_miss_skips_only_a_miss_a_channel_took(box, monkeypatch):
@@ -2701,3 +2701,19 @@ def test_504_a_refusal_by_hand_is_not_the_watchs_earlier_notice(box, monkeypatch
                       "trigger": "watch", "queued_at": r["queued_at"]}, "watch", dry_run=False, tick=tick) == 2
     assert not tick.get("resends") and runs()[-1]["failure_notification"]   # sent at once, as a first notice
 
+
+
+def test_509_a_refusal_try_with_the_same_outcome_writes_no_line(box, monkeypatch):
+    """509 item 3(a) for a refusal: tried on every tick its bound allows, exit 2 each time, a line only when the
+    outcome changes."""
+    no_channel(box, monkeypatch)
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "")
+    assert mc.watch(now=NOW, families=("NFL",)) == 2
+    n = len(receipts())
+    first = runs()[-1]
+    base = {k: first[k] for k in ("kind", "family", "run_id", "trigger", "queued_at")}
+    assert mc._refuse(first["refused"], "NFL", first["start"], base, "watch", dry_run=False, bounded=True) == 2
+    assert len(receipts()) == n                                              # untaken again: no line
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "channel": "card"})
+    assert mc._refuse(first["refused"], "NFL", first["start"], base, "watch", dry_run=False, bounded=True) == 2
+    assert len(receipts()) == n + 1 and mc.NOTICE_NOT_TAKEN not in runs()[-1]  # taken: always a line

@@ -1915,12 +1915,12 @@ def test_503_a_slate_miss_no_channel_took_is_sent_again_until_one_takes_it(box, 
     box.feed = (False, "URLError")
     assert tick(et(10, 35), ("MLB",)) == 1 and tick(et(10, 36), ("MLB",)) == 1
     ms = misses("MLB")
-    assert [m["reason"] for m in ms] == ["feed unreachable"] * 2 and all(m[mc.NOTICE_NOT_TAKEN] for m in ms)
+    assert [m["reason"] for m in ms] == ["feed unreachable"] and all(m[mc.NOTICE_NOT_TAKEN] for m in ms)   # 509 3
     assert len(ops) == 2
     monkeypatch.setattr(mc, "page_operator", lambda t, b: ops.append(b) or {"accepted": True, "http": 200})
-    assert tick(et(10, 37), ("MLB",)) == mc.NOTIFIED and len(misses("MLB")) == 3 and len(ops) == 3
+    assert tick(et(10, 37), ("MLB",)) == mc.NOTIFIED and len(misses("MLB")) == 2 and len(ops) == 3
     assert mc.NOTICE_NOT_TAKEN not in misses("MLB")[-1]
-    assert tick(et(10, 38), ("MLB",)) == mc.NOTIFIED and len(misses("MLB")) == 3 and len(ops) == 3   # silent
+    assert tick(et(10, 38), ("MLB",)) == mc.NOTIFIED and len(misses("MLB")) == 2 and len(ops) == 3   # silent
 
 
 def test_503_a_held_page_no_channel_took_exits_1_and_is_owed_again(box, monkeypatch):
@@ -1973,9 +1973,9 @@ def test_503_a_slate_miss_resend_is_queued_for_the_ticks_end(box, monkeypatch):
     assert (item["kind"], item["reason"]) == (mc.SLATE_MISS_KIND, mc.SLATE_ALL_STARTED)
     monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): None)
     monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "channel": None})
-    assert mc.send_resend(item, BASE, BASE, ("NFL",)) == 1
-    r = misses()[-1]
-    assert r["resent"] is True and r[mc.NOTICE_NOT_TAKEN] is True
+    n = len(misses())
+    assert mc.send_resend(item, BASE, BASE, ("NFL",)) == 1                  # not taken again: exit 1 ...
+    assert len(misses()) == n                                                # ... and, the same outcome, no line
 
 
 def test_504_a_slate_refusal_is_marked_only_when_a_channel_took_it(box, monkeypatch):
@@ -1999,3 +1999,22 @@ def test_504_a_slate_refusal_is_marked_only_when_a_channel_took_it(box, monkeypa
     why = mc._family_refusal("NFL")
     assert mc._slate_refuse(why, "NFL", D18, base) == 2 and mc._slate_refuse(why, "NFL", D18, base, tick={}) == 2
     assert [r["refused"] for r in slates()].count(why) == 1                          # pages nothing: marked as receipted
+
+
+def test_509_a_try_writes_a_line_only_when_its_outcome_changes(box, monkeypatch):
+    """ARCHITECT 2026-11-24, addendum 509 item 3(a): "a resend whose outcome is the same as the last line of that miss,
+    refusal or page writes nothing. A line is written when the outcome changes: taken, always; or cut at the bound
+    where the last line was not a cut." (c): the tick's exit does not change."""
+    the_day(box, monkeypatch)
+    outcomes = iter([{"channel": None}, {"channel": None}, {"cut_at_bound_s": 57}, {"cut_at_bound_s": 57},
+                     {"channel": None}, {"channel": "card"}])
+    monkeypatch.setattr(mc, "notify_failure", lambda text, fam="", title=None: {"text": text, **next(outcomes)})
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, **next(outcomes)})
+    exits, lines = [], []
+    for _ in range(6):
+        r = mc.record_slate_miss("NFL", D18, "x", bounded=True)
+        exits.append(mc.notice_exit(r))
+        lines.append(len(misses()))
+    assert exits == [1, 1, mc.NOTIFIED, mc.NOTIFIED, 1, mc.NOTIFIED]
+    assert lines == [1, 1, 2, 2, 3, 4]                                       # untaken, cut, untaken, taken
+    assert mc.record_slate_miss("NFL", D18, "x") is None                     # taken: nothing more

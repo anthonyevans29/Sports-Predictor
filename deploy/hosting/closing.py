@@ -225,7 +225,8 @@ NOTIFIED = 3                 # addendum 45 P3: the watch's exit for what it alre
 # sends it again (a cut resend the same). 504 item 4(b): "THE REFUSALS' ONCE-PER-REASON MARK FOLLOWS THE SAME RULE: it
 # is set when a channel took the notice, not when one was sent" (a refusal that pages nothing by design, the slate's
 # family refusal, stays marked when receipted); a refusal's resend is queued as a miss's is, and stays exit 2. The
-# notices after a closing's page (the closing file, the push, the bulletin) are 502 item 3's and unchanged.
+# notices after a closing's page (the closing file, the push, the bulletin) are 502 item 3's and unchanged. 509 item 3:
+# a try is not always a line (write_if_changed): a resend whose outcome is the last line's writes nothing.
 QUEUED = "queued"            # record_miss / record_slate_miss: a resend queued for the end of the tick
 NOTICE_NOT_TAKEN = "notice_not_taken"
 STAKED_CALLS = ("PLAY", "LADDER")                      # a call that stakes units (LADDER: soccer's double chance)
@@ -1940,6 +1941,26 @@ def notice_exit(rec) -> int:
     return 1 if rec is not None and rec.get(NOTICE_NOT_TAKEN) else NOTIFIED
 
 
+def outcome(n) -> str:
+    """A notice's outcome (addendum 509 item 3): "taken" (a channel took it), "cut" (cut at its bound) or "untaken"."""
+    if notice_taken(n):
+        return "taken"
+    return "cut" if isinstance(n, dict) and "cut_at_bound_s" in n else "untaken"
+
+
+def write_if_changed(line: dict, n, earlier: list, field) -> dict:
+    """ARCHITECT 2026-11-24, addendum 509 item 3(a): "THE TRY IS NOT ALWAYS A LINE: a resend whose outcome is the same
+    as the last line of that miss, refusal or page writes nothing. A line is written when the outcome changes: taken,
+    always; or cut at the bound where the last line was not a cut." `earlier`: that notice's earlier lines, in order;
+    `field(r)`: a line's notice. The line is marked (mark_notice) and returned, written or not, so the tick's exit
+    reads it as before (item 3(c): "The tick's exit does not change")."""
+    mark_notice(line, n)
+    now = outcome(n)
+    if earlier and now != "taken" and outcome(field(earlier[-1])) == now:
+        return line                   # the same outcome as the last line: the try writes nothing
+    return c.append_receipt(line)
+
+
 def _untaken_before(kind: str, match) -> bool:
     """A line of `kind` for this miss is already receipted, and none of them was taken by a channel: the next send is
     a RESEND (503 item 1 Q6)."""
@@ -1979,7 +2000,10 @@ def _refuse(why: str, fam: str, start: str | None, base: dict, trigger: str, dry
         text = failure_text(fam, start, refused=why)
         rec["failure_notification"] = (_bounded_notify(text, fam, title=f"{fam} closing") if bounded
                                        else notify_failure(text, fam))
-        mark_notice(rec, rec["failure_notification"])      # 503 item 1 Q7: still exit 2, the key set
+        # 503 item 1 Q7: still exit 2, the key set; 509 item 3: a try whose outcome is the last line's writes nothing
+        write_if_changed(rec, rec["failure_notification"], [r for r in receipts(("closing",)) if match(r)],
+                         lambda r: r.get("failure_notification"))
+        return 2
     c.append_receipt(rec)
     return 2
 
@@ -2019,7 +2043,10 @@ def record_miss(fam: str, start: str, reason: str, detail: str | None = None, te
     keeps trying, silently." A miss already receipted for this start time and reason, its notice taken by a channel:
     nothing written or posted (None). Addendum 503 item 1 Q6: "a miss is marked as already notified only when a
     channel took that notice", so a miss whose notice no channel took is sent again on a later tick, its line
-    carrying NOTICE_NOT_TAKEN (notice_exit: exit 1; a send cut at its bound: no key, NOTIFIED, 504 item 4(b)). A RESEND given the tick (`tick`) is queued for the end of the
+    carrying NOTICE_NOT_TAKEN (notice_exit: exit 1; a send cut at its bound: no key, NOTIFIED, 504 item 4(b)); a try
+    whose outcome is the last line's writes nothing (509 item 3, write_if_changed). A closing miss is sent again
+    only while its start is still ahead (the watch's inside list ends at the start): one no channel took by the
+    start keeps its key and is not sent after it, as ruled (509 item 4: the notice is for acting before the start). A RESEND given the tick (`tick`) is queued for the end of the
     tick (QUEUED; send_resend sends it, bounded, never ahead of a closing's T-35); `bounded`: send_resend's own send,
     cut at NOTIFY_MAX_S."""
 
@@ -2033,9 +2060,10 @@ def record_miss(fam: str, start: str, reason: str, detail: str | None = None, te
                                                "detail": detail, "text": text})
         return QUEUED
     res = _bounded_notify(text, fam, title=f"{fam} closing") if bounded else notify_failure(text, fam)
-    return c.append_receipt(mark_notice({"kind": "closing_miss", "family": fam, "start": start, "reason": reason,
-                                         **({"detail": detail} if detail else {}),
-                                         **({"resent": True} if bounded else {}), "notified": res}, res))
+    return write_if_changed({"kind": "closing_miss", "family": fam, "start": start, "reason": reason,
+                             **({"detail": detail} if detail else {}), **({"resent": True} if bounded else {}),
+                             "notified": res}, res, [r for r in receipts(("closing_miss",)) if match(r)],
+                            lambda r: r.get("notified"))
 
 
 def schedule_reads(steps: list[list[str]]) -> int:
@@ -2953,11 +2981,12 @@ def record_slate_miss(fam: str, day: date, reason: str, detail: str | None = Non
                                                "due_at": due_at})
         return QUEUED
     res = (_bounded_notify(text, fam) if bounded else notify_failure(text, fam, title=f"{fam} slate"))
-    return c.append_receipt(mark_notice({"kind": SLATE_MISS_KIND, "family": fam, "date": day.isoformat(),
-                                         "reason": reason, **({"detail": detail} if detail else {}),
-                                         **({"queued_at": iso_z(queued_at)} if queued_at else {}),
-                                         **({"due": iso_z(due_at)} if due_at else {}),
-                                         **({"resent": True} if bounded else {}), "notified": res}, res))
+    return write_if_changed({"kind": SLATE_MISS_KIND, "family": fam, "date": day.isoformat(), "reason": reason,
+                             **({"detail": detail} if detail else {}),
+                             **({"queued_at": iso_z(queued_at)} if queued_at else {}),
+                             **({"due": iso_z(due_at)} if due_at else {}), **({"resent": True} if bounded else {}),
+                             "notified": res}, res, [r for r in receipts((SLATE_MISS_KIND,)) if match(r)],
+                            lambda r: r.get("notified"))
 
 
 def closing_open(fam: str, start: datetime, now: datetime) -> bool:
@@ -3134,7 +3163,14 @@ def send_slate_page(p: dict, now: datetime) -> int:
     if bound is None or utc(now) + timedelta(seconds=NOTIFY_MAX_S) < next_tick(utc(p["tick_at"]), utc(now),
                                                                              bound["run_at"]):
         n = _bounded_notify(p["text"], fam)
-        line = c.append_receipt(mark_notice({**p["line"], "held_page": {"text": p["text"], "notified": n}}, n))
+        # 509 item 3(b): the HELD and deferral pages are under the same rule: a try whose outcome is the last page's
+        # writes no page line (the hold itself, when not yet receipted, is written plain)
+        earlier = [r for r in receipts((SLATE_KIND,)) if r.get("family") == fam and r.get("date") == day_s
+                   and r.get("held_page")]
+        line = {**p["line"], "held_page": {"text": p["text"], "notified": n}}
+        written = write_if_changed(line, n, earlier, lambda r: (r.get("held_page") or {}).get("notified"))
+        if written is line and not p["seen"]:    # the page line was not written: the hold still is, once
+            c.append_receipt(p["line"])
         # 503 item 1 Q5: a page no channel took is not a notice: exit 1, the key on its line; one cut at its bound
         # stays exit 3 (addendum 504 item 4(b)); either way, not taken, a later tick sends it again (_page_owed)
         print(f"✗ {p['text']}" + ("" if notice_taken(n) else
@@ -3318,7 +3354,10 @@ def _slate_refuse(why: str, fam: str, day: date, base: dict, tick: dict | None =
         text = f"SLATE {fam} {day.isoformat()} REFUSED: {why} — RUN BY HAND: {slate_block(fam, day)}"
         rec["failure_notification"] = (_bounded_notify(text, fam) if bounded
                                        else notify_failure(text, fam, title=f"{fam} slate"))
-        mark_notice(rec, rec["failure_notification"])      # 503 item 1 Q7: still exit 2, the key set
+        print(f"✗ slate {fam} {day.isoformat()} REFUSED: {why}")
+        # 503 item 1 Q7: still exit 2, the key set; 509 item 3: a try whose outcome is the last line's writes nothing
+        write_if_changed(rec, rec["failure_notification"], mine, lambda r: r.get("failure_notification"))
+        return 2
     print(f"✗ slate {fam} {day.isoformat()} REFUSED: {why}")
     c.append_receipt(rec)
     return 2

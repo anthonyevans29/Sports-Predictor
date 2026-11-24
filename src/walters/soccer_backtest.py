@@ -97,7 +97,7 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                         batch_same_kickoff: bool = False,
                         confirmation_scoring: bool = False,
                         through=None,
-                        context: CompetitionScoringContext | None = None):
+                        context: CompetitionScoringContext | None = None, session=None):  # session: _store
     """
     Walk `competition_code`/`season` in date order, predict each match using only
     prior matches (leakage-free). Returns a list of per-match result dicts:
@@ -180,7 +180,7 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
     _why = _nb.v2_fence_walk(competition_code, season)
     if _why:
         raise _nb.FenceRefused(_why)
-    with session_scope() as s:
+    with _store(session) as s:
         comp = s.execute(
             select(Competition).where(Competition.code == competition_code)
         ).scalar_one_or_none()
@@ -302,6 +302,17 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                 prior.append(m)
 
         return results
+
+
+def _store(session):
+    """run_soccer_backtest's store (ARCHITECT 2026-11-23, addendum 453 item 3(d), soccer-expansion-confirm --db COPY).
+    session None (the default) = the app's database through session_scope, exactly as before; a session given (the
+    copy's mode=ro + immutable=1 session, mlb_pitchers_gate.readonly_session) is read through and never committed or
+    closed here. The rows read, the walk and every result are the same either way; only the store the rows come from
+    differs. Defined after run_soccer_backtest so that no line the parity pins cite by number moves
+    (tests/test_soccer_parity_acceptance.py PIN_CITATIONS; soccer_backtest.py:200 in docs/specs/soccer-v23.md)."""
+    from contextlib import nullcontext
+    return session_scope() if session is None else nullcontext(session)
 
 
 def soccer_calibration(results):

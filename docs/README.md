@@ -53,7 +53,7 @@ Kinds: **live runbook** (steps or a reference read today); **spec** (a declarati
 - `docs/specs/snapshot-retention.md`: snapshot retention, a ruled design; its status line says nothing in it is built. **spec**. #82.
 - `docs/specs/soccer-expansion-v1.md`: soccer-expansion-v1, the declaration (the production soccer model on PD, SA, BL1, FL1, ELC). **spec**. Roadmap lane pd (#322); registry `soccer-expansion-v1`.
 - `docs/specs/soccer-parity-acceptance.md`: soccer backtest/production acceptance: one parity test and five pins. **spec**. Addenda 230 item 1(e), 248 item 2(a), 249 item 1, 251 item 2, 253 item 2; #788.
-- `docs/specs/soccer-v23.md`: soccer-v23, the design of v22's joint log-linear successor; not declared, not run. **spec**. Lane soccer-v23 (#656), with #789.
+- `docs/specs/soccer-v23.md`: soccer-v23, the design of v22's joint log-linear successor; declared by addendum 449 (2026-11-23), not run. **spec**. Lane soccer-v23 (#656), with #789.
 - `docs/specs/unl-venue-skew-test.md`: UNL venue eligibility, the favorite-skew test (v2, ratified 2026-10-06). **spec**. #286.
 - `docs/specs/venue-quote-age.md`: venue edge, the quote age (a fetch time is not a quote age). **spec**. #91 (addendum 4 E, ARCHITECT 2026-10-07).
 

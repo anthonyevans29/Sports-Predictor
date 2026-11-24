@@ -1,0 +1,11 @@
+**2026-11-22 — soccer-v23's bar: the first leg made like for like (addendum 443 items 1(c) and 2; #656; #1070).**
+- **Ruling (443 item 1(c), in part):** "FOR EACH of v22's recorded figures, soccer-v23's mean three-way log-loss OVER THE SAME MATCHES is at least 0.0050 below it ... Two recorded figures, so two comparisons. With the re-walked comparison on the whole pot, which does not change, THREE. PASS iff ALL THREE hold."
+- **What landed:**
+  - BAR_TEXT quotes 1(c) and is re-pinned.
+  - One list slot, `v22_recorded`; an empty list refuses.
+  - The same matches are run_soccer_backtest's own rows on the copy at min_prior 40.
+  - The preflight's count and wholeness per figure, with no fingerprint and a refused run unless each holds, before the reservation.
+  - `decide`'s three comparisons, side by side on the console and in the record.
+  - The spec carries the ruling verbatim, with 254 item 3's answer marked superseded.
+- **Unchanged:** the pot, the scope, the cut, the re-walk, the constants and the walk. The stream fingerprint changes with the slots.
+- **Next:** the adversarial review, then the stop rule and the architect's read. The declaration PR follows (443 item 3: the architect's text Monday 11-23).

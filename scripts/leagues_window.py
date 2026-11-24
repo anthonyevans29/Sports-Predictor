@@ -42,6 +42,14 @@ label the code cannot place kicking off at or before the 60th member or the read
 
 Run:  python3 scripts/leagues_window.py [--exports exports]
 Paste the whole output on #322.
+
+--pages-digest (ARCHITECT 2026-11-22 09:18 ET, addendum 447 item 2 B2(c)): prints the digest of the --exports folder's
+pages (leagues_window.pages_digest: one line per soccer_expansion_shadow_*.json page, "<sha256>  <name>\n", sorted by
+name bytewise; the sha256 of those lines: what `sha256sum` prints, so the host can take it with nothing new deployed),
+then the page count and the first and last file name. Needs no database and opens none; reads only the pages; writes
+nothing. Exit 2 on a missing or empty folder or a page it cannot read. It reads the folder it is given wherever it is
+(the host's own exports/ included): leagues-window-read's refusal of a folder inside the checkout (B2(b)) is the
+laptop read's, never this mode's.
 """
 from __future__ import annotations
 
@@ -60,7 +68,20 @@ def main(argv=None) -> int:
                     help="the directory holding the shadow export's files, read for stored rows (default exports: "
                          "the host's own, where the export writes them; run the reader where those files and the DB "
                          "that wrote them are, the host)")
+    ap.add_argument("--pages-digest", action="store_true",
+                    help="print the --exports folder's pages digest, its page count and first and last file, and stop "
+                         "(addendum 447 item 2 B2(c); no database read)")
     a = ap.parse_args(argv)
+    if a.pages_digest:                        # B2(c): before the database check; it reads the pages only
+        from src.walters import leagues_window as lw
+        try:
+            d = lw.pages_digest(a.exports)
+        except lw.WindowRefused as err:
+            print(f"REFUSED: {err}")
+            return REFUSED
+        print(f"PAGES DIGEST {d['digest']}")
+        print(f"pages {d['pages']}  first {d['first']}  last {d['last']}")
+        return 0
     import importlib.util                     # the close receipt's own DB resolution, loaded from its file
     spec = importlib.util.spec_from_file_location(
         "leagues_close_receipt", os.path.join(os.path.dirname(os.path.abspath(__file__)), "leagues_close_receipt.py"))

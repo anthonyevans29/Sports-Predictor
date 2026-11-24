@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -92,6 +93,8 @@ PLAN_METRICS = ("log_loss",)
 # refusal that sends a candidate to a retired season is wrong on its face. Change the tuple's text to the 2026 entry's
 # own words for 2027". (2), verbatim: "The exact `test_set` string STANDS as the key: a declaration is my ruling, so a
 # re-worded 2026 college set cannot be declared without passing me". No fuzzy key.
+NFL_INSTEAD = ("the NFL test season that the gate-class addendum of 465 item 4(a) rules (by Friday 2026-12-18; no "
+               "season is named here before it)")
 RETIRED_TEST_SETS = {
     "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)":
         ("nhl-v8", "NHL 2026-27 regular season as it accrues (>= 600 games)"),
@@ -101,12 +104,27 @@ RETIRED_TEST_SETS = {
     "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)":
         ("ncaa-elo-v2", "the NCAA FBS 2027 regular season as it accrues (2024-2026 training; declared in the off-season "
                         "with its spread pre-check)"),
+    # ARCHITECT 2026-11-23 13:55 ET, addendum 465 item 4(b), verbatim: "NFL 2025 IS RETIRED AS A TEST SEASON: read by
+    # v1's gate run and its re-runs, the four R-track variants and v2's run; 215 item 2 said it is read once. DEV 2: it
+    # is keyed into registry.RETIRED_TEST_SETS under BOTH stored test_set strings, v1's and v2's, as #901 did for
+    # college 2026, with a test that a declaration naming either refuses." What to declare instead is not named here:
+    # 465 item 4(a) rules the candidate's test season (2026 or 2027 as it accrues) by its own gate-class addendum.
+    "NFL 2025 regular season + postseason (nfl-backtest's scored window; warm-up 2024, preseason excluded)":
+        ("nfl-elo-v1", NFL_INSTEAD),
+    "NFL 2025 regular season + postseason (285 games on the corrected stream, #775; warm-up 2024 complete, 285; "
+    "preseason excluded)":
+        ("nfl-elo-v2", NFL_INSTEAD),
 }
 # The ruling that retired each set, named in the refusal (the NHL set's is the 2026-10-02 doctrine).
 RETIRED_BY = {
     "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)": "ARCHITECT 2026-10-09, addendum 24",
     "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)":
         "ARCHITECT 2026-11-09, addendum 302",
+    "NFL 2025 regular season + postseason (nfl-backtest's scored window; warm-up 2024, preseason excluded)":
+        "ARCHITECT 2026-11-23, addendum 465 item 4(b)",
+    "NFL 2025 regular season + postseason (285 games on the corrected stream, #775; warm-up 2024 complete, 285; "
+    "preseason excluded)":
+        "ARCHITECT 2026-11-23, addendum 465 item 4(b)",
 }
 
 
@@ -122,7 +140,10 @@ def check_plan(plan) -> dict:
     """The EXECUTABLE confirmation plan (review on #222, 2026-10-02): the window
     is not prose. Required: n_games (> 0) future games scored after the
     verdict, the metric (lower is better), the bar the metric must meet, and
-    whether it must also beat a named reference scored on the SAME games."""
+    whether it must also beat a named reference scored on the SAME games.
+    THE REFERENCE-ONLY BAR (ARCHITECT 2026-11-23, addendum 449 item 6(b); 447 item 3 C3, (c1)): `bar` may be null
+    ONLY with must_beat_reference true and a named reference; the outcome is then metric < reference alone, strict
+    (record_confirmation). Every other plan keeps the rule above: bar a number."""
     if not isinstance(plan, dict):
         raise RegistryError("confirmation_plan must be a dict {n_games, metric, bar, must_beat_reference, reference}")
     n, metric, bar = plan.get("n_games"), plan.get("metric"), plan.get("bar")
@@ -130,14 +151,22 @@ def check_plan(plan) -> dict:
         raise RegistryError("confirmation_plan.n_games must be a positive integer")
     if metric not in PLAN_METRICS:
         raise RegistryError(f"confirmation_plan.metric must be one of {PLAN_METRICS}")
-    if not isinstance(bar, (int, float)) or isinstance(bar, bool):
-        raise RegistryError("confirmation_plan.bar must be a number")
     beat = plan.get("must_beat_reference")
+    if "bar" not in plan:            # a missing bar is never a null one: today's refusal (449 admits null, not absent)
+        raise RegistryError("confirmation_plan.bar must be a number (or null with must_beat_reference true and a "
+                            "named reference); the plan has no bar")
+    if bar is None:
+        if beat is not True or not isinstance(plan.get("reference"), str) or not plan["reference"].strip():
+            raise RegistryError("confirmation_plan.bar may be null only with must_beat_reference true and a named "
+                                "reference (addendum 449 item 6(b): the reference is the bar)")
+    elif not isinstance(bar, (int, float)) or isinstance(bar, bool):
+        raise RegistryError("confirmation_plan.bar must be a number (or null with must_beat_reference true and a "
+                            "named reference)")
     if not isinstance(beat, bool):
         raise RegistryError("confirmation_plan.must_beat_reference must be true or false")
     if beat and not plan.get("reference"):
         raise RegistryError("confirmation_plan.reference must name the reference model")
-    return {"n_games": n, "metric": metric, "bar": float(bar), "must_beat_reference": beat,
+    return {"n_games": n, "metric": metric, "bar": None if bar is None else float(bar), "must_beat_reference": beat,
             "reference": plan.get("reference")}
 
 
@@ -448,6 +477,27 @@ def freeze_confirmation_cohort(eid: str, cohort_ids: list[int], basis: dict,
     return e
 
 
+# ARCHITECT 2026-11-22, addendum 448 item 1(d): the opening's kickoff is written as the callers write theirs, to the
+# second with the Z, and the backstop compares the two as strings; a value in any other form refuses (never parsed).
+INSTANT_Z = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+
+
+# ARCHITECT 2026-11-23, addendum 464 item 2(d): an opening at the minimum datetime is refused, as the window reads it
+# as no opening (leagues_window.opening); a cut one microsecond before it does not exist.
+OPENING_MIN = "0001-01-01T00:00:00Z"
+
+
+def _instant_z(v) -> bool:
+    """INSTANT_Z's form AND a real calendar instant (2026-99-40T25:00:00Z has the form and is no instant)."""
+    if not isinstance(v, str) or not INSTANT_Z.fullmatch(v):
+        return False
+    try:
+        datetime.strptime(v, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return True
+
+
 def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: str,
                         path: str = LEDGER, ids_dir: str = IDS_DIR) -> dict:
     """The confirmation READ, executed against the declared plan (never a
@@ -456,7 +506,10 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     (`result["first_game_at"]`, ISO UTC), none of them was in the scored test
     set, and the result carries the plan's metric (and the reference's when
     the plan requires beating it). The outcome is COMPUTED: CONFIRMED iff
-    metric <= bar and, when required, metric < reference (a tie fails)."""
+    metric <= bar and, when required, metric < reference (a tie fails). A plan
+    whose bar is null (addendum 449 item 6(b): admitted by check_plan only with
+    must_beat_reference true and a named reference) is CONFIRMED iff
+    metric < reference alone, strict; a null bar on any other plan refuses."""
     entries = load(path)
     e = next((x for x in entries if x["id"] == eid), None)
     if e is None or e.get("status") != "confirming":
@@ -464,6 +517,7 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     plan = e.get("confirmation_plan")
     if not plan:
         raise RegistryError(f"{eid} has no executable confirmation_plan: it cannot be confirmed")
+    plan = check_plan(plan)          # ARCHITECT 2026-11-22, addendum 448 item 2: the STORED plan is checked here too
     ids = sorted(set(int(i) for i in scored_ids))
     cohort = frozen_cohort(e, ids_dir)
     if cohort is not None and ids != cohort:
@@ -473,8 +527,29 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     if len(ids) < plan["n_games"]:
         raise RegistryError(f"{eid}: confirmation scored {len(ids)} games < the plan's {plan['n_games']} — incomplete")
     first = result.get("first_game_at")
-    verdict_at = (e.get("verdict") or {}).get("at")
-    if not first or not verdict_at or str(first) <= str(verdict_at):
+    verdict_at = e["verdict"].get("at") if isinstance(e.get("verdict"), dict) else None
+    res = (e.get("run") or {}).get("result") if isinstance(e.get("run"), dict) else None
+    held = isinstance(res, dict) and "confirmation_opens_after" in res     # present, even as null: never a fall-back
+    opening = res.get("confirmation_opens_after") if held else None
+    if held:
+        # ARCHITECT 2026-11-22, addendum 447 item 3 C1(b): an entry whose run record carries the opening (the 60th
+        # member's kickoff and match id, written by the one read before any verdict) checks the first game against
+        # the opening's kickoff, NOT EARLIER than it (a game tied at that kickoff with a higher id enters); the reader
+        # holds the order, the registry is the backstop. No overlap with the run's ids, as before (below). 448 item
+        # 1(d): both are written to the second with the Z and compared as strings; any other form refuses. An
+        # opening the run record holds but that cannot be read (no such kickoff, no integer match id) refuses too:
+        # it never falls back to verdict.at (law 4), and leagues_window.opening() reads it the same way.
+        if not isinstance(e.get("verdict"), dict) or e["verdict"].get("verdict") != "PASS":
+            raise RegistryError(f"{eid}: a confirmation needs a recorded PASS verdict; the entry holds "
+                                f"{e.get('verdict')!r}")
+        o_at = opening.get("kickoff") if isinstance(opening, dict) else None
+        mid = opening.get("match_id") if isinstance(opening, dict) else None
+        if (not _instant_z(first) or not _instant_z(o_at) or o_at == OPENING_MIN or isinstance(mid, bool)
+                or not isinstance(mid, int) or first < o_at):
+            raise RegistryError(f"{eid}: confirmation games must not start earlier than the opening (the 60th "
+                                f"member's kickoff {o_at!r}, match {mid!r}; each written to the second with the Z, "
+                                f"the match id an integer); first_game_at {first!r}")
+    elif not first or not verdict_at or str(first) <= str(verdict_at):
         raise RegistryError(f"{eid}: confirmation games must all start AFTER the verdict ({verdict_at}); "
                             f"first_game_at {first!r}")
     seen = _ids_of(e, ids_dir) or set()
@@ -488,7 +563,12 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     if plan["must_beat_reference"] and not isinstance(ref, (int, float)):
         raise RegistryError(f"{eid}: the plan requires beating {plan['reference']}; result lacks "
                             f"'reference_{plan['metric']}'")
-    ok = metric <= plan["bar"] and (not plan["must_beat_reference"] or metric < ref)
+    if plan["bar"] is None:          # 449 item 6(b): the reference is the bar
+        if plan["must_beat_reference"] is not True:
+            raise RegistryError(f"{eid}: the plan's bar is null without must_beat_reference true: no bar to read")
+        ok = metric < ref
+    else:
+        ok = metric <= plan["bar"] and (not plan["must_beat_reference"] or metric < ref)
     outcome = "CONFIRMED" if ok else "NOT_CONFIRMED"
     os.makedirs(ids_dir, exist_ok=True)
     fname = f"{eid}.confirm.txt"

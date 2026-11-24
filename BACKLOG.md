@@ -22,6 +22,2061 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-11-19 — Addenda 426 to 430: #1049 merged; lane unl's confirmation record does not run today, the architect's miss, and its step and earliest_live move 2026-11-19 to 2026-12-01; the stored-flags read made and nothing recorded; venue 3989 ruled Spain and Dev 2's override plan ruled; the 667 college rows ruled the lower divisions' games and kept, #1035 down to three games; #1050 to #1053 opened (tennis kickoff minute, the NHL T+20 read, the soccer injuries cost line, the nightly pull); #688 closed by ruling, its weekly hand run ended.**
+- **Addendum 426 (ARCHITECT 2026-11-19 08:36 ET), verbatim:**
+
+  > ARCHITECT 2026-11-19 08:36 ET (13:36Z, read from the clock) — addendum 426, for DEV 1 (Lane A), items 1-4; for DEV 2 (Lane B), items 5-6.
+  > Paste exactly. Record it in BACKLOG as usual; item 2 on #1044; items 3 and 5 on #220, #276 and #336.
+  >
+  > 1. #1049 IS MERGE-READY at 7d4a3698, read whole: the records of 424 and 425, two docs files. Every line of
+  >    both addenda is in the entry; CI green on the head; Codex found nothing on the head; no open thread. It
+  >    merges by my block this morning. Do not push to it again.
+  >
+  > 2. THE COLLEGE LISTING, WEDNESDAY'S SYNC (the laptop at b9407e2d, 2026-11-18 11:31Z; recorded, not yet ruled):
+  >    (a) sync-teams: created 83, updated 641. The provider's team list for 2026 grew by 83 overnight.
+  >    (b) sync-matches: the listing still 3,675; created 667, updated 2,960, skipped 48 (teams not stored).
+  >        667 is Tuesday's 715 skipped less Wednesday's 48, to the row: the listings that waited on a team.
+  >    (c) NCAA rows by season after it: 2023 3,720 · 2024 3,774 · 2025 3,817 · 2026 3,627.
+  >    (d) 425 item 2 ruled on the 1,231 that I had read. The 667 are read in this morning's block, by the
+  >        provider's stage, and ruled on that console. Until then nothing changes: no hold, no dedupe.
+  >    (e) Your answer to 425 item 4 on #1048 is read and accepted: the stage is in matches.stage, a served
+  >        label overwrites the stored one, and no reader selects an NCAA game by it today.
+  >
+  > 3. UNL (lane unl, #220): THE CONFIRMATION RECORD DOES NOT RUN TODAY. THE CAUSE IS MINE.
+  >    (a) WHAT I RULED BEFORE ANY RESULT: 160 item 3, "The read on 11-12 is reported BOTH ways (stored flags;
+  >        corrected flags); the verdict is taken on the corrected inputs"; 161 item 2, "the verdict and
+  >        --record stand on the corrected flags". The correction is 160 item 2's venue-country override,
+  >        keyed by venue id (2618 to Andorra; 3989 to unknown), applied by the venue ingest.
+  >    (b) WHAT MAIN HOLDS: neither. The override and the both-ways read were built on 2026-10-23 on
+  >        claude/160-venue-override (978b1f80, 0a33824e) and claude/159-unl-provenance (77028261), never
+  >        merged, and kept as reference branches by 287 item 3(B) to be rebuilt "when its slot comes". No slot
+  >        came. cli.py at b9407e2d has no intl-venue-override; intl_venues.py has no override table.
+  >    (c) MY MISS: 346 item 4 set the record's order, and every plan of mine since, without them. I found it
+  >        this morning, reading the rule before writing the record block, and before today's read was made.
+  >    (d) RULED: a record on the stored flags alone would set aside a criterion written before the result.
+  >        It is not made. The host's "PASS — confirmation 60/60" label stands as what it is, a count.
+  >    (e) THE MOVED LINES (you write them today, one line per moved date, in today's records PR): lane unl,
+  >        the step "the confirmation record, by the architect's block on the laptop from the host's pulled
+  >        copy (addendum 346)" 2026-11-19 to 2026-12-01; earliest_live 2026-11-19 to 2026-12-01. The why,
+  >        verbatim on each: "the verdict and the record stand on the corrected venue flags, with the read
+  >        reported both ways (addendum 160 item 3; addendum 161 item 2), and neither the keyed venue-country
+  >        override (160 item 2) nor the both-ways read (159 item 2; #336) is on main: both sit on reference
+  >        branches of 2026-10-23, never merged, and the record was planned without them (the architect's
+  >        miss, addendum 426 item 3); the cohort, the plan and the bar untouched". The step's wording does
+  >        not change. The lane's state stays "confirming".
+  >    (f) WHAT THE NEW DATE RESTS ON: item 5's two PRs merged, a tag that carries them, the override applied
+  >        on the host by my block, the next morning's host backup pulled, the read both ways, then the
+  >        record. A date is a commitment to do the step, never to its outcome (59 item 5(c)).
+  >
+  > 4. TODAY'S HOST READ IS MINE AND READ-ONLY: the host's backup pulled to the laptop, intl-elo-confirm --db
+  >    COPY with no flags (the stored-flags half), and the rows at venues 2618 and 3989 with the cohort
+  >    fixtures they reach. Nothing is recorded. Its console comes in the next addendum.
+  >
+  > 5. DEV 2 — THE BUILD (lane unl, #220; #276 for the override, #336 for the receipt). Rebuilt on current main
+  >    from the Issues; the two branches of item 3(b) are reference, never merged as they stand (287 item 3(B)).
+  >    (a) A SHORT PLAN FIRST, on #276, today: the files; what main has changed since 10-23 that the port must
+  >        respect (346's --db path and #940's three nits above all: the both-ways read must run on a copy);
+  >        whether the host's daily venue ingest derives through the same function, so that no run after the
+  >        tag can put a provider flag back; whether intl_venue_resolved is touched (I expect not); and how
+  >        the stored-flags side is computed with no new column. I rule on the plan, then you build.
+  >    (b) TWO PRs, the policy change first (review stop rule item 5). PR ONE: the override as 160 item 2
+  >        ruled it, verbatim there: the table as code with its evidence line and ruling date; one derivation
+  >        for the ingest and the re-derivation; the stored venue_country stays the provider's; a
+  >        re-derivation command that is a DRY RUN by default and prints every row whose flag would change,
+  >        by competition-season, the cohort fixtures among them named; --apply only by my block on the host
+  >        after the tag. PR TWO: the provenance receipt of 159 item 2 and the confirmation read reported
+  >        both ways, the verdict and --record on the corrected flags (161 item 2), with and without --db.
+  >    (c) WHAT DOES NOT CHANGE: the frozen method, the cohort file, the plan, the bar, the refusals. A test
+  >        pins that with an empty override table the read's console is byte for byte today's.
+  >    (d) BOTH ARE MONEY-PATH (the record decides a production status and the flag is a live shadow's
+  >        input): your adversarial review before each push; P1s fixed or brought to me; P2s after round two
+  >        listed for me. No date shortens a review; they are not for tomorrow's tag.
+  >    (e) VENUE 3989: name in PR ONE's body the read-only command, with its arguments, that prints what the
+  >        provider's venues answer says for id 3989 today. The run is my block's. Until that receipt the
+  >        entry stays unknown, as ruled.
+  >    (f) The PR bodies name each command my blocks will run and what a complete run prints (198 item 6(i)).
+  >
+  > 6. DEV 2 — #1036: unchanged. Bring main into it ONCE, this evening, after I say the day's merges are done.
+  >    Tomorrow: the baseline on main without the table, then my word, the merge, the replay of the same kept
+  >    file under the table, my read of every difference by name, then the tag.
+  >
+  > Nothing in this addendum moves a bar. Two roadmap dates move, by item 3(e)'s lines. No held timer changes.
+
+- **Addendum 427 (ARCHITECT 2026-11-19 09:31 ET), verbatim:**
+
+  > ARCHITECT 2026-11-19 09:31 ET (14:31Z, read from the clock) — addendum 427, for DEV 1 (Lane A), items 1-2 and 4-6; for DEV 2 (Lane B), item 3.
+  > Paste exactly. Record it in BACKLOG as usual; items 1-3 on #220 and #276; item 4 on #1044. No provider row goes onto an Issue.
+  >
+  > 1. UNL, TODAY'S READ (426 item 4), by my block on the laptop at b9407e2d, 14:27Z. NOTHING RECORDED.
+  >    (a) THE COPY: the host's sports_2026-11-19_093001.db, pulled by pull_backup.py (exit 0; 1,122,709,504
+  >        bytes; sha256 7ce8c4afcc6e5c65…), no sidecar beside it, opened mode=ro + immutable=1.
+  >    (b) THE COHORT FILE: sha256 6c954d8267d261e8… on the laptop's checkout and at the host's tag v1.6.9,
+  >        equal; 60 ids; all 60 found in the copy; kickoffs 2026-10-02 18:45Z to 2026-11-16 19:00Z.
+  >    (c) THE READ, intl-elo-confirm --db COPY, no flags, exit 0, verbatim:
+  >        "INTL-ELO-V2 CONFIRMATION · cohort FROZEN (60/60 fixtures; 154 eligible stored) · 60/60 labelled ·
+  >        first 2026-10-02T18:45:00Z" and "so far: log-loss 0.8270 · naive 1.0313 · reference (naive − 0.010)
+  >        1.0213 · bar 1.0986 — not a verdict until the cohort is complete".
+  >    (d) WHAT THAT IS: the STORED-FLAGS line of 160 item 3, and no more. It is not the verdict and nothing
+  >        is recorded on it. git status on docs/registry after the read: empty.
+  >    (e) UNL FIXTURES STILL TO COME IN THE COPY: none stored as SCHEDULED. The moved date costs no call.
+  >
+  > 2. THE VENUE ROWS ON THE SAME COPY (160 item 2's two venue ids).
+  >    (a) THE COHORT'S FLAGS: UNL 41 (home 23, neutral 4, unknown 14); CNL 19 (home 7, neutral 2, unknown
+  >        10). Every cohort fixture has its venue row. None of the 60 was played at venue 2618 or 3989.
+  >    (b) VENUE 2618: 31 stored games, 2019-03-22 to 2026-11-13, every one an Andorra home game, every one
+  >        stored with venue country "Spain" and so flagged neutral. 160 read eight of them. The newest,
+  >        31921 (UNL, 2026-11-13), was priced by the host's shadow under that flag six days ago.
+  >    (c) VENUE 3989: 11 stored games, 2022-03-26 to 2025-03-23, stored with venue country "Ukraine". 160
+  >        knew two of them. The home sides: Finland 2, Saudi Arabia 4, New Zealand 1, Northern Ireland 1,
+  >        Spain 1 (45626, UNL 2024/25), Ukraine 1 (45714, UNL 2024/25), Iceland 1 (45723, UNL 2024/25). One
+  >        ground where seven nations are listed at home is one neutral ground, and I do not believe it is in
+  >        Ukraine. Under the stored country ten of the eleven read neutral, Spain's own game among them,
+  >        and Ukraine's reads as a home game. 160's entry for 3989 stays "unknown" until the provider's own
+  >        answer for the id is read: two calls (ids 2618 and 3989) are in my block of this afternoon, and I
+  >        rule the entry on that console, before PR ONE merges.
+  >    (d) THE REACH: 41 of the 42 games precede the cohort's first kickoff, so they act on the cohort only
+  >        through the ratings walk. 38 teams played in them; 34 of the 60 cohort fixtures have one of those
+  >        teams on a side. So the corrected line will differ from the stored one, by how much nobody knows
+  >        until it is computed, and that is what the both-ways read is for.
+  >
+  > 3. DEV 2 — ADDED TO 426 ITEM 5(a)'s PLAN, from this read:
+  >    (a) Say with file and line that the corrected read re-fits nothing: c_mult and k_mult are the
+  >        registry's run record's (intl_shadow.frozen), mu is the training goals' mean, and only the flags
+  >        differ between the two lines. If any constant would be fitted again under the corrected flags,
+  >        stop and bring it to me before building.
+  >    (b) The table: 2618 to Andorra, as ruled. 3989 as ruled (unknown) until item 2(c)'s ruling; build it
+  >        so that an entry is one line with its evidence and its ruling date.
+  >    (c) The dry run's receipt lists every row whose flag would change with the flag before and after:
+  >        on today's copy that is 31 rows at 2618 and whatever 3989's entry gives of its 11, the cohort
+  >        fixtures among them named (none is expected).
+  >    (d) The both-ways read prints, beside the two log-loss lines, how many cohort fixtures are priced
+  >        differently under the two and the largest single difference in a probability.
+  >
+  > 4. THE COLLEGE LISTING (#1044).
+  >    (a) THE 667 OF WEDNESDAY, READ AND RULED. My block this morning, Wednesday's backup against today's,
+  >        both immutable: 667 rows, all season 2026, kickoffs 2026-08-27 to 2026-11-14, all FINISHED with a
+  >        score, all with the provider's stage "All Division II/III". 425 item 2 extends to them: they are
+  >        the lower divisions' games and they stay. 1,898 over the two days; none gone on either.
+  >    (b) SEASON 2026 BY THE PROVIDER'S STAGE, the laptop after today's sync, 3,628 rows: All Division
+  >        II/III 2,034 (FINISHED 2,028, CANCELLED 6); FBS 881 (FINISHED 757, SCHEDULED 124); FCS 713
+  >        (FINISHED 649, SCHEDULED 63, CANCELLED 1). No lower-division game is stored as SCHEDULED: the
+  >        next ten days hold FBS and FCS games only (2026-11-21 47 and 56; 2026-11-22 16 and 2).
+  >    (c) TODAY'S LISTING: 3,677, two more than Wednesday. One row created, an FBS game, SCHEDULED, kickoff
+  >        2026-11-22. One NOT created, the sync's own line: "api_american_football id 27469 NOT created —
+  >        stored row 32711 holds its natural key but its id 23593 is still in this listing (the provider
+  >        lists both 23593 and 27469)", counted rekey_refused=1. That is the ruled behaviour and a second
+  >        provider duplicate; record it on #1044 beside 65282 and 65338. Which two games they are is read
+  >        this afternoon. Skipped for a team not stored: 48, the same ids as Wednesday.
+  >    (d) Sunday on the host is unchanged: the listing whole, teams first, nothing held.
+  >
+  > 5. THE MORNING'S OTHER NAMED ROWS (the laptop, the whole-season pass: 28 lines, none with a non-zero
+  >    exit). As 391 item 2(d): FL1 orientation_reversed 1 (19536); NCAAMB teams_mismatch_refused 1 (59235);
+  >    NFL skipped 6. New today, each the sync's ruled behaviour (292 item 3): NCAAMB orientation_reversed 3
+  >    (59579, 59653, 59670). Created: CNL 6, NCAAMB 4, FRIENDLIES_INT 1. The stale count: 11, from 35 on
+  >    Wednesday (ATP 4, WC 3, and one each of FRIENDLIES_INT, NCAA, NCAAMB and SCO). TENNIS: four ATP rows
+  >    dated 2026-11-17 are still SCHEDULED, and KXATPMATCH's 8 open markets are all refused as "the pair's
+  >    game is outside the run's window". A finding for the tennis lane, read this afternoon and not ruled
+  >    today: a stored kickoff can precede its match by days while the market stays open.
+  >
+  > 6. #688: the weekly receipt runs this afternoon in my block, host era, on today's copy. It is the first
+  >    run since 11-03: I did not run it on 11-09 or 11-16. Whether the weekly run continues, I say on that
+  >    console (416 item 3).
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 428 (ARCHITECT 2026-11-19 09:36 ET), verbatim:**
+
+  > ARCHITECT 2026-11-19 09:36 ET (14:36Z, read from the clock) — addendum 428, for DEV 1 (Lane A), items 1 and 3-8; for DEV 2 (Lane B), items 2 and 5(c).
+  > Paste exactly. Record it in BACKLOG as usual; item 2 on #276; item 3 on #1035; item 4 on #1044; item 5 on #105 and #987. No provider row goes onto an Issue.
+  >
+  > 1. MERGED BY MY BLOCK: #1049 at 7d4a3698. main is dce783a8. Today's reads below are my blocks on the
+  >    laptop at dce783a8, 14:32Z: its own database mode=ro, and the host's pulled copy of 427 item 1(a),
+  >    mode=ro + immutable=1, no sidecar beside it after the reads.
+  >
+  > 2. THE TWO VENUE IDS: THE PROVIDER'S OWN ANSWER BY ID, read today (two calls), AND 3989 RULED.
+  >    (a) The answer for id 2618 names Andorra's national ground, in Andorra la Vella, country Andorra.
+  >        The answer for id 3989 names a ground in Madrid, country Spain. The keys served: address,
+  >        capacity, city, country, id, image, name, surface.
+  >    (b) So today's answer agrees with neither stored country (Spain for 2618, Ukraine for 3989, both
+  >        derived 2026-10-02). For 2618 it agrees with 160 item 2's correction.
+  >    (c) RULED: THE ENTRY FOR 3989 IS SPAIN. It replaces "unknown", which 160 item 2 set "pending a receipt
+  >        of what the provider's /venues answer says for 3989 today". The grounds, none of them a result:
+  >        the provider's own answer by id; Ukraine stands on the home-abroad list (160 item 1) and its
+  >        game of 2025-03-20 cannot have been played there; seven nations are listed at home at the one
+  >        ground. I do not rest on the answer's name or city, only on its country. The effect on the 11
+  >        rows: two change, 45626 (Spain's own game) from neutral to home and 45714 (Ukraine's) from home
+  >        to neutral; nine stay neutral. With 2618's 31 rows, 33 flags change in all; none is a cohort
+  >        fixture.
+  >    (d) SAID PLAINLY: I rule this having seen the stored-flags line (427 item 1(c)) and before any
+  >        corrected line exists. It is the receipt 160 asked for, and it would be ruled the same whatever
+  >        that line read.
+  >    (e) DEV 2 — ADDED TO THE PLAN (426 item 5(a), 427 item 3): two ids checked, two stored countries that
+  >        today's by-id answer does not give. Say which it is, with file and line: the provider changed
+  >        its records after 2026-10-02, or the by-country route gave another country than the by-id route,
+  >        or intl_venues' one dictionary across the country calls kept the last country to serve an id.
+  >        The saved venues answers decide it if they were kept; say where they are. And one line of cost,
+  >        no build: comparing every stored venue id's country with the by-id answer, read-only, the calls
+  >        counted, the answers kept under logs/. I decide on that line whether it runs before the record.
+  >        No correction beyond the two declared ids enters the record's inputs unless I declare it, by
+  >        venue id and on evidence that is no result, before the corrected read is made.
+  >
+  > 3. THE SECOND SOURCE'S GAP, THE SEASON TO DATE (#1035; 420 item 2): READ, AND IT IS NIL.
+  >    (a) The host's copy holds ten ingest records. The run of Sunday 2026-11-15 wrote record 10 for 2026
+  >        (fetched 06:11:59Z): in scope 623, joined 623, unlabelled 0; 623 labels carry its stamp, so the
+  >        season reads covered. Records 3, 7, 8 and 9 for 2026 each read unlabelled 0 as well.
+  >    (b) So through 11-15 the second source holds no completed both-FBS game that we do not store. By
+  >        420 item 2(3) the matter ends there for the Desk for the season to date. No script is built.
+  >        The second read, after the Sunday run of 2026-12-06, stands.
+  >    (c) ONE OF THE FOUR GAMES IS NOW LISTED: the provider's listing gained California v Stanford this
+  >        morning, stored on the laptop as match 66142 (FBS, SCHEDULED, kickoff 2026-11-22 00:30Z). Texas
+  >        v Texas A&M, Georgia Tech v Georgia and Nevada v UNLV are still not stored; both teams of each
+  >        are. #1035 stays an open limitation, for three games, and says so.
+  >
+  > 4. THE COLLEGE LISTING (#1044).
+  >    (a) THE HOST BEFORE SUNDAY'S PASS (its copy of 09:30Z): season 2026 holds 1,729 rows (All Division
+  >        II/III 136, FBS 880, FCS 713) and 412 teams; 2023 to 2025 hold 3,720, 3,774 and 3,817 as the
+  >        laptop does. The laptop after today: 3,628 rows and 724 teams. Monday's read of the host's
+  >        Sunday receipt expects about 1,899 rows created and about 312 teams.
+  >    (b) THE ROW THE SYNC WOULD NOT TWIN (427 item 4(c)): match 32711, Boise State v Utah State,
+  >        2026-10-03, FINISHED, carrying provider id 23593 and a previous id. The provider now lists a
+  >        third id for it. Recorded; nothing is done.
+  >
+  > 5. NHL (lane nhl, #105; #987).
+  >    (a) THE SEASON RECEIPT ON THE HOST'S COPY (nhl-goalie-coverage --db COPY, exit 0): 18,138 appearance
+  >        rows, 4,535 games. Finished regular-season games 1,312, 1,312, 1,312 and 343 for 2023-24 to
+  >        2026-27; both starters flagged on every one; no side with more than one. Relief: 12.7%, 10.5%,
+  >        10.9%, 10.5%. 2023-24's 5,247 appearances (1,312 games) have no linked match; the later seasons'
+  >        all do.
+  >        THE CEILING READINESS READ (CLAUDE.md, due today): DONE on that console. The record of who
+  >        actually started is whole for every finished regular-season game of four seasons. The one gap
+  >        is 2023-24's link to our matches. The step of 11-24 (the true-starter ceiling test declared
+  >        with its threshold, or my written no) stands and is mine.
+  >    (b) THE LANDING AGREEMENT RECEIPT (370 item 1; exit 0): 48 games, 96 sides, the NHL days 2026-11-12
+  >        to 2026-11-18. Agreement with the eventual starter: 35 of 86 at T-120 (0.4070) and 35 of 88 at
+  >        every label from T-90 to T-0 (0.3977). No side's projection changed between its first label
+  >        and T-0. Left out from T-90 on: 8 sides, the eventual not read (T+20 empty 6, T+20 failed 2).
+  >        The receipt judges nothing and no threshold exists. MY READING: the slot we store as
+  >        projected_starter does not move before the game and named the starter on fewer than half the
+  >        sides; as it stands it is not a pregame starter signal. It stays stored. The inferred layer's
+  >        NHL pilot (#992) is designed knowing that, in the ruling due 12-03.
+  >    (c) DEV 2 — ONE READ-ONLY ANSWER, from the code, no run, on #105 by 11-23: what it takes to link
+  >        2023-24's 1,312 games' appearances to our matches as the later seasons' are linked, and whether
+  >        the frozen NHL gate (nhl-backtest) reads 2023-24 at all, as training or as test.
+  >    (d) DEV 1 — a finding to open on the availability record's lane: the eventual read at T+20 came back
+  >        empty for 3 games and failed for 1 of 48 in seven days. Say on the Issue, from the code, whether
+  >        anything reads the boxscore again later for such a game. No fix until I rule.
+  >
+  > 6. TENNIS, THE FOUR OPEN ROWS (427 item 5): matches 64225, 64229, 64230 and 64231, all four stored at
+  >    2026-11-17 13:30Z with the kickoff's source "occurrence_datetime", their markets still open two days
+  >    later; two events of the same day settled since. One minute shared by four matches is an event's
+  >    or a session's time, not each match's. DEV 1: open it as a finding on the tennis lane, with those
+  >    four ids. It joins what the kickoff follow-up has to answer (288 item 5). The timer stays disabled.
+  >
+  > 7. COLLEGE BASKETBALL, THE NAMED ROWS: 59235 is stored as Morgan State v Towson and the listing's pair
+  >    is neither that nor its reverse (refused, as ruled; it stays in the stale count). 59579, 59653 and
+  >    59670 are games still to come whose listing is reversed; the key is written and the stored
+  >    orientation kept, as ruled. Created this morning: four games of 11-18 and 11-19, already finished
+  >    when first listed.
+  >
+  > 8. #688, THE WEEKLY RECEIPT, RUN TODAY (host era; 20 provider calls, none failed; the six closing files
+  >    of 2026-11-06 to 2026-11-08 in the mirror's host folders): sides recoverable 0, not recoverable 20.
+  >    Every side's rows were overwritten at 2026-11-14 10:30Z, in a week with no PL round. THE LOSS IS
+  >    MINE: a run on 11-09's copy would have read them, and I did not make it. I am reading this afternoon
+  >    whether the laptop holds an earlier pulled copy that still has the rows. The ruling on whether a
+  >    hand run each week continues follows that read; it will not rest on my remembering a Monday.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 429 (ARCHITECT 2026-11-19 09:41 ET), verbatim:**
+
+  > ARCHITECT 2026-11-19 09:41 ET (14:41Z, read from the clock) — addendum 429, for DEV 2 (Lane B), item 1; for DEV 1 (Lane A), items 2-5.
+  > Paste exactly. Record it in BACKLOG as usual; item 1 on #276 and #336; item 2 on #1035; item 3 on #688. No provider row goes onto an Issue.
+  >
+  > 1. DEV 2 — YOUR PLAN ON #276, READ WHOLE. Thank you for stopping on the naive baseline; that was the right
+  >    thing to bring. RULED:
+  >    (a) THE NAIVE BASELINE: (A). Each line uses its own flags throughout, the naive rates included. 160
+  >        item 3 takes the verdict "on the corrected inputs" with "the frozen method ... untouched", and the
+  >        frozen method estimates its naive rates from the training stream by the flag on every read. One
+  >        account of where the games were played serves the model and the baseline it is measured against;
+  >        (B) would score a corrected model against a baseline built on flags I have declared wrong. The
+  >        rates are estimated on training results (2018-01-01 to 2024-08-31), never on the cohort's. The
+  >        read prints each line whole: log-loss, naive, reference (naive − 0.010), the bar, and its naive
+  >        rates. The run record's ll_naive is the gate's figure and is not touched.
+  >    (b) 3989 IS SPAIN, not unknown (428 item 2(c), written after your plan). The table and the dry run
+  >        take it: 33 flags change on today's copy, 31 at 2618 and 2 at 3989. Your item 0's line on 3989
+  >        is superseded by it.
+  >    (c) THE PROVENANCE RECEIPT RUNS ON THE LAPTOP, by my block, on the pulled copy. Its shadow files are
+  >        in two places, because the cutover fell between them: 59 cohort fixtures kicked off 10-02 to
+  >        10-06, when the laptop was the writer, and their pre-kickoff files are the laptop's own exports/;
+  >        41643 kicked off 11-16 and its file is the host's, in the mirror clone's host/2026-11-16. So
+  >        --export-dir is given more than once, each a flat directory or a tree of dated folders, never
+  >        latest/ (232 item 2(c)'s reading). A missing file is listed as missing (159 item 2). The mirror
+  >        prunes a dated folder after 14 days; my block copies the host's unl_shadow files of that week
+  >        into a kept folder under logs/ before then.
+  >    (d) THE REST IS APPROVED AS WRITTEN: the override inside sync() with derive() the one derivation;
+  >        intl_venue_resolved untouched and resolve() left as it is; no new column; the guard that refuses
+  >        --record while any row's neutral_v3 differs from derive(); the empty-table pin; both lines from
+  >        one pass in the copy's one session; the dry run by default, --apply with --db refused, the stop
+  >        above two cohort fixtures; the five commands. --provider-check stays in PR ONE: today's two
+  >        calls were mine by hand and the command is their repeatable form.
+  >    (e) STILL OWED (428 item 2(e)): how the two stored countries arose, and the cost line. Add to it,
+  >        from your item 3: the daily run re-derives from the saved exports/intl_daily files, so say what
+  >        it reads for a venue id's COUNTRY (a saved catalog or a fresh call), since the host's row for
+  >        31921, played 2026-11-13, held "Spain" this morning while the by-id answer is Andorra.
+  >    (f) BUILD: PR ONE first, then PR TWO, as 426 item 5 ruled them.
+  >
+  > 2. #1035 — THE ID THE NEW GAME CAME UNDER: California v Stanford (66142) carries provider id 18369, and
+  >    so does last season's game, match 37223 (2025-11-23, FINISHED). The provider reused the id; the
+  >    season-scoped lookup of #906 created a 2026 row and left 37223 as it was. Recorded as #906 doing what
+  >    it was built for. Nothing to do.
+  >
+  > 3. #688, THE EARLIER COPY, AND THE CADENCE RULED.
+  >    (a) The laptop held the host's copy pulled 2026-11-09 13:49Z. The receipt on it (no provider call:
+  >        the 20 kept answers): sides recoverable 12, not recoverable 8; 'Missing Fixture' 77,
+  >        'Questionable' 4.
+  >    (b) THE 8 WERE GONE BEFORE ANY MONDAY: three games' rows were rewritten 13 to 14 minutes after
+  >        their closing run (Leeds v Tottenham 11:55 to 12:09Z; Manchester United v Aston Villa 15:55 to
+  >        16:08Z; Nottingham Forest v Manchester City 16:55 to 17:08Z) and Friday's game by 10:30Z the
+  >        next morning. A sync between the closing and the kickoff rewrites what the closing consumed.
+  >    (c) THE 81 ENTRIES READ: every one was carried from an earlier fixture, none was for the fixture
+  >        itself. Started 19, in the squad with no minutes 8, absent 54. 'Questionable' started 3 of 4.
+  >    (d) WHAT THE ROWS SHOWED ME, and it is production's input, which this receipt may read (243 item 2):
+  >        reasons such as "Off the roster", on entries carried from a European fixture three days before,
+  >        and "Red Card" from a league game two weeks before, stand in the count that v22's factor turns
+  >        into an xG cut. One side was counted 12 and cut 25% with such entries among them. A count by
+  >        reason, counts only, runs this afternoon. NOTHING CHANGES ON IT: v22 is unchanged, the Desk's
+  >        calls do not move, and no filter enters by the back door. It goes into tomorrow's soccer-v23
+  >        declaration, where the availability slot is mine to fill.
+  >    (e) RULED: THE WEEKLY HAND RUN ENDS. I missed two of two, and (b) shows that a weekly run could
+  >        never have read the sides that matter most. The script stays as built.
+  >    (f) WHAT REPLACES IT IS A COST LINE, NO BUILD (DEV 1, its own Issue on lane availability-record):
+  >        a soccer injuries feed into the availability record, append-only, each sync's entries as
+  >        observed with their type, reason, own fixture and our clock. Say from the code what it takes,
+  >        where the injuries sync writes today, and which unit re-synced at 12:09Z, 16:08Z and 17:08Z on
+  >        11-07 and 11-08.
+  >    (g) When that Issue exists, #688 closes by this ruling, in 416's form, its last comment beginning:
+  >        "ARCHITECT 2026-11-19, addendum 429 item 3(e): the weekly hand run ends; the receipt was built,
+  >        run and read (243, 244, 429 item 3); what replaces it is the cost line of 429 item 3(f)".
+  >
+  > 4. THE LANDING AGREEMENT RECEIPT'S LAST LINES (428 item 5(b), confirmed): the first stable label was
+  >    T-120 on 94 sides and T-90 on the 2 whose T-120 poll was missed; no side at any later label. The
+  >    T+20 read: complete 44, empty 3, failed 1.
+  >
+  > 5. A FINDING TO OPEN (DEV 1, ops): the laptop holds 25 pulled host copies, daily from 2026-10-15 to
+  >    2026-11-05 but for one day, and since then only 11-09, 11-11, 11-13 and today's, of which 11-09's
+  >    and today's were pulled by a block of mine. So the nightly pull (H0-14's second layer) has missed
+  >    at least ten nights of the last fourteen. Say on the Issue, from the code and the runbook, what
+  >    installs and schedules it and what it writes when it cannot reach the host. I read its state on
+  >    the laptop in tomorrow's block. No fix until I rule.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 430 (ARCHITECT 2026-11-19 09:43 ET), verbatim:**
+
+  > ARCHITECT 2026-11-19 09:43 ET (14:43Z, read from the clock) — addendum 430, for DEV 1 (Lane A). DEV 2 reads item 3.
+  > Paste exactly. Record it in BACKLOG as usual, and on #688 beside 429 item 3. No provider row goes onto an Issue.
+  >
+  > 1. A CORRECTION TO 429 ITEM 3(d), FROM THE COUNT IT PROMISED. I named "Off the roster" as an entry that
+  >    is no absence. The count does not bear that out, and the sentence is withdrawn. My block read the
+  >    three receipts kept under logs/ on the laptop (the laptop era and the host era of 11-03, and today's
+  >    run on the 11-09 copy), counts only, no network, no database: 297 entries on recoverable sides (139,
+  >    77 and 81; one line of the host era's 78 was not read by my reader).
+  >    (a) "Off the roster": 43 entries. Played 5 (12%), in the squad with no minutes 12, absent 26. They
+  >        played LESS often than the average entry, which played 67 times in 297 (23%).
+  >    (b) What does not hold is what 243 and 244 already found, and the third round sharpens it. By the
+  >        entry's own fixture: for this fixture 142, played 12 (8%); carried from an earlier fixture 155,
+  >        played 55 (35%). By how old the earlier fixture is: under four days 54, played 10; four to nine
+  >        days 72, played 22; nine days or more 29, played 23. By where it came from: an earlier PL
+  >        fixture 81, played 37; an earlier UEL fixture 51, played 11; an earlier CL fixture 23, played 7.
+  >    (c) By reason, the one that stands out is "Red Card": 20 entries, played 9.
+  >    (d) THE ROUND OF 11-07 AND 11-08 HELD NO ENTRY FOR ITS OWN FIXTURE: 0 of 81, against 53 of 77 and 89
+  >        of 139 in the two rounds before. On every recoverable side the closing consumed a list carried
+  >        from an earlier game.
+  >
+  > 2. WHAT STANDS OF 429 ITEM 3: all of (a) to (c) and (e) to (g). Of (d): the count that v22's factor turns
+  >    into an xG cut holds entries that are weeks old, and about one in four of all counted entries then
+  >    plays. NOTHING CHANGES ON IT, as ruled: v22 unchanged, the Desk's calls unmoved, no filter.
+  >
+  > 3. FOR TOMORROW'S soccer-v23 DECLARATION (mine; DEV 2 for information): these are the figures I take to
+  >    the availability slot. No number from them becomes a parameter without a frozen bar (243 item 4).
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 426:**
+  - Item 1: recorded. Nothing was pushed to #1049 after the merge-ready read. It merged at 7d4a3698 (428 item 1).
+  - Item 2: quoted on #1044 (comment 7012349451). The 667 were read and ruled on the architect's console (427 item 4(a)). Nothing is held or deduped. (e) records the architect's acceptance of the #1048 answer.
+  - Item 3: quoted on #220 (7012349879), #276 (7012350336) and #336 (7012350750).
+    - (e) is written in this PR as two moved lines on lane unl in `docs/roadmap.json`, one per moved date. Each carries the why verbatim and the ruling's addendum and item.
+      - The record step's due moves from 2026-11-19 to 2026-12-01, and its wording is unchanged.
+      - earliest_live moves from 2026-11-19 to 2026-12-01.
+    - The lane's state stays `confirming`. Nothing else in the file changes.
+    - One test changes, and what it checks does not: `tests/test_roadmap.py`'s earliest_live move test pinned 2026-11-20 as a later date. That date now falls before the record step's due, so the test moves the file's own earliest_live by one day instead.
+  - Item 4: recorded. Its console is 427 items 1-2.
+  - Items 5 and 6 are DEV 2's: recorded only. Item 5 is quoted on #220, #276 and #336 as ruled. DEV 1 builds nothing for them.
+- **What DEV 1 did on 427:**
+  - Items 1-3: quoted on #220 and #276 (the comments above), the counts and the architect's sentences only.
+    - Item 1's read is the stored-flags line only. Nothing is recorded on it, and the registry is untouched.
+    - Item 2(c)'s venue ruling came in 428 item 2(c).
+    - Item 3 is DEV 2's: recorded only.
+  - Item 4: quoted on #1044 (7012349451).
+    - (a) extends 425 item 2 to the 667.
+    - (c)'s refused re-key is recorded there as a second provider duplicate, beside 65282 and 65338. 428 item 4(b) names its row.
+    - (d) Sunday on the host is unchanged.
+  - Item 5: recorded. Its tennis finding was opened by 428 item 6 as #1050.
+  - Item 6: recorded. The run was made and read in 428 item 8 and 429 item 3.
+- **What DEV 1 did on 428:**
+  - Item 1: recorded.
+  - Item 2 is DEV 2's (the addendum's header): quoted on #276 (7012350336) as ruled and recorded only. 3989 is Spain.
+  - Item 3: quoted on #1035 (7012351220). #1035's title now names the three games, with California v Stanford listed 2026-11-19. #1035 stays an open limitation. No script is built.
+  - Item 4: quoted on #1044 (7012349451). Recorded; nothing is done.
+  - Item 5: quoted on #105 (7012463175) and #987 (7012463663). (c) is DEV 2's: recorded only.
+    - (d) is opened as #1051 (class:finding, track:model, sport:nhl, size:S), Refs #830, with the read-only answer from the code. The record's own T+20 boxscore poll is final: no retry and no later label (`src/availability/nhl_landing.py:107-110`). A written row of any status is never planned again (`:625-628`, `:641-642`), and the store is append-only.
+    - The same boxscore is read again only by `nhl-goalie-sync` in the host's nhl-daily chain (`deploy/hosting/chains.py:81`; `src/ingestion/nhl_goalies.py:298`, `:312`). That runs about 13 to 40 hours after puck drop and writes `nhl_goalie_appearances`, never the record. No fix until ruled.
+  - Item 6: opened as #1050 (class:finding, track:ops, sport:all, size:S), Refs #838, with the four ids. It joins 288 item 5's kickoff follow-up. The timer stays disabled.
+  - Item 7: recorded.
+  - Item 8: recorded. 429 item 3 rules the cadence.
+- **What DEV 1 did on 429:**
+  - Item 1 is DEV 2's: quoted on #276 (7012464118) and #336 (7012464644), recorded only.
+  - Item 2: quoted on #1035 (7012465156). Nothing to do.
+  - Item 3: quoted on #688 with addendum 430 beside it (7012776905).
+    - (f) is opened as #1052 (class:probe, track:model, sport:soccer, size:M), Refs #830, with the cost line from the code:
+      - the injuries sync is wipe-and-replace per team into `injuries` (`src/ingestion/service.py:1534`);
+      - by the code, the post-closing rewrites at 12:09Z, 16:08Z and 17:08Z fit `sp-window.timer`'s imminent-tier `sync-injuries --kickoff-within-hours 2` (`deploy/hosting/sp_run.py:219-230`). Another writer could have stamped last: a `freshen:SOCCER`, a slate retry or a click in the web app. Only the host's receipts and journal can tell;
+      - by the code, Friday's game fits `sp-soccer-saturday.timer` at 10:30Z, with the same caveat;
+      - the feed adds zero provider calls, needs one source word and a drop-and-recreate of the migrated insert guard, and touches about six files. Five rulings come first, and v23's mapping is its own gate-class step.
+    - (g): #688 is closed, state reason completed, in 416's form. Its last comment (7012777246) begins "ARCHITECT 2026-11-19, addendum 429 item 3(e): the weekly hand run ends; ...".
+  - Item 4: recorded. #1051 quotes it.
+  - Item 5: opened as #1053 (class:finding, track:ops, sport:all, size:S), Refs #480, from the code and the runbook:
+    - `scripts/setup_backup_pull.sh` installs a per-user LaunchAgent that runs `deploy/hosting/pull_backup.py` at 22:00 laptop-local, with no retry and no catch-up set in the repo.
+    - When the host cannot be reached, the script writes one `pull` receipt with exit 1 and the exception's text, prints a ✗ line to `logs/backup_pull.log`, and pages nothing.
+    - #480's ruled move into the operator's window never landed in a runbook.
+    - No fix until ruled.
+- **What DEV 1 did on 430:**
+  - Recorded, and quoted on #688 beside 429 item 3 (7012776905).
+  - Item 3 is the architect's, with DEV 2 for information.
+  - Nothing changes on v22, the Desk or any filter.
+
+**2026-11-17 — Addenda 424 and 425: #1046 merged; the Sunday hold route ruled and nothing built; the SP_SYNC_HOLD parsing trap opened as #1047; the 1,231 college rows read and ruled the provider's Division II and III games of 2026, kept, nothing held; one team id for two schools opened as limitation #1048; an old twin recorded on #932.**
+- **Addendum 424 (ARCHITECT 2026-11-17 11:06 ET), verbatim:**
+
+  > ARCHITECT 2026-11-17 11:06 ET (16:06Z, read from the clock) — addendum 424, for DEV 1 (Lane A).
+  > Paste exactly. Record it in BACKLOG as usual; item 2 also on #1044.
+  >
+  > 1. MERGED BY THE OPERATOR'S HAND ON GITHUB, as a merge commit: #1045 at d34ecf15. main is a067508f.
+  >    #1046 IS MERGE-READY at bad30964, read whole: the records of 417 and 423, two docs files. Both quotes
+  >    found sentence by sentence in my files; CI green on the head; Codex found nothing; no thread. It
+  >    merges the same way today, the operator checking the head reads bad30964. Do not push to it again.
+  >
+  > 2. YOUR ANSWER TO 423 ITEM 3 ON #1044 (SP_SYNC_HOLD): read whole. What I take, and what I rule now:
+  >    (a) The hold is by competition code and nothing narrower: it cannot hold Sunday's whole-listing pass
+  >        and leave the daily reads running. Understood.
+  >    (b) NOTHING IS BUILT. SP_FULLSEASON_HOLD is not ordered: a standing setting for a case met once.
+  >    (c) IF Thursday's read says the host must not take the listing whole on Sunday, the route is your
+  >        (B), the absence: my block removes NCAA's line from the weekly pass's list before 2026-11-22
+  >        06:00Z and my block restores it, both named on #1044 the day they run. Not the timed hold (A): a
+  >        hold whose effect depends on an edit landing inside a five-minute gap is not one I will write.
+  >        IF the read says the 1,231 are the lower divisions' games, nothing is held and the host takes
+  >        them on Sunday. I rule which on Friday, as 423 item 3 says.
+  >    (d) THE PARSING TRAP you found, a quoted value with a trailing comment that silently holds nothing
+  >        through the file: that is a hold that reads as set and is not. Open it as its own Issue (class
+  >        finding, track ops, size S), with the line as you wrote it and the file and line of the parser.
+  >        No fix until I rule; until then any hold line my blocks write is bare, CODE or CODE,CODE, with
+  >        no quotes and no comment, and the block reads the HELD line back before it trusts it.
+  >
+  > 3. STILL RULED: no dedupe, no retire, no re-sync, no hold, on either machine.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 425 (ARCHITECT 2026-11-17 14:07 ET), verbatim:**
+
+  > ARCHITECT 2026-11-17 14:07 ET (19:07Z, read from the clock) — addendum 425, for DEV 1 (Lane A), items 1-5; for DEV 2 (Lane B), item 6.
+  > Paste exactly. Record it in BACKLOG as usual; items 1-3 on #1044. No provider row goes onto an Issue: the counts and my sentences only.
+  >
+  > 1. THE READ OF 422 ITEM 2(c), BROUGHT FORWARD FROM THURSDAY (the operator had the laptop this afternoon):
+  >    three read-only blocks of mine on the laptop at 74059999, Monday's backup (sports_2026-11-16.db,
+  >    immutable) beside the DB as it is now (mode=ro), and two single-date probes. No write, no dedupe.
+  >    (a) NCAA rows before 13,040, now 14,271: 1,231 created, none gone. All 1,231 are season 2026, with a
+  >        kickoff from 2026-08-27 to 2026-11-14: FINISHED 1,226, every one with a score; CANCELLED 5. None
+  >        is in the future; none lies outside the season's dates.
+  >    (b) Their provider game ids run above every id the season held, and none is held by a second row of
+  >        any season.
+  >    (c) THE TEAMS: 2026 held 411 teams before. 753 of the created rows are between two teams new to 2026,
+  >        308 have one, 170 are between two teams 2026 already held; 229 teams are new to 2026, small
+  >        colleges by name.
+  >    (d) WHAT THE PROVIDER CALLS THEM: its listing for 2026-11-14 holds 282 rows, by its own stage 184 "All
+  >        Division II/III", 58 "FCS (Division I-AA)", 40 "FBS (Division I-A)". The created rows of that day
+  >        are the first kind.
+  >    (e) A PAST SEASON SERVED AGAIN: no. 750 created rows have the same two teams in an earlier season
+  >        within three days of the same calendar date, as yearly fixtures do; one of them has the same
+  >        venue and the same score (match 64761 beside 39144, two seasons apart), which is what chance
+  >        gives in 750.
+  >    (f) THE ROWS ALREADY HELD: 129 SCHEDULED rows' kickoffs moved, 114 of them by exactly one hour later
+  >        and 15 from a placeholder to a time. The provider refreshed the season overnight: the lower
+  >        divisions published, the clocks corrected for the end of summer time, the coming Saturday timed.
+  >    (g) THE FOUR GAMES OF #1035: still not stored. The refresh did not bring them.
+  >
+  > 2. RULED ON #1044: THE 1,231 ARE THE PROVIDER'S DIVISION II AND III GAMES OF 2026 TO DATE, AND THEY STAY.
+  >    My reading of 422 item 2(b) holds on every count I named in item 2(c) there. NOTHING IS HELD: the host
+  >    takes the listing whole on Sunday 2026-11-22 06:00Z as the laptop did, NCAA's line stays in the weekly
+  >    pass's list, and 424 item 2(c)'s route is not used. #1044 stays open until I have read that run's
+  >    receipt on Monday, and closes then by a quoted ruling.
+  >
+  > 3. THREE THINGS THE READ FOUND IN THE PROVIDER'S DATA. Each is recorded; none is repaired.
+  >    (a) ONE TEAM ID FOR TWO SCHOOLS, three known cases, and it is the provider's doing, not ours. Its own
+  >        rows for 2026-11-14 serve team id 200, named Maine, at home to Husson in "All Division II/III";
+  >        team id 141, named Buffalo State, at home to Hobart; team id 40, named Austin Peay, at home to
+  >        Gallaudet. Our rows for the three (teams 1523, 1464, 1366) carry their one id and no merge mark;
+  >        the only merged teams in the store are Hawai'i and Kings College (PA). So our Maine carries seven
+  >        created rows that by their opponents are Maine Maritime's, our Buffalo State carries five that
+  >        are the Division III school's beside the MAC Buffalo's own games, and our Austin Peay carries
+  >        three against Texas Lutheran and Gallaudet. The earlier seasons' game counts say it is not new
+  >        (team 1464: 22, 23, 22; team 1366: 22 and 21 in 2024 and 2025; team 1523: 22 in 2025).
+  >        Open it as its own Issue: track ops, class limitation, sport ncaa, size S, with "## Reopening
+  >        condition": "The provider separates the ids, or a ruling splits a team's rows by the provider's
+  >        stage." Its cost today is nil for the Desk (item 6). Its cost for a model is real and belongs
+  >        to the 2027 college declaration: any walk over a team's stored games is wrong for these three.
+  >    (b) ONE PROVIDER DUPLICATE AMONG THE CREATED ROWS: matches 65282 and 65338, the same two teams at the
+  >        same venue five days apart with scores two points different. Recorded on #1044; left as it is.
+  >    (c) AN OLD TWIN THE ORPHAN DRY RUN CANNOT SEE: match 32143 (2026-09-05 22:20Z, SCHEDULED, score 0-0)
+  >        beside match 32195 (2026-09-06 15:00Z, FINISHED), the same two teams at the same venue. It is the
+  >        one NCAA row in the laptop's stale count. dedupe-matches --orphans takes "SCHEDULED, no score"
+  >        as its candidates, and a stale row stored with 0-0 is not one. Record it on #932 as a finding
+  >        with the two ids. No fix until I rule, and no apply.
+  >
+  > 4. ONE READ-ONLY QUESTION, from the code, no run, on the new Issue of 3(a): is the provider's stage
+  >    ("FBS (Division I-A)", "FCS (Division I-AA)", "All Division II/III") stored on our NCAA rows, in which
+  >    column, since when, and does any reader of NCAA rows use it today. One paragraph.
+  >
+  > 5. STILL RULED: no dedupe, no retire, no re-sync, no hold, on either machine.
+  >
+  > 6. DEV 2 — WHAT THIS MEANS FOR KXNCAAFGAME'S TABLE: NOTHING CHANGES, and I say why so that Friday's replay
+  >    is read against it. The table's 264 lines stand as ruled (their sha256 unchanged). A tabled name is
+  >    placed only on a stored game between BOTH names' teams on the event's day, so the Division III games
+  >    that team 1464 also carries cannot take a Kalshi market for Buffalo: their other side is no tabled
+  >    name of the event. The 129 moved kickoffs do not touch a proof either: each proof was one game
+  >    within the hand reading's window of 12 h before to 48 h after the ticker's day, and the largest
+  >    move is under a day. Friday's baseline and replay run on the DB of that morning, with the lower
+  >    divisions in it; that is the DB the host will have from Sunday.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 424:**
+  - Item 1: recorded. #1046 merged by hand at b9407e2d, with nothing pushed after the merge-ready read.
+  - Item 2: quoted on #1044 (comment 6955153193).
+    - (b) Nothing is built.
+    - (c) Nothing is done before the Friday ruling, and 425 item 2 has since ruled that nothing is held.
+    - (d) Opened as #1047 (class:finding, track:ops, size:S). It carries the line as written, the parser's file and lines (`src/ingestion/sync_hold.py:37-55`, the quotes at `:52-53`) and a receipt of main's parser run as a pure function on three throwaway files. No fix until ruled.
+  - Item 3: recorded.
+- **What DEV 1 did on 425:**
+  - Items 1–3: quoted on #1044 (comment 6958228919), the counts and the architect's sentences only.
+  - Item 3(a): opened as #1048 (class:limitation, track:ops, sport:ncaa, size:S), with its "## Reopening condition" as ruled.
+  - Item 3(b): recorded by the quote on #1044.
+  - Item 3(c): recorded on #932 (comment 6958229575) with the two ids, and why `dedupe-matches --orphans` cannot see the pair (`unplayed`, `src/ingestion/match_dedupe.py:409-410`). No fix, no apply.
+  - Item 4: answered on #1048 (comment 6958466151), read-only from the code. The stage is stored in `matches.stage`:
+    - since the first NCAA sync;
+    - overwritten by each non-empty served label;
+    - the only readers that branch on it share one test, `ncaa_backtest.exclusion_reason` (`src/walters/ncaa_backtest.py:162-169`). It excludes a game whose stage contains "pre" or "post". Three paths use it: the `ncaa-cfbd-coverage` stream, ncaa-audit's `gate_exclusion`, and the shadow's pricing skip (`src/walters/ncaa_shadow.py:519-523`, in the export path that is dormant while ncaa-elo-v2 is FAIL);
+    - none of the three division labels contains either substring, so today the test excludes no NCAA game. Nothing else selects, prices or places an NCAA game by its stage.
+  - Item 5: recorded. No dedupe, retire, re-sync or hold, on either machine.
+  - Item 6 is DEV 2's: recorded only.
+
+**2026-11-17 — Addenda 421 and 422: #1042 and #1043 merged; the provider's 2026 college football listing doubled overnight and the laptop created 1,231 rows (finding #1044, nothing done about it); the Nations League cohort complete on the host (60/60), its calendar step done; 417 still owed to the record.**
+- **Addendum 421 (ARCHITECT 2026-11-16 15:28 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 15:28 ET (20:28Z, read from the clock) — addendum 421, for DEV 1 (Lane A).
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. TWO PRs MERGE-READY, each read whole, merging by one block of mine, pinned by head, in this order:
+  >    (a) #1042 at f23e77aa: the records of 418 and 419 and the probe's row in scripts/README.md, now saying
+  >        what was run and when. Both quotes found sentence by sentence in my files; no provider row is in
+  >        either entry. Round 1's three P2s: two fixed, the third ruled by 420 item 1 and resolved; round 2
+  >        found nothing.
+  >    (b) #1043 at 10cbc60f: the docs index as 420 item 1 ruled it. The per-entry list is gone and one
+  >        sentence stands in its place; the four missing rows are added. On my copy, with both merged, every
+  >        tracked file under docs/ outside the entries folder is named in the index.
+  >
+  > 2. STILL OWED TO THE RECORD: addendum 417 (for Dev 2; 420 item 3). It is in neither PR. It rides your next
+  >    records PR with 420 and this one.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 422 (ARCHITECT 2026-11-17 05:56 ET), verbatim:**
+
+  > ARCHITECT 2026-11-17 05:56 ET (10:56Z, read from the clock) — addendum 422, for DEV 1 (Lane A).
+  > Paste exactly. Record it in BACKLOG as usual. The operator is travelling: nothing here needs him before Thursday.
+  >
+  > 1. THE MORNING OF 2026-11-17 (the agent's run of my short block on the laptop, at 74059999, 10:51Z): read
+  >    whole. The routine is clean: the env check, the backup under a free name, coverage, MLB's close
+  >    (candidate v193 rejected, holdout 7 below 30, as it should be), NHL's three days and its fixtures
+  >    export (59), the two-day goalie sync (2 games, both starters on each; 332 linked this season), the
+  >    tennis step with every exit printed (four commands, four exits 0; KXWTAMATCH has no open market),
+  >    the tally and the mirror push. One thing in it is new, item 2.
+  >
+  > 2. A FINDING, on a new Issue (track ops, class finding, sport ncaa, size S): THE PROVIDER'S COLLEGE
+  >    FOOTBALL LISTING FOR 2026 DOUBLED OVERNIGHT, AND THE LAPTOP CREATED 1,231 ROWS.
+  >    (a) Monday 08:57 ET, the whole-season pass: fetched 1,778, created 0, updated 1,729, skipped 49.
+  >        Tuesday 05:52 ET, the daily sync (the same whole listing, the provider taking no range): fetched
+  >        3,675, created 1,231, updated 1,729, skipped 715 "of clubs not in the DB" (ids 22673..27468),
+  >        orientation_reversed 0, teams_mismatch_refused 0, no collision line. Stored NCAA rows by season
+  >        after it: 2023 3,720 · 2024 3,774 · 2025 3,817 · 2026 2,960. The four guarded rows read as they
+  >        should (36454 and 36753 season 2025; 58453 and 58454 season 2026).
+  >    (b) MY READING, NOT YET A FACT: the provider has published the lower divisions' 2026 games. Until
+  >        today 2026 held 412 teams and 1,729 games where each earlier season holds about 700 teams and
+  >        3,700 to 3,800 games; 3,675 listings is a whole season of that size. The stale-orphan dry run
+  >        still finds its 20 candidates and no twin, and the new ids (25572 to 27468) sit above every id
+  >        the season held.
+  >    (c) WHAT WOULD MAKE IT WRONG, and what I read on Thursday on the laptop's copy before I call it
+  >        benign: a created row that is a second copy of a game already stored (the provider serving the
+  >        same game under a new id), or 2026 listings that belong to another season.
+  >    (d) FROM YOU, READ-ONLY, FROM THE CODE, NO RUN, on that Issue, by Thursday morning: (i) when a listing
+  >        carries a provider id no stored row holds, what decides between re-keying a stored row in place
+  >        and creating a new one, with file and line, and whether a created row can be a twin of a stored
+  >        one (same two teams, kickoff within 48 h) without a line printed; (ii) which existing command
+  >        counts such twins in NCAA 2026 without writing, and its arguments against a copy, so my block
+  >        runs it (198 item 6(i)); (iii) what the host does with the same listing and when: the daily
+  >        ncaa-schedule window and Sunday's whole-season pass, by chain and step.
+  >    (e) NOTHING IS DONE ABOUT IT: no dedupe, no retire, no re-sync. The laptop is beta; the host has not
+  >        taken the listing whole and I want (d)(iii) before it does on Sunday.
+  >
+  > 3. THE NATIONS LEAGUE COHORT IS COMPLETE ON THE HOST. The mirror's host/2026-11-17/unl_shadow_2026-11-17_
+  >    0720.json, written by intl-daily at 07:20Z on 482de3fd (v1.6.9), reads "PASS — confirmation 60/60".
+  >    The 60th cohort fixture (41643) is played and counted. So lane unl's calendar step "the 60th cohort
+  >    fixture is played", due 2026-11-16 and shown OVERDUE by one day on this morning's roadmap, is DONE:
+  >    mark it done in your next records PR, its receipt "addendum 422 item 3 (the host's unl_shadow of
+  >    2026-11-17T07:20Z)". Its text still names the kickoff first scheduled (2026-11-11T21:00Z); the game
+  >    was played 2026-11-16T20:00Z; the done-mark says so and the step's text is not edited. The
+  >    confirmation record itself stays Thursday 2026-11-19, by my block, as 406 item 1 moved it.
+  >
+  > 4. TWO SMALL THINGS OF MINE, so they are not read as findings. The stale count rose from 6 to 8: two
+  >    FRIENDLIES_INT rows of 2026-11-15. My short block runs no internationals sync, and the laptop last
+  >    saw them in Monday's whole-season pass. Thursday's block syncs the internationals and I add that
+  >    line to the daily routine from then. And 417 is still owed to the record (420 item 3).
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 421:**
+  - Item 1: recorded. Both PRs merged by the architect's block; main is 74059999.
+  - Item 2: 417's text has not reached this session. Its record rides the first records PR open when it does (this one, if it is not yet read merge-ready).
+- **What DEV 1 did on 422:**
+  - Item 1: recorded.
+  - Item 2: opened as #1044 (track:ops, class:finding, sport:ncaa, size:S), with item 2 verbatim and no provider row.
+    - The answers to item 2(d)(i)–(iii) go on #1044 by Thursday 2026-11-19 morning, read from the code at main with nothing run.
+    - Item 2(e): nothing is done about it. No dedupe, no retire and no re-sync.
+  - Item 3: lane unl's calendar step "the 60th cohort fixture (41643, kickoff 2026-11-11T21:00Z) is played" is done-marked in docs/roadmap.json:
+    - date 2026-11-16;
+    - receipt "addendum 422 item 3 (the host's unl_shadow of 2026-11-17T07:20Z)", which says the game was played 2026-11-16T20:00Z.
+    - The step's text is not edited. The confirmation record step stays due 2026-11-19, by the architect's block.
+  - Item 4: recorded. These are the architect's own items, not findings. 417 is still owed (see 421 item 2 above).
+
+**2026-11-17 — Addenda 417 and 423: KXNCAAFGAME's table ruled by sha256 and #1036 held for the Saturday baseline (Dev 2's lane, recorded here); #1045 merged; #1044's code answers taken, the open point settled by two consoles (the provider honours `date`; the laptop's 3,675 came from a range); the host before Sunday ruled on Friday.**
+- **Addendum 417 (ARCHITECT 2026-11-16 14:06 ET), for DEV 2, verbatim:**
+
+  > ARCHITECT 2026-11-16 14:06 ET (19:06Z, read from the clock) — addendum 417, for DEV 2 (Lane B).
+  > Paste exactly. Record it in BACKLOG as usual, and items 2-3 on #955.
+  >
+  > 1. #1036 AT d140d2c2, READ WHOLE. IT IS REVIEWED AND GREEN, AND IT STILL DOES NOT MERGE: it waits for the
+  >    scorer's baseline on a Saturday slate, as 412 item 3(c) says. Nothing more is asked of the PR.
+  >    (a) THE TABLE IS THE RULED ONE, by my own check and not only yours: the JSON's 264 lines, as name, key
+  >        and id, are equal to the 264 of my ruled file, in name order, every id a string, no other field.
+  >        The file's sha256 is 0698c81d7c05e1c4fdcf30d7a09f95f9e34ba5812e077139a3e93dd7fc0b903e, and that is
+  >        now the ruled sha256 of KXNCAAFGAME.json.
+  >    (b) THE FENCE HOLDS: under src/ the PR adds the JSON and changes the README, and nothing else.
+  >    (c) CI green on the head, every run finished. Three review rounds, the cap: no more are requested.
+  >    (d) The scorer tests that pinned the shared scorer on KXNCAAFGAME's spellings now run with an empty
+  >        table folder (392's precedent). I read that as right: they test the scorer, which stays every
+  >        undeclared series' matcher, and no assertion moved.
+  >    If main moves before the merge, bring main in and show green CI; that is not a review round (stop
+  >    rule, item 4).
+  >
+  > 2. THE ONE P2 ON MY LIST, THE PAIR RECEIPT: RULED, IT KEEPS REFUSING, AND IT DOES NOT BLOCK.
+  >    scripts/kalshi_pair_receipt.py places through kalshi_history.place_events, and a declared series there
+  >    reads TABLE_UNREAD. That is the history hold doing its work, not a defect of this PR: the receipt is
+  >    #413's one before-and-after of 2026-11-03, it is read-only, nothing on either machine runs it, and a
+  >    refusal that names its reason is the conservative answer for a path no ruling has opened to the
+  >    table. Your test pinning the refusal is the right shape. Answer the thread with this item quoted and
+  >    resolve it.
+  >
+  > 3. 387 ITEM 3'S HISTORY HOLD, FOR KXNCAAFGAME: IT STANDS, AS FOR KXNCAAMBGAME. Your list is what I asked
+  >    for: four readers, all inside the kalshi-history command group, none named by any chain, timer or
+  >    export on the host; the host's one college football Kalshi step is sync-kalshi-ncaa, which places
+  >    through place() and reads the table. So from the merge the four paths and the pair receipt refuse
+  >    this series, and the live sync is placed by the table. Opening the history paths to a table is ONE
+  >    ruling for every declared series, made when a lane needs a declared series' history, and not before.
+  >    It is recorded on #955 as the lane's open item after the two tables; no build.
+  >
+  > 4. GTUGA (412 item 3(d)): READ, AND IT IS THE CASE I FEARED. By your reading of place(), the window is
+  >    reached only after the event's two names fit one stored pair, so the scorer did fit that event to one
+  >    game; by side_score the only full assignment on match 33592 is "Georgia" on Georgia Southern and
+  >    "Georgia Tech" on Louisiana Tech; your synthetic test places exactly that with no table and refuses
+  >    NO_FIT under it. What the store's unique pair is, no console prints before the day enters the window,
+  >    and I do not need it: the table reaches the host before 2026-11-26 or I hold that event by name.
+  >
+  > 5. ONE FINDING OF YOURS, ITS OWN ISSUE (class finding, track model, size S; no build until I rule):
+  >    tests/test_392_kxncaambgame_table.py's sync test fails when it runs after
+  >    tests/test_kalshi_matcher_day_rule.py, on main as on this head, because that file leaves Kalshi
+  >    snapshot rows in the shared throwaway DB. The suite's own order passes. A test that depends on the
+  >    order it runs in will pass or fail for the wrong reason one day; record it with your two-file command.
+  >
+  > 6. WHAT HAPPENS NEXT, AND WHEN. I intend the baseline for Friday 2026-11-20 in the morning, when the
+  >    run's window holds all of Saturday: my block fetches and replays on main without the table, the PR
+  >    merges on my word pinned to its head, the same kept file is replayed under the table, and I read
+  >    every difference by name before the tag. I confirm the day in Thursday's plan. Until then nothing
+  >    moves on this lane and you do not push to #1036 except to bring main in.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 423 (ARCHITECT 2026-11-17 06:57 ET), verbatim:**
+
+  > ARCHITECT 2026-11-17 06:57 ET (11:57Z, read from the clock) — addendum 423, for DEV 1 (Lane A).
+  > Paste exactly. Record it in BACKLOG as usual; items 2-3 also on #1044.
+  >
+  > 1. #1045 IS MERGE-READY at d34ecf15, read whole: the records of 421 and 422, lane unl's calendar step
+  >    done with its receipt, and the roadmap test reading "the first step not done". Both quotes found
+  >    sentence by sentence in my files; CI green on the head; Codex found nothing; no thread. The operator's
+  >    laptop is offline today, so he merges this one by hand on GitHub, as a merge commit, after checking
+  >    the head reads d34ecf15. Do not push to it again. 417 rides the next records PR, when its text
+  >    reaches you.
+  >
+  > 2. YOUR ANSWERS TO 422 ITEM 2(d) ON #1044: read whole, and they are what I asked for. What I take:
+  >    (a) THE POINT THE CODE COULD NOT SETTLE IS SETTLED BY TWO CONSOLES. The provider honours `date`: the
+  >        probe of 2026-11-16 asked five single dates and got 113, 5, 12, 49 and 1 rows. And the laptop's
+  >        3,675 did not come from a single-day call: its console says "RANGE 2026-11-09..2026-11-16 is not
+  >        supported by this provider: reading and writing the whole 2026 listing". So the host's daily
+  >        ncaa-schedule takes single days, and its only whole-listing write is Sunday 2026-11-22 06:00Z.
+  >    (b) A TWIN CAN BE CREATED IN SILENCE: understood, with your three cases. One of them does not arise
+  >        today: the provider's undecided kickoffs after the clock change are still served at 04:00Z (the
+  >        probe's rows of 11-21 and 11-28), not 05:00Z. Record that on #1044 beside your case; the code's
+  >        04:00Z-only test stays a known edge and nothing is built for it.
+  >    (c) NO SCRIPT IS BUILT FOR THE COUNT. I read it Thursday by SQL in my own block, on immutable copies,
+  >        no provider call: the rows Tuesday's sync created are the NCAA rows in Thursday's copy whose ids
+  >        are absent from Monday's backup. For those: kickoff by month, status, scored or not; pairs of the
+  >        same two teams that appear more than once in 2026, at any gap; and pairs that match a row of
+  >        another season within three days of the same calendar date, which is how a past season served
+  >        under 2026 would show. dedupe-matches is not run for this.
+  >
+  > 3. THE HOST BEFORE SUNDAY: I RULE ON FRIDAY, with the tag, after Thursday's read. For that ruling, on
+  >    #1044, read-only from the code, no run, by Thursday evening: SP_SYNC_HOLD exactly. Where it is set
+  >    and its syntax (the variable by NAME, never a value from host.env); which steps honour it for NCAA
+  >    (sync-teams, sync-matches, the refresh by id, any other) and what each prints and exits when held;
+  >    what the chain's receipt shows; and whether it can hold Sunday's whole-listing pass for NCAA while the
+  >    daily single-day window keeps running. If it cannot, one line of cost for the narrowest hold that
+  >    can. No hold is set now and none is asked for: if the 1,231 are the lower divisions' games, the host
+  >    should take them on Sunday as the laptop did.
+  >
+  > 4. STILL RULED: no dedupe, no retire, no re-sync, on either machine.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What was done on 417 (recorded by DEV 1: the records are one lane, 420 item 3):**
+  - Items 1–6 are DEV 2's.
+  - Items 2–3 were recorded on #955 by DEV 2 (2026-11-16T19:14Z).
+  - Item 5's finding is #1041 (class:finding, track:model, size:S), opened by DEV 2.
+  - #1036 is open and unmerged, waiting on the baseline of item 6.
+  - 420 item 5 read the items done as asked. DEV 1 touched none of them.
+- **What DEV 1 did on 423:**
+  - Item 1: #1045 was merged by hand as a merge commit (a067508f), with nothing pushed after the merge-ready read. 417 rides this PR.
+  - Items 2–3: quoted on #1044 as ruled (comment 6947410056). Beside case 2 of the (i) answer is the record of 2(b): the provider still serves undecided kickoffs at 04:00Z after the clock change. The 04:00Z-only test stays a known edge, and nothing is built for it.
+  - Item 2(c): no script is built; `dedupe-matches` is not run.
+  - Item 3: the `SP_SYNC_HOLD` answer goes on #1044 by Thursday 2026-11-19 evening, read-only from the code, nothing run. No hold is set and none is asked for.
+  - Item 4: recorded. Nothing is deduped, retired or re-synced on either machine.
+
+**2026-11-16 — Addendum 420: the docs index loses its per-entry ledger list and gains its four missing rows; #1035's Thursday read made exact (the table and columns, the throwaway-copy line, no row written); 417's record rides the next records PR.**
+- **Addendum 420 (ARCHITECT 2026-11-16 14:35 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 14:35 ET (19:35Z, read from the clock) — addendum 420, for DEV 1 (Lane A), items 1-4; for DEV 2 (Lane B), item 5.
+  > Paste exactly. Record it in BACKLOG as usual; item 2 also on #1035.
+  >
+  > 1. DEV 1 — #1042's OPEN THREAD, THE DOCS INDEX: RULED, AND IT DOES NOT BLOCK #1042.
+  >    docs/README.md's ledger section lists the entries folder file by file "at this PR's head". Nobody has
+  >    kept it since 2026-11-07: fourteen entries are unlisted and it names entries the compile has folded
+  >    and deleted. A list that every PR must touch goes stale, and a stale index is worse than none.
+  >    (a) The per-entry list goes. In its place, one sentence: the folder holds one entry per PR since the
+  >        last compile, the compile folds them into BACKLOG.md and deletes them, and the folder's own README
+  >        has the rules. No row per entry, now or later.
+  >    (b) The other tracked docs files the index does not list (you count eighteen in all, the entries
+  >        among them) get their rows, each read before it is described.
+  >    (c) Its own small docs PR, lane A, read-only docs under the stop rule. Not in #1042.
+  >    Answer the thread with this item quoted and resolve it. #1042 is then merge-ready when CI is green on
+  >    its head and the round you requested finds nothing new; I read it at my next check-in.
+  >
+  > 2. DEV 1 — YOUR ANSWER TO 419 ITEM 4 ON #1035: read whole. Your four questions, answered:
+  >    (1) WHETHER THE HOST'S 11-15 RUN WROTE A 2026 RECORD: I read that myself on Thursday, on the pulled
+  >        host copy. Name on #1035 the table and the columns that hold the ingest record, so my block reads
+  >        them and not a guess.
+  >    (2) WHEN: twice. Thursday, the record as it stands, for the season to date. And once after the Sunday
+  >        run of 2026-12-06, which is the figure the 2027 college declaration will cite.
+  >    (3) THE UPPER BOUND IS ENOUGH FOR NOW. No script is built. If the bare-unmatched count is a handful,
+  >        the matter ends there for the Desk and is a footnote for 2027. If it is large, I order the script
+  >        with its split then, and not before.
+  >    (4) A READ-WRITE OPEN: YES, ON A THROWAWAY COPY AND NOTHING ELSE. My block takes a .backup of the
+  >        pulled copy under a name that does not exist, points DATABASE_URL at that file for the one
+  >        command, and removes the file and its sidecars after. Never the pulled copy that other receipts
+  >        read with immutable=1, and never a live file. Write on #1035 the exact line for it: the variable,
+  >        the command and its arguments for season 2026, whether loading .env can override an exported
+  >        DATABASE_URL, and your statement, with file and line, that the command writes no row.
+  >
+  > 3. DEV 1 — THE RECORD OF 417. It was addressed to Dev 2 alone and Dev 2 rightly opened no records PR: the
+  >    records are one lane, yours, for every addendum whoever it is for. The operator relays 417 to you;
+  >    it rides #1042 if that is still open when it reaches you, else the next records PR.
+  >
+  > 4. DEV 1 — #1035 as a limitation, its label and its reopening condition: read on the Issue, and right.
+  >
+  > 5. DEV 2 — #1036 at 3c792944: read. Green with main brought in at 0a3de51d, the table's sha256 unchanged,
+  >    Codex's uninvited pass not a round. main has moved since (403caf77) and will move again before
+  >    Friday. Do NOT bring main in at every merge: once, on Thursday evening, or earlier only on my word.
+  >    Your items of 417 (the thread, #955, #1041) are done as asked.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 420:**
+  - Item 1: item 1 is quoted on #1042's docs-index thread, and the thread is resolved. The index change is this PR, not #1042:
+    - (a) docs/README.md's `docs/ledger/` section drops its per-entry list for the one sentence as ruled. The index's opening line now excepts the per-PR entries.
+    - (b) the four other docs files the index missed now have rows, each read before it was described: docs/ledger/2026-11-14-ledger-sweep.md, docs/registry/ids/ncaa-elo-v2.txt, docs/registry/ncaa-elo-v2.started.json and docs/specs/availability-graph-candidates.md.
+    - At main 403caf77, 16 tracked docs files were unlisted: 12 entries plus these four. #1042's head adds two more entries, which makes the addendum's eighteen. After this PR, every docs file outside docs/ledger/entries/ has its row, and no entry has one.
+  - Item 2: 420 item 2 verbatim on #1035, with what it asks (comment 6927750190):
+    - the table `ncaa_cfbd_ingest_records` and its nine columns, with the latest-per-season rule;
+    - the throwaway line `DATABASE_URL=sqlite:////ABS/PATH/throwaway.db python -B cli.py ncaa-cfbd-coverage`, which takes no arguments and prints every season with a record, 2024 to 2026 always;
+    - .env cannot override an exported DATABASE_URL (`config.py:21`, override=False);
+    - the statement, with file and line, that the command writes no row, no schema and no file; only the engine's connect hooks act (WAL mode, the parent directory).
+    - Two independent readers made the trace, and a third checked it.
+  - Item 3: 417 has not reached DEV 1 yet. It rides #1042 if #1042 is still open then, else the next records PR.
+  - Item 4: recorded.
+  - Item 5 is Dev 2's: recorded only.
+
+**2026-11-16 — Addendum 419: the listing probe run on the laptop (180 rows, 0 dropped); #1035 settled: the provider does not list the four games, and the Issue becomes a limitation; the season-width read answered from the code.**
+- **Addendum 419 (ARCHITECT 2026-11-16 14:20 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 14:20 ET (19:20Z, read from the clock) — addendum 419, for DEV 1 (Lane A).
+  > Paste exactly. Record it in BACKLOG as usual, and on #1035. No provider row goes onto the Issue: the counts and my sentences only.
+  >
+  > 1. MERGED BY MY BLOCK: #1037 at 3c25e721, #1040 at 4899857c, #1039 at 6f46c6b2. main is 403caf77.
+  >
+  > 2. THE PROBE, RUN TODAY AND NOT THURSDAY (the operator was at the laptop and it was on main): laptop at
+  >    403caf77, the key by name (API_FOOTBALL_KEY), this morning's backup copy read-only (13,040 stored NCAA
+  >    matches, 13,038 provider ids held, 814 team provider ids), five dates, five HTTP GETs, exit 0.
+  >    (a) THE COUNTS: 2026-11-21: 113 rows, 113 stored · 11-22: 5 rows, 5 stored · 11-27: 12 rows, 12
+  >        stored · 11-28: 49 rows, 44 stored, 5 not stored · 11-29: 1 row, 1 stored. 180 rows in all:
+  >        DROPPED 0 (no row without a date, none without a game id, none all-star), verdict failed 0.
+  >    (b) THE FIVE NOT STORED, all on 11-28, are placeholder rows: four name a home team and an away team
+  >        id of 0 with no name, one names no team at all. Their game ids (25078 to 25081 and 25569) are
+  >        five of the 49 the morning's whole-season pass skipped as clubs not in the DB. They are the
+  >        known M12 class, a game whose opponent the provider has not filled in.
+  >    (c) THE FOUR GAMES: NOT ONE ROW. On the five dates the provider lists no game between Stanford and
+  >        California, Texas and Texas A&M, Georgia Tech and Georgia, or Nevada and UNLV. Each of the eight
+  >        teams' rows that the provider does list is stored, id for id.
+  >
+  > 3. THE FINDING, SETTLED: THE PROVIDER DOES NOT LIST THEM. Nothing on our side drops them: not the silent
+  >    drops, not a missing team, not a re-key refusal. What we store for those dates is exactly what the
+  >    provider serves, less its five placeholders. Addendum 21's sentence was the nearest record and it
+  >    does not fit either: the provider lists 113 unplayed games for 11-21 and simply not these.
+  >    (a) #1035 becomes a LIMITATION: relabel it class:limitation, with the section "## Reopening
+  >        condition": "The provider lists the game, or a ruling names a second schedule source for college
+  >        football rows." Its title says four games; they are the four Kalshi showed us, and the provider's
+  >        gap may be wider than what Kalshi lists.
+  >    (b) WHAT IT COSTS TODAY: college football is market-only, so a game with no row is a game the Desk
+  >        does not show and Kalshi's markets for it are refused for want of a game. That refusal is right.
+  >        The one wrong outcome it invites is the scorer's namesake fit for Georgia Tech v Georgia from
+  >        2026-11-26 (412 item 3(d); 417 item 4), which the table removes and the next tag carries.
+  >    (c) #1038 (the three silent drops) stays as it is: the probe met none in 180 rows. No fix is ordered.
+  >
+  > 4. ONE READ I STILL WANT, read-only, for Thursday, and it is about the 2027 college candidate's data and
+  >    not about the Desk: HOW WIDE IS THE GAP OVER THE SEASON? The second source's labels attach only to
+  >    games we store, so a game the provider never lists is missing from the model's stream as well. Tell
+  >    me on #1035, from the code and with no run: which existing command prints, for 2026, the COMPLETED
+  >    games the second source holds that we do not store (your (c) says the ingest record keeps that list
+  >    for completed games), on which machine its data lives, and its arguments against a copy. I write the
+  >    block. If nothing prints it without new code, one line of cost.
+  >
+  > 5. STILL RULED: nothing is synced, inserted, re-keyed or repaired. Whether a college football row may ever
+  >    be created from a second source is a decision for the 2027 declaration, with its own addendum.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 419:**
+  - Item 1: recorded (also in 418's entry).
+  - Items 2 and 3: 419 verbatim on #1035 (comment 6926629812): the counts and the architect's sentences only, no provider row.
+  - Item 3(a): #1035 relabelled class:limitation (class:finding off). Its body carries a note of the settled finding and the "## Reopening condition" section, with the sentence as ruled. It stays open.
+  - Item 3(c): #1038 unchanged.
+  - Item 4: answered on #1035 (comment 6926777198), read-only from the code at 403caf77, no run. Two readers worked independently; a third checked every citation and settled where they differed.
+    - **The command:** `ncaa-cfbd-coverage` is the only existing command that prints the stored list game by game.
+    - **What it holds:** CFBD's completed both-FBS games with no label. A bare "unmatched" entry is the closest thing to a game we do not store, but it also covers a name gap, a kickoff more than 36 h off, and a cancelled copy. So its count is an upper bound; the record does not keep the split.
+    - **Where the data lives:** the record is the host's weekly run (Sunday 06:00Z; on Thursday the latest is 11-15's, if it went through). A laptop record exists only from a hand run and measures the laptop's store.
+    - **Arguments against a copy:** none. A copy is read only through `DATABASE_URL`, which is a read-write open (no row written; `-wal`/`-shm` files made), not mode=ro + immutable=1.
+    - **The host alternative:** the replay `ncaa-cfbd-labels --year 2026 --from-file <payload> --dry-run --unmatched-names` prints the both-names-known split, also through the read-write engine.
+    - **The cost line:** a read-only `scripts/ncaa_cfbd_unlabelled.py --db COPY --season 2026`, about half a day. Not built.
+    - **Four open questions** are left for the architect's block.
+  - Item 5: nothing synced, inserted, re-keyed or repaired.
+
+**2026-11-16 — Addendum 418: #1037, #1040 and #1039 read merge-ready and merged; the probe's Thursday run is five dates, not three; 416's closings confirmed; the #382 cost line received, no build.**
+- **Addendum 418 (ARCHITECT 2026-11-16 14:14 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 14:14 ET (19:14Z, read from the clock) — addendum 418, for DEV 1 (Lane A).
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. THREE PRs MERGE-READY, each read whole, merging today by one block of mine, pinned by head, in this
+  >    order:
+  >    (a) #1037 at 3c25e721: the records of 412 and 413. Both quotes found sentence by sentence in my files.
+  >    (b) #1040 at 4899857c: the records of 414, 415 and 416, and lane nfl-qb's roadmap step: the 11-16 step
+  >        done with receipt "addendum 415" and the two steps appended as 415 item 4 wrote them. All three
+  >        quotes found in my files; on my copy `python cli.py roadmap` exits 0 and prints the new next step.
+  >    (c) #1039 at 6f46c6b2: the listing probe. I read the script line by line and it keeps 414 item 3's
+  >        fence: the adapter's own _get, the raw rows before any parse, at most seven dates, the call count
+  >        first and last, the key by name with its value redacted from every printed text, the copy read
+  >        before any call and refused under data/ or with a sidecar, no write and no file. Round 1's two
+  >        P2s are fixed and their threads resolved; round 2 found nothing. Read-only tooling under the stop
+  >        rule: merge-ready.
+  >    On my copy the three merged together pass the roadmap and probe tests (173).
+  >
+  > 2. THE PROBE'S RUN, THURSDAY, BY MY BLOCK: FIVE DATES, NOT THREE. No timezone is sent and the provider's
+  >    day boundary is not in the repo, so a Saturday night game may sit on the next UTC day: 2026-11-21,
+  >    2026-11-22, 2026-11-27, 2026-11-28 and 2026-11-29, against that morning's copy. Five calls, inside
+  >    the cap of seven.
+  >
+  > 3. 416's CLOSINGS: CONFIRMED BY MY OWN READ. All thirty are closed, none reopened; #688 is open with its
+  >    label off; #1038 is open as the limitation of 414 item 4(a).
+  >
+  > 4. THE COST LINE ON #382 (415 item 2): RECEIVED. No build, as ruled, and its three questions (the spread
+  >    cap, the split by kickoff slot, the label for a game with no pre-kickoff book row) wait with it for
+  >    the off-season; they are answered in the addendum that orders the build, if one does.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 418:**
+  - Item 1: recorded. All three merged by the block, in its order: #1037 (765efd5a), #1040 (cade85bd), #1039 (403caf77). main is 403caf77. DEV 1 pushed nothing to any of the three after its merge-ready read.
+  - Item 2: scripts/README.md's probe row names the five dates, `--date 2026-11-21 --date 2026-11-22 --date 2026-11-27 --date 2026-11-28 --date 2026-11-29 --db COPY`, five calls inside the cap of seven. Addendum 419 item 2 then records that the run was made on the laptop on 2026-11-16, not at the Thursday block, so the row records that run (419's entry). The probe itself is unchanged: it takes one to seven dates. The dated records of 414 and #1039's body keep the three dates they were written with.
+  - Item 3: recorded. The bot reopened none of the thirty since.
+  - Item 4: recorded. The three questions wait on #382 for the addendum that orders a build, if one does. Nothing is built.
+
+**2026-11-16 — The NCAA listing probe: the provider's raw college football rows per date, beside what our side would do with each (addendum 414 item 3; #1035; #1038).**
+- **Ruling (414 item 3, verbatim in part):** "THE PROBE: BUILD IT, as your (b) costs it. One small PR, lane A, read-only tooling under the stop rule. (a) One script under scripts/: for each date given, ONE GET of the provider's games for league 2, season 2026 and that date, through the adapter's own _get, and the RAW rows printed before any parsing ... (b) Beside each row, what our side would do with it, by your own table ... (c) THE FENCE: no write anywhere, no file made ..."
+- **What landed:** `scripts/ncaa_listing_probe.py`, its test and its scripts/README.md row.
+  - One `_get("games", {league 2, season 2026, date D})` per date, at most seven dates a run. The count of provider calls is printed first (planned) and last (made, in HTTP requests, so a 429's retry shows).
+  - Each raw row is printed with its game id, date, time, timestamp, status, week, stage, and home and away ids and names.
+  - Beside each row: drops #1, #2 and #3 of DEV 1's table on #1035; with `--db`, #6, the stored match holding the id (with its season), or NOT STORED.
+  - The key is named, never printed. A provider error prints, stops and exits 1. A refusal exits 2 before any call.
+  - The fence: no sync, re-key or repair module is loaded (a test holds it in a fresh interpreter); no bytecode file; the copy is opened mode=ro&immutable=1.
+  - The test runs on invented rows only (414 item 3(d)).
+  - A pre-PR adversarial review found four defects, all fixed with tests:
+    - the key's value could print inside a requests InvalidHeader message (P1);
+    - a sidecar stat error escaped as a traceback;
+    - a row whose verdict raised stopped the run;
+    - argparse's own errors printed no call count.
+- **Next:** the architect's block of Thursday 2026-11-19, for 2026-11-21, 2026-11-27 and 2026-11-28 against that morning's copy (three calls). The ruling on #1038 follows it (414 item 4(a)).
+
+**2026-11-16 — Addenda 414, 415 and 416: #1034 merge-ready; the NCAA listing probe ruled and built (#1039); #1038 opened (three silent drops); the NFL STALE_BOOK_H re-read ruled (no per-family value) and the written no on a quarterback term for 2026; lane nfl-qb's 11-16 step done and two steps appended; thirty Issues closed on the ledger sweep's ruling.**
+- **Addendum 414 (ARCHITECT 2026-11-16 12:49 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 12:49 ET (17:49Z, read from the clock) — addendum 414, for DEV 1 (Lane A).
+  > Paste exactly. Record it in BACKLOG as usual, and items 2-4 on #1035.
+  >
+  > 1. #1034 IS MERGE-READY at 806bd379, read whole: the records of 410 and 411, two docs files. Both quotes
+  >    checked against my own files sentence by sentence; CI green on the head; Codex found nothing; no
+  >    thread. It merges by my block, pinned to that head.
+  >
+  > 2. YOUR ANSWERS TO 413 ITEM 2 ON #1035: read whole, and they are what I asked for. What I take from them,
+  >    with this morning's routine console beside them (laptop, 08:57 ET, the whole-season pass of NCAA 2026):
+  >    "Fetched 1778 matches", then created 0, updated 1,729, skipped 49 "of clubs not in the DB" with its
+  >    49 ids, orientation_reversed 0, teams_mismatch_refused 0.
+  >    (a) 1,778 = 1,729 + 49: every PARSED listing is accounted for, and none of them created a row.
+  >    (b) Drop #6 cannot be the four games: all eight teams are stored, each with its other games. Drop #9
+  >        printed 0. So for the four, two readings remain: the provider's listing does not carry them, or
+  >        it carries them without a date or without a team id (your drops #1 and #2, which print nothing
+  >        and are not in the 1,778).
+  >    (c) Addendum 21's sentence is the likeliest reading and it is still only a reading. A listing read
+  >        settles it.
+  >
+  > 3. THE PROBE: BUILD IT, as your (b) costs it. One small PR, lane A, read-only tooling under the stop rule.
+  >    (a) One script under scripts/: for each date given, ONE GET of the provider's games for league 2,
+  >        season 2026 and that date, through the adapter's own _get, and the RAW rows printed before any
+  >        parsing: the provider's game id, its date or timestamp, its status, the home id and name, the
+  >        away id and name.
+  >    (b) Beside each row, what our side would do with it, by your own table: "no date" (#1), "no team id"
+  >        (#2), "all-star or exhibition" (#3); and with an optional --db copy (mode=ro + immutable=1; a path
+  >        under data/ or a copy with a sidecar refused): "team not in the copy" (#6), or the stored match id
+  >        that holds this provider id, or NOT STORED.
+  >    (c) THE FENCE: no write anywhere, no file made (my block keeps the console); at most seven dates a
+  >        run, the count of provider calls printed first and last; the key by NAME only; a provider error
+  >        prints and exits non-zero after what was read; nothing of sync, re-key or repair is imported for
+  >        its side effects.
+  >    (d) Provider rows are payload: they are printed on the laptop and read by me in the chat, and they do
+  >        not go into an Issue, a PR body or a test. The test runs on rows you invent.
+  >    (e) Name the command and its arguments in the PR body (198 item 6(i)). My block runs it Thursday for
+  >        2026-11-21, 2026-11-27 and 2026-11-28 against that morning's copy: three calls.
+  >
+  > 4. TWO THINGS NOTED AND NOT BUILT.
+  >    (a) Three of your nine drops print nothing (#1, #2, #4). A listing dropped in silence is against law 2
+  >        whatever the probe finds. Open it as its own Issue, class limitation, track ops, sport ncaa, with
+  >        your table's three rows quoted; no fix until I rule, and I rule after the probe shows whether any
+  >        of the three happens in practice.
+  >    (b) The second source (your (c)): the answer is no, and the raw file is on the host only. Nothing is
+  >        asked. If the probe says the provider does not list these games before kickoff, where a college
+  >        football row may come from is a decision of mine with its own addendum, not a fix to slip in.
+  >
+  > 5. STILL RULED: nothing is synced, re-keyed, inserted or repaired for #1035.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 414:**
+  - Item 1: recorded. #1034 merged at 806bd379; main is 0a3de51d (415's header).
+  - Items 2 to 4: verbatim on #1035 (comment 6924800386).
+  - Item 3: the probe is built as its own PR, #1039 (`scripts/ncaa_listing_probe.py`, read-only tooling, lane A). Its command for the architect's block of 2026-11-19 is named in that PR's body.
+    The PR is linked on #1035 (comment 6925724023).
+  - Item 4(a): opened as #1038 (track ops, class limitation, sport ncaa, size S), with the table's three rows (#1, #2, #4) quoted. No fix until the architect rules.
+  - Item 4(b): nothing asked, nothing built.
+  - Item 5: nothing synced, re-keyed, inserted or repaired for #1035.
+- **Addendum 415 (ARCHITECT 2026-11-16 12:55 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 12:55 ET (17:55Z, read from the clock) — addendum 415, for DEV 1 (Lane A): the records, the roadmap step, #382 and #427.
+  > Paste exactly. Record it in BACKLOG as usual; item 1 also on #382, item 3 also on #427.
+  >
+  > This is lane nfl-qb's step due today (209 item 4(b)): "the STALE_BOOK_H NFL re-read as already dated, and
+  > the written declaration or no on any sourced feed". Both halves are below. #1034 merged at 806bd379;
+  > main is 0a3de51d.
+  >
+  > 1. THE RE-READ. What I read: the host's own results file, nfl_NFL_results exported 2026-11-16T10:00Z at
+  >    482de3fd (the mirror's host/latest), every graded live NFL game since 2026-09-22: 118 games. Each row
+  >    carries the age as graded (graded.close_book_stamp_age_h), its close reference and, where the grader
+  >    switched, the book's fair beside the Kalshi quote. I did not run scripts/book_stamp_age_receipt.py
+  >    again and I did not re-read by book; the rows are the grader's own figures.
+  >    (a) THE REFERENCE: books 94, Kalshi 23, no close 1.
+  >    (b) THE STAMP: known on 71 rows, unknown on 47. The 47 are weeks 2 to 5 (1, 16, 16, 14), before the
+  >        stamp was stored: 46 book closes and the one row with no close. From week 6 every row is stamped.
+  >    (c) THE AGE, the 71 stamped rows, in hours: up to 2: 6 · 2 to 6: 12 · 6 to 12: 7 · 12 to 24: 23 ·
+  >        24 to 48: 20 · 48 to 96: 2 · over 96: 1. Median 18.0, upper quartile 27.0, ninth decile 32.0,
+  >        the longest 118.0.
+  >    (d) OVER 24 h, so switched to the venue by 137 item 4: 23 of 71. By week: 5: 1 · 6: 12 of 14 · 7: 1 ·
+  >        8: 1 · 9: 1 · 10: 7 of 13. By slot: Sunday early 14 of 36 · Sunday late 3 of 16 · Monday night 2
+  >        of 5 · Thursday night 2 of 5 · Sunday night 1 of 5 · Sunday international 1 of 4.
+  >    (e) HOW FAR A STALE BOOK SAT FROM THE VENUE, on the 23 rows that carry both: |book fair − Kalshi mid|
+  >        has median 1.2pp and maximum 5.3pp at 24 to 48 h (20 rows), median 2.5pp and maximum 5.9pp beyond
+  >        48 h (3 rows).
+  >    (f) THE COUNT 185 ASKED FOR ("NFL rows whose quarantine decision (either way) was made against a book
+  >        reference older than STALE_BOOK_H, and whether any decision would have differed against the
+  >        Kalshi mid"): at the closing page, 23 rows. With the model's probability on the row, the 15pp test
+  >        against the book reference and against the Kalshi mid gives the SAME answer on all 23: 5 past
+  >        15pp on both, 18 inside on both. None differs. Its limit, said plainly: this is the closing page
+  >        of each game, which is what a graded row keeps. The earlier slate pages of the same games are
+  >        not in it, and the mirror keeps fourteen days.
+  >
+  > 2. RULED ON THE RE-READ: NO PER-FAMILY STALE_BOOK_H. 24 h stands for the NFL as for every family.
+  >    (a) No decision would have differed, on the one count I pre-registered.
+  >    (b) The stamp is the provider's batch time, not a quote time (#895: irregular batches, 02:15, 09:00,
+  >        00:00). It bounds a quote's age from below; it does not measure a wrong price. The stale
+  >        references sat a median 1.2pp from a live venue.
+  >    (c) The rows the question was first about are the 12 to 24 h bucket, 23 rows, and they cannot be
+  >        judged from this file: an unswitched row does not carry the Kalshi quote. I do not move a
+  >        threshold on 71 rows with the deciding bucket unread (the standing no to re-tuning thresholds
+  >        from small graded samples).
+  >    (d) No call reads it this season: the NFL is market-only.
+  >    What stays on the record as the season's figure, on #382 and #895: about a third of stamped NFL closes
+  >    (23 of 71) are graded against the venue because the book's stamp is over a day old, twelve of them in
+  >    one week. That is a fact about the provider's NFL odds, and the 2027 declaration has to state which
+  >    close its candidate is read against. #382 stays open.
+  >    ONE COST LINE, no build, no date before the off-season, on #382: what it takes for the age receipt to
+  >    print, for every stamped NFL row whose closing session holds a two-sided Kalshi quote, |book fair −
+  >    Kalshi mid| by stamp-age bucket, the unswitched rows included, read-only from a copy.
+  >
+  > 3. THE WRITTEN NO ON A SOURCED FEED. The operator's sourcing decision stands as he made it: nflverse depth
+  >    charts, no feed bought (375 item 1(vi)). On that source: NO QUARTERBACK TERM IS DECLARED FOR 2026.
+  >    (a) The NFL is market-only for 2026 and a lane holds one candidate and one run; the 2027 candidate is
+  >        a new lane, declared in the off-season on 2024 to 2026 data at the same gate (267 item 2). A term
+  >        declared now would have no gate to run through this season.
+  >    (b) A pregame term is frozen only on rows whose as-of stamp we can stand behind. The depth-chart
+  >        record on OUR clock began with the feed's first host observation on 2026-11-09 (304 item 2; four
+  >        stood by 11-12, 350 item 2). Before that the stamps are nflverse's own load times (284 item 1(a):
+  >        278 loads for 2026 at 259's cut, 221 for 2025). Whether those can
+  >        carry an as-of backtest is a question with a receipt, and it is answered before the 2027
+  >        declaration, not assumed today.
+  >    (c) 209's reasons are otherwise unchanged: the provider names no starter before kickoff.
+  >    So the lane stays "to declare", the bar does not move, and the hold of 209 item 3 stands as written.
+  >
+  > 4. THE ROADMAP, lane nfl-qb (docs/roadmap.json; one small records PR): the step due 2026-11-16 done, its
+  >    receipt "addendum 415". Two steps appended, verbatim:
+  >    (a) 2026-12-15, owner code: "the quarterback agreement receipt, read-only, on the availability record:
+  >        for every 2026 NFL game that kicked off after the feed's first load on our clock, the depth
+  >        chart's first quarterback as of 24 h before kickoff and as of kickoff, each beside the game's
+  >        starter read post hoc (the most pass attempts, the QB probe's rule), with the counts of agree,
+  >        differ and no row; and the same two reads on nflverse's own load times for the 2025 season,
+  >        labelled as the source's clock. It prints counts and judges nothing; no threshold exists and
+  >        none is to be suggested".
+  >    (b) 2027-02-16, owner architect: "my ruling on that receipt: the quarterback term written into the
+  >        2027 candidate's declaration as a named input with its as-of rule, or a written no".
+  >    live_needs unchanged. The receipt of (a) is lane B's to build, on my word nearer the date, not now.
+  >
+  > Nothing in this addendum moves a bar or a held timer. The one date it touches is a step done on its day.
+
+- **What DEV 1 did on 415:**
+  - Items 1 and 2: verbatim on #382, with the cost line item 2 asks for (comment 6925317742). No build, no date.
+  - Item 2's season figure: also on #895 (comment 6924801135).
+  - Item 3: verbatim on #427 (comment 6924800783). The lane stays "to declare".
+  - Item 4: docs/roadmap.json, lane nfl-qb, in this PR:
+    - the step due 2026-11-16 done, its receipt "addendum 415";
+    - two steps appended verbatim: 2026-12-15 (owner code) and 2027-02-16 (owner architect).
+    - No date moves, no moved line. live_needs, earliest_live and the state are unchanged.
+    - tests/test_roadmap.py's nfl-qb test reads the new steps.
+  - The receipt of the 12-15 step is lane B's to build, on the architect's word nearer the date. Nothing is built for it now.
+- **Addendum 416 (ARCHITECT 2026-11-16 12:57 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 12:57 ET (17:57Z, read from the clock) — addendum 416, for DEV 1 (Lane A): the ledger sweep's closings.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. THE SWEEP (docs/ledger/2026-11-14-ledger-sweep.md, 381 item 3(ii)): read. Of its 197 rows, 28 read
+  >    "met today: yes". I read all 28 rows, their conditions and their evidence, and all 28 Issues are still
+  >    open today. I rule on those 28 and on three more release Issues the page marks "partly". The rows
+  >    marked partly, no and unknown, and the 34 stale titles, are not ruled here.
+  >    THE FORM, for every closing below (LEDGER.md rule 2; #959 was reopened by the bot for want of it): the
+  >    LAST comment on the Issue is the quoted line, beginning "ARCHITECT 2026-11-16, addendum 416 item 2"
+  >    and its letter, then the sentence as written here; then the close, state reason completed. Where a
+  >    needs-operator or needs-ruling label is stale, it comes off in the same visit. No PR is needed.
+  >
+  > 2. CLOSED BY THIS RULING, each with its sentence:
+  >    (a) THE RELEASE ISSUES: #338 (v1.3.0), #556 (v1.4.0), #647 (v1.5.0), #678 (v1.6.0), #777 (v1.6.1),
+  >        #776 (v1.6.2), #806 (v1.6.3), #837 (v1.6.4), #898 (v1.6.5), #917 (v1.6.6), #949 (v1.6.7): "a
+  >        release Issue closes when its record is complete and the next release is live (407 item 2(c)).
+  >        This release's record is on main in docs/RELEASES.md, it has been superseded, and production is
+  >        v1.6.9. Rows the Issue itself never received (#556's and #898's deploy rows, #678's pastes, #777's
+  >        10-28 console) are waived: the record of a release is RELEASES.md."
+  >    (b) #78: "the probe's real run was made 2026-10-14 (72 calls) and read in addendum 71 item 1; the
+  >        cups lane's probe step is done. The receipt this Issue asked for exists."
+  >    (c) #85: "the H2 cutover was decided and done 2026-10-26 13:45:11Z (addenda 167 and 168; #675). The
+  >        decision this lane held is made. The missing-backup-pull rule it carries (117 item 4) stands in
+  >        BACKLOG."
+  >    (d) #99: "its reopening condition is met for the moneyline: since #219 every pre-game MLB sync appends
+  >        a book-consensus snapshot. Totals still follow the capture cadence; they are diagnostic lines
+  >        (totals_available is false) and that remainder is accepted without an Issue. Closed on purpose
+  >        as a limitation resolved."
+  >    (e) #146: "the audit was read and ruled 2026-10-01 (2025 labels unreliable; #165), college moved to
+  >        the CFBD stream, and 2025 is retired as a test season (#393). Nothing is owed here."
+  >    (f) #352: "the declared follow-up receipt was filed and reconciled (#447). The finding is recorded;
+  >        its 2027 forward read lives on #445."
+  >    (g) #353: "a volume fact, recorded by #355 (addendum 9 item 4: two findings recorded, neither a
+  >        policy). Nothing was to be built."
+  >    (h) #363: "the design-stage note rode #366 and the experiment ran as declared (#379). Nothing else
+  >        is owed by the Issue's own text."
+  >    (i) #399: "the odds question was answered (addendum 32; #406), the re-key rule built (#401), and the
+  >        one step left, the thirteen old rows, is superseded: 365 item 3(a) rules no resync and no write
+  >        on them. They are tracked on #997."
+  >    (j) #424: "built by #434 (addendum 40 item 4): an empty NFL injury list is unread and the sync names
+  >        an empty answer. The missing quarterback term is #427, not this."
+  >    (k) #473: "the rule is built (#474), the sync paths took it (#475) and the probe's console is on
+  >        the Issue (57 item 5)."
+  >    (l) #496: "the probe merged (#497) and the ingest was ruled and built (67 item 1; #521). The work
+  >        continues on lane #519; the finding itself is recorded."
+  >    (m) #507: "this is the architect's word the Issue waits for: the mlb-pitchers lane ran once and was
+  >        REJECTED (266: OFF − ON 0.0014 against 0.0050), recorded by #846, the lane closed on the roadmap.
+  >        The finding is carried to the 2027 model's brief on #97."
+  >    (n) #544: "an accepted and permanent limit (125 item 4), with its text built by #588 and written in
+  >        docs/CLI.md. No condition will ever reopen it, so it does not wait: closed on purpose."
+  >    (o) #562: "the record it kept is spent: the fence it describes lifts once the ncaa-elo-v2 run is
+  >        recorded, and it is (302; #904). A date-scoped 2025 window prints its rate."
+  >    (p) #564: "the window this latent limit guarded has closed: ncaa-elo-v2's run is recorded and no NCAA
+  >        writer of those columns exists on main. Closed on purpose."
+  >    (q) #642: "built by #834, which stamped git_sha on the shadow exports and extended the sha_line
+  >        tests; that PR named #823 and not this Issue, which is the only reason it stayed open."
+  >    (r) #782: "ruled by 218 item 1 and built by #785: step 1 of the tag ritual was rewritten and has
+  >        been used on every tag since. Option A lives on #789. Closed on purpose."
+  >    (s) #783: "the lane closed by 267 item 2(1): nfl_elo_v2 ran once and FAILED (265; #846). The comment
+  >        of 11-06 that kept this Issue open for the 2027 declaration is overruled by that item: the 2027
+  >        candidate is a new lane with its own Issue, and its line lives on #780."
+  >    (t) #959: "ended by its console (366 item 2: 0 game sides outside /teams), as ruled on 2026-11-13.
+  >        It was reopened only for the form of that closing; this is the form."
+  >
+  > 3. NOT CLOSED, THOUGH THE PAGE READS YES: #688. The receipt was built, run and read (243), but the Issue
+  >    also anchors the weekly re-run of 230 item 2(c), which is a block of mine on a pulled host copy. It
+  >    stays open; its needs-ruling label comes off; I run it with Thursday's pulled copy and say then
+  >    whether the weekly re-run continues or ends.
+  >
+  > 4. Thirty closings in all (eleven in (a), nineteen in (b) to (t)). Report the count closed and any the
+  >    bot reopens, with its reason, in your next update. The page itself is not edited: it is dated.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 416:**
+  - Item 2: thirty Issues closed, state reason completed, each in the form of item 1. The LAST comment on each is the quoted line "ARCHITECT 2026-11-16, addendum 416 item 2(x): ..." with the sentence as written. Comment ids:
+  - 2(a): #338 (6924754954), #556 (6924755897), #647 (6924756955), #678 (6924758099), #777 (6924759228), #776 (6924760039), #806 (6924760889), #837 (6924761860), #898 (6924762762), #917 (6924763748), #949 (6924764971)
+  - 2(b): #78 (6924766618), needs-operator off
+  - 2(c): #85 (6924767567)
+  - 2(d): #99 (6924768496)
+  - 2(e): #146 (6924769697), needs-operator off
+  - 2(f): #352 (6924770536)
+  - 2(g): #353 (6924771331)
+  - 2(h): #363 (6924772108)
+  - 2(i): #399 (6924772937)
+  - 2(j): #424 (6924773803)
+  - 2(k): #473 (6924774746)
+  - 2(l): #496 (6924775670)
+  - 2(m): #507 (6924776986), needs-ruling off
+  - 2(n): #544 (6924777843)
+  - 2(o): #562 (6924778760)
+  - 2(p): #564 (6924779554)
+  - 2(q): #642 (6924780296)
+  - 2(r): #782 (6924781176)
+  - 2(s): #783 (6924782193)
+  - 2(t): #959 (6924783101)
+  - The stale labels came off in the same visit: needs-operator on #78 and #146, needs-ruling on #507.
+  - Item 3: #688 stays open; its needs-ruling label is off; 416 item 3 is on it verbatim (comment 6924800023).
+  - Item 4: thirty closed. The bot reopened none: all thirty read closed after its runs, and the last comment on each is still the quoted line.
+  - The sweep page (docs/ledger/2026-11-14-ledger-sweep.md) is not edited: it is dated.
+- Nothing in these addenda moves a bar or a held timer. The one date touched is a step done on its day (415).
+
+**2026-11-16 — KXNCAAFGAME's name table, as data (addendum 412 items 2 and 3; #955; #1036).**
+- **Ruling (412 item 2, verbatim in part):** "RULED: THE TABLE OF KXNCAAFGAME IS THESE 264 LINES ... The data of each line are its name, its key and its id; the rest of the line is my reading and stays out of the table."
+- **What landed:** 264 lines, 264 distinct names and api_american_football ids; the strict loader accepts it; the test is pinned to the count and the sha256 (0698c81d7c05).
+- **The history paths (412 item 3(b)):** run_history, place-held, place-chain and place-chain --list refuse the series from the merge (TABLE_HELD). No host chain, timer or export runs any of them for NCAA; the listing is in #1036's body.
+- **GTUGA (412 item 3(d)):** the scorer fits the event by half-names on Louisiana Tech at Georgia Southern (33592's shape); the table refuses it NO_FIT.
+- **Next:** the architect's baseline replay on Saturday's slate, his word for the merge, then the replay under the table (412 item 3(c)). Merge held until he says.
+
+**2026-11-16 — Addenda 412 and 413: KXNCAAFGAME's table of 264 lines ruled and its data PR set (Dev 2's lane, recorded); the finding of four college football games Kalshi lists and we do not store, opened as #1035, read in the DB, and answered from the code.**
+- **Addendum 412 (ARCHITECT 2026-11-16 12:25 ET), verbatim.** Its ruled lines travel as a file, ruled_1116_KXNCAAFGAME_table_lines.txt, which is Dev 2's to commit with the table.
+
+  > ARCHITECT 2026-11-16 12:25 ET (17:25Z, read from the clock) — addendum 412, for DEV 2 (Lane B), items 1-4; for DEV 1 (Lane A), item 5.
+  > Paste exactly. Record it in BACKLOG as usual. The ruled lines travel with it as a file: ruled_1116_KXNCAAFGAME_table_lines.txt.
+  >
+  > 1. DEV 2 — KXNCAAFGAME, THE PROPOSER, run on the laptop at bb7372df by my block, read whole.
+  >    (a) THE KEY, counted on this morning's backup copy and not guessed: 780 stored teams of NCAA (412 of
+  >        them in season 2026), api_american_football on all 780; api_american_football_also on 2,
+  >        merged_from on 2.
+  >    (b) THE MARKETS: 370 open, kept at logs/kalshi_replay_20261116T171731Z.json (sha256 9ee59a8e23b27c48…).
+  >    (c) THE PROPOSER, --key api_american_football, on that copy (sha256 80a607f98977), exit 0: 264 names in
+  >        370 markets, proposed 236, marked 28, "the series' table: none".
+  >    (d) THE SCORER'S BASELINE (the replay's console of the same fetch, no table): placed 6 legs (the three
+  >        games of 11-17), refused 364: 356 the window, 6 "no game of the competition on the event's day
+  >        fits both names" (KXNCAAFGAME-26NOV21STANCAL, -26NOV27TEXTXAM, -26NOV28NEVUNLV), 2 "best fit shared
+  >        by two pairs of teams" (KXNCAAFGAME-26NOV21ARKTEX). Your new line named all four.
+  >
+  > 2. DEV 2 — THE HAND READING, AND THE TABLE RULED. I did not read 236 lines by eye. My block took every
+  >    event of the kept markets and looked, on the copy, for the ONE stored game between a candidate team of
+  >    each of its two names from 12 h before the ticker's day to 48 h after its start: the opponent proves
+  >    the team. A proposed name's only candidate is its proposed team; a marked name's are its whole reads,
+  >    its top-score teams and every stored team whose name starts with its first word. A game whose two
+  >    teams are each a candidate of both names proves nothing.
+  >    (a) 185 events: 181 proved by one stored game, 0 with several, 0 on another day, 4 with no stored game
+  >        (item 5).
+  >    (b) 264 names: all 264 proved. The 236 proposed, each on its proposed team; the 28 marked, each on the
+  >        team its opponent picked. No name's events prove two teams; no id is proved for two names; no
+  >        proved id is held by a second stored team. I then checked the reading against the proposer's own
+  >        console: its 236 PROPOSED lines carry the same team id and provider id as the reading, all 236;
+  >        and in each of the 181 games the two stored teams are exactly its two names' lines.
+  >    (c) Among the 28, the ones a reader should know: Buffalo is team 1464, stored as "Buffalo State"
+  >        (id 141), proved against Central Michigan and Akron; Miami (FL) is "Miami" (123) and Miami (OH) is
+  >        130; St. Thomas is team 1738 (895), not St. Thomas-Minnesota (815), proved against Valparaiso;
+  >        Grambling St. is "Grambling" (185) and Southern University is "Southern" (232), each proved by the
+  >        other; Nicholls St. is "Nicholls" (164); Louisiana-Monroe is "UL Monroe" (196); Tennessee-Martin
+  >        is "UT Martin" (247); San Jose St. is "San José State" (90); LIU, Penn and University at Albany
+  >        land where the matcher's PINS put them (76, 324, 730). Texas (195) and Texas A&M (111) are each
+  >        proved by another opponent (Arkansas; Oklahoma); their own game is one of the four not stored.
+  >    RULED: THE TABLE OF KXNCAAFGAME IS THESE 264 LINES, in the file sent with this addendum
+  >    (ruled_1116_KXNCAAFGAME_table_lines.txt, 267 lines with its three header lines, sha256
+  >    f46a631747a4134d8754c777166163e6badcced415f32431b9d3b925a36a2c75). The data of each line are its
+  >    name, its key and its id; the rest of the line is my reading and stays out of the table.
+  >
+  > 3. DEV 2 — BUILD THE DATA PR NOW; IT DOES NOT MERGE UNTIL I SAY.
+  >    (a) src/ingestion/kalshi_tables/KXNCAAFGAME.json, in KXNCAAMBGAME.json's own form: the series, "ruled":
+  >        "ARCHITECT 2026-11-16, addendum 412 item 2", and the 264 lines in name order, each name, key
+  >        api_american_football and id as a string, copied from the file and from nowhere else. A test
+  >        pinned to the count and to the file's sha256; the README's sentences brought up to date. Data and
+  >        its test only: nothing in place(), the loader, the resolver or the matcher's PINS.
+  >    (b) THE PR BODY STATES, read from the code and not from memory: every path that reads
+  >        refuse_held_series or refuse_declared_series, and for each whether any host chain, timer or
+  >        export runs it for NCAA. KXNCAAFGAME is live on the host; KXNCAAMBGAME was not. I rule 387 item
+  >        3's history hold for this series on that list, before the merge.
+  >    (c) WHY IT WAITS (387 item 3(f)): the table is declared only beside a replay that shows its placements
+  >        against the scorer's on the SAME kept markets. Today's window holds three games. My block takes
+  >        the scorer's baseline on main WITHOUT the table when the window holds Saturday's slate, then the
+  >        PR merges, then the same kept file is replayed under the table, and I read every difference by
+  >        name. I name the day in Thursday's plan; it will be before the next tag.
+  >    (d) One difference I already expect and want confirmed by that replay, not assumed: the scorer does
+  >        NOT refuse KXNCAAFGAME-26NOV28GTUGA for want of a fit, though no Georgia v Georgia Tech game is
+  >        stored. By side_score, "Georgia Tech" half-fits Louisiana Tech and "Georgia" half-fits Georgia
+  >        Southern, and match 33592 on 11-28 is Louisiana Tech at Georgia Southern. If that is its fit, the
+  >        host's scorer places those two legs on the wrong game from 11-26, when the day enters its window.
+  >        That is #955's namesake case on a live series, with a date on it. Tell me in the PR body what the
+  >        scorer fits for that event on the kept markets (a read, no run on the host), and what the table
+  >        does with it.
+  >    (e) Money-path under the stop rule this time, not read-only tooling: the table decides what the host
+  >        stores for a live series, and the fixtures export reads those legs. P2s after round two come to
+  >        me as a list.
+  >
+  > 4. DEV 2 — NOTHING ELSE MOVES ON THIS LANE until that PR is open. #955 stays open.
+  >
+  > 5. DEV 1 — A FINDING, track ops, class finding, sport ncaa, on a new Issue (or #1020 if you judge it the
+  >    same root; say which): FOUR COLLEGE FOOTBALL GAMES KALSHI LISTS ARE NOT STORED. In this morning's
+  >    backup copy (taken before the morning's whole-season pass) no game of NCAA from 2026-11-10 to
+  >    2026-12-19 is between: Stanford (team 1514) and California (1484), listed for 11-21; Texas (1518) and
+  >    Texas A&M (1436), 11-27; Georgia Tech (1531) and Georgia (1434), 11-28; Nevada (1382) and UNLV
+  >    (1369), 11-28. Each of the eight teams has its other games of those weeks stored. A block of mine is
+  >    reading the same in the DB as it is now, and each pair anywhere in the season; I send what it prints.
+  >    Until then: record the finding and do not sync, re-key or repair anything for it. What I will want
+  >    next from you is read-only and I will ask for it by name: what the provider's own listing holds for
+  >    those four games.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 413 (ARCHITECT 2026-11-16 12:27 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 12:27 ET (17:27Z, read from the clock) — addendum 413, for DEV 1 (Lane A).
+  > Paste exactly. Record it in BACKLOG as usual, and on the Issue of 412 item 5.
+  >
+  > 1. THE FOUR GAMES (412 item 5), READ IN THE DB AS IT IS NOW by my block (laptop, bb7372df, read-only; this
+  >    morning's backup copy and data/sports.db mode=ro, side by side). THE TWO READ THE SAME: this morning's
+  >    whole-season pass added none of them.
+  >    (a) In the whole 2026 season, 0 stored games between Stanford (1514) and California (1484); 0 between
+  >        Texas (1518) and Texas A&M (1436); 0 between Georgia Tech (1531) and Georgia (1434); 0 between
+  >        Nevada (1382) and UNLV (1369).
+  >    (b) The eight teams' stored games from 11-14 on. Stanford: at Virginia Tech 11-15, then SMU at
+  >        Stanford 11-28 (match 33579); nothing on 11-21. California: at Virginia 11-14, then Pittsburgh at
+  >        California 11-28 (33578); nothing on 11-21. Texas: Arkansas at Texas 11-21 (33439), then NOTHING.
+  >        Texas A&M: at Oklahoma 11-21 (33436), then NOTHING. Georgia: at South Carolina 11-21 (33437), then
+  >        NOTHING. Georgia Tech: Wake Forest at Georgia Tech 11-21 (33452), then NOTHING. Nevada: Hawai'i at
+  >        Nevada 11-22 (33465), then NOTHING. UNLV: at San José State 11-21 (33541), then NOTHING.
+  >    (c) Stored college football games per UTC day: 11-17 3 · 11-18 2 · 11-19 3 · 11-20 3 · 11-21 113 ·
+  >        11-22 5 · 11-24 2 · 11-27 12 · 11-28 44 · 11-29 1 · 12-05 1. Season 2026: 1,729 stored games.
+  >        The last full Saturday holds 113 and the one after it 44 with 12 on the Friday: the closing week
+  >        reads thin as a whole, and the four are not likely the only ones.
+  >    So the gap is not a name, a merge or a stale row. The rows are not there, on a sync that ran today.
+  >
+  > 2. WHAT I ASK, READ-ONLY, FROM THE CODE AND THE REPO, NO NETWORK CALL AND NO RUN, on that Issue:
+  >    (a) What the NCAA schedule sync asks the provider: the league, the season and the date arguments, for
+  >        the whole-season pass and for ncaa-schedule's daily window, with file and line. And whether a row
+  >        the provider lists can be dropped on our side before it is stored (a team not in the DB, a
+  >        placeholder rule, the season scope of #906): each such filter, with file and line, and whether it
+  >        prints what it drops.
+  >    (b) Whether a command that exists today prints the provider's listing for one date WITHOUT writing
+  >        (a dry run). If one does, name it and its arguments and I write the block (198 item 6(i)). If
+  >        none does, one line of cost for the smallest read-only probe, and what it touches.
+  >    (c) Whether what ncaa-cfbd-labels has already stored for 2026 can say, with no call, which games of
+  >        11-21, 11-27 and 11-28 the second source lists that we do not store. Name the command, or say it
+  >        cannot.
+  >    Do not sync, re-key, insert or repair anything for this. The host is not read for it today; Thursday's
+  >    pulled copy answers whether the host holds the same.
+  >
+  > 3. WHY IT IS NOT URGENT AND STILL HAS A DATE. College football is market-only: a game we do not store is
+  >    a game the Desk does not show, and no call is lost. But 412 item 3(d) stands on it: with no Georgia v
+  >    Georgia Tech row, the scorer may give that market's legs to another game of the same day from
+  >    2026-11-26. The table removes that risk and rides the next tag. The missing rows are their own
+  >    finding, and I want (a) to (c) by Thursday's check-in.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did:**
+  - 412 item 5: opened as #1035 (track:ops, class:finding, sport:ncaa, size:S). It is a new Issue, not #1020:
+    - #1020's root is stored rows not re-read, and NCAA was outside it, since the laptop's morning block syncs NCAA.
+    - This finding is rows that do not exist at all.
+    - If the reads show one cause behind both, #1035 points to #1020 and closes by ruling.
+    - Nothing was synced, re-keyed or repaired.
+  - 413: posted verbatim on #1035 (issuecomment-6923891753), as its heading asks.
+  - 413 item 2(a)-(c): answered on #1035 (issuecomment-6924058082), read-only from the code at main bb7372df, with no network call, no run and no database opened. Each answer was checked by a second read.
+    - **(a)** The sync asks league 2, season 2026, in one GET with no paging; the daily window adds date=D for today..today+7. Nine places can drop a listed row before it is stored. Three print nothing: no date; no home or away team id; a team dropped at sync-teams. The repo record that bears most is addendum 21: the provider's listing no longer carries games that have not started, and the listing is the only NCAA path that creates a row.
+    - **(b)** No dry run exists. resync-diff reads one date and counts the provider-only games without naming them; its database open is not read-only, so a block points DATABASE_URL at a copy. The smallest probe that names them is one GET per date that prints the raw rows; it is costed, and nothing is built.
+    - **(c)** No. ncaa-cfbd-labels stores labels only on games we already hold, and counts an unmatched unplayed CFBD game without keeping it. The raw payload that would answer it is on the host only.
+  - 412 items 1-4 are Dev 2's; recorded only.
+
+**2026-11-16 — Addenda 410 and 411: #1032 read merge-ready and merged; #1033 merged; 408 item 5's receipts PASS and 408 item 5 DONE (Dev 2's lane, recorded); two laptop notes for the record (411 item 4), neither a finding.**
+- **Addendum 410 (ARCHITECT 2026-11-16 12:08 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 12:08 ET (17:08Z, read from the clock) — addendum 410, for DEV 1 (Lane A), item 1; for DEV 2 (Lane B), items 2-3.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. DEV 1 — #1032 IS MERGE-READY at cb4da933, read whole: three docs files, the records of 408 and 409. I
+  >    checked both ledger entries against my own files sentence by sentence and found every one. CI green on
+  >    the head (the red fragments run is on 9b712e77, before the fragment had its number, as you say); Codex
+  >    found nothing on 7d7cd40c and the commit after it adds 409's records only; no thread. It merges by my
+  >    block, pinned to that head. #1027 is closed and #609 carries the limitation: both read, both right.
+  >
+  > 2. DEV 2 — #1033 IS MERGE-READY at b1f5857d, read whole, under the review stop rule: round 1's one P2 has
+  >    its fix and its test, round 2 found nothing, the one thread is resolved. It merges by my block after
+  >    #1032, pinned to that head; the block takes it only once every check on that head has finished green
+  >    (one of the two runs was still going when I wrote this).
+  >    (a) THE FENCE HOLDS, by my own read and not only by your test: against main the PR changes nothing in
+  >        src/ingestion/kalshi_match.py and nothing under src/ingestion/kalshi_tables; the table's sha256 on
+  >        the merged tree is 4abfb1db…4468103; replay() gains two lines that only print. On my copy, #1032
+  >        and #1033 merged onto 248fbdfd: the Kalshi, replay and table tests pass (920).
+  >    (b) THE SHARED ID (Codex's P2): your second reading is the right one and I would have asked for it. A
+  >        hand reader needs the id that two teams hold, with the other team named, more than any other id
+  >        on the page; "-" now means only that the team has none.
+  >    (c) "(in part)" is right and is what I want: the line lists events under a reason, and an event that
+  >        also placed legs must say so or it reads as refused whole.
+  >
+  > 3. DEV 2 — THE RECEIPTS (408 item 5(d)) run today by my block on the laptop, after the merge: the table's
+  >    hash; the proposer on the markets of 15:34Z against this morning's backup copy, its PROPOSED section
+  >    compared line by line with yesterday's; the replay from the markets of 20:00:21Z, compared with
+  >    yesterday's console. I rule on them when the console is back. Then the lane's next step is KXNCAAFGAME:
+  >    its kept markets, its proposer run and my hand reading, in that order, each by my block. Build nothing
+  >    for it until I ask.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 411 (ARCHITECT 2026-11-16 12:16 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 12:16 ET (17:16Z, read from the clock) — addendum 411, for DEV 2 (Lane B), items 1-3; for DEV 1 (Lane A), item 4.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. DEV 2 — MERGED BY MY BLOCK: #1032 at cb4da933 and #1033 at b1f5857d. main is bb7372df.
+  >
+  > 2. DEV 2 — THE RECEIPTS OF 408 ITEM 5(d), run on the laptop at bb7372df by my block, read whole. THEY PASS.
+  >    (a) THE TABLE: sha256 4abfb1db6f7d3590e2aec2cd90ac857a39526a2605e9c7fa37e3aeefe4468103, the ruled one;
+  >        the tables folder clean.
+  >    (b) THE PROPOSER, on the markets kept 2026-11-15T15:34:49Z, against this morning's backup copy (sha256
+  >        80a607f98977, mode=ro + immutable=1), exit 0: 313 names in 354 markets, 741 stored teams, proposed
+  >        253, marked 60, the header now "the series' table: declared". The PROPOSED section is 253 lines and
+  >        line for line yesterday's (diff 0). The marked section carries, under every name, its events with
+  >        the other name and, beside every top-score team, its team id and its api_basketball id. That is
+  >        the aid I asked for in 392 item 5, as built.
+  >    (c) THE REPLAY, from the markets kept 2026-11-15T20:00:21Z, exit 0: placed 86, refused 260 (218 the
+  >        window, 36 in play, 6 no game fits both names), where 403 read 88 and 258 (218, 36, 4). The new
+  >        line names three events under "no game of the competition on the event's day fits both names":
+  >        KXNCAAMBGAME-26NOV14ULLUNCW and KXNCAAMBGAME-26NOV14UNCGCOR, the two I named by elimination in 403
+  >        item 2(d), now named by the console; and KXNCAAMBGAME-26NOV15PEPPORE.
+  >    (d) THE ONE THAT MOVED, read against the DB by a second block: match 59331, Pepperdine at Oregon,
+  >        2026-11-15 22:00Z. In this morning's backup copy, taken before the morning's syncs, it is SCHEDULED
+  >        (raw NS). In the DB now it is POSTPONED (raw POST). Yesterday's replay placed its two legs two
+  >        hours before the kickoff on a row that was then a game; today the row is not a game for the matcher
+  >        (is_game, addendum 50 item 6(c)) and the event is refused. Both are right for what was stored. The
+  >        two legs are the whole of the difference: 88 less 2 placed, 4 plus 2 refused, 491 less 1 stored
+  >        games on the events' days. Nothing else differs but the header lines and your new line.
+  >    RULED: 408 item 5 is DONE. The code moved no placement and no refusal; the one that moved, the DB moved.
+  >    #955 stays open: it is the lane's Issue and KXNCAAFGAME's table is the rest of it.
+  >
+  > 3. DEV 2 — NEXT ON THIS LANE, by my block today on the laptop: the provider keys the stored college
+  >    football teams carry, counted (so the proposer's --key is read, not guessed); KXNCAAFGAME's open
+  >    markets kept by the read-only replay, whose console is the scorer's baseline for 387 item 3(f); and
+  >    the proposer on them. Then my hand reading, then the table as data in a PR of its own on my word.
+  >    Build nothing for it until that word.
+  >
+  > 4. DEV 1 — TWO THINGS FROM THE SAME READS, for the record, no build:
+  >    (a) My receipts block printed "git status after (must be empty)" and the laptop answered " M
+  >        RESULTS.md". That is the morning routine's regenerated tally, as every day. The expectation was
+  >        mine and was wrong; it is no finding.
+  >    (b) The laptop's stale count for NCAAMB is now 1: match 59235, Towson at Morgan State, 2026-11-14
+  >        18:00Z, SCHEDULED (raw NS), its ids carrying provider_orientation "mismatch". Match 59297 (Idaho
+  >        State at Seattle), stale this morning before the syncs, is no longer in the count. 59235 stays on
+  >        my list with #1020's residue; do nothing to it.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did:**
+  - 410 item 1: #1032 merged 2026-11-16T17:11:16Z as 44b10683, at the head read (cb4da933). Recorded.
+  - 411 item 4: recorded only, no build, as ruled.
+    - (a) The laptop's " M RESULTS.md" is the morning routine's regenerated tally, and no finding.
+    - (b) The laptop's NCAAMB stale count is 1: match 59235, on the architect's list with #1020's residue. Nothing is done to it.
+  - 410 items 2-3 and 411 items 1-3 are Dev 2's; recorded only.
+
+**2026-11-16 — Addendum 409: #1030 and #1031 merged; the host read at 16:30Z (v1.6.9, receipts clean); the first own runs of the graph timer and the goalie step; #1027 (v1.6.9) closed; #1010's four host lines (Dev 2's, recorded).**
+- **Addendum 409 (ARCHITECT 2026-11-16 11:31 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 11:31 ET (16:31Z, read from the clock) — addendum 409, for DEV 1 (Lane A), items 1-3; for DEV 2 (Lane B), item 4.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. DEV 1 — MERGED TODAY BY MY BLOCK: #1030 at 2665d082 and #1031 at c8e02f79. main is 248fbdfd. On my
+  >    copy of it `python cli.py roadmap` exits 0 and prints lane unl confirming, earliest live 2026-11-19.
+  >
+  > 2. DEV 1 — THE HOST, READ AT 2026-11-16T16:30Z (the operator's console of my read-only block): release
+  >    v1.6.9, 482de3fd, the checkout clean. Receipts since the deploy: 455 lines, 0 failing; with the step
+  >    rows 839 lines, 0 failing. Timers: 22 names, 22 expected active, 22 active, none missing, none stray.
+  >    Failed units: 0. No reboot pending.
+  >    (a) THE GRAPH TIMER'S FIRST OWN RUN. Started by the timer at 10:20:00Z, finished 10:23:47Z, exit 0,
+  >        223.4 s, from sports_2026-11-16_093001.db opened mode=ro + immutable=1. The record's assertions
+  >        1,351,289 and the graph's assertion nodes 1,351,289; pool 268435456 of the limit 1610612736;
+  >        370,327,552 bytes; graph sha256 3cba0726f2ef. rebuild.jsonl holds three lines: the failed first
+  >        run of 11-14, my block's run of 11-15 (1,346,489) and this one, ok true. The timer's next run is
+  >        2026-11-17 10:20Z.
+  >    (b) THE GOALIE STEP'S FIRST OWN RUN. nhl-daily 20261116T160001Z: nine steps, every one exit 0, the
+  >        chain exit 0. Step 7, nhl-goalie-sync --start 2026-11-15 --end 2026-11-16: exit 0, 3.4 s, so every
+  >        request answered 200 (389 item 3(d)). Appearance rows 18,066 to 18,086. This season: finished 390
+  >        to 395, linked 325 to 330, both starters on 330. The five are the games that finished on the UTC
+  >        day 2026-11-16. nhl-shot-sync ran after it, exit 0.
+  >    (c) TWO FAULTS OF MY BLOCK, NEITHER THE HOST'S, so nobody reads them as findings. It looked for a "T"
+  >        in the graph receipt's `at`, which is written with a space, and so printed "NO RECEIPT LINE
+  >        STAMPED" above a line that is there and is listed two lines higher. And a step's tail is kept as a
+  >        list of lines, which my reader flattened and cut, so the sync's own counts line is not on the
+  >        console; the coverage line is, and (b) is read from it. My next host block reads both properly.
+  >
+  > 3. DEV 1 — #1027 (v1.6.9) CLOSES NOW, on this ruling, quoted in the closing comment: "ARCHITECT 2026-11-16,
+  >    addendum 409 item 3: v1.6.9's record is complete (#1028 merged 2026-11-16) and the two things the
+  >    release turned on have each run once on their own, read on the host at 2026-11-16T16:30Z:
+  >    sp-availability-graph.timer at 10:20Z (exit 0, the record's 1,351,289 assertions all in the graph) and
+  >    nhl-daily's goalie step at 16:00Z (exit 0, five games added, both starters on each). Receipts since the
+  >    deploy: 839 lines, 0 failing." State reason: completed. That is the rule of 407 item 2(c), applied.
+  >
+  > 4. DEV 2 — FOR #1010, the four lines of 407 item 3(d), as the host printed them at 2026-11-16T16:30Z.
+  >    Record them on the Issue:
+  >    (a) systemctl --version: systemd 255 (255.4-1ubuntu8.18)
+  >    (b) uname -r: 6.8.0-149-generic
+  >    (c) stat -fc %T /sys/fs/cgroup: cgroup2fs
+  >    (d) the journal's Consumed lines for sp-availability-graph.service since 2026-11-15T20:00Z, two:
+  >        2026-11-15T20:05:51Z "Consumed 4min 6.631s CPU time." and 2026-11-16T10:23:47Z "Consumed 3min
+  >        50.139s CPU time." CPU time only, no memory peak, as you expected below systemd 256.
+  >    (e) after the run: MemoryPeak=[not set], MemoryCurrent=[not set], MemoryMax=1610612736,
+  >        MemoryHigh=infinity.
+  >    So on this host the journal cannot give the peak and systemctl cannot give it after the run; the
+  >    unit's own read of memory.peak while it still runs (cgroup v2, kernel 6.8) is the only source, which is
+  >    what #1031 builds. #1010 stays open until the first host figure, the first 10:20Z run after the next
+  >    tag's deploy.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did:**
+  - Items 1 and 2: recorded here.
+    - The host read: v1.6.9, receipts since the deploy 839 lines with 0 failing, 22 timers active.
+    - The graph timer's first own run: 10:20Z, exit 0, 1,351,289 assertions in the graph.
+    - The goalie step's first own run: 16:00Z, exit 0, five games added.
+    - The two faults of 2(c) are the architect's block's, not the host's, so neither is a finding.
+  - Item 3: #1027 closed as completed (issuecomment-6922470998). The closing comment quotes the ruling, with 409 item 2 verbatim as the host read it rests on. This is 407 item 2(c)'s rule, applied.
+  - Item 4 is Dev 2's (#1010); recorded only.
+
+**2026-11-16 — Addendum 408: the day's compare CLEAN (the next tag's step 1(a) candidate); #1030 read merge-ready and merged; the Desk-fills fact on #609 received, its caveat a known limitation; #1031 merge-ready and the two cost lines ruled (Dev 2's, recorded).**
+- **Addendum 408 (ARCHITECT 2026-11-16 11:27 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 11:27 ET (16:27Z, read from the clock) — addendum 408, for DEV 1 (Lane A), items 1-3; for DEV 2 (Lane B), items 4-5.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. DEV 1 — THE COMPARE OF 2026-11-16: CLEAN. Run by me from v1.6.9's own comparator on the mirror's
+  >    laptop/2026-11-16 against host/2026-11-16: fixtures_NHL_2026-11-16.json rows laptop 19, host 19, diffs
+  >    0; 47 rows a side outside the window; 326 host-only columns; 9 files expected one-sided; skew laptop
+  >    acf3d40d against host 482de3fd (v1.6.9). Record it as the day's compare.
+  >
+  > 2. DEV 1 — #1030 IS MERGE-READY at 2665d082, read whole. docs/roadmap.json moves lane unl's two dates
+  >    2026-11-17 to 2026-11-19, each with its moved line, as 406 item 1 ruled and nothing else; CI green on
+  >    the head, check-roadmap among it; Codex found nothing; no thread open. On my copy, merged with #1031
+  >    onto 7dae217c: 181 passed, 11 skipped, and `python cli.py roadmap` exits 0 and prints lane unl
+  >    confirming with earliest live 2026-11-19. It merges today by my block, pinned to that head.
+  >
+  > 3. DEV 1 — THE LEDGER FACT ON #609 (406 item 6): RECEIVED, read whole, and it answers what I asked.
+  >    No build follows from it today. What I take from it, for the record:
+  >    (a) The graded counts, the sizing gate's x/50, the K-track receipt and executed CLV read calls or the
+  >        system-matched book only. The operator's own plays of this week reach none of them: NFL is
+  >        market-only, no NFL call is logged, so a single of his books as system-pick unlogged or off-book
+  >        sports and a KXMVE ticker books as fun.
+  >    (b) The realized TOTAL is over all fills, his own included, each labelled by its book. It is a
+  >        statement of the account, not of the Desk. The income statement the policy cites is the one built
+  >        from calls (settledBets), and the K-track reads the system-matched book; neither is the TOTAL.
+  >    (c) Your caveat stands as a known limitation and is the one thing I will rule on later, with #609's
+  >        design: an own single on the same game and side as a logged Desk call is booked system-matched.
+  >        Until then it is handled by practice, on the operator's side, and I tell him so.
+  >    #609 stays open as it is.
+  >
+  > 4. DEV 2 — #1031 IS MERGE-READY at c8e02f79, read whole. The "peak" object on the rebuild's receipt line
+  >    and nothing else: _cgroup_peak and _peak beside _cgroup_limit, receipt["peak"] set on success and on
+  >    failure, never raising; the build, the pool rule, the unit file and the walk untouched, as 407 item
+  >    3(a) asked. CI green on the head; Codex found nothing on 9efff9b7 and the one commit after it is the
+  >    fragment's number; no thread open. It merges today by my block, after #1030, pinned to that head. It
+  >    rides the next tag; the first host figure is the first 10:20Z run after that deploy.
+  >    The four read-only host lines of 407 item 3(d) are in today's host block. What they print comes to you
+  >    in the addendum that reads that console, for you to record on #1010. (407 item 3(d) said I post them;
+  >    I write nothing on GitHub, so they reach #1010 by your hand.)
+  >
+  > 5. DEV 2 — THE TWO COST LINES (#955, your comment of 2026-11-16 14:13Z): BUILD BOTH, IN ONE PR.
+  >    (a) Line 1, the proposer's marked section: per name each event's ticker with the other name, and per
+  >        top-score team its team id and its provider id under --key. As you set it out, in
+  >        src/ingestion/kalshi_table.py (names_of, propose, Proposal), the kalshi-table-propose command and
+  >        its tests.
+  >    (b) Line 2, the replay: after the counts by reason, one line per refusal reason other than the window
+  >        and play begun, listing that reason's event tickers from res.why. src/ingestion/kalshi_replay.py
+  >        and its test only.
+  >    (c) THE FENCE, which the PR body states and the tests hold: nothing in place(), the loader, the
+  >        resolver or any table file changes; kalshi_match.console_lines is unchanged, so no sync's console
+  >        changes; no placement and no refusal changes. If either line cannot be written inside that fence,
+  >        stop and tell me.
+  >    (d) THE RECEIPTS, by my block on the laptop after the merge, on a fresh copy: the proposer on the kept
+  >        markets it was first run on again gives 253 proposed and 60 marked (if the table now on main
+  >        changes what the proposer prints for a tabled name, say how in the PR body), and the table file on
+  >        main is byte for byte what it is now (sha256 4abfb1db…4468103). The replay from the markets kept at
+  >        2026-11-15T20:00:21Z places the same 88 legs on the same games; its refusal counts print beside
+  >        403's, now with the events named, and any count that moved I read against what the DB has learned
+  >        since. I expect the two events refused for want of a fit to be the two postponed games (403 item
+  >        2(d)); the names will say.
+  >    (e) Read-only tooling under the stop rule: P2s after round two go to one follow-up Issue. Lane B.
+  >    (f) ORDER: this PR comes before KXNCAAFGAME's table. The football table's hand reading is the first
+  >        user of line 1, and I do not start that reading without it.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did:**
+  - Item 1: recorded here as the day's compare, 2026-11-16, CLEAN, on v1.6.9's comparator. Its numbers:
+    - fixtures_NHL: laptop 19 rows, host 19 rows, 0 diffs;
+    - 47 rows a side outside the window;
+    - 326 host-only columns;
+    - 9 files expected one-sided;
+    - skew: laptop acf3d40d against host 482de3fd.
+  - Item 2: #1030 merged 2026-11-16T16:28:41Z as 07f3a95e, at the head the architect read (2665d082). #1031 merged after it (248fbdfd). Recorded.
+  - Item 3: recorded on #609 (issuecomment-6922437122), quoted whole, so the Issue carries the known limitation:
+    - the limitation (3(c)): an own single on the same game and side as a logged Desk call is booked system-matched;
+    - it is handled by practice on the operator's side until the architect rules on it with #609's design;
+    - #609 stays open as it is, and nothing is built.
+  - Items 4-5 are Dev 2's; recorded only.
+
+**2026-11-16 — The proposer's marked section names events and ids; the replay names refused events (addendum 408 item 5; #955; #1033).**
+- **Ruling (408 item 5, verbatim in part):** "THE TWO COST LINES (#955 ...): BUILD BOTH, IN ONE PR. (a) Line 1, the proposer's marked section: per name each event's ticker with the other name, and per top-score team its team id and its provider id under --key ... (b) Line 2, the replay: after the counts by reason, one line per refusal reason other than the window and play begun, listing that reason's event tickers from res.why ... (c) THE FENCE ..."
+- **What landed:**
+  - both lines, as ruled;
+  - the replay marks an event refused only in part (the pre-PR review's P2);
+  - the fence held and pinned by a test, the shipped table's sha256 included.
+- **Next:**
+  - the architect's receipts on the laptop (408 item 5(d)): the proposer on the 11-15 15:34Z markets, and the replay of the 11-15 20:00:21Z markets with the events named;
+  - then KXNCAAFGAME's hand reading, line 1's first user (408 item 5(f)).
+
+**2026-11-16 — The graph rebuild's receipt line carries the run's peak (addendum 407 item 3; #1010; #1031).**
+- **Ruling (407 item 3, verbatim in part):** "THE PEAK LINE (#1010 ...): BUILD IT. One small PR, lane B: the "peak" object beside memory_limit on the rebuild's receipt line, on success and on failure alike ... (a) It touches the receipt's JSON line only ... (b) A file that cannot be read is null with its reason in the line, never a failed run."
+- **Why:** the host's first run (404 item 1(c): 247.7 s, 1,346,489 assertions) had no measured peak. systemd reported no MemoryPeak for the unit, which exits and loses its cgroup when the build is done.
+- **What landed:**
+  - `peak` on every line: the parent's and the staging child's peak RSS, and the unit cgroup's own peak read while it runs;
+  - each part null with its reason where it cannot be read.
+- **Receipt:** the real 1× build in the 1536M rig wrote 429.5 MiB process and 1,345 MiB cgroup (RSS plus cache), each equal to the rig's own measure.
+- **Next:** it rides the next tag. The first host figure is the first 10:20Z run after that deploy, read by the architect's block. #1010 stays open.
+
+**2026-11-16 — Addenda 406 and 407: lane unl's confirmation record and earliest_live moved to 11-19 (two moved lines); the laptop's morning on #1020; the WTA connect-timeout finding (#1029) and its two facts; the Desk-fills fact on #609; 404 item 2(b) answered (nothing changes); #990 closed; the release-Issue closing rule.**
+- **Addendum 406 (ARCHITECT 2026-11-16 09:10 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 09:10 ET (14:10Z, read from the clock) — addendum 406, for DEV 1 (Lane A). DEV 2 reads item 1.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. MOVED LINE, lane unl (#220): THE CONFIRMATION RECORD 11-17 -> 11-19, and earliest_live 11-17 -> 11-19.
+  >    One line per moved date, as 347 item 2 did it; the fixture step (due 2026-11-16) does NOT move.
+  >    (a) which: "the confirmation record, by the architect's block on the laptop from the host's pulled copy
+  >        (addendum 346)" · was 2026-11-17 · now 2026-11-19.
+  >    (b) which: earliest_live · was 2026-11-17 · now 2026-11-19.
+  >    (c) why, verbatim, for both lines: "the record is an operator step by the architect's block on the
+  >        laptop (346), and the operator travels on 2026-11-17 and 2026-11-18 (his word, 2026-11-16 09:10 ET:
+  >        'let's do it Thursday'); the 60th cohort fixture (41643, Cuba v Grenada) kicks off 2026-11-16T20:00Z
+  >        as moved by 347; the frozen cohort, the bar and the read are untouched, and nothing is run before
+  >        60 of 60 are labelled".
+  >    (d) ruling, for both lines: "ARCHITECT 2026-11-16, addendum 406 item 1 (MOVED LINE, lane unl; two dates,
+  >        two lines; the fixture step keeps 2026-11-16)".
+  >    (e) A date moved LATER for the operator's hands moves no bar and shortens no confirmation (59 item
+  >        5(c)). The record's order on the day is 346 item 4's, unchanged: the host's intl-daily and its
+  >        morning backup, the pulled copy, the no-flag read as the parity receipt, then --record only at 60 of
+  >        60 labelled. Even CONFIRMED, UNL goes live only after the two registry files merge and a tag carries
+  >        them to the host.
+  >    One small PR, today: docs/roadmap.json's two moved lines and their two dates, and this record. DEV 2: for
+  >    your information only; intl-elo-v2 is untouched.
+  >
+  > 2. #1028 MERGED at 1ab80ba2 by my block; main is 7dae217c. The v1.6.9 release record is in.
+  >
+  > 3. THE LAPTOP'S MORNING, 2026-11-16 (my block, on acf3d40d), for the record of #1020:
+  >    (a) THE WHOLE-SEASON PASS ran: 28 competition-seasons from the laptop's own rows, sync-teams then
+  >        sync-matches each, 28 of 28 exit 0. Created: CNL 38, FRIENDLIES_INT 589; every other line 0. The
+  >        same named rows as 391: FL1 orientation_reversed 1 (19536); NCAAMB teams_mismatch_refused 1 (59235)
+  >        and skipped 1; NFL skipped 6; and NCAA skipped 49 (clubs not in the DB, M12).
+  >    (b) THE STALE COUNT, last in the block: 6 rows in 4 competition-seasons, from 40 on 11-15: WC 3 (July),
+  >        NCAA 1 (2026-09-05, PST), NCAAMB 1 (2026-11-14), SCO 1 (2026-10-31). No international row is stale.
+  >    (c) FAC IS NOT ON THE LAPTOP AT ALL for 2026/27: the pass lists what the laptop holds, and it holds no
+  >        FAC row of this season, so it could not list it. The host reads FAC daily (intl-daily's cup lines).
+  >        I add FAC to my block by name. Add this line to #1020: a stale count cannot see a competition that
+  >        was never loaded.
+  >    (d) The NCAA dry run, with #1014 on main: live 20, resync needed 0, the id serves another game 0.
+  >    (e) The two-day goalie sync on the laptop: 1 schedule call, 5 boxscores, all 200, rows_written 20, exit 0.
+  >
+  > 4. A FINDING, ONE ISSUE, yours to open (class finding, sport tennis): THE LAPTOP'S WTA SYNC OF 13:5xZ DIED
+  >    ON A CONNECTION TIMEOUT AND MY BLOCK HID IT.
+  >    (a) sync-matches --competition WTA --date-from 2026-11-15 --date-to 2026-11-17 raised
+  >        requests.exceptions.ConnectTimeout from src/adapters/kalshi.py:39 (_get), reached through
+  >        kalshi_tennis.py:189 read_all while paging KXWTAMATCH's settled markets, inside sync_teams
+  >        (cli.py:327). A traceback, nothing written. The ATP sync before it was whole.
+  >    (b) My block's tennis filter had no pattern for an error line and printed no exit code, so the console
+  >        showed nothing for WTA. MY FAULT; from 11-17 the block prints the exit and any error line.
+  >    (c) Run again by my block at 14:0xZ: exit 0; 1,558 markets, pages open 1, closed 1, settled 8; 779
+  >        events accepted; refused none; Matches updated 1 (63552, Svitolina v Andreeva of 11-15, now
+  >        FINISHED); 17 rows re-read, none changed. sync-kalshi-wta: no open markets, exit 0 (the season is
+  >        over).
+  >    (d) TWO FACTS I ASK, read-only, file and line, no build: (i) what the HOST's chain does with that
+  >        exception on a tennis-daily step today: retried or not (transient_class), the step's exit, the page;
+  >        (ii) whether the Kalshi adapter's _get retries a connect timeout at all, for any series. I rule on a
+  >        retry only after reading both.
+  >
+  > 5. THE HOST'S TENNIS TIMER: NOT TODAY. The runbook's held-list row is right that the only condition left is
+  >    my block. I am not enabling a new chain the day before the operator travels: its first two scheduled
+  >    runs (06:53Z on 11-17 and 11-18) would fall where I can get no host read, and item 4 is the kind of
+  >    failure that would page him. It goes to Thursday 11-19, by my block. No roadmap date moves: the lane's
+  >    step is the first PAPER record on or after 12-28.
+  >
+  > 6. ONE FACT FOR THE DESK'S RECORD, read-only, on the Issue you judge fits (or a new one, class finding,
+  >    track ledger): the operator's Kalshi account holds fills this week that are NOT Desk calls (his own
+  >    plays, singles and multi-leg KXMVE… tickers). When he imports the venue's export into the Cockpit:
+  >    (i) what the ledger does with a fill whose ticker matches no logged call, (ii) what it does with a
+  >    KXMVE… ticker, (iii) whether either reaches the P&L the policy cites or any graded count, and where a
+  >    fill can be marked as not the Desk's. File and line in tools/cockpit.html and the P&L organ's spec. No
+  >    amounts, no quantities and no account id in the Issue. No build.
+  >
+  > Nothing in this addendum moves a bar or a held timer; item 1 moves two dates by their moved lines.
+
+- **Addendum 407 (ARCHITECT 2026-11-16 09:12 ET), verbatim:**
+
+  > ARCHITECT 2026-11-16 09:12 ET (14:12Z, read from the clock) — addendum 407, for DEV 1 (Lane A), items 1-2; for DEV 2 (Lane B), items 3-4.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. DEV 1 — 404 item 2(b), ANSWERED: NOTHING CHANGES, and you read it right. TIMERS_BY_BLOCK is a CLASS, not
+  >    a state: the timers a fresh host's T11 never enables, each enabled only by my block once its
+  >    prerequisite exists (351 item 2; 356 item 2). sp-availability-graph.timer stays on it: a fresh host
+  >    still needs the engine by hash and the graph's directory before that timer may run. Being enabled on
+  >    our host changes its state, which is what THE HELD LIST and timers.enabled record, and you have brought
+  >    both up to date. My words in 404 item 2(b), "T11's held set", were loose; the held list was the only
+  >    thing meant. 356 item 2 stands unchanged.
+  >
+  > 2. DEV 1 — THE RELEASE ISSUES.
+  >    (a) #990 (v1.6.8) CLOSES NOW, on this ruling, quoted in the closing comment: "ARCHITECT 2026-11-16,
+  >        addendum 407 item 2(a): v1.6.8's record is complete (#991 merged 2026-11-14; the tag, the deploy and
+  >        the notes are on the Issue) and production moved to v1.6.9 on 2026-11-15 19:57Z (402 item 1). A
+  >        release Issue closes when its record is complete and the next release is live." State reason:
+  >        completed.
+  >    (b) #1027 (v1.6.9) STAYS OPEN until I have read, on the host, the first scheduled runs of the two
+  >        things this release turned on: sp-availability-graph.timer's run of 2026-11-16 10:20Z and
+  >        nhl-daily's goalie step of 16:00Z. That read is today, by my block; I rule its closing then.
+  >    (c) From now on that is the rule for a release Issue: I close it by a quoted ruling when its record is
+  >        complete and what it turned on has run once on its own.
+  >
+  > 3. DEV 2 — THE PEAK LINE (#1010; your note of 2026-11-15 20:11Z, read whole): BUILD IT.
+  >    One small PR, lane B: the "peak" object beside memory_limit on the rebuild's receipt line, on success
+  >    and on failure alike, exactly as you set it out: process_rss_kib (RUSAGE_SELF), children_rss_kib
+  >    (RUSAGE_CHILDREN, once the staging child is waited for), cgroup_peak_bytes read while the unit still
+  >    runs from the directory _cgroup_limit already reads (memory.peak on v2, memory.max_usage_in_bytes on
+  >    v1, null where neither exists) and cgroup_peak_from naming the file. The helper beside _cgroup_limit,
+  >    and a test on a synthetic cgroup tree.
+  >    (a) It touches the receipt's JSON line only: not the build, the pool rule, the unit file or the walk.
+  >        If writing it needs any of those touched, stop and tell me.
+  >    (b) A file that cannot be read is null with its reason in the line, never a failed run: the graph
+  >        builds whether or not its peak can be measured.
+  >    (c) Read-only tooling under the stop rule (the graph is read by nothing): P2s after round two go to one
+  >        follow-up Issue. It rides the next tag; the first host figure is the first 10:20Z run after that
+  >        deploy, read by my block. #1010 stays open.
+  >    (d) Your four read-only host lines (systemctl --version, uname -r, the cgroup filesystem type, the
+  >        journal's "Consumed" line) go into my host block of today; I post what they print on #1010.
+  >
+  > 4. DEV 2 — THE TWO COST LINES (392 item 5; 403 item 4): I CANNOT FIND THEM. Your update says they are given
+  >    and wait on my word. They are not on #955, and no Issue comment since 2026-11-15 15:00Z holds them that
+  >    I can find. Post both on #955, each as one line of cost and one of what it touches, and I rule there.
+  >    I read Issues myself at every check-in (387 item 2); a line given only in your session's own output
+  >    does not reach me unless the operator carries it.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did:**
+  - 406 item 1 (this PR): docs/roadmap.json, lane unl (#220). The confirmation record step's due date and earliest_live each move from 2026-11-17 to 2026-11-19. Each move has its own moved line, `moved_on` 2026-11-16, with 406 item 1(c)'s why and 1(d)'s ruling verbatim. The fixture step keeps 2026-11-16. `check-roadmap` passes against main.
+  - 406 item 2: #1028 merged; main 7dae217c. Recorded here.
+  - 406 item 3: posted on #1020 (issuecomment-6918880613), with the line the item asks for first: a stale count cannot see a competition that was never loaded.
+  - 406 item 4: opened as #1029 (track:ops, class:finding, sport:all, size:S). The label set has no sport:tennis, so it carries sport:all as the earlier tennis Issues do. The body holds 4(d)'s two facts, file and line, read at 7dae217c, and no fix:
+    - (i) the host would class the ConnectTimeout as transient and run the step up to three times (15 s, 45 s); then exit 1, the chain stopped at step 2 of 4, one unthrottled page. The timer is held, so none of this runs on a schedule today.
+    - (ii) nothing inside the process retries a Kalshi connect timeout for any series. The only re-runs are the host runner's per-step retry, on a non-zero exit with a transient terminal line, and the closing and slate runs' re-attempts.
+  - 406 item 5: recorded only. The tennis timer's block is Thursday 11-19; no roadmap date moves.
+  - 406 item 6: posted on #609 (issuecomment-6919050381), the Desk-calls/other-fills split it concerns. It covers (i)-(iii) with file and line in tools/cockpit.html (the repo copy) and docs/specs/cockpit-v04-pnl-organ.md, with no amount, quantity or account id:
+    - an unmatched fill is kept and booked off-book, system-pick unlogged or fun;
+    - a KXMVE ticker is always fun;
+    - neither reaches a graded count, and both reach the realized TOTAL by book;
+    - nothing marks a fill as not the Desk's;
+    - a personal single on a Desk call's game and side is booked system-matched.
+  - 407 item 1: nothing changes; recorded.
+  - 407 item 2(a): #990 closed as completed, its closing comment quoting the ruling (issuecomment-6918852640).
+  - 407 item 2(b)-(c): #1027 stays open for the architect's read of the two first scheduled runs; recorded.
+  - 407 items 3-4 are Dev 2's; recorded only.
+
+**2026-11-15 — Addenda 403 to 405: the second KXNCAAMBGAME replay read and the table of 313 lines standing as merged (403, Dev 2's lane, recorded by DEV 1); the graph built on the host in its node shape and its timer enabled, THE HELD LIST now two, the graph's host step done-marked (404); the host's goalie backfill run and v1.6.9's day closed (405).**
+- **Addendum 403 (ARCHITECT 2026-11-15 15:01 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 15:01 ET (20:01Z, read from the clock) — addendum 403, for DEV 2 (Lane B). DEV 1 records it.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. #1023 MERGED at 9f58cfb1, after the v1.6.9 tag was pushed; main is acf3d40d; the table on main has the
+  >    sha256 I ruled (4abfb1db…8103). It rides the next tag.
+  >
+  > 2. THE SECOND REPLAY, READ (396 item 3(e)). By my block on the laptop at acf3d40d, the table's hash checked
+  >    first; kalshi-replay --series KXNCAAMBGAME, markets kept at 2026-11-15T20:00:21Z
+  >    (logs/kalshi_replay_20261115T200021Z.json), exit 0. 346 open markets, 173 events, 491 stored games on
+  >    the events' days. Placed 88 legs, refused 258.
+  >    (a) NO refusal names a name missing from the table. Under the first table there were 128 such legs in
+  >        64 events; there are none.
+  >    (b) 44 events are PLACED (88 legs). I checked every leg against the table and the kept markets: the
+  >        game's two stored teams are the table's two teams and each leg sits on its own team's side; no
+  >        mismatch in 88. Sixteen of the 44 carry a hand-ruled name and each is on the game its ruling was
+  >        proved on (St. Thomas (Minn.) at LIU Sharks, Citadel at Clemson, Portland State at St. Marys (CA),
+  >        Texas State at UTSA Roadrunners, Louisiana Christian at Southern Univ., and eleven more).
+  >    (c) 109 events (218 legs) are refused "the pair's game is outside the run's window": the game was found.
+  >        18 events (36 legs) are refused "in play": the game was found and has started.
+  >    (d) 2 events (4 legs) are refused "no game of the competition on the event's day fits both names". I
+  >        expected none and I name them: by elimination they are KXNCAAMBGAME-26NOV14UNCGCOR and
+  >        KXNCAAMBGAME-26NOV14ULLUNCW, the two events whose only stored game of the pair is POSTPONED (NC
+  >        Greensboro at Cornell, 11-14 16:00 UTC; Louisiana Lafayette at NC Wilmington, 11-15 00:00 UTC; both
+  >        read in the hand reading of 393). A postponed row is not a game for the matcher (is_game, addendum
+  >        50 item 6(c)), so the table found both teams and the matcher rightly found no game. That is the
+  >        refusal working, not a line failing. The console does not name the events of that reason, so "by
+  >        elimination" is the honest word for it: see item 4.
+  >    RULED: THE TABLE OF 313 LINES STANDS AS MERGED. Every name of the day's markets is tabled; every event
+  >    of two tabled names either placed on the right game with the right sides, or was refused for the
+  >    window, for play begun, or for a postponed game.
+  >
+  > 3. WHAT REMAINS OPEN ON THIS LANE:
+  >    (a) The comparison with the SCORER on one slate (387 item 3(e)): the laptop holds no stored Kalshi legs
+  >        for NCAAMB, so both replays compared against nothing. The 15:34Z replay made before any table
+  >        existed is that record; I read its log when the operator attaches it.
+  >    (b) THE 12-05 STEP (the host's NCAAMB load, its Kalshi sync and its timer) waits, as 387 item 3 has it,
+  >        for the tag that carries both data PRs: the next tag, not v1.6.9.
+  >    (c) KXNCAAFGAME, live on the host, is untouched until its own table and its own replay (387 item 3(f)).
+  >        Not started, and not before I say.
+  >
+  > 4. ADDED TO THE COST LINE I ASKED FOR (392 item 5), same terms, a line and not a build: for the replay to
+  >    name the EVENTS under each refusal reason that is not the window or play begun. Today I identified two
+  >    events by elimination and by a second read; the console should have named them.
+  >
+  > 5. YOUR QUEUE: the Issue of 401 item 4 (the cup exam's drift); the cost line of 392 item 5 with item 4
+  >    above. Then nothing on this lane until I rule the next step.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 404 (ARCHITECT 2026-11-15 15:09 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 15:09 ET (20:09Z, read from the clock) — addendum 404, for DEV 1 (Lane A) and DEV 2 (Lane B).
+  > Paste exactly. Record it in BACKLOG as usual; Dev 1 adds it to the v1.6.9 release Issue as a comment.
+  >
+  > 1. THE GRAPH IS BUILT ON THE HOST IN ITS NODE SHAPE AND ITS TIMER IS ENABLED (398 item 4(a); 379 item 2).
+  >    By my block on the host, 2026-11-15T20:01Z, on v1.6.9 (482de3fd):
+  >    (a) Preconditions read right: the checkout is the tag's commit; requirements-graph.txt is one line,
+  >        ladybug==0.22.3 by the recorded sha256; the engine already installed (pip: "Requirement already
+  >        satisfied"); 3,407 MB available of 3,915; 40G free.
+  >    (b) The two unit files reinstalled from the tag, byte-identical to the checkout's; the sandbox scores
+  >        4.0 OK.
+  >    (c) THE FIRST RUN, by the unit in its sandbox: systemctl start exit 0, Result=success. From
+  >        /var/backups/sports-predictor/sports_2026-11-15_093001.db (sha256 dcb587225d12…, mode=ro +
+  >        immutable=1), ladybug 0.22.3, 247.7 s. Nodes: Player 4013, Team 64, Game 31, Observation 250,
+  >        Build 1, Assertion 1,346,489. Edges: NAMES_PLAYER, NAMES_TEAM and ASSERTED_IN 1,346,489 each,
+  >        IN_GAME 54, ABOUT 243. The record's assertions 1,346,489 = the graph's assertion nodes. Staged
+  >        682,855,443 bytes. The graph file 368,144,384 bytes, sha256 616ada502591…, read by nothing.
+  >    (d) THE RULED VERDICT, every part met: "ok": true; "buffer_pool": 268435456; "memory_limit":
+  >        1610612736, read from the unit's own cgroup memory.max; record_assertions 1346489 equal to
+  >        counts.Assertion 1346489; a receipt line of this run. systemd reported no MemoryPeak for the unit
+  >        ("[not set]"), so the peak on the host is NOT measured by this read.
+  >    (e) ENABLED on that verdict: sp-availability-graph.timer enabled and active, next run Mon 2026-11-16
+  >        10:20:00 UTC; its name added to /etc/sports-predictor/timers.enabled. Timers now: 22 names, 22
+  >        expected active, 22 active, none missing, none stray. No failed unit. The checkout clean.
+  >    THE HELD LIST ON THE HOST IS NOW TWO: sp-tennis-daily.timer (installed, disabled) and
+  >    sp-ncaamb-daily.timer (not installed).
+  >
+  > 2. DEV 1 — yours from this: (a) the roadmap's done-mark for the graph's host step, in a small records PR
+  >    with the other records of the day; (b) T11's held set and every block or doc that names three held
+  >    timers now names two; tell me if any CODE names the graph timer as held (a test, TIMERS_BY_BLOCK), with
+  >    file and line, before you change it.
+  >
+  > 3. DEV 2 — for #1010 (the walk's heap) and #830: the host's first figures are item 1(c): 247.7 s for
+  >    1,346,489 assertions under MemoryMax 1536M with the 256 MiB pool, against your 118.7 s for 1,341,556.
+  >    The record grows by about 4,700 assertions a day. ONE FACT I ASK, read-only, on #1010: why the unit
+  >    reports no MemoryPeak (the property's requirements on this systemd and cgroup), and what one line in
+  >    the rebuild's own receipt would record the process's peak instead. A line of cost, not a build.
+  >
+  > 4. STILL TO COME ON THE HOST TODAY: the goalie backfill (398 item 4(b)), by my block.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer beyond item 1(e), which 398 item 4(a) ruled.
+
+- **Addendum 405 (ARCHITECT 2026-11-15 15:24 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 15:24 ET (20:24Z, read from the clock) — addendum 405, for DEV 1 (Lane A) and DEV 2 (Lane B).
+  > Paste exactly. Record it in BACKLOG as usual; Dev 1 adds it to the v1.6.9 release Issue as a comment.
+  >
+  > 1. THE HOST'S GOALIE BACKFILL RAN (389 item 4(c); 398 item 4(b)). By my block on the host on v1.6.9
+  >    (482de3fd), 2026-11-15T20:13Z to 20:18Z. A first start at 20:09Z stopped at the block's own minute check
+  >    and ran nothing.
+  >    (a) BEFORE, on a backup by the host's own script (sports_2026-11-15_201316.db, integrity ok, sha256
+  >        a713ca785993…, sidecar present), nhl-goalie-coverage --db: 16,798 appearance rows, 4,200 games;
+  >        2026-27 held 8 finished regular-season games, the latest of 2026-10-01.
+  >    (b) THE DRY RUN, 2026-10-01 .. 2026-11-15: schedule_calls 7 (all 200), games_found 322,
+  >        skipped_not_finished 5, boxscore_calls 317 (all 200), both_starters 317, mapped_to_our_match 317,
+  >        rows_would_write 1268; nothing refused, nothing "not in our DB"; exit 0.
+  >    (c) THE REAL RUN, holding the chains' own database lock (flock on the lock file the chains take): the
+  >        same counts, rows_written 1268, exit 0, no request other than 200. The host's own line after it:
+  >        2026: finished 390, linked 325, both starters 325.
+  >    (d) AFTER, on a second backup (sports_2026-11-15_201759.db, integrity ok, sha256 5676bbdb127f…):
+  >        18,066 appearance rows, 4,517 games. 2026-27: 325 finished regular-season games; both starters
+  >        flagged on 325; no appearance without a linked match; relief 34 of 325 = 10.5%; the latest stored
+  >        game 2026-11-15 (UTC). 2023-24, 2024-25 and 2025-26: 1,312 regular-season games each, as before. No
+  >        game without a stored start.
+  >    (e) THE HOST AND THE LAPTOP NOW READ THE SAME: 18,066 rows, 4,517 games, 325 games this season, relief
+  >        34 of 325 (390 item 4(b) for the laptop). No failed unit; the checkout clean.
+  >    From Monday 16:00Z the chain's own step keeps it current (nhl-daily, after export-fixtures and before
+  >    nhl-shot-sync), and a failed request there exits 1, is paged, and stops nothing after it.
+  >
+  > 2. DEV 1 — the roadmap: whatever step names the goalie record's catch-up or the daily step on the host
+  >    takes its done-mark in the same records PR as the graph's (404 item 2). The hand run of item 1(c) was
+  >    NOT under sp_run, so it has no receipt row: this addendum and the release Issue's comment are its
+  >    record. Say so in the comment.
+  >
+  > 3. DEV 2 — what this gives your lane, nothing to build from it:
+  >    (a) The inferred layer's pilot (#992) has its truth on the host: who started every regular-season game
+  >        of 2026-27 through 11-15, kept current daily from tomorrow.
+  >    (b) The goalie agreement receipt (#987) can now be read on a host backup copy; that block is mine.
+  >    (c) The ceiling readiness read of 11-19 and the declaration or written no of 11-24 are unchanged; the
+  >        ceiling's cohort is still the retired 2025 season.
+  >
+  > 4. v1.6.9's DAY, CLOSED: tagged, deployed, the graph built and its timer on, the goalie record caught up
+  >    on both machines, KXNCAAMBGAME's table of 313 lines on main and replayed. Open, and mine: the ledger
+  >    sweep's closure rulings; the 12-05 step's tag; tomorrow's morning block (sent, 401's day); the UNL
+  >    60th fixture and the NFL STALE_BOOK_H re-read on 11-16; the UNL confirmation record on 11-17; the
+  >    soccer-v23 declaration by 11-20.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did:**
+  - 403: recorded here only. It is Dev 2's lane (its heading: "DEV 1 records it"). Its items 3 to 5 are Dev 2's queue, untouched.
+  - 404, the comment on the release Issue: addendum 404 pasted verbatim on #1027 (issuecomment-6900607138). #1027's body now says the graph's timer was held at the deploy and enabled by the block at 20:01Z.
+  - 404 item 2(a): docs/roadmap.json, lane availability-record, the graph projection's rebuild step marked done 2026-11-15. Its receipt is 404 item 1, and the word for the mark is 404 item 2(a). No date moves. The lane's NBA injury-report probe step stays open, so the lane keeps a step to do.
+  - 404 item 2(b), first the question it asks: does any CODE name the graph timer as held? No. THE HELD LIST lives only in the runbook: the set check's `HELD=` line and its table in section O. No code in deploy/, src/, scripts/ or cli.py reads it. The runbook's own hold-search recipe reads the `HELD=` line, and tests/test_hold_search_recipe.py runs that recipe and reads the line itself; neither names the graph timer, which has no chain to print. The code and tests that name the graph timer name it on T11's `TIMERS_BY_BLOCK`:
+    - docs/specs/hosting-h1.md's T11 `TIMERS_BY_BLOCK=` line, read by deploy/hosting/sp_common.py (`T11_LISTS`, `t11_lists`);
+    - tests/test_hosting_pack.py (the list pinned as the three by-block timers; its "3 on TIMERS_BY_BLOCK" lines count that list on reconstructed hosts without naming a timer);
+    - tests/test_availability_graph.py (the graph timer on `TIMERS_BY_BLOCK` and not on `TIMERS`).
+    - None of these change: `TIMERS_BY_BLOCK` is a timer's class, not its state (356 item 2: "a timer keeps that class after it is enabled"). The question goes to the architect in the PR body.
+  - 404 item 2(b), the docs: section O's set check now names two held timers. Its current-list sentence, its `HELD=` line and THE HELD LIST's table changed; the graph's row moved under "Lifted" with 404 quoted. The note on held timers not yet installed gains the 404 state. The schedule table's graph row and the graph's recipe block record the enable, the recipe kept as the block's shape for a fresh host. docs/RELEASES.md's v1.6.9 entry gains "After the deploy" with 404 item 1. Historical entries that name three held timers (v1.6.8's, and 402 item 1(c)'s state at the deploy) stay as they were: they were true when written.
+  - 404 item 3 is Dev 2's (#1010).
+  - 405, the comment on the release Issue: addendum 405 pasted verbatim on #1027 (issuecomment-6900823489). The comment says what 405 item 2 asks: the real run of item 1(c) was a hand run, not under sp_run, so it has no receipt row, and 405 and that comment are its record. #1027's body names the backfill's run.
+  - 405 item 2, the roadmap: no step of docs/roadmap.json names the goalie record's catch-up or the daily goalie step on the host, so no step takes a done-mark from it (every lane, step and milestone read). Code adds no step to mark (a new step is a roadmap change the architect rules).
+  - 405 item 1, the docs: docs/RELEASES.md's v1.6.9 entry, "After the deploy", gains the backfill and 405 item 4's closing line. hosting-h1.md names no goalie step to update.
+  - 405 item 3 is Dev 2's; 405 item 4's open items are the architect's.
+
+**2026-11-15 — The v1.6.9 release record (addenda 400 to 402): the fold in, step 1 met, v1.6.9 cut on 482de3fd and deployed; the release Issue #1027, the RELEASES.md row and entry, section O of hosting-h1.md brought to the state after the deploy; 401's withdrawal of 397's correction read. Records only.**
+- **Addendum 400 (ARCHITECT 2026-11-15 13:24 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 13:24 ET (18:24Z, read from the clock) — addendum 400, for DEV 1 (Lane A). DEV 2 reads item 5.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. THE FOLD IS IN (step 2). #1025 merged at f6c8ba27 by my block; main is
+  >    482de3fdc4ee81ee532733975fd127999d6b7843, tree de6cbfff, the tree my own compile on ff8042fe gave. No
+  >    fragment pending. The release notes were written on the merge commit: 361 lines, 22 sections, no
+  >    AMENDED line, no failing line, as my preview on the fold's head read. Your span count is accepted: 22 PR
+  >    merges and 3 merges of main into PR branches since b3c5fbcf.
+  >
+  > 2. STEP 1 IS MET IN FULL: (a) the day's compare CLEAN (395 item 3); (b) the host's receipts since the
+  >    v1.6.8 tag, every failing row named (399 item 1); (c) CI green on 482de3fd (smoke and smoke-py310
+  >    success; fragments skipped), read at 13:24 ET, and read again by the tag block before it cuts.
+  >
+  > 3. RULED: v1.6.9 IS CUT ON 482de3fd. The operator cuts and pushes it by my block (step 3), then deploys it
+  >    on the host by my block. After the deploy, by my blocks and in this order, as 398 item 4 has it: the
+  >    graph (unit reinstalled, one first run, the timer enabled only on ok), then the goalies (one hand run
+  >    from 2026-10-01, a backup first, then the coverage read on a backup copy).
+  >
+  > 4. THE CAUSE OF 399 item 1(b), from the operator, for #1024, in his words (12:35 ET): "It was due to a
+  >    subscription renewal that was done and won't affect us for six months." So the next renewal falls about
+  >    mid-May 2027; a one-minute "Free plans" answer then is this again and is read as such. #1024 stays
+  >    open as a finding with no fix; the two facts of 399 item 2 are still wanted in it.
+  >
+  > 5. DEV 2 — #1023 (the 60 hand-ruled lines) did not ride: the fold opened before it merged, as 398 item
+  >    3(b) said it might. It merges AFTER the tag is pushed, by my block, on my read of it; then I replay.
+  >    It rides the next tag. The 12-05 step waits for that tag.
+  >
+  > 6. STEP 4, YOURS, ON MY WORD ONLY: the release Issue and the RELEASES.md row and entry for v1.6.9, as #990
+  >    and #991 were for v1.6.8. I give the word when the deploy console is read. Until then, nothing.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 401 (ARCHITECT 2026-11-15 14:03 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 14:03 ET (19:03Z, read from the clock) — addendum 401, for DEV 2 (Lane B). DEV 1 records it.
+  > Paste exactly. Record it in BACKLOG as usual, and on #1020 beside your two facts.
+  >
+  > 1. #1023 READ, MERGE-READY at 9f58cfb1.
+  >    The table: 313 lines; the first 253 are main's, line for line; the 60 are 394's v2 file line for line
+  >    and in its order; 313 distinct names and ids; "ruled" as 396 item 3(b) worded it; sha256
+  >    4abfb1db6f7d3590e2aec2cd90ac857a39526a2605e9c7fa37e3aeefe4468103. No code. The test re-pinned, with a
+  >    new test that the 253 are #1019's file to the byte: good. Trial-merged onto main 482de3fd with no
+  >    conflict; the 697 Kalshi and table tests pass on the merged tree here. CI green; Codex found nothing
+  >    on the head; its one thread is resolved. It merges by my block AFTER the v1.6.9 tag is pushed (400
+  >    item 5), then I replay on the hash above.
+  >
+  > 2. YOUR TWO FACTS (397 item 4), READ WHOLE ON #1020. Thank you for the correction; it changes my ruling.
+  >    (a) 397 item 1(a)'s PREMISE WAS WRONG AND IS WITHDRAWN. I wrote that the exam prices a cup with every
+  >        FINISHED row of the comp-season as the copy stands (training.py:478-487). Your read: for a CUP or
+  >        INTL competition the fits come from cup_strengths, the cup pool and the domestic pool, each bounded
+  >        strictly BEFORE the exam fixture's kickoff (src/models/cup_strengths.py:82-88, 129-163); the 478-487
+  >        read does not reach a cup price. The exam set is September's. So the laptop's stale league and cup
+  >        rows (from 10-03 on) entered NOTHING in those fits, and 397 item 1(b)'s list of what the copy lacked
+  >        names rows the exam could not have read. That list is withdrawn with the premise.
+  >    (b) What a stale copy COULD reach, by your item 3: the tuned cup coefficients, whose pool is every
+  >        CUP/INTL comp-season with a FINISHED row, in any season and with no date bound, less the key's own
+  >        pairs and EFL/CL/UEL/EL in the key's seasons. By today's read the laptop's international rows were
+  >        stale only from 11-09 (CNL) and 11-12 (UNL, FRIENDLIES_INT): at most 35 rows, and fewer had kicked
+  >        off by the 11-13 14:03Z run. FAC and the other cups in that pool were not measured.
+  >    (c) What your read shows that matters more than the staleness: the exam is NOT a fixed function of its
+  >        frozen set. The injuries table, the live lineups and the player-season stats are read with no as-of
+  >        bound; the tuned pool has no date bound, and "prior cup matches" is not enforced in code. So its
+  >        figures move with the day it is run, on any machine. That is why fix-v2 read 14.76pp on 11-05 and
+  >        15.32pp on 11-13.
+  >
+  > 3. RULED: THE CORRECTION READ OF 397 item 3 IS WITHDRAWN, before any read was made.
+  >    Its ground was item 1(a)-(b), and the ground fell. A read made now would differ from 11-13's by the
+  >    drift of item 2(c), not by a correction, and would put another day's draw in place of the figure of
+  >    record. 367 STANDS AS RECORDED, figures included; the R-track stays closed for the season; path (b)
+  >    alone remains. The residual defect is named and accepted, not corrected: the tuned pool on the 11-13
+  >    copy lacked at most a few dozen international rows of that week, and an unmeasured number in FAC and
+  >    the other cups, against thresholds missed at 16.43pp for 6.0, 34 rows for 13 and 60% for 80%.
+  >
+  > 4. ONE ISSUE, yours to open on lane cups (#106), class finding: item 2(c), with your file and line
+  >    references. It matters for path (b): when soccer-v23's harness comes to cup_exam's UNCHANGED gate, the
+  >    instrument must read the same on any day, or the day it reads is declared with the run. No fix, no
+  >    build, no run now. The gate's thresholds are not touched by it.
+  >
+  > 5. THE NFL READS: your item (b) is accepted. nfl-v2-gate (265) and the corrected 2024 warm-up of
+  >    nfl_elo_v1 (214) walk season "2024" then "2025" by the stored season label
+  >    (src/walters/nfl_backtest.py:202); no 2026-season row is walked in either. Both stand untouched by the
+  >    laptop's stale NFL rows.
+  >
+  > 6. YOUR QUEUE: the Issue of item 4; the cost line of 392 item 5. Nothing else until the second replay is
+  >    read.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **Addendum 402 (ARCHITECT 2026-11-15 15:00 ET), verbatim:**
+
+  > ARCHITECT 2026-11-15 15:00 ET (20:00Z, read from the clock) — addendum 402, for DEV 1 (Lane A). DEV 2 reads item 4.
+  > Paste exactly. Record it in BACKLOG as usual.
+  >
+  > 1. v1.6.9 IS TAGGED AND DEPLOYED.
+  >    (a) THE TAG (step 3), by my block, the operator's hand: CI read again on 482de3fd (smoke and smoke-py310
+  >        success, fragments skipped); the notes file 361 lines, 22 sections, its first line naming the commit;
+  >        git tag -a v1.6.9 --cleanup=verbatim -F the notes; pushed. Tag object
+  >        eb3becef4f5f24524cefa803923c463e416e908c, pointing at
+  >        482de3fdc4ee81ee532733975fd127999d6b7843, tagger time 2026-11-15 14:57:26 -0500 (19:57:26Z).
+  >    (b) THE DEPLOY, by my block on the host at 2026-11-15T19:57Z: release before v1.6.8 (b3c5fbcf), no
+  >        reboot pending; the dry run "would deploy v1.6.8 -> v1.6.9 (482de3fd)", exit 0; the deploy
+  >        "v1.6.8 -> v1.6.9 (482de3fd, 47 files)", exit 0; HEAD is 482de3fd; the deploy's receipt row at
+  >        11-15 19:57, exit 0. Shipped timers not in timers.enabled: 3 on MLB_LAPTOP_ONLY and 3 on
+  >        TIMERS_BY_BLOCK, held off by T11, as before.
+  >    (c) AFTER IT: timers.enabled 21 names, 21 expected active, 21 active, none missing, none stray;
+  >        sp-tennis-daily.timer disabled, sp-ncaamb-daily.timer not installed, sp-availability-graph.timer
+  >        disabled; the landing watch's timer active; no failed unit; the checkout clean.
+  >
+  > 2. MY WORD FOR STEP 4 IS GIVEN: the release Issue for v1.6.9 and the RELEASES.md row and entry, as #990
+  >    and #991 were for v1.6.8. Item 1 is the record of steps 3 and the deploy; 395 item 3, 399 item 1 and 400
+  >    items 1-2 are the record of steps 1 and 2. In the Issue, name what this release puts on the host:
+  >    the graph's node shape and its sandbox lines (#1007, #996, #1011), the daily goalie step and its
+  >    failure exit (#1021), nhl-goalie-coverage --db (#1012), the single-game read's season (#1014), the
+  >    nflverse keep step (#1004), the tally pair (#1006), the name-table machinery and KXNCAAMBGAME's first
+  >    table, inert on the host (#1017, #1019), and the records.
+  >
+  > 3. STILL TO COME TODAY ON THE HOST, by my OPERATOR ONLY blocks, and recorded by you when I send the
+  >    reads: the graph (unit reinstalled from the tag, one first run, the timer enabled only on the ruled
+  >    verdict), then the goalie backfill from 2026-10-01 under the chains' own lock, a backup before and
+  >    after, the season counts from each. Leave both out of the release Issue until their consoles are read;
+  >    add them as a comment then.
+  >
+  > 4. DEV 2 — the tag is on origin, so #1023 merges now by my block, and I replay it on
+  >    4abfb1db6f7d3590e2aec2cd90ac857a39526a2605e9c7fa37e3aeefe4468103. It rides the next tag.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did:**
+  - 400 item 4: the cause posted on #1024 (issuecomment-6900406601). Its two facts were already in #1024's body.
+  - 401: recorded on #1020 beside the two facts (issuecomment-6900418244), and here.
+  - 402 item 2, step 4:
+    - The release Issue is #1027. It carries 395 item 3, 399 item 1, 400 items 1-3 and 402 item 1 verbatim, and what the release puts on the host, as 402 item 2 names it.
+    - It also carries the 22 PRs from git, Code's own read of the tag (byte-identical to `release_notes.py --to 482de3fd`: 361 lines, 47,754 bytes, 22 sections), and the record line. The notes are in one comment (issuecomment-6900495100).
+    - docs/RELEASES.md gains the v1.6.9 row and entry.
+    - Section O of docs/specs/hosting-h1.md is brought to the state after the deploy: production v1.6.9 and 27 timers with none added. THE HELD LIST was unchanged by the deploy (402 item 1(c)); the graph's enable after it is 404's (2026-11-15-403-405-records.md).
+  - 402 item 3: the architect's post-deploy blocks are recorded on #1027 as comments when their consoles come. The graph's came as addendum 404 and the goalie backfill's as addendum 405 (2026-11-15-403-405-records.md).
+- **The span, from git:** `v1.6.8..v1.6.9` holds 118 commits and 47 files. Of its 26 merge commits, 23 are PR merges on the first parent (the 22 notes sections and the fold #1025), and 3 are merges of main into PR branches. #1023 is not in the tag.
+
+**2026-11-15 — KXNCAAMBGAME's name table gains the 60 hand-ruled lines (addendum 396 item 3; addenda 393 item 2 and 394 item 1; #955; #1023).**
+- **Ruling (396 item 3(a)-(b), verbatim):** "KXNCAAMBGAME.json gains the 60 lines of ruled_1115_KXNCAAMBGAME_hand_lines_v2.txt, name | key | id, exactly as written, after the 253 and in the file's order. The 253 are not touched. 313 lines. Its "ruled" field names both rulings."
+- **The first table's replay (396 item 2):**
+  - every event of two tabled names found its game: 37 placed, 75 outside the run's window, 1 in play;
+  - the 64 refused "not in the table" are the 60 marked names and no other.
+
+  RULED: the first table stands.
+- **What landed:** 313 lines, 313 distinct names and api_basketball ids; the strict loader accepts it; the test re-pinned to the count and the sha256 (4abfb1db6f7d), with the 253 shown untouched.
+- **Next:** the architect's replay after the merge (396 item 3(e)). He expects no "not in the table" refusal on this slate's names, and no event refused for want of a game.
+
 **2026-11-15 — Addenda 395 to 397: #1019 merge-ready and merged (the first KXNCAAMBGAME table); its replay read, the table stands; the second data PR's word given; v1.6.9's day's compare CLEAN; #1018 seen; #1021 read, merge-ready; one correction read of the cup exam declared (397), its 11-13 figures read on a stale copy. Records only.**
 - **Addendum 395 (ARCHITECT 2026-11-15 11:23 ET), verbatim:**
 

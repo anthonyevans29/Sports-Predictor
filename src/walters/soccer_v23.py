@@ -7,8 +7,8 @@ and every declaration slot.
 NOTHING HERE HAS RUN ON REAL DATA. "NO run before 11-20's declaration" (248 item 2(b)); "NO run and NO declaration
 before 11-20 (a date is never a reason to run early)" (230 item 1(d)). The one run is the operator's block on the
 architect's word on 11-27 (216 item 3), through `soccer-v23-gate`, which refuses (exit 2, nothing reserved, nothing
-recorded) while the registry holds no declared entry: and it holds none (an undeclared candidate holds no entry:
-tests/test_leagues_declaration_220.py; registry.py has no "undeclared" status). v22 is not changed: this module
+recorded) without a declared, unrun entry: DECLARED by ARCHITECT 2026-11-23, addendum 449 (declared_at 13:05:00Z;
+docs/registry/experiments.json; tests/test_449_v23_declaration.py), nothing run. v22 is not changed: this module
 imports poisson.estimate_strengths / predict_match and elo's own functions and calls them unchanged.
 
 ONE PREDICTION FUNCTION (216 item 4's lane, #789): `predict(snapshot, fixture, arm)` is pure (no database, no clock,
@@ -117,6 +117,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
@@ -205,13 +206,28 @@ PYRAMIDS = (("PL", "ELC", "EL1", "EL2"),)
 # Written before any result (216 item 3; 230 item 1(d); 248 item 2(b); 251 item 2). A test pins its sha256; the
 # declaration's registry entry carries it as `gate`, and the run refuses an entry whose gate differs by one character.
 BAR_TEXT = (
-    "THE BAR (ARCHITECT, addendum 216 item 3; addendum 230 item 1(d); addendum 248 item 2(b); addendum 251 item 2), "
-    "written before any result: soccer-v23's mean three-way log-loss on the frozen pot must be at least 0.0050 BELOW "
-    "BOTH v22's recorded figure AND v22's figure re-walked on soccer-v23's harness. PASS iff BOTH (v22's recorded mean "
-    "three-way log-loss − soccer-v23's mean three-way log-loss) ≥ 0.0050 AND (v22's re-walked mean three-way "
-    "log-loss − soccer-v23's mean three-way log-loss) ≥ 0.0050, every figure unrounded. v22's recorded figure STANDS "
-    "as measured and is never recomputed: the run reads it from the declaration slot v22_recorded_log_loss, which the "
-    "architect fills from where v22's gate recorded it and names in v22_recorded_source. v22's re-walked figure is v22 "
+    "THE BAR (ARCHITECT, addendum 216 item 3; addendum 230 item 1(d); addendum 248 item 2(b); addendum 251 item 2; "
+    "addendum 443 item 1(c)), written before any result: soccer-v23's mean three-way log-loss must be at least 0.0050 "
+    "BELOW v22's on EVERY comparison: v22's figure re-walked on soccer-v23's harness, on the frozen pot; and, FOR EACH "
+    "of v22's recorded figures, that figure, over the same matches. ADDENDUM 443 ITEM 1(c) (ARCHITECT 2026-11-21 18:57 "
+    "ET), verbatim: \"THE RULING: THE LEG IS MADE LIKE FOR LIKE AND TAKES EVERY RECORDED FIGURE. In place of \"at least 0.0050 "
+    "below v22's recorded figure\" the bar reads: FOR EACH of v22's recorded figures, soccer-v23's mean three-way "
+    "log-loss OVER THE SAME MATCHES is at least 0.0050 below it. - The same matches: the rows soccer-backtest scores "
+    "for that competition and season on the run's copy, by its own rule (the row-by-row walk at min_prior = 40, exactly "
+    "as run_soccer_backtest applies it). They must number exactly the recorded n and lie whole inside soccer-v23's "
+    "scored set. - The recorded figure stands as recorded, to its four places, and is never recomputed. soccer-v23's "
+    "figure on those rows is its own walk's, by soccer_calibration, unrounded. - Two recorded figures, so two "
+    "comparisons. With the re-walked comparison on the whole pot, which does not change, THREE. PASS iff ALL THREE "
+    "hold. A difference under 0.0050 on any one REJECTS; exactly 0.0050 passes that one. - A recorded set that is not "
+    "whole on the copy is found by the preflight and REFUSES THE RUN BEFORE ITS RESERVATION: nothing spent, nothing "
+    "scored.\" PASS iff (v22's re-walked mean three-way log-loss on the pot − soccer-v23's mean three-way log-loss on "
+    "the pot) ≥ 0.0050 AND, for EACH recorded figure, (that recorded figure − soccer-v23's mean three-way log-loss over "
+    "that figure's matches) ≥ 0.0050, every computed figure unrounded. The recorded figures are read from the "
+    "declaration slot v22_recorded, a list the architect fills, each with its competition, season, n, log-loss and "
+    "source; the run refuses an empty list. Each recorded figure STANDS as recorded and is never recomputed; its "
+    "matches are the rows soccer_backtest.run_soccer_backtest itself scores for that competition and season on the "
+    "run's copy at min_prior = 40 (its own output, never a rule copied by hand), with the copy's v22 rho and Elo goal "
+    "coefficient. v22's re-walked figure is v22 "
     "walked by the same harness beside soccer-v23, on the identical scored set, under the same context definition "
     "(as-of: g and b, and soccer-v23's mu and h, estimated at each fixture's instant from the finished games visible "
     "before it under the day visibility rule (addendum 254 item 3 Q4: a game kicking off on a UTC date before the "
@@ -227,12 +243,12 @@ BAR_TEXT = (
     "live v22 reads the full score, so on a store holding such a row it differs from live v22, by about 3.7e-4 in a "
     "probability on the design's synthetic one-row probe (a synthetic receipt, not a pot figure; the run record "
     "counts the AET and PEN rows; addendum 254 item 3 Q22)) and the same within-season skip "
-    "(zero). The recorded figure is read from the slot as measured, by whatever scorer its own gate used, and is never "
-    "recomputed; the re-walked figures (soccer-v23's and v22's, on this harness) are computed by "
-    "soccer_backtest.soccer_calibration. Each comparison is decided by soccer_backtest.candidate_gate_verdict with "
-    "min_delta = training.DEFAULT_PROMOTION_DELTA (0.005). Written as "
-    "\"below\", so a tie on EITHER is a rejection: a difference of zero, or any difference under 0.0050, on either "
-    "comparison REJECTS; a difference of exactly 0.0050 passes that comparison. INVALID, never a pass, when the two "
+    "(zero). Each recorded figure is read from the slot as recorded, by whatever scorer its own gate used, and is "
+    "never recomputed; soccer-v23's figures (on the pot, and over each recorded figure's matches) and v22's re-walked "
+    "one are computed by soccer_backtest.soccer_calibration. Each comparison is decided by "
+    "soccer_backtest.candidate_gate_verdict with min_delta = training.DEFAULT_PROMOTION_DELTA (0.005). Written as "
+    "\"below\", so a tie on ANY comparison is a rejection: a difference of zero, or any difference under 0.0050, on "
+    "any one REJECTS; a difference of exactly 0.0050 passes that comparison. INVALID, never a pass, when the two "
     "arms' scored sets differ, are empty, or number under MIN_GATE_N = 30 (soccer_backtest.compare_candidate). The "
     "early-season matches are INCLUDED in the scored set: this candidate's declared within-season skip is zero (no "
     "40-match skip). THE §11 RULINGS (ARCHITECT, addendum 263), frozen with this text: the frozen pot is the "
@@ -258,8 +274,8 @@ BAR_TEXT = (
 WITHIN_SEASON_SKIP = 0                          # 216 item 3: "no 40-match skip for this candidate ... it is zero"
 
 # ------------------------------------------------------------------------------------- THE DECLARATION SLOTS --
-# Every slot is the architect's (11-20). The code holds the allowed values only; the run reads the values from the
-# declared registry entry's `declaration_slots` and refuses while any is missing or null. RECOMMENDED is printed for
+# Every slot is the architect's (filled by addendum 449). The code holds the allowed values only; the run reads the
+# values from the declared entry's `declaration_slots`, refusing while any is missing or null. RECOMMENDED is printed for
 # the architect; it is never a default.
 SLOTS_KEY = "declaration_slots"
 #: The stage scopes and first-season rules the builders implement. The slots admit only the RULED ones (ARCHITECT
@@ -278,21 +294,29 @@ SLOT_VALUES = {
     # a history BAR_TEXT does not describe. "kickoff" stays a builder rule for tests only (VISIBILITY_RULES).
     "cut": "an ISO-8601 UTC instant clearing every fence",       # Q7
     "availability_on": (True, False),                            # Q6: the availability term in the shadow
-    # 251 item 2: v22's RECORDED gate figure, read from where it is recorded and never recomputed. No figure of v22 on
-    # the frozen pot is machine-readable in the repository (law 1, read on main 44c8fceb: docs/registry/experiments.json
-    # holds soccer-s19-time-decay, soccer-dc-fit and soccer-s14-stage2 with PL-pooled deltas only, and
-    # soccer-expansion-v1 with per-league figures on five leagues' 2024/25 + 2025/26; BACKLOG records the 2026-09-21
-    # promotion "on 16,546 matches / 376 teams" without a log-loss), so it is a declaration slot: the architect fills it
-    # at the declaration (11-20) and names the record it comes from.
-    "v22_recorded_log_loss": ("a finite positive number: v22's recorded gate figure, as recorded (measured on v22's "
-                              "own scored set by its own gate's scorer, not on this candidate's pot; never recomputed)"),
-    "v22_recorded_source": "a non-empty string naming where v22's figure is recorded",
+    # 251 item 2 as ruled like for like by ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 1(c) and item 2(b): "THE
+    # SLOTS: v22_recorded_log_loss and v22_recorded_source give way to one slot holding the LIST of recorded figures,
+    # each with its competition, season, n, log-loss and source. Mine to fill at the declaration. The run refuses an
+    # empty list." (254 item 3's source, the ModelVersion row, holds no figure: 437 item 3(a).)
+    "v22_recorded": ("a non-empty list of v22's recorded figures, each exactly {competition, season, n, log_loss, "
+                     "source}: a competition code, a season, the recorded n (a positive integer), the recorded "
+                     "log-loss as recorded (a finite positive number, never recomputed) and a non-empty source; one "
+                     "figure per competition and season"),
 }
+RECORDED_KEYS = ("competition", "season", "n", "log_loss", "source")
+RECORDED_MIN_PRIOR = 40                 # 443 item 1(c): "the row-by-row walk at min_prior = 40, as run_soccer_backtest"
+#: What naming a recorded figure's rows does (443 item 1(c): "the rows soccer-backtest scores ... by its own rule"):
+#: soccer-backtest's own walk runs on the copy, which fits v22's strengths and prices v22 on each recorded season; only
+#: the match ids are kept. No figure of either arm is computed, kept or printed, and soccer-v23 is neither fitted nor
+#: priced. The receipts say so wherever it has run, never "nothing fitted".
+RECORDED_WALK_NOTE = ("soccer-backtest's own walk ran on the copy to name each recorded figure's rows (it fits and "
+                      "prices v22 on those seasons; only the match ids are kept: no figure of either arm computed, "
+                      "kept or printed; soccer-v23 neither fitted nor priced)")
 SLOT_KEYS = tuple(SLOT_VALUES)
 RECOMMENDED = {"scope": "LEAGUE_REGULAR", "first_season": "score_under_prior", "visibility": "day",
                "cut": "2026-10-30T15:00:00Z", "availability_on": False}
 #: The slots no recommendation can fill (v22's record is the architect's to read and name).
-UNRECOMMENDED = ("v22_recorded_log_loss", "v22_recorded_source")
+UNRECOMMENDED = ("v22_recorded",)
 
 # --------------------------------------------------------------------------- THE AVAILABILITY TERM (243 item 4) --
 # "the availability term's inputs are the entry's fixture age (this fixture / an earlier fixture, N days) and its
@@ -828,8 +852,8 @@ def canon_params(v22_poisson: dict, availability_on: bool, scope: str, thin_excl
 
 def in_scope(rows, scope: str) -> list:
     """THE STAGE SCOPE OF THE HISTORY (Codex on #832, round 1; soccer_expansion F3, ruled: "only regular-season rounds
-    are scored and walked"): under LEAGUE every row; under LEAGUE_REGULAR only the rows soccer_expansion.placement
-    reads "regular": a play-off row is left out of the HISTORY as well as the scored set, so it touches neither arm's
+    are scored and walked"): under LEAGUE every row; under LEAGUE_REGULAR only the rows placement_of reads "regular"
+    (soccer_expansion.placement, then addendum 456's RULED_PLACEMENTS where it reads nothing): a play-off row is left out of the HISTORY as well as the scored set, so it touches neither arm's
     walk (no Elo step, no context, no v22 strength or backfill, no v23 window), and a label the code cannot place
     REFUSES (never guessed). The one builder applies it (both arms, the replay and live alike) and the walk applies it
     to its own rows first, so the memo's rows are the builder's."""
@@ -837,10 +861,9 @@ def in_scope(rows, scope: str) -> list:
         return list(rows)
     if scope != "LEAGUE_REGULAR":
         raise ValueError(f"scope {scope!r} is not one of {SCOPE_RULES}")
-    from src.walters.soccer_expansion import placement
     out, bad = [], {}
     for r in rows:
-        pl = placement(r.stage)
+        pl = placement_of(r)            # addendum 456: soccer_expansion.placement first, then RULED_PLACEMENTS
         if pl == "regular":
             out.append(r)
         elif pl != "playoff":
@@ -1377,13 +1400,12 @@ def _first_season_census(rows, scope: str) -> tuple[dict[str, list[str]], dict[s
     first of them}), over `rows` IN THE STAGE SCOPE less 263 item 14's thin set (thin_season_keys of that history, the
     set the_pot freezes). A season is priced as a first season when its S−1 (_season_order, window_obs's own rule) is
     None or thin: window_obs gives a thin S−1 no row, and never skips over it to an older season. Under LEAGUE_REGULAR
-    only the rows soccer_expansion.placement reads "regular" count (in_scope's rule; a label it cannot place is not
+    only the rows placement_of reads "regular" count (in_scope's rule, addendum 456's table included; a label it cannot place is not
     regular, and the stage refusal names it); `scope` is required, never defaulted."""
     if scope not in SCOPE_RULES:
         raise ValueError(f"scope {scope!r} is not one of {SCOPE_RULES}")
     if scope == "LEAGUE_REGULAR":
-        from src.walters.soccer_expansion import placement
-        rows = [r for r in rows if placement(r.stage) == "regular"]
+        rows = [r for r in rows if placement_of(r) == "regular"]    # addendum 456: the ruled table where placement is None
     thin = set(thin_season_keys(rows))
     windows: dict[str, list[str]] = {}
     before: dict[str, list[str]] = {}
@@ -1422,14 +1444,17 @@ def first_seasons(rows, scope: str) -> dict[str, str]:
 
 
 def stage_census(rows) -> dict[tuple[str, str], dict]:
-    """Per competition-season, soccer_expansion.placement's three values over the rows' stage labels: the regular
-    count, the play-off labels (left out BY CAUSE under LEAGUE_REGULAR) and the labels that cannot be placed (NULL,
-    empty, any other form), each label with its count."""
-    from src.walters.soccer_expansion import placement
+    """Per competition-season, placement_of's three values over the rows' stage labels: the regular count, the
+    play-off labels (left out BY CAUSE under LEAGUE_REGULAR) and the labels that cannot be placed (NULL, empty, any
+    other form), each label with its count; and `ruled`, {(label, placement): count} for every label placed by
+    addendum 456's RULED_PLACEMENTS rather than by soccer_expansion.placement (item 5(d): marked, counted)."""
     out: dict[tuple[str, str], dict] = {}
     for r in rows:
-        c = out.setdefault((r.code, r.season), {"regular": 0, "playoff": {}, "unplaced": {}})
-        pl = placement(r.stage)
+        c = out.setdefault((r.code, r.season), {"regular": 0, "playoff": {}, "unplaced": {}, "ruled": {}})
+        pl, ruled = placement_with_source(r.code, r.stage)
+        if ruled:                       # addendum 456 item 5(d): placed by the ruled table, counted on its own
+            k = (r.stage, pl)
+            c["ruled"][k] = c["ruled"].get(k, 0) + 1
         if pl == "regular":
             c["regular"] += 1
         else:
@@ -1485,7 +1510,6 @@ def scored_rows(rows, slots: dict) -> list[Row]:
     scope's stage rule; each competition's first season out by cause when first_season is exclude_as_warmup. The
     within-season skip is zero (WITHIN_SEASON_SKIP): no prior-count condition exists. Under LEAGUE_REGULAR a play-off
     label is left out BY CAUSE and a label that cannot be placed REFUSES (stage_refusals; never a silent drop)."""
-    from src.walters.soccer_expansion import placement
     cut = parse_instant(slots["cut"])
     refused = stage_refusals(rows, slots)
     if refused:
@@ -1496,7 +1520,7 @@ def scored_rows(rows, slots: dict) -> list[Row]:
     for r in rows:
         if r.utc_date > cut:
             continue
-        if slots["scope"] == "LEAGUE_REGULAR" and placement(r.stage) != "regular":
+        if slots["scope"] == "LEAGUE_REGULAR" and placement_of(r) != "regular":
             continue                                      # a play-off round, by cause (an unplaced label refused above)
         if slots["first_season"] == "exclude_as_warmup" and fs.get(r.code) == r.season:
             continue
@@ -1628,7 +1652,7 @@ def constants_state(e: dict | None) -> str | None:
 def slots_state(e: dict | None) -> tuple[dict | None, str | None]:
     blk = (e or {}).get(SLOTS_KEY)
     if not isinstance(blk, dict):
-        return None, f"the registry entry has no {SLOTS_KEY} block (every slot is the architect's, 11-20)"
+        return None, f"the registry entry has no {SLOTS_KEY} block (every slot is the architect's: addendum 449)"
     for k in SLOT_KEYS:
         v = blk.get(k)
         if v is None:
@@ -1639,14 +1663,10 @@ def slots_state(e: dict | None) -> tuple[dict | None, str | None]:
         elif k == "availability_on":
             if not isinstance(v, bool):
                 return None, f"the declaration slot 'availability_on' is {v!r}, not true or false"
-        elif k == "v22_recorded_log_loss":
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0:
-                return None, (f"the declaration slot 'v22_recorded_log_loss' is {v!r}, not a finite positive number "
-                              "(v22's recorded figure, as recorded: 251 item 2)")
-        elif k == "v22_recorded_source":
-            if not isinstance(v, str) or not v.strip():
-                return None, (f"the declaration slot 'v22_recorded_source' is {v!r}, not a non-empty string naming "
-                              "where v22's figure is recorded")
+        elif k == "v22_recorded":
+            why = recorded_slot_why(v)
+            if why:
+                return None, why
         elif v not in SLOT_VALUES[k]:
             return None, f"the declaration slot {k!r} is {v!r}, not one of {SLOT_VALUES[k]}"
     extra = sorted(set(blk) - set(SLOT_KEYS))
@@ -1672,7 +1692,7 @@ def declared_unrun() -> dict:
     e = reg.get(EID, reg.LEDGER)
     if e is None or e.get("status") != "declared" or e.get("run") is not None:
         raise GateRefused(f"{EID} must be declared and unrun in the registry (status "
-                          f"{e.get('status') if e else 'absent'}; the declaration is the architect's, 11-20): the pot "
+                          f"{e.get('status') if e else 'absent'}; the declaration is the architect's, addendum 449): the pot "
                           "is read once for this candidate")
     if os.path.exists(reservation_path()):
         raise GateRefused(f"{EID}: a run was started ({os.path.relpath(reservation_path())}); nothing reruns without "
@@ -1787,9 +1807,11 @@ def thin_seasons(rows) -> list[str]:
 
 
 def preflight_lines(entry: dict | None, db) -> list[str]:
-    """Fits nothing, prices nothing, reads no outcome into a figure: the counts, the first seasons, the scored n, the
-    slots, v22's params, the fences and, last, the fingerprint. Refuses without --db (the copy)."""
-    L = [f"SOCCER-V23 · PREFLIGHT (fits nothing, prices nothing) · {RULING}", f"  {POT_LABEL}"]
+    """Fits and prices neither arm of the walk, reads no outcome into a figure: the counts, the first seasons, the
+    scored n, the slots, v22's params, the fences, each recorded figure's count and wholeness (443 item 2(c): its rows
+    named by soccer-backtest's own walk, RECORDED_WALK_NOTE, said on every line after it has run) and, last, the
+    fingerprint. Refuses without --db (the copy)."""
+    L = [f"SOCCER-V23 · PREFLIGHT (fits and prices neither arm; scores nothing) · {RULING}", f"  {POT_LABEL}"]
     slots, why = slots_state(entry)
     L.append("  slots: " + (json.dumps(slots, sort_keys=True) if slots else f"NOT DECLARED — the run refuses: {why}")
              + f" · recommended {json.dumps(RECOMMENDED, sort_keys=True)}")
@@ -1799,9 +1821,9 @@ def preflight_lines(entry: dict | None, db) -> list[str]:
     bwhy = bar_state(entry)
     L.append("  bar: " + ("the entry's gate is BAR_TEXT" if not bwhy else f"the run refuses: {bwhy}"))
     L.append(f"  context (both arms, harness and production path): {CONTEXT_DEFINITION}")
-    L.append("  v22's recorded figure (declaration slots v22_recorded_log_loss / v22_recorded_source; never recomputed): "
-             + (f"{slots['v22_recorded_log_loss']!r} from {slots['v22_recorded_source']!r}" if slots else
-                "NOT DECLARED"))
+    L.append("  v22's recorded figures (declaration slot v22_recorded; never recomputed; addendum 443): "
+             + ("; ".join(f"{f['competition']} {f['season']} n {f['n']} log-loss {f['log_loss']!r} from {f['source']!r}"
+                          for f in slots["v22_recorded"]) if slots else "NOT DECLARED"))
     if not slots:
         L.append("PREFLIGHT only: nothing loaded without the declared slots (the cut bounds every read).")
         return L
@@ -1827,6 +1849,7 @@ def preflight_lines(entry: dict | None, db) -> list[str]:
                     if fb.get(c) else "")
                  + (f" · priced as a first season again after a thin S−1 (addendum 263 item 14): {', '.join(ws[1:])}"
                     if len(ws) > 1 else ""))
+    L += ruled_placement_lines(rows)    # addendum 456 item 5(d): every label the ruled table places, counted
     for (c, se), cen in sorted(stage_census(rows).items()):
         if cen["playoff"] or cen["unplaced"]:
             L.append(f"  stages {c} {se}: regular {cen['regular']} · play-off (left out by cause under "
@@ -1858,8 +1881,24 @@ def preflight_lines(entry: dict | None, db) -> list[str]:
                 "history and the ladder keep them; frozen with the declaration)" if tl else ""))
     fr = fence_refusals({r.code for r in rows}, parse_instant(slots["cut"]))
     L.append("  fences at the cut: " + ("clear" if not fr else "REFUSED — " + " | ".join(fr)))
+    # 443 item 2(c): before any reservation and scoring nothing, each recorded figure's count and wholeness
+    try:
+        sets = recorded_sets(path, slots, v22p, sc)
+    except GateRefused as err:
+        L.append(f"  v22 recorded: REFUSED — {err}")
+        L.append("PREFLIGHT only: neither arm fitted or priced, nothing scored, nothing reserved, nothing recorded; NO "
+                 "fingerprint: the run refuses while a recorded figure's matches cannot be read (addendum 443 item "
+                 f"2(c)). {RECORDED_WALK_NOTE}.")
+        return L
+    L += recorded_lines(sets)
+    if recorded_refusals(sets):
+        L.append("PREFLIGHT only: neither arm fitted or priced, nothing scored, nothing reserved, nothing recorded; NO "
+                 "fingerprint: the run refuses unless each recorded set numbers its n and lies whole inside "
+                 f"soccer-v23's scored set (addendum 443 item 2(c)). {RECORDED_WALK_NOTE}.")
+        return L
     fp, n = stream_fingerprint(hist, sc, slots, v22p or {}, record)
-    L.append("PREFLIGHT only: nothing fitted, nothing priced, nothing reserved, nothing recorded.")
+    L.append("PREFLIGHT only: neither arm fitted or priced, nothing scored, nothing reserved, nothing recorded. "
+             f"{RECORDED_WALK_NOTE}.")
     L.append(f"STREAM FINGERPRINT {fp} ({n} rows; the run takes it as --stream-fingerprint)")
     return L
 
@@ -1922,22 +1961,28 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     (production_params, in _load: never the newest picked); the copy's availability record half present, present and
     not migrated, or holding a soccer fact the reader cannot map (availability_record and read_at, in _load: the record
     read through record.as_of, addendum 263 item 23); the copy's production version not v22; a fence refusing at the
-    cut; under LEAGUE_REGULAR a walked stage label that cannot be placed; a fingerprint that does not match. A club's
+    cut; under LEAGUE_REGULAR a walked stage label that cannot be placed; a recorded figure's matches not whole on the
+    copy (addendum 443 item 2(c): soccer-backtest's own rows for that competition and season, recorded_sets, numbering
+    other than the recorded n or reaching outside the scored set, or soccer-backtest refusing them); a fingerprint that
+    does not match. A club's
     provenance never refuses (263 item 15: an arrival off the declared pyramid is counted and takes the
     outside-the-store prior), nor does a thin season (263 item 14: excluded by cause, the_pot, before the reservation,
     named by the preflight). Then the cross-ref guard and the reservation,
     BEFORE any outcome is scored or priced: the outcome-bearing stream (the admitted rows with their goals) is loaded
     and fingerprinted before the reservation, as in both precedent gates (nfl_v2_gate.run: load :655, fingerprint
     :667-668, reserve :678, its guard inside reserve :427; ncaa_v1r_gate.run: load :798, fingerprint :799-800, reserve
-    :824, its guard inside reserve :301), and nothing is fitted, scored or priced before it (ARCHITECT 2026-11-04
+    :824, its guard inside reserve :301), and nothing is scored before it and neither arm is fitted or priced before
+    it, soccer-backtest's own walk on the recorded seasons aside (443 item 1(c): it names their rows, ids only;
+    RECORDED_WALK_NOTE) (ARCHITECT 2026-11-04
     15:45 ET, addendum 254 item 3: "preflight → fingerprint → cross_ref_guard → reservation → walk → record", the
     three gates' common order; --preflight is its own earlier invocation in all three). A MISSING fingerprint is
-    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1954, nfl_v2_gate.py:642,
+    refused right after the word, before any load, MATCHING both precedents (soccer_v23.py:1999, nfl_v2_gate.py:642,
     ncaa_v1r_gate.py:792); a WRONG one is refused at the compare, after the load, as in both. Then the walk of
     both arms (v22 re-walked beside soccer-v23 on the same harness: the same scored set, the same as-of context
     definition, the same skip zero), the comparison (soccer_backtest.compare_candidate) and decide (THE BAR, 251 item
-    2: at least DEFAULT_PROMOTION_DELTA below BOTH v22's recorded figure, read from its declaration slot, AND the
-    re-walked one; pinned by tests that drive run itself at each side of each comparison) and the record. A failure
+    2 as ruled by 443 item 1(c): at least DEFAULT_PROMOTION_DELTA below v22's re-walked figure on the pot AND below
+    EACH recorded figure over its own matches, read from the declaration slot v22_recorded; pinned by tests that drive
+    run itself at each side of each comparison) and the record. A failure
     after the reservation leaves it standing (the pot may have been read; RULED, addendum 263 item 13: the one run
     SPENT, "never a code path that releases it on its own"): the fit refusing or a walk guard refusing is raised as
     SpentRefused, which the gate prints as its REFUSED line with its reason (addendum 264 item 2(b)), nothing
@@ -1972,6 +2017,12 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
     # 263 item 15: an arrival off the pyramid is counted and labelled, never a refusal
     hist, thin, sc = the_pot(rows, slots)
     ar = off_pyramid_arrivals(hist, thin)
+    # 443 item 2(c): each recorded figure's matches, soccer-backtest's own rows on the copy, whole inside the scored set
+    sets = recorded_sets(path, slots, v22p, sc)
+    rr = recorded_refusals(sets)
+    if rr:
+        raise GateRefused("a recorded figure's matches are not whole on the copy (addendum 443 item 1(c)): "
+                          + "; ".join(rr) + "; nothing reserved, nothing scored")
     fp, n = stream_fingerprint(hist, sc, slots, v22p, record)
     if not fingerprint or str(fingerprint).strip() != fp:
         raise GateRefused(f"the stream fingerprint given ({fingerprint!r}) is not the stream about to be walked ({fp}, "
@@ -1990,11 +2041,13 @@ def run(word: str | None, fingerprint: str | None, db=None, no_fetch: bool = Fal
                            "the architect's ruling on this receipt); nothing recorded") from err
     from src.walters.soccer_backtest import compare_candidate
     from src.walters.training import DEFAULT_PROMOTION_DELTA
-    cmp_ = decide(compare_candidate(w["v22"], w["soccer-v23"], DEFAULT_PROMOTION_DELTA),
-                  slots["v22_recorded_log_loss"], slots["v22_recorded_source"], DEFAULT_PROMOTION_DELTA)
+    cmp_ = decide(compare_candidate(w["v22"], w["soccer-v23"], DEFAULT_PROMOTION_DELTA), sets, w["soccer-v23"],
+                  DEFAULT_PROMOTION_DELTA)
     out_ = set(thin)
     return {"compare": cmp_, "walk": w, "stream_fingerprint": fp, "rows": n, "slots": slots, "db": str(path),
             "scored_ids": [r.id for r in sc], "v22_poisson": v22p,
+            # addendum 456 item 5(d): the labels placed by the ruled table, with their counts (the record marks them)
+            "ruled_placements": ruled_placement_census(rows),
             # 263 items 14 and 15: the exclusion set and the off-pyramid arrivals, counted for the record
             "thin_excluded": [list(k) for k in thin], "thin_rows": sum(1 for r in hist if (r.code, r.season) in out_),
             "off_pyramid": list(ar),
@@ -2034,22 +2087,38 @@ def record_labels(r: dict) -> list[str]:
             "outside-the-store prior" + (": " + "; ".join(r["off_pyramid"]) if r["off_pyramid"] else "")]
 
 
-def decide(cmp_: dict, recorded: float, source: str, min_delta: float) -> dict:
-    """THE BAR's decision (BAR_TEXT; ARCHITECT 2026-11-04 11:50 ET, addendum 251 item 2), the only decision path:
-    PASS iff soccer-v23's pot log-loss is at least `min_delta` below BOTH v22's re-walked figure (compare_candidate's
-    candidate_gate_verdict on the walk's two arms) AND v22's recorded figure (`recorded`, the declaration slot, never
-    recomputed), each decided by soccer_backtest.candidate_gate_verdict; a tie, or any difference under min_delta, on
-    either REJECTS. An INVALID comparison stays INVALID. Both figures are carried side by side in the result."""
-    from src.walters.soccer_backtest import candidate_gate_verdict
+def decide(cmp_: dict, sets: list[dict], v23_rows: list[dict], min_delta: float) -> dict:
+    """THE BAR's decision (BAR_TEXT; addendum 251 item 2 as ruled like for like by addendum 443 item 1(c)), the only
+    decision path. THREE comparisons with two recorded figures (one per recorded figure, plus the re-walked one), each
+    decided by soccer_backtest.candidate_gate_verdict at `min_delta`:
+      * RE-WALKED: soccer-v23's pot log-loss against v22's re-walked one (compare_candidate on the walk's two arms);
+      * RECORDED, for each of `sets` (recorded_sets: the slot's figure and the ids soccer-backtest scores on the copy):
+        the recorded log-loss, as recorded and never recomputed, against soccer-v23's mean three-way log-loss over
+        those ids, from its own walk's rows (`v23_rows`) by soccer_backtest.soccer_calibration, unrounded.
+    PASS iff ALL hold; a tie, or any difference under min_delta, on any one REJECTS. An INVALID comparison stays
+    INVALID. A recorded set whose ids are not all among soccer-v23's walked rows raises (the preflight's refusal makes
+    that unreachable through run). Every figure is carried side by side in the result."""
+    from src.walters.soccer_backtest import candidate_gate_verdict, soccer_calibration
     out = dict(cmp_)
-    out.update({"v22_recorded_log_loss": recorded, "v22_recorded_source": source})
     if cmp_["verdict"] == "INVALID":
         return out
-    v_rec, d_rec = candidate_gate_verdict(recorded, cmp_["cand_log_loss"], min_delta)
+    by = {int(r["match_id"]): r for r in v23_rows}
+    rec = []
+    for s in sets:
+        missing = [i for i in s["ids"] if i not in by]
+        if missing or len(s["ids"]) != s["n"]:
+            raise GateRefused(f"the recorded set {s['competition']} {s['season']} is not whole in soccer-v23's walk "
+                              f"({len(s['ids'])} ids, n {s['n']}, {len(missing)} not walked)")
+        ll = soccer_calibration([by[i] for i in s["ids"]])["log_loss"]
+        v, d = candidate_gate_verdict(s["log_loss"], ll, min_delta)
+        rec.append({"competition": s["competition"], "season": s["season"], "n": s["n"], "source": s["source"],
+                    "v22_recorded_log_loss": s["log_loss"], "v23_log_loss": ll, "delta": d, "verdict": v,
+                    "ids_sha256": hashlib.sha256(json.dumps(sorted(s["ids"])).encode("ascii")).hexdigest()})
     out.update({"v23_log_loss": cmp_["cand_log_loss"], "v22_rewalked_log_loss": cmp_["prod_log_loss"],
-                "verdict_rewalked": cmp_["verdict"], "delta_rewalked": cmp_["delta"],
-                "verdict_recorded": v_rec, "delta_recorded": d_rec,
-                "verdict": "PASS" if cmp_["verdict"] == "PASS" and v_rec == "PASS" else "REJECT"})
+                "verdict_rewalked": cmp_["verdict"], "delta_rewalked": cmp_["delta"], "recorded": rec,
+                "comparisons": 1 + len(rec),
+                "verdict": "PASS" if cmp_["verdict"] == "PASS" and rec and all(x["verdict"] == "PASS" for x in rec)
+                else "REJECT"})
     return out
 
 
@@ -2060,19 +2129,24 @@ def run_lines(r: dict) -> list[str]:
     if c["verdict"] == "INVALID":                         # the per-era line on every verdict (253 item 2(d))
         L += availability_lines(r["walk"]["availability"])
         L += record_labels(r)                             # 254 item 3 Q4 / Q22: on every verdict too
+        L += ruled_census_lines(r["ruled_placements"])    # addendum 456 item 5(d): on every verdict too
         L.append(f"  VERDICT (computed; the architect rules): INVALID — {c['reason']}")
         return L
     L.append(f"  n={c['n']} · soccer-v23 log-loss {c['v23_log_loss']:.6f} · min delta {c['min_delta']} · context "
              "as-of (251 item 2)")
     L.append(f"    against v22 RE-WALKED on this harness: {c['v22_rewalked_log_loss']:.6f} · delta "
              f"{c['delta_rewalked']:+.6f} · {c['verdict_rewalked']}")
-    L.append(f"    against v22 RECORDED ({c['v22_recorded_source']}): {c['v22_recorded_log_loss']:.6f} · delta "
-             f"{c['delta_recorded']:+.6f} · {c['verdict_recorded']}")
+    for x in c["recorded"]:                               # 443 item 2(d): side by side, one line per recorded figure
+        L.append(f"    against v22 RECORDED {x['competition']} {x['season']} ({x['source']}; n {x['n']}, over the same "
+                 f"matches): recorded {x['v22_recorded_log_loss']:.4f} · soccer-v23 {x['v23_log_loss']:.6f} · delta "
+                 f"{x['delta']:+.6f} · {x['verdict']}")
+    L.append(f"    comparisons {c['comparisons']}: PASS iff ALL hold (addendum 443 item 1(c))")
     L.append(f"  RPS {c['prod_rps']:.6f} / {c['cand_rps']:.6f} · Brier {c['prod_brier']:.6f} / {c['cand_brier']:.6f} "
              "(v22 re-walked / soccer-v23; printed for the record; gate nothing)")
     L += strata_lines(r["walk"])
     L += availability_lines(r["walk"]["availability"])
     L += record_labels(r)
+    L += ruled_census_lines(r["ruled_placements"])     # addendum 456 item 5(d): never defaulted (law 4)
     L.append(f"  VERDICT (computed; the architect rules): {c['verdict']}")
     return L
 
@@ -2087,5 +2161,235 @@ def record(r: dict, word: str) -> dict:
                 # 254 item 3 Q4 / Q22: the day rule's residual and "v22 re-walked", labelled, the AET / PEN rows counted;
                 # 263 items 14, 15, 17: the thin seasons excluded, the off-pyramid arrivals, the tie order
                 "labels": record_labels(r), "aet_pen_rows": dict(r["aet_pen"]),
-                "thin_excluded": [list(k) for k in r["thin_excluded"]], "off_pyramid_arrivals": list(r["off_pyramid"])})
+                "thin_excluded": [list(k) for k in r["thin_excluded"]], "off_pyramid_arrivals": list(r["off_pyramid"]),
+                # ARCHITECT 2026-11-21 09:54 ET, addendum 440 item 4(b): v22's stored poisson params as the run read
+                # them, by sha256 of their canonical JSON (params_sha256), so the PASS shadow prices on the same v22.
+                # One recorded field: no bar, no fingerprint and no scored row reads it.
+                "v22_params_sha256": params_sha256(r["v22_poisson"]),
+                # addendum 456 item 5(d): every label placed "by ruling 456", with its count, and the table's sha256
+                "placed_by_ruling_456": list(r["ruled_placements"]),
+                "ruled_placements_sha256": ruled_placements_sha256()})
     return reg.record_run(EID, list(r["scored_ids"]), res, reg.LEDGER, reg.IDS_DIR)
+
+
+def params_sha256(v22_poisson) -> str:
+    """THE CANONICAL FORM of v22's stored poisson params (440 item 4(b)): the sha256 of
+    json.dumps(dict(params), sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False), the ASCII
+    bytes. The run records it (record); soccer_v23_shadow computes the same on the store it prices from."""
+    blob = json.dumps(dict(v22_poisson or {}), sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+                      allow_nan=False)
+    return hashlib.sha256(blob.encode("ascii")).hexdigest()
+
+
+# ---------------------------------------------------------------- THE RECORDED LEGS (addendum 443 items 1-2) --
+
+def recorded_slot_why(v) -> str | None:
+    """The v22_recorded slot (443 item 2(b)): None when it is a non-empty list of figures, each exactly RECORDED_KEYS
+    (competition and season non-empty text, n a positive integer, log_loss a finite positive number, source non-empty
+    text), one per competition and season; else why the run refuses."""
+    if not isinstance(v, list) or not v:
+        return (f"the declaration slot 'v22_recorded' is {v!r}, not a non-empty list of v22's recorded figures "
+                "(addendum 443 item 2(b): the run refuses an empty list)")
+    seen = set()
+    for i, f in enumerate(v):
+        where = f"the declaration slot 'v22_recorded'[{i}]"
+        if not isinstance(f, dict) or set(f) != set(RECORDED_KEYS):
+            return f"{where} is not exactly {{{', '.join(RECORDED_KEYS)}}} ({f!r})"
+        for k in ("competition", "season", "source"):
+            if not isinstance(f[k], str) or not f[k].strip():
+                return f"{where}: {k} {f[k]!r} is not non-empty text"
+        n = f["n"]
+        if isinstance(n, bool) or not isinstance(n, int) or n <= 0:
+            return f"{where}: n {n!r} is not a positive integer"
+        ll = f["log_loss"]
+        if isinstance(ll, bool) or not isinstance(ll, (int, float)) or not math.isfinite(ll) or ll <= 0:
+            return f"{where}: log_loss {ll!r} is not a finite positive number (as recorded, never recomputed)"
+        key = (f["competition"], f["season"])
+        if key in seen:
+            return f"{where}: {key[0]} {key[1]} is named twice"
+        seen.add(key)
+    return None
+
+
+class _copy_binding:
+    """src.db.database bound, for the block, to the checked copy through a mode=ro&immutable=1 URI
+    (mlb_pitchers_gate.COPY_URI_QUERY), so soccer_backtest.run_soccer_backtest's own session reads the copy: never the
+    app's database, never written; restored on exit."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def __enter__(self):
+        import sqlite3
+        from pathlib import Path
+
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import NullPool
+
+        import src.db.database as database
+        from src.walters import mlb_pitchers_gate as mp
+        uri = Path(self.path).as_uri() + mp.COPY_URI_QUERY
+        self.eng = create_engine("sqlite://", poolclass=NullPool,
+                                 creator=lambda: sqlite3.connect(uri, uri=True, check_same_thread=False))
+        self.db, self.saved = database, (database._engine, database.SessionLocal)
+        database._engine = self.eng
+        database.SessionLocal = sessionmaker(bind=self.eng, autoflush=False, autocommit=False, future=True,
+                                             expire_on_commit=False)
+        return self
+
+    def __exit__(self, *exc):
+        self.db._engine, self.db.SessionLocal = self.saved
+        self.eng.dispose()
+        return False
+
+
+def backtest_params(v22_poisson) -> tuple[float, float]:
+    """(rho, elo_goal_coeff) exactly as soccer-backtest resolves them (cli._soccer_prod_poisson, #138/#142): the
+    PoissonConfig defaults overlaid by the production row's stored poisson params, each as float."""
+    from src.models.poisson import PoissonConfig
+    pz = {**PoissonConfig().as_dict(), **dict(v22_poisson or {})}
+    return float(pz["dixon_coles_rho"]), float(pz["elo_goal_coeff"])
+
+
+def backtest_fences(code: str, season: str) -> str | None:
+    """soccer-backtest's own three refusals for a plain --competition/--season walk (cli.soccer_backtest_cmd, in its
+    order): guards_backtest, pl_availability.fence_refusal, ncaa_backtest.v2_fence_walk. Where soccer-backtest refuses,
+    it scores no row, so the recorded set is not whole: the run refuses (443 item 2(c))."""
+    from src.walters import ncaa_backtest as nb
+    from src.walters import pl_availability as pla
+    from src.walters import soccer_expansion as sx
+    return sx.guards_backtest(code, season) or pla.fence_refusal(code, season) or nb.v2_fence_walk(code, season)
+
+
+def recorded_rows(path, figure: dict, v22_poisson: dict) -> list[int]:
+    """THE SAME MATCHES (443 item 1(c)): the match ids soccer_backtest.run_soccer_backtest itself scores for the
+    figure's competition and season on the copy, the row-by-row walk at min_prior = RECORDED_MIN_PRIOR with the copy's
+    v22 rho and Elo goal coefficient as soccer-backtest resolves them (backtest_params), behind soccer-backtest's own
+    fences (backtest_fences). Its own output, never a rule copied by hand; only the ids are kept: no probability,
+    figure or score of v22 is kept or printed. A fence or a walk that fails is a refusal here (GateRefused)."""
+    from src.walters import soccer_backtest as sb
+    code, season = figure["competition"], figure["season"]
+    try:
+        rho, coeff = backtest_params(v22_poisson)
+        with _copy_binding(path):
+            why = backtest_fences(code, season)
+            if why:
+                raise GateRefused(f"the recorded figure {code} {season}: soccer-backtest refuses it ({why}); nothing "
+                                  "reserved")
+            res = sb.run_soccer_backtest(code, season, RECORDED_MIN_PRIOR, dixon_coles_rho=rho, elo_goal_coeff=coeff)
+    except GateRefused:
+        raise
+    except Exception as err:  # noqa: BLE001 - an unreadable copy or a walk error is a refusal, never a traceback
+        raise GateRefused(f"the recorded figure {code} {season}: soccer-backtest's walk on the copy (or its params, "
+                          f"backtest_params) failed ({type(err).__name__}: {err}); nothing reserved") from err
+    return [int(r["match_id"]) for r in (res or [])]
+
+
+def recorded_sets(path, slots: dict, v22_poisson: dict, scored) -> list[dict]:
+    """For each recorded figure: its slot fields, the ids soccer-backtest scores on the copy (recorded_rows), their
+    count, and how many lie outside soccer-v23's scored set (`scored`: the pot's rows). Counts and ids only."""
+    pot = {r.id for r in scored}
+    out = []
+    for f in slots["v22_recorded"]:
+        ids = recorded_rows(path, f, v22_poisson)
+        out.append({**f, "ids": ids, "count": len(ids), "outside_pot": sum(1 for i in ids if i not in pot)})
+    return out
+
+
+def recorded_refusals(sets) -> list[str]:
+    """443 item 2(c): "The run refuses unless each count equals its n and each set is whole"."""
+    return [f"{s['competition']} {s['season']}: soccer-backtest scores {s['count']} row(s) on the copy, the record "
+            f"says n = {s['n']}" + (f"; {s['outside_pot']} of them outside soccer-v23's scored set"
+                                     if s["outside_pot"] else "")
+            for s in sets if s["count"] != s["n"] or s["outside_pot"]]
+
+
+def recorded_lines(sets) -> list[str]:
+    """The preflight's lines: per recorded figure, the count soccer-backtest scores on the copy against its n, and
+    whether the set lies whole inside soccer-v23's scored set. Counts only: no figure of either arm."""
+    return [f"  v22 recorded {s['competition']} {s['season']} ({s['source']}): soccer-backtest scores {s['count']} "
+            f"row(s) on the copy (min_prior {RECORDED_MIN_PRIOR}) · recorded n {s['n']} · "
+            + ("whole inside soccer-v23's scored set" if not s["outside_pot"] else
+               f"{s['outside_pot']} row(s) OUTSIDE soccer-v23's scored set")
+            + ("" if s["count"] == s["n"] and not s["outside_pot"] else " · THE RUN REFUSES")
+            for s in sets]
+
+
+# ------------------------------------------------- THE RULED PLACEMENTS (ARCHITECT 2026-11-23, addendum 456) --
+
+RULING_456 = "addendum 456"
+#: THE RULED TABLE (ARCHITECT 2026-11-23 09:26 ET, addendum 456 items 4(a)-(d) and 5(a)), keyed by (competition code,
+#: label form: the stored label without its " - <number>"). EXACTLY items 4(a) to 4(d), each with this addendum's
+#: number; item 4(e): "NOTHING ELSE IS RULED. A form above in a competition not named beside it stays unplaced and
+#: refuses. Any other form stays as the code reads it." Read ONLY where soccer_expansion.placement returns nothing
+#: (placement_with_source); soccer_expansion.py is not edited (item 5(b)). Not a model constant: code_constants() and
+#: the entry's frozen_constants do not change (item 5(c)); the run record carries its sha256.
+RULED_PLACEMENTS: dict[tuple[str, str], tuple[str, str]] = {
+    **{(c, "Championship Group"): ("playoff", "addendum 456 item 4(a)")
+       for c in ("AUT", "BEL", "CZE", "GRE", "SCO", "SUI")},
+    **{(c, "Conference League Group"): ("playoff", "addendum 456 item 4(b)") for c in ("BEL", "GRE")},
+    ("SCO", "1st Phase"): ("regular", "addendum 456 item 4(c)"),
+    ("SCO", "2nd Phase"): ("playoff", "addendum 456 item 4(d)"),
+}
+LABEL_FORM = re.compile(r"(?P<form>.+?) - \d+")     # "<form> - <n>", the form without its number (full match)
+
+
+def label_form(label: str | None) -> str | None:
+    """The label without its number: "Championship Group - 3" -> "Championship Group". Only the "<form> - <n>" shape
+    (the forms addendum 456 rules carry it); any other label has no form here and the table never places it."""
+    m = LABEL_FORM.fullmatch(label or "")
+    return m.group("form") if m else None
+
+
+def placement_with_source(code: str | None, label: str | None) -> tuple[str | None, bool]:
+    """(placement, by_ruling): soccer_expansion.placement FIRST (its answer, when it gives one, is never overridden);
+    only where it returns None, RULED_PLACEMENTS by (competition code, label form). by_ruling is True only when the
+    table placed it. A ruled form in a competition the table does not name, or any other form, stays None (unplaced:
+    under LEAGUE_REGULAR the run refuses)."""
+    from src.walters.soccer_expansion import placement
+    pl = placement(label)
+    if pl is not None:
+        return pl, False
+    hit = RULED_PLACEMENTS.get(((code or "").strip().upper(), label_form(label)))
+    return (hit[0], True) if hit else (None, False)
+
+
+def placement_of(r) -> str | None:
+    """A row's placement through THE ONE FUNCTION, placement_with_source (addendum 456 item 5(a)): in_scope,
+    _first_season_census and scored_rows call this row wrapper; stage_census calls placement_with_source itself, for
+    its by_ruling flag. The replay and the live path alike."""
+    return placement_with_source(r.code, r.stage)[0]
+
+
+def ruled_placement_census(rows) -> list[list]:
+    """[[code, season, label, placement, rows], ...], sorted: every stored label placed by the ruled table, with its
+    count (addendum 456 item 5(d)). Counts only."""
+    out = []
+    for (c, se), cen in sorted(stage_census(rows).items()):
+        for (label, pl), n in sorted(cen["ruled"].items()):
+            out.append([c, se, label, pl, n])
+    return out
+
+
+def ruled_census_lines(census) -> list[str]:
+    """The lines that mark the table's placements "by ruling 456", one per competition-season, with counts."""
+    by: dict[tuple[str, str], list[str]] = {}
+    for c, se, label, pl, n in census:
+        by.setdefault((c, se), []).append(f"{label!r} {'play-off' if pl == 'playoff' else pl} {n}")
+    tot = sum(x[4] for x in census)
+    return ([f"  stage labels placed by ruling 456 (ARCHITECT 2026-11-23, {RULING_456} items 4(a)-(d); the code places "
+             f"the rest itself): {tot} row(s)" + ("" if census else " (none in this store)")]
+            + [f"    stages {c} {se}, by ruling 456: " + "; ".join(v) for (c, se), v in sorted(by.items())])
+
+
+def ruled_placement_lines(rows) -> list[str]:
+    return ruled_census_lines(ruled_placement_census(rows))
+
+
+def ruled_placements_sha256() -> str:
+    """sha256 of RULED_PLACEMENTS as canonical JSON (sorted [code, form, placement, ruling] rows): the run record binds
+    the table it ran under (addendum 456 item 5(c)); the entry is not touched."""
+    rows = sorted([c, f, pl, why] for (c, f), (pl, why) in RULED_PLACEMENTS.items())
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode("ascii")).hexdigest()
+

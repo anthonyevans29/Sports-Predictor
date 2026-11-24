@@ -1267,7 +1267,11 @@ def substitutions_due(e: dict, s, surv: list[str]) -> list[dict]:
     """The intl-elo-v2 rule (ARCHITECT 2026-10-02), on this cohort: every UNSCOREABLE cohort fixture is released and
     replaced by the next eligible fixture AFTER the cohort (kickoff order, after every fixture that is or was in the
     cohort, never unscoreable itself, never one already used); the reason is the raw provider code. A postponed /
-    scheduled / live fixture, or a FT row still waiting for its score, is never released. Read-only."""
+    scheduled / live fixture, or a FT row still waiting for its score, is never released. Read-only.
+    Each item also carries `last`, the (kickoff, id) the replacement was measured from (the latest among the ids that
+    are or were in the cohort, as stored at the run), or None: reported only, so --db prints the pick in full before
+    anything is written (ARCHITECT 2026-11-23, addendum 453 item 3(d)); the rule is unchanged (453 item 2(b): "AS
+    BUILT IS THE RULE")."""
     c = e.get("confirmation_cohort")
     if not c:
         return []
@@ -1285,7 +1289,8 @@ def substitutions_due(e: dict, s, surv: list[str]) -> list[dict]:
         if f is None or not f["unscoreable"]:
             continue
         out.append({"released": f, "replacement": pool.pop(0) if pool else None,
-                    "reason": STALE_ORPHAN if i in orphans else (f["status_raw"] or f["status"]).upper()})
+                    "reason": STALE_ORPHAN if i in orphans else (f["status_raw"] or f["status"]).upper(),
+                    "last": last})
     return out
 
 
@@ -1316,7 +1321,7 @@ CONFIRM_FENCE_NOTE = ("fenced: a window game of the league's cohort-reader decla
                       "verdict is recorded; the collision with this confirmation is the architect's to rule")
 
 
-def confirmation_read() -> dict:
+def confirmation_read(s=None) -> dict:
     """The plan's read so far: the cohort priced by the gate's own walk (per league-season from a cold start, min_prior
     40, regular-season rows, F5 batching, the run record's params), predict-then-update; pooled model log-loss vs the
     pooled naive (each league's frozen 2023/24 H/D/A) − 0.010; per-league lines (reported, not gated).
@@ -1326,25 +1331,43 @@ def confirmation_read() -> dict:
     (run_soccer_backtest through=: predict-then-update, so every row it returns equals the uncut walk's), and a cohort
     fixture kicking off after the cut is never scored: it stays pending under CONFIRM_FENCE_NOTE and is listed in
     `fenced_window`, so the read is not complete and --record refuses while one stands. Nothing is picked between the
-    two lanes: the cohort, its freeze and its substitutions are unchanged; only no fenced figure is read."""
+    two lanes: the cohort, its freeze and its substitutions are unchanged; only no fenced figure is read.
+    `s` (ARCHITECT 2026-11-23, addendum 453 item 3(d), --db COPY; intl_shadow.confirmation_read's twin, addendum 346):
+    a session every read goes through, the walk's included (run_soccer_backtest session=); None reads the app's
+    database, as before."""
     from src.db.database import session_scope
     from src.walters.leagues_window import fence_cutoff
     from src.walters.soccer_backtest import run_soccer_backtest
 
     e, surv, params = confirming()
-    with session_scope() as s:
+    copy_s = s
+
+    def first(s):
         co = cohort(e, s, surv)
         elig, unpl = eligible_fixtures(s, e, surv)
         naives, nsrc = confirmation_naives(e, surv, s)
-        s.rollback()
+        return co, elig, unpl, naives, nsrc
+    if copy_s is None:
+        with session_scope() as s:
+            co, elig, unpl, naives, nsrc = first(s)
+            s.rollback()
+    else:
+        co, elig, unpl, naives, nsrc = first(copy_s)
     by_id = {f["id"]: f for f in elig}
     want = set(co["ids"])
     priced: dict[int, dict] = {}
     walked = sorted({(by_id[i]["code"], by_id[i]["season"]) for i in want if i in by_id})
-    with session_scope() as s:
+
+    def second(s):
         census = [walk_census(s, code, season) for code, season in walked]     # C2
         orphans = stale_orphans(s, [i for i in want if i not in by_id])
-        s.rollback()
+        return census, orphans
+    if copy_s is None:
+        with session_scope() as s:
+            census, orphans = second(s)
+            s.rollback()
+    else:
+        census, orphans = second(copy_s)
     cuts = {(code, season): fence_cutoff(code, season) for code, season in walked}    # None = no fence (R8)
     fenced_ids = sorted((i for i in want if i in by_id and cuts.get((by_id[i]["code"], by_id[i]["season"])) is not None
                          and by_id[i]["kickoff"] is not None
@@ -1355,7 +1378,8 @@ def confirmation_read() -> dict:
                                      elo_goal_coeff=params["elo_goal_coeff"], stage_filter=is_regular,
                                      batch_same_kickoff=BATCH_SAME_KICKOFF,
                                      confirmation_scoring=True,     # Codex P1s on #373: the substitution rule
-                                     through=cuts[(code, season)]) or []:   # the window fence (addendum 222 4(b))
+                                     through=cuts[(code, season)],  # the window fence (addendum 222 4(b))
+                                     session=copy_s) or []:         # None: the app's database (453 item 3(d))
             if r["match_id"] in want:
                 priced[r["match_id"]] = r
     key = {"H": "p_home", "D": "p_draw", "A": "p_away"}
@@ -1412,4 +1436,94 @@ def confirmation_read() -> dict:
            "complete": co["state"] == "frozen" and not pending and n == plan["n_games"]}
     if n:
         out.update({"log_loss": ll_m / n, "naive_log_loss": ll_n / n, "reference_log_loss": ll_n / n - LL_MARGIN})
+    return out
+
+
+# ------------------------------------------------------------ --db COPY --
+# ARCHITECT 2026-11-23 08:54 ET, addendum 453 item 3(d) (verbatim): "--db COPY on soccer-expansion-confirm, the twin of
+# what you built on intl-elo-confirm (346 item 1): the same fence (check_db, no sidecar, mode=ro and immutable=1), the
+# copy's path and sha256 printed first, serving the no-flag read, --record and, by (b), --substitute; the registry
+# writes land in the laptop checkout's docs/registry as before. With --substitute the pick is printed before anything
+# is written, and the evidence gains the copy's file name and sha256. Without --db nothing changes, pinned byte for
+# byte. --freeze-cohort with --db stays refused. intl-elo-confirm is not touched."
+# The fence is intl-elo-confirm's, called, not changed: mlb_pitchers_gate.check_db, then intl_shadow.copy_sidecars
+# (refused beside a -wal, -shm or -journal, before the read and again after it), then each table this read touches
+# probed through the same mode=ro + immutable=1 URI; the whole read on mlb_pitchers_gate.readonly_session(copy).
+COPY_TABLES = ("competitions", "matches", "teams", "model_versions")
+
+
+def check_copy(db) -> Path:
+    """--db PATH: intl_shadow.check_copy's fence with this read's tables (COPY_TABLES: the cohort, the walk, the C2
+    census's team names, the production model's NOTE). mlb_pitchers_gate.check_db unchanged (an existing file, never
+    created; never under data/ by resolved path or by identity; never the app's configured database); then refused
+    when a -wal, -shm or -journal file sits beside it, or one cannot be checked (intl_shadow.copy_sidecars); then each
+    table probed through the mode=ro + immutable=1 URI. A refusal reads nothing and writes nothing."""
+    import errno
+    import sqlite3
+
+    from src.walters import intl_shadow as us
+    from src.walters import mlb_pitchers_gate as mp
+    try:
+        path = mp.check_db(db)
+        try:
+            sides = us.copy_sidecars(path)
+        except OSError as err:                 # #940 item 1's rule: refused, never a traceback; never read as absent
+            hint = "; take the copy under a shorter name" if err.errno == errno.ENAMETOOLONG else ""
+            raise mp.GateRefused(f"--db {db}: a sidecar beside it cannot be checked ({err!r}){hint}") from None
+        for name in sides:
+            raise mp.GateRefused(f"--db {db} has a {name[len(path.name):]} sidecar ({name}): not a fresh .backup "
+                                 "copy; immutable=1 would ignore it and read a stale store; take a fresh .backup copy")
+        con = mp.open_ro(path)
+        try:
+            for t in COPY_TABLES:
+                try:
+                    con.execute(f"SELECT 1 FROM {t} LIMIT 1")
+                except sqlite3.Error as e:
+                    raise mp.GateRefused(f"--db {db}: the copy cannot be read for table {t} ({e})")
+        finally:
+            con.close()
+    except mp.GateRefused as err:
+        raise ExpansionRefused(f"{err}; nothing read, nothing written")
+    return path
+
+
+def open_copy(db) -> tuple[Path, str]:
+    """(path, sha256) of a fenced copy (check_copy), hashed before anything is read. A hash that fails is REFUSED."""
+    from src.walters import intl_shadow as us
+    copy = check_copy(db)
+    try:
+        sha = us.copy_sha256(copy)
+    except OSError as err:
+        raise ExpansionRefused(f"--db {copy}: the copy could not be hashed ({err!r}); nothing read, nothing written")
+    return copy, sha
+
+
+def on_copy(copy: Path, sha_before: str, read, nothing: str = "nothing recorded"):
+    """read(s) on the copy's mode=ro + immutable=1 session (mlb_pitchers_gate.readonly_session), then intl-elo-confirm
+    --db's two checks after the read, while the read's connection is still open: the copy's sha256 again and no
+    sidecar beside it. A database error on the copy, a copy that cannot be re-read, a sidecar that appeared (committed
+    pages immutable=1 ignored) or a different sha256 is REFUSED, before the caller writes anything (`nothing` names
+    what the refusal leaves unwritten). An error the read raises itself (a registry read, a refusal) surfaces as it
+    does without --db (#940 item 2's rule)."""
+    from sqlalchemy.exc import DBAPIError
+
+    from src.walters import intl_shadow as us
+    from src.walters import mlb_pitchers_gate as mp
+    try:
+        with mp.readonly_session(copy) as s:
+            out = read(s)
+            try:
+                sha_after = us.copy_sha256(copy)
+                sides_after = us.copy_sidecars(copy)
+            except OSError as err:
+                raise ExpansionRefused(f"--db {copy}: the copy could not be re-read after the read ({err!r}); "
+                                       f"{nothing}") from None
+    except DBAPIError as err:
+        raise ExpansionRefused(f"--db {copy}: the copy could not be read ({err.orig!r}); {nothing}")
+    if sides_after:
+        raise ExpansionRefused(f"--db {copy} changed during the read: {', '.join(sides_after)} appeared beside it, "
+                               f"which immutable=1 ignores; {nothing}")
+    if sha_after != sha_before:
+        raise ExpansionRefused(f"--db {copy} changed during the read (sha256 {sha_before[:16]}… before, "
+                               f"{sha_after[:16]}… after): the read is not tied to the printed copy; {nothing}")
     return out

@@ -167,6 +167,20 @@ either side once), printed as "rehearsal-arm keys (host-only, nfl-elo-v2): N"
 right after the shadow-arm line. The shadow-arm line and its count are
 unchanged.
 
+SOCCER-V23'S SHADOW KEYS (ARCHITECT 2026-11-05, addendum 263 item 6: "under its
+OWN key prefix (`v23_*`, never `candidate_*`, never `rehearsal_*`) with its own
+compare line, #735's pattern, in the shadow PR"; built by ARCHITECT 2026-11-21,
+addendum 436 item 7). soccer-v23's PASS shadow (src/walters/soccer_v23_shadow.py)
+writes, on the host only and only while the registry records its PASS,
+v23_version, v23_probabilities, v23_availability, v23_label and v23_reason on a PL
+slate and closing row. A v23 shadow key (v23_arm_key) is any key whose name
+starts with "v23_", at any depth. Law 1 (read on main 3415ebb9): no other writer
+of a compared export in src/, deploy/, scripts/, tools/ or cli.py writes a key
+with that prefix. Both modes leave the class out; a structural mismatch printed
+whole shows its values as "<masked>"; the count is the file pair's own walk,
+printed as "shadow-arm keys (host-only, soccer-v23): N" right after the
+graded-export line. Every earlier line and its count are unchanged.
+
 THE PAIRED KINDS (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 4, #924), verbatim (c): "the comparator carries a
 declared list of PAIRED KINDS — kinds both machines are ruled to produce every day (today: fixtures_NHL alone) — and a
 kind not on it is EXPECTED ONE-SIDED (coverage, the window card, the UNL and league shadows, closings, slates, the MLB
@@ -299,6 +313,18 @@ def rehearsal_arm_key(key) -> bool:
     return str(key).startswith(REHEARSAL_PREFIX)
 
 
+# SOCCER-V23'S SHADOW KEYS (ARCHITECT 2026-11-05, addendum 263 item 6; built by addendum 436 item 7; the module
+# docstring quotes it): written on the host only while soccer-v23's PASS is recorded, never compared or printed, counted.
+V23_EID = "soccer-v23"                          # soccer_v23_shadow.EID (this file ships alone: copied, not imported)
+V23_PREFIX = "v23_"                             # soccer_v23_shadow.PREFIX: ROW_KEYS, any depth
+V23_LINE = "shadow-arm keys (host-only, soccer-v23)"               # 263 item 6: its own compare line
+
+
+def v23_arm_key(key) -> bool:
+    """True for a soccer-v23 shadow key (263 item 6): a name starting with "v23_", at any depth."""
+    return str(key).startswith(V23_PREFIX)
+
+
 # THE GRADED-EXPORT KEYS (ARCHITECT 2026-11-01 15:45 ET, addendum 206 item 1; the module docstring quotes it): the
 # export a results row stands behind (#768), named by each machine from its OWN closing file: machine-local, never
 # compared or printed, counted.
@@ -352,6 +378,12 @@ def shadow_count(a, b, parent=None) -> int:
     return _masked_count(a, b, lambda p, k, x, y: shadow_arm(k, x, y), parent)
 
 
+def v23_count(a, b, parent=None) -> int:
+    """The soccer-v23 shadow keys of one file pair (263 item 6), a key on either side once, by the same walk: 5 per PL
+    slate or closing row carrying them."""
+    return _masked_count(a, b, lambda p, k, x, y: v23_arm_key(k), parent)
+
+
 def rehearsal_count(a, b, parent=None) -> int:
     """The rehearsal-arm keys of one file pair (addendum 247 item 2(2)), a key on either side once, by the same walk:
     6 per NFL slate or closing row carrying the arm, 1 per results row carrying it, 1 for the record's block."""
@@ -370,14 +402,15 @@ def host_only_count(a, b, parent=None) -> int:
 
 
 def redacted(v, parent=None, host_only=False):
-    """`v` with every unit-bearing field's value, every shadow-arm key's (addendum 199 item 2) and every graded-export
+    """`v` with every unit-bearing field's value, every shadow-arm key's (addendum 199 item 2), every rehearsal-arm and
+    soccer-v23 shadow key's (addendum 247 item 2(2); addendum 263 item 6, v23_arm_key) and every graded-export
     object (addendum 206 item 1) replaced by "<masked>", for a structural mismatch printed whole (an `order` or
     `desk_meta` object against null; Codex on #735; a PL row against null; a results row against null): neither a
     dollar figure, a candidate figure nor a graded export's file or run id reaches the output. `host_only` (a paired
     file, addendum 335 item 4(b)): every host-only column's value too (Codex on #927: a rows list against null)."""
     if isinstance(v, dict):
         return {k: "<masked>" if (unit_bearing(parent, k) or shadow_arm(k, x) or rehearsal_arm_key(k)
-                                  or graded_export_class(k) or (host_only and host_only_key(k)))
+                                  or v23_arm_key(k) or graded_export_class(k) or (host_only and host_only_key(k)))
                 else redacted(x, k, host_only)
                 for k, x in v.items()}
     if isinstance(v, list):
@@ -557,16 +590,16 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None, parent
     REPLACES that mask: only those keys and git_sha (code, never read from the database) are left out, so every
     database-read timestamp and match_id is compared (Codex on #439). In both modes the unit-bearing fields
     (addendum 182 item 4, unit_bearing), the shadow-arm keys (addendum 199 item 2, shadow_arm), the rehearsal-arm keys
-    (addendum 247 item 2(2), rehearsal_arm_key) and the graded-export keys (addendum 206 item 1, graded_export_class)
-    are left out and never printed: a mismatch printed whole is redacted first; unit_count, shadow_count,
-    rehearsal_count and graded_count count them."""
+    (addendum 247 item 2(2), rehearsal_arm_key), the soccer-v23 shadow keys (addendum 263 item 6, v23_arm_key) and the
+    graded-export keys (addendum 206 item 1, graded_export_class) are left out and never printed: a mismatch printed
+    whole is redacted first; unit_count, shadow_count, rehearsal_count, v23_count and graded_count count them."""
     out = [] if out is None else out
     if len(out) >= limit:
         return out
     if isinstance(a, dict) and isinstance(b, dict):
         for k in sorted(set(a) | set(b)):
             if (unit_bearing(parent, k) or shadow_arm(k, a.get(k), b.get(k)) or rehearsal_arm_key(k)
-                    or graded_export_class(k) or (host_only and host_only_key(k))):
+                    or v23_arm_key(k) or graded_export_class(k) or (host_only and host_only_key(k))):
                 continue
             if (ignore is None and (TS_KEY.search(str(k)) or k in MASKED)) or (
                     ignore is not None and (k in ignore or k == "git_sha")):
@@ -677,6 +710,7 @@ def _main(argv=None) -> int:
     shadow_masked = 0                             # addendum 199 item 2: the shadow-arm keys left out, counted
     rehearsal_masked = 0                          # addendum 247 item 2(2): the rehearsal-arm keys left out, counted
     graded_masked = 0                             # addendum 206 item 1: the graded-export keys left out, counted
+    v23_masked = 0                                # addendum 263 item 6: soccer-v23's shadow keys left out, counted
     pred_rows = {"laptop": 0, "host": 0}
     # addendum 335 item 4(c): the paired kinds' own counts (unused under the pre-335 rule, `legacy`)
     paired_missing, expected_one_sided, paired_with_rows, paired_empty = [], [], [], []
@@ -749,6 +783,7 @@ def _main(argv=None) -> int:
         shadow_masked += shadow_count(x, y)
         rehearsal_masked += rehearsal_count(x, y)
         graded_masked += graded_count(x, y)
+        v23_masked += v23_count(x, y)
         only = {s: [k for v in um.values() for k in v[s]] for s in ("laptop", "host")}
         ok = not d and not only["laptop"] and not only["host"]
         sha = sha_line(x, y)
@@ -789,6 +824,7 @@ def _main(argv=None) -> int:
     print(f"{SHADOW_LINE}: {shadow_masked}")                            # addendum 199 item 2
     print(f"{REHEARSAL_LINE}: {rehearsal_masked}")                      # addendum 247 item 2(2)
     print(f"{GRADED_LINE}: {graded_masked}")                            # addendum 206 item 1
+    print(f"{V23_LINE}: {v23_masked}")                                  # addendum 263 item 6 (436 item 7)
     if not legacy:                                                      # addendum 335 item 4(b)-(c)
         print(f"{HOST_ONLY_LINE}: {host_only_masked}")
         print(f"paired kinds ({', '.join(sorted(paired)) or 'none'}): {len(paired_with_rows)} compared with rows in "

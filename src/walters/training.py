@@ -736,10 +736,10 @@ def _generate_predictions_soccer(
         def _rating_source(team_id: int) -> str:
             return "model" if team_id in elo_league.ratings else "default"
 
-        # pl-availability-v1 (ARCHITECT 2026-11-01 10:05 ET, addendum 198 item 2): the candidate's arm, priced in this
-        # same pass beside v22 for PL on the host only (src/walters/pl_availability.py): the same model on the same
-        # inputs, only the injury lists filtered by the frozen rule. It never touches v22's probabilities; it is stored
-        # as one extra factor_breakdown key. The report-only mode never computes it.
+        # pl-availability-v1 (addendum 198 item 2; pl_availability.py) and soccer-v23's PASS shadow (436 item 7;
+        # soccer_v23_shadow.py, dormant unless the registry records its PASS): each arm priced beside v22 on the host,
+        # stored as one extra factor_breakdown key, never touching v22's figures; the report-only mode computes neither.
+        v23_arms = _soccer_v23_shadow(s, mv, upcoming, competition_code, include_finished)   # {match id: {key: arm}}
         from src.walters import pl_availability as _pla
         arm_off = "report-only" if include_finished else _pla.arm_off_reason(competition_code)
 
@@ -1024,7 +1024,7 @@ def _generate_predictions_soccer(
                     "away_league": team_to_league.get(m.away_team_id),
                     "home_league_bonus": round(league_bonus(team_to_league.get(m.home_team_id)), 1) if is_cup_competition else None,
                     "away_league_bonus": round(league_bonus(team_to_league.get(m.away_team_id)), 1) if is_cup_competition else None,
-                    **({_pla.FB_KEY: arm} if arm is not None else {}),
+                    **({_pla.FB_KEY: arm} if arm is not None else {}), **v23_arms.get(m.id, {}),
                 },
             ))
             written += 1
@@ -2492,3 +2492,23 @@ def _history_xi_keys(hx: _HistoryXI, m, baselines, xi_objs, mults) -> dict:
         out[f"{side}_xi_scored"] = xi_objs[i].players_with_scores if xi_objs[i] is not None else 0
         out[f"{side}_xi_mults"] = (mults[2 * i], mults[2 * i + 1])
     return out
+
+
+def _soccer_v23_shadow(s, mv, upcoming, competition_code: str, include_finished: bool) -> dict:
+    """soccer-v23's PASS shadow at the soccer predict pass (ARCHITECT 2026-11-21 08:04 ET, addendum 436 item 7;
+    src/walters/soccer_v23_shadow.py). DORMANT, writing nothing ({}), unless the registry in the checkout records
+    soccer-v23's PASS (status confirming) and this is the host pricing production v22; ON, the covered fixtures are
+    priced once per kickoff instant by soccer_v23's own live entry point, BEFORE the pass's loop writes any row, and
+    each is returned as {FB_KEY: arm} for v22's own factor_breakdown. It never touches v22's figures and never stops
+    v22's row (soccer_v23_shadow.price_arms stores a failure as its cause). The report-only mode never reads it. Its
+    receipt line is kept for the predict command (soccer_v23_shadow.LAST_RECEIPT). Placed here, at the end of the
+    module, so every cited training.py:<line> keeps naming its line (#935's precedent)."""
+    from src.walters import soccer_v23_shadow as v23s
+    if include_finished or (competition_code or "").strip().upper() != v23s.COMPETITION:
+        return {}
+    import time
+    gate = v23s.for_pass(v23s.read_gate(s), getattr(mv, "version", None))
+    t0, now = time.monotonic(), v23s.env_now()
+    arms = v23s.price_arms(s, gate, upcoming, now, competition_code, log)
+    v23s.note(gate, v23s.stats(gate, upcoming, arms, now, competition_code, time.monotonic() - t0))
+    return {mid: {v23s.FB_KEY: a} for mid, a in arms.items()}

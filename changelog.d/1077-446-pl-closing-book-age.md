@@ -1,0 +1,14 @@
+## 2026-11-22 (#1077: 446-pl-closing-book-age — the PL closing-page book age receipt, read-only tooling (ARCHITECT 2026-11-22 09:03 ET, addendum 446 item 2; Refs #348))
+- **`python3 scripts/pl_closing_book_age_receipt.py --exports DIR|TREE --db COPY [--from INSTANT] [--through INSTANT]`:**
+  - It reads every closing page (file) of a flat directory or a dated tree, latest/ refused, and keeps every Premier League 2026/27 row on each. A re-paged start is labelled; a copy of a page is printed and counted once.
+  - `--db` is required: a .backup copy behind #688's fence (mode=ro + immutable=1). A refusal exits 2 with nothing read.
+  - Per row it finds the match on the copy and groups its api_football 1X2 `odds_snapshots` by `captured_at`, one fetch a session. An incomplete session is counted and skipped.
+  - The priced session is the latest complete session at or before the page's `exported_at`, validated: its devig rounds to the page's `fair_prob` at 4 places. Else the latest earlier session that validates, labelled "page matches an earlier session". Else "no stored session matches the page", counted and never forced.
+  - It prints four ages at the export: capture (ours, #348's), stamp (the provider's `source_updated_at`, a lower bound on the quote's age), last change (the trailing run of identical triples, ended by an incomplete session whose present legs differ, between two links or before the first, "at least" where the run reaches the first stored session, with the 4-place run beside it), and the headline (the stamp where stored, else the last change).
+  - A snapshot row whose `captured_at` is unreadable is counted on its row and on TOTALS, and that row never prints "at least". A page with no `closing.start` whose name stamp is no valid date/time has a run start unknown, counted and labelled, never an abort.
+  - Each row also gets the M3 / M4 read and the page's own `line_move` book cross-check.
+  - Distributions and buckets are in hours, with unknowns in the denominator by cause, by page and by UK kickoff slot. A JSON line closes it.
+  - No provider call and no network. No bookmaker name is printed.
+- **Law 1:** the snapshot source literal is api_football.py:202. The session clock is api_football.py:380 with service.py:1397-1404, and the stamp service.py:415-428. The page's fair is export.py:742 and its `exported_at` export.py:85. The stamp's words are schema.py:310-311. The stamp column is unmapped (schema.py:359-363), so it is found by PRAGMA table_info on the copy's own connection.
+- **Tests:** tests/test_pl_closing_book_age_receipt.py, 59 tests.
+- **scripts/README.md:** the TOOL line and the Counts line. **docs/CLI.md:** the row. Nothing run on either machine.

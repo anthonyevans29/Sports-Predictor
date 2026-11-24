@@ -537,7 +537,8 @@ def test_181_2_parity_is_the_confirmation_walk_and_equal_with_released_rows(ledg
     from src.db.schema import Match
     from src.walters import leagues_candidate as lc
     _comps()
-    ledger(decl("SA", verdict={"verdict": "PASS"}))                    # no fence: every game compared
+    ledger(decl("SA", verdict={"verdict": "PASS"}, status="production",
+                 confirmation={"outcome": "CONFIRMED"}))  # CONFIRMED, recorded: no fence (448 1(b))
     t = _teams("SA")
     _priors("SA", t, n=45)
     _game(2920, "SA", datetime(2026, 9, 20, 15, 0), (t[2], t[5]), raw="AWD", hs=3, as_=0)
@@ -767,14 +768,15 @@ def test_the_audit_counts_a_stored_row_that_differs_from_the_recompute(ledger, t
 # ------------------------------------------------------------------------------------------------ the fence --
 
 def test_guards_backtest_refuses_a_declared_leagues_window_and_leaves_the_rest(ledger):
-    ledger(decl("SA"), decl("FL1", verdict={"verdict": "PASS"}))
+    ledger(decl("SA"), decl("FL1", verdict={"verdict": "PASS"}, status="production",
+                 confirmation={"outcome": "CONFIRMED"}))  # 448 1(b): lifted
     why = sx.guards_backtest("SA", SEASON)
     assert why and "the window's outcomes have one reader, scripts/leagues_window.py" in why and "R8" in why
     assert sx.guards_backtest("sa") and sx.guards_backtest("SA", None)            # every season: fenced
     assert sx.guards_backtest("SA", "2024/25") is None                            # another season: not the window
     assert sx.guards_backtest("SA", SEASON, through=AT) is None                   # cut at the instant
     assert sx.guards_backtest("SA", SEASON, through=AT + timedelta(seconds=1))
-    assert sx.guards_backtest("FL1", SEASON) is None                              # the verdict recorded: lifted
+    assert sx.guards_backtest("FL1", SEASON) is None                              # confirmation recorded: lifted
     why = sx.guards_backtest("BL1", SEASON)                                       # undeclared: the pre-declaration
     assert why and "not declared yet" in why and "2026-10-30T15:00:00Z" in why    # fence (addendum 181 item 1(b))
     assert sx.guards_backtest("BL1", SEASON, through=lw.PRE_DECLARATION_CUT) is None
@@ -817,7 +819,8 @@ def test_soccer_backtest_and_the_walk_refuse_the_window_and_the_cut_walk_reads_o
 def test_the_cut_walk_is_the_full_walks_head_once_the_verdict_is_recorded(ledger):
     from src.walters.soccer_backtest import run_soccer_backtest
     _comps()
-    ledger(decl("SA", verdict={"verdict": "PASS"}))                               # the fence lifted
+    ledger(decl("SA", verdict={"verdict": "PASS"}, status="production",
+                 confirmation={"outcome": "CONFIRMED"}))  # CONFIRMED, recorded: lifted (448 1(b))
     t = _teams("SA")
     _priors("SA", t, n=45)
     _members("SA", t, 5, 2000, AT + timedelta(hours=1))
@@ -842,7 +845,8 @@ def test_the_leagues_receipt_close_part_and_parity_read_only_games_at_or_before_
     assert p["fenced"] == 3 and not {x["match_id"] for x in p["rows"]} & {2000, 2001, 2002}
     assert p["unequal"] == 0 and not p["shadow_only"] and not p["gate_only"] and p["rows"]
     assert "fenced 3 (finished after the cut" in lc.parity_lines(p, rows=False)[0]
-    ledger(decl("SA", verdict={"verdict": "PASS"}))                               # the verdict recorded: lifted
+    ledger(decl("SA", verdict={"verdict": "PASS"}, status="production",
+                 confirmation={"outcome": "CONFIRMED"}))  # CONFIRMED, recorded: lifted (448 1(b))
     r = paper.leagues_season(("SA",), SEASON, AT.date(), now=NOW)["SA"]["record"]
     assert r["n"] == 4 and r["fenced_window"] == 0
     assert "fenced" not in close_record_line("SA", r) and lc.parity("SA", -0.1, 0.0008, season=SEASON)["fenced"] == 0
@@ -859,14 +863,16 @@ def test_results_tallys_close_record_fences_the_window(ledger):
     _legs(11, after)
     r = paper.close_record(60, now=NOW)["BL1"]
     assert r["n"] == 1 and r["fenced_window"] == 1
-    ledger(decl("BL1", verdict={"verdict": "PASS"}))
+    ledger(decl("BL1", verdict={"verdict": "PASS"}, status="closed",
+                 confirmation={"outcome": "NOT_CONFIRMED"}))  # NOT_CONFIRMED: lifted (448 1(b))
     r = paper.close_record(60, now=NOW)["BL1"]
     assert r["n"] == 2 and r["fenced_window"] == 0
 
 
 def test_the_shadow_grade_counts_the_window_and_grades_the_rest(ledger, tmp_path):
     _comps()
-    ledger(decl("FL1"), decl("ELC", verdict={"verdict": "PASS"}))
+    ledger(decl("FL1"), decl("ELC", verdict={"verdict": "PASS"}, status="closed",
+                 confirmation={"outcome": "NOT_CONFIRMED"}))  # NOT_CONFIRMED: lifted (448 1(b))
     t = _teams("FL1")
     tb = _teams("ELC")
     _game(20, "FL1", AT + timedelta(days=1), (t[0], t[1]))

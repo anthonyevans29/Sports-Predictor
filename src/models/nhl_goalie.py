@@ -134,3 +134,114 @@ class GoalieTracker:
         _, spg, gpg = self.league()
         goals_edge = self.gsaa_rate(goalie_id, t) * spg
         return ELO_PER_LOGIT * PYTH_EXP / gpg * goals_edge
+
+
+# --------------------------------------------------------------------------
+# THE TRUE-STARTER CEILING (ARCHITECT 2026-11-24 08:05 ET, addendum 491; GATE-CLASS; a probe, one run, never a
+# candidate). Item 5, verbatim: "THE HINDSIGHT RATE, per goalie and per season S (2024 or 2025), from the appearances
+# whose linked match is one of the stream's games of S, relief included, as v5 counted them:
+#     rate = sum(saves - m x shots) / (sum(shots) + PRIOR_SHOTS)
+#   (a) No decay. PRIOR_SHOTS stays 2,000. m is S's league save rate over the same appearances.
+#   (b) THE DECLARED MEASURE IS LEAVE-ONE-OUT: the sums for the goalie who starts game X leave out his own appearance
+#       in game X. [...] (c) To Elo points as v5: the rate times S's league shots per team-game, times ELO_PER_LOGIT
+#       times PYTH_EXP over S's league goals per team-game. The two league figures are S's own, whole season, with no
+#       boot prior. (d) 2023-24's appearances enter nothing."
+# GoalieTracker above and every frozen constant are untouched; this class reads PRIOR_SHOTS, PYTH_EXP and
+# ELO_PER_LOGIT as they stand.
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SeasonAppearance:
+    """One goalie's appearance in one stream game: the game's match id and season S (the stream's own), the side, the
+    goalie, and his shots against and saves (relief included, as v5 counted them)."""
+    match_id: int
+    season: str
+    side: str
+    goalie_id: int
+    shots: int
+    saves: int
+
+
+@dataclass
+class HindsightTracker:
+    """GoalieTracker's interface (advance_to, elo_adjustment), priced in hindsight: every figure is season S's whole
+    season, computed once. `leave_one_out` True is 491's declared measure (the starter's own appearance in the game
+    priced is left out of his sums); False is item 7's LEAKED line, printed and labelled, deciding nothing.
+    elo_adjustment needs the game's match id and its season (keywords GoalieTracker does not take), because
+    leave-one-out is by game: without the match id the call refuses (ValueError), never prices a game it cannot place.
+    A data defect in the inputs (one goalie twice in one game, one game in two seasons) refuses at construction."""
+    appearances: list[SeasonAppearance]
+    leave_one_out: bool = True
+    _league: dict[str, tuple[float, float, float]] = field(default_factory=dict)    # S -> (m, shots/tg, goals/tg)
+    _sums: dict[tuple[str, int], list[float]] = field(default_factory=dict)          # (S, goalie) -> [shots, gsaa]
+    _own: dict[tuple[int, int], tuple[int, int]] = field(default_factory=dict)       # (match, goalie) -> (shots, saves)
+    _season_of: dict[int, str] = field(default_factory=dict)                         # match -> S
+
+    def __post_init__(self):
+        apps = [a for a in self.appearances if a.shots is not None and a.saves is not None]
+        tot: dict[str, list[float]] = {}
+        sides: dict[str, set] = {}
+        for a in apps:
+            t = tot.setdefault(a.season, [0.0, 0.0])
+            t[0] += a.shots
+            t[1] += a.saves
+            sides.setdefault(a.season, set()).add((a.match_id, a.side))     # one team-game per game side (v5)
+            if self._season_of.setdefault(a.match_id, a.season) != a.season:
+                raise ValueError(f"match {a.match_id} is in two seasons ({self._season_of[a.match_id]}, {a.season})")
+            key = (a.match_id, a.goalie_id)
+            if key in self._own:
+                raise ValueError(f"goalie {a.goalie_id} has two appearances in match {a.match_id}")
+            self._own[key] = (a.shots, a.saves)
+        for s_, (shots, saves) in tot.items():
+            tg = len(sides[s_])
+            if shots <= 0 or tg <= 0:
+                raise ValueError(f"season {s_}: no shots or no team-games to take the league figures from")
+            self._league[s_] = (saves / shots, shots / tg, (shots - saves) / tg)
+        for a in apps:
+            m = self._league[a.season][0]
+            g = self._sums.setdefault((a.season, a.goalie_id), [0.0, 0.0])
+            g[0] += a.shots
+            g[1] += a.saves - m * a.shots
+
+    def league(self, season: str) -> tuple[float, float, float]:
+        """S's whole-season (save rate m, shots per team-game, goals per team-game); no boot prior."""
+        return self._league[season]
+
+    def advance_to(self, t: datetime) -> None:
+        """GoalieTracker's interface: nothing to ingest, every figure is the whole season's."""
+        return None
+
+    def rate(self, goalie_id: int | None, match_id: int | None, season: str | None = None) -> float:
+        """sum(saves - m x shots) / (sum(shots) + PRIOR_SHOTS) over the goalie's appearances of season S, less his own
+        appearance in that match when leave_one_out (491 item 5(b)). S is the game's own season (`season`, the stream
+        game's), or, without it, the season the match's appearances carry. A game with no stat-bearing appearance (its
+        rows' stats NULL, law 4) still has its season: it leaves nothing out."""
+        if goalie_id is None:
+            return 0.0
+        if match_id is None:
+            raise ValueError("no match id: a game cannot be placed for leave-one-out")
+        s_ = self._season_of.get(match_id, season)
+        if season is not None and s_ != season:
+            raise ValueError(f"match {match_id} carries season {s_}, not the game's {season}")
+        if s_ is None or s_ not in self._league:
+            raise ValueError(f"match {match_id!r}: season {s_!r} has no league figures: it cannot be placed in a "
+                             "season")
+        g = self._sums.get((s_, goalie_id))
+        if g is None:
+            return 0.0
+        shots, gsaa = g
+        if self.leave_one_out and (match_id, goalie_id) in self._own:
+            own_shots, own_saves = self._own[(match_id, goalie_id)]
+            shots -= own_shots
+            gsaa -= own_saves - self._league[s_][0] * own_shots
+        return gsaa / (shots + PRIOR_SHOTS)
+
+    def elo_adjustment(self, goalie_id: int | None, t: datetime, match_id: int | None = None,
+                       season: str | None = None) -> float:
+        """Elo points for this starter, as v5 converts them (491 item 5(c)); 0 when the starter is unknown."""
+        if goalie_id is None:
+            return 0.0
+        r = self.rate(goalie_id, match_id, season)
+        _, spg, gpg = self._league[self._season_of.get(match_id, season)]
+        return ELO_PER_LOGIT * PYTH_EXP / gpg * (r * spg)

@@ -21,7 +21,11 @@ SPEC = (ROOT / "docs" / "specs" / "soccer-v23.md").read_text()
 # items 2, 3, 5, 9, 14, 15) and 262 item 2's soccer cadence entries ("no soccer source declared; ..."). The pin before
 # it, 15002742f71996b0d3422fcc7a0576bcb44ff6e6dd4833a91b2f8d42eec1feb5, was 251 item 2's bar repaired before any
 # declaration with addendum 254 item 3's Q4, Q20 and Q22.
-BAR_SHA256 = "e5fd61888014dc8f4ce81511a4d2c13b27c529d7e206a1e957748f38f6d9cfe3"
+# RE-PINNED under addendum 443 (ARCHITECT 2026-11-21 18:57 ET, item 2(a): "BAR_TEXT says item 1(c), quoting it and
+# citing this addendum beside 251 item 2; its sha256 re-pinned"): the first leg made like for like, three comparisons
+# with two recorded figures, before any result. The pin before it, e5fd61888014dc8f4ce81511a4d2c13b27c529d7e206a1e957748f38f6d9cfe3,
+# was 263's.
+BAR_SHA256 = "d4778a276359f11cb89fe7b0694458ba7e01da6fa2a7971a320f5e90eb2371c4"
 
 # the rulings, verbatim (each must appear in the spec exactly)
 RULINGS = {
@@ -81,9 +85,18 @@ def test_the_bar_is_pinned_and_the_spec_carries_it_character_for_character():
     phrases below are each ruling's, as BAR_TEXT states it. No number of the bar moved."""
     assert hashlib.sha256(v.BAR_TEXT.encode("utf-8")).hexdigest() == BAR_SHA256
     assert v.BAR_TEXT in SPEC
-    for must in ("at least 0.0050 BELOW BOTH v22's recorded figure AND v22's figure re-walked on soccer-v23's harness",
-                 "a tie on EITHER is a rejection", "a difference of exactly 0.0050 passes that comparison",
-                 "STANDS as measured and is never recomputed", "v22_recorded_log_loss", "v22_recorded_source",
+    for must in ("at least 0.0050 BELOW v22's on EVERY comparison: v22's figure re-walked on soccer-v23's harness, on the "
+                 "frozen pot; and, FOR EACH of v22's recorded figures, that figure, over the same matches",
+                 "a tie on ANY comparison is a rejection", "a difference of exactly 0.0050 passes that comparison",
+                 # ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 2(a): 1(c) quoted, cited beside 251 item 2
+                 "addendum 251 item 2; addendum 443 item 1(c))",
+                 "ADDENDUM 443 ITEM 1(c) (ARCHITECT 2026-11-21 18:57 ET), verbatim: \"THE RULING: THE LEG IS MADE LIKE "
+                 "FOR LIKE AND TAKES EVERY RECORDED FIGURE.",
+                 "PASS iff ALL THREE hold", "REFUSES THE RUN BEFORE ITS RESERVATION: nothing spent, nothing scored.",
+                 "Each recorded figure STANDS as recorded and is never recomputed", "declaration slot v22_recorded",
+                 "the run refuses an empty list",
+                 "the rows soccer_backtest.run_soccer_backtest itself scores for that competition and season on the "
+                 "run's copy at min_prior = 40 (its own output, never a rule copied by hand)",
                  "the same context definition", "in the harness and the production path alike",
                  "addendum 251 item 2", "INVALID, never a pass", "MIN_GATE_N = 30", "within-season skip is zero (no 40-match skip)",
                  "the market is a reference, never a feature, and gates nothing", "mode=ro&immutable=1",
@@ -91,9 +104,9 @@ def test_the_bar_is_pinned_and_the_spec_carries_it_character_for_character():
                  # the review of the 251 follow-up: the recorded figure is read as measured, only the re-walked
                  # figures are soccer_calibration's; the no-visible-row default as CONTEXT_DEFINITION states it; a
                  # game visible only once its result is known
-                 "The recorded figure is read from the slot as measured",
-                 "the re-walked figures (soccer-v23's and v22's, on this harness) are computed by "
-                 "soccer_backtest.soccer_calibration",
+                 "Each recorded figure is read from the slot as recorded",
+                 "soccer-v23's figures (on the pot, and over each recorded figure's matches) and v22's re-walked one "
+                 "are computed by soccer_backtest.soccer_calibration",
                  "the default context (g 1.4, b 1.15) only where the competition has no visible game",
                  # the review of the five rows: G0 is not only the first season's prior centre; it also sets that
                  # season's prior precision and beta's prior precision in every window (joint_poisson.py:92, :277)
@@ -149,7 +162,18 @@ def test_the_bar_is_pinned_and_the_spec_carries_it_character_for_character():
     from src.models.poisson import CompetitionScoringContext
     d = CompetitionScoringContext()                                    # the default the bar names, as the code holds it
     assert f"(g {d.avg_goals_per_team_per_match}, b {d.home_field_goal_boost})" in v.BAR_TEXT
-    assert "on the frozen pot" not in v.SLOT_VALUES["v22_recorded_log_loss"]
+    assert "v22_recorded_log_loss" not in v.SLOT_VALUES and "v22_recorded_source" not in v.SLOT_VALUES   # 443 2(b)
+    assert v.UNRECOMMENDED == ("v22_recorded",) and v.RECORDED_MIN_PRIOR == 40
+    assert "on the frozen pot" not in v.SLOT_VALUES["v22_recorded"]
+    # 443 item 1(c), whole, in BAR_TEXT, and in the spec's §5a, its question 18, and D11 (item 2(a))
+    c = " ".join(SPEC[SPEC.index("**D11 "):].split("\n", 1)[0].split())
+    i, j = c.index("(c) THE RULING:"), c.index(" (d) WHY NOT LESS.")
+    ruling = c[i + 4:j]
+    assert ruling in v.BAR_TEXT and ruling.endswith("nothing spent, nothing scored.")
+    sec5a = " ".join(SPEC[SPEC.index("## 5a. "):SPEC.index("## 6. ")].split())
+    q18 = " ".join(SPEC[SPEC.index("18. **v22's recorded figure"):SPEC.index("19. **")].split())
+    assert f"\"{c[i:j]}\"" in sec5a and f"\"{c[i:j]}\"" in q18
+    assert "**RULED (254 item 3):**" in q18 and "*(SUPERSEDED, kept and never deleted" in q18   # kept, marked
     assert v.WITHIN_SEASON_SKIP == 0
 
 
@@ -255,12 +279,24 @@ def test_every_declaration_slot_is_in_the_spec_and_none_has_a_value_in_code():
 def test_the_lane_is_appended_as_216_item_3_dates_it():
     lanes = {ln["lane"]: ln for ln in json.loads((ROOT / "docs" / "roadmap.json").read_text())["lanes"]}
     ln = lanes["soccer-v23"]
-    assert ln["issue"] == 656 and ln["registry_id"] is None and ln["state"] == "to declare"
+    # ARCHITECT 2026-11-23 08:05 ET, addendum 449 item 8(a): after #1080 merged, the declaration step is done-marked
+    # (its receipt cites 443 item 1(c), 444 item 4), the state is "declared", registry_id "soccer-v23" (validate()
+    # takes any id in any state), and live_needs gains item 5's criterion; the run's step stays 2026-11-27
+    assert ln["issue"] == 656 and ln["registry_id"] == "soccer-v23" and ln["state"] == "declared"
     assert [(s["owner"], s["due"], s["done"] and s["done"]["date"]) for s in ln["steps"]] == [
-        ("code", "2026-11-13", "2026-11-05"), ("architect", "2026-11-20", None), ("operator", "2026-11-27", None)]
+        ("code", "2026-11-13", "2026-11-05"), ("architect", "2026-11-23", "2026-11-23"), ("operator", "2026-11-27", None)]
+    assert ln["steps"][1]["done"]["receipt"].startswith("#1080 merged 2026-11-23 (d1637122)")
+    assert "addendum 443 item 1(c)" in ln["steps"][1]["done"]["receipt"]
+    assert ln["live_needs"].endswith("\"CONFIRMED iff soccer-v23's is BELOW live v22's on the same 60 games; equal or "
+                                     "above is NOT CONFIRMED.\"")
     # addendum 281 item 4(a): the design PR step done-marked by #832 (merged 2026-11-05); its due stays as the record
     assert ln["steps"][0]["done"]["receipt"].startswith("#832 merged 2026-11-05")
-    assert ln["earliest_live"] is None and ln["moved"] == [] and ln["competitions"] == ["PL"]
+    assert ln["earliest_live"] is None and ln["competitions"] == ["PL"]
+    # addendum 436 item 5(a): the declaration step moved 2026-11-20 -> 2026-11-23 by one moved line, its which the
+    # step's what word for word; the run's step stays 2026-11-27
+    assert [(m["moved_on"], m["which"], m["was"], m["now"]) for m in ln["moved"]] == [
+        ("2026-11-21", ln["steps"][1]["what"], "2026-11-20", "2026-11-23")]
+    assert ln["moved"][0]["ruling"].startswith("ARCHITECT 2026-11-21 08:04 ET, addendum 436 item 5(a)")
     assert "earliest_live the day after that read. No date moves a bar." in ln["live_needs"]
     assert "the lane names its next candidate the same day" in ln["live_needs"]
     assert ln["vs_close"].startswith("not read.")
@@ -268,15 +304,21 @@ def test_the_lane_is_appended_as_216_item_3_dates_it():
     assert names.index("soccer-v23") == names.index("availability-record") + 1
 
 
-def test_no_registry_entry_exists_before_the_declaration():
+def test_the_one_registry_entry_is_the_declaration_of_449_and_unrun():
+    """No registry entry existed before the declaration (this test's earlier form). ARCHITECT 2026-11-23, addendum 449
+    declared it: exactly one soccer-v23 entry, declared at 449's stamp, unrun, with no reservation."""
     entries = json.loads((ROOT / "docs" / "registry" / "experiments.json").read_text())
-    assert v.EID not in {e["id"] for e in entries}
+    mine = [e for e in entries if e["id"] == v.EID]
+    assert len(mine) == 1 and mine[0]["declared_at"] == "2026-11-23T13:05:00Z" and mine[0]["ratified"] == (
+        "ARCHITECT 2026-11-23, addendum 449")
+    assert mine[0]["status"] == "declared" and mine[0]["run"] is None and mine[0]["verdict"] is None
     assert not (ROOT / "docs" / "registry" / f"{v.EID}.started.json").exists()
 
 
 def test_the_command_is_documented():
     rows = [ln for ln in (ROOT / "docs" / "CLI.md").read_text().splitlines() if ln.startswith("| `soccer-v23-gate` ")]
-    assert len(rows) == 1 and "NEVER RUN BEFORE THE DECLARATION" in rows[0]
+    assert len(rows) == 1 and "DECLARED BY ADDENDUM 449 (2026-11-23T13:05:00Z), NOT RUN" in rows[0]   # 449: declared
+    assert "NEVER RUN BEFORE THE DECLARATION" not in rows[0]
 
 
 def _names(p: str) -> set[str]:

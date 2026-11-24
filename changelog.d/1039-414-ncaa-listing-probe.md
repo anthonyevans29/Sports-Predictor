@@ -1,9 +1,0 @@
-## 2026-11-16 (#1039: 414-ncaa-listing-probe — the NCAA listing probe, read-only (ARCHITECT 2026-11-16, addendum 414 item 3; #1035, #1038))
-- **New:** `scripts/ncaa_listing_probe.py`. For each date given (at most seven), one GET of the provider's college football games through the adapter's own `_get` (league 2, season 2026, that date). Each raw row is printed before any parsing, beside what our side would do with it:
-  - no date (#1), no team id (#2), all-star or exhibition (#3);
-  - with an optional `--db` copy (mode=ro&immutable=1; data/ and sidecars refused): team not in the copy (#6), the stored match holding the provider id, or NOT STORED.
-- **The fence (414 item 3(c)):** no write and no file made; provider calls counted first and last; the key by name only; a provider error prints and exits 1 after what was read; no sync, re-key or repair module is loaded.
-- **Pre-PR review (four findings, all fixed):** an exception's text is printed with the key's value replaced by its variable's name (requests' InvalidHeader carries a malformed header value); a sidecar check that cannot stat the copy refuses (exit 2) instead of a traceback; a row whose verdict fails is printed raw with VERDICT FAILED and the run goes on (exit 1); a bad command line prints the REFUSED line with the call count. A stored row's season is read as service.season_year reads it.
-- **Codex round 1 (two P2s, both fixed):** the provider's own results/paging line goes through the same redactor as the rows; run as a script, no bytecode file of the repo is written (a test runs it with PYTHONPYCACHEPREFIX and finds none; a control shows the check sees a write), and the test's own import no longer caches the probe.
-- **Tests:** tests/test_ncaa_listing_probe.py (33), on invented rows only; no network. Each test added for a finding fails without its fix.
-- **Unchanged:** every sync, the adapter and the database. Nothing runs on a schedule.

@@ -1700,6 +1700,7 @@ def predict_cmd(sport: str, competition_code: str, season: str, version: str | N
     from src.db.schema import Competition, Match, MatchStatus, Sport
     sport_enum = Sport.SOCCER if sport == "soccer" else Sport.MLB
     n = generate_predictions(competition_code, season, model_version=version, sport=sport_enum)
+    _v23_shadow_receipts()                                  # soccer-v23's shadow: one line on a PL pass (436 item 7)
     if n == 0:
         # Diagnose: is the season missing? all matches finished? no strengths?
         with session_scope() as s:
@@ -2185,6 +2186,86 @@ def intl_venue_override_cmd(db, apply_, provider_check):
         raise SystemExit(2)
     for line in iv.rederive_lines(r):
         click.echo(line)
+
+
+@cli.command("intl-venue-by-id")
+@click.option("--db", "db", required=True,
+              help="A .backup copy of the database OUTSIDE data/ (law 5; addendum 346's fence, as intl-elo-confirm "
+                   "--db): opened mode=ro + immutable=1, never created, refused under data/, as the app's configured "
+                   "database, when missing, or with a -wal/-shm/-journal beside it; its path and sha256 are printed.")
+@click.option("--out-dir", default="logs/venue_by_id", show_default=True,
+              help="Where each by-id answer is kept (venue_id_<id>.json, written before it is used) and replayed on a "
+                   "re-run; never under data/.")
+@click.option("--max-calls", default=700, show_default=True, type=click.IntRange(min=0),
+              help="Provider calls this run at most; the run stops at the cap and a re-run continues from the kept "
+                   "answers.")
+@click.option("--plan", "plan_only", is_flag=True, help="Print the ids, the kept answers and the calls needed; call "
+              "nothing.")
+@click.option("--fixtures-dir", default=None,
+              help="Optional: the intl-sync --save folder (fixtures_*.json); prints, for each differing id, the "
+                   "grounds (name, city) the saved fixtures name for it, and the stored ids named under two or more.")
+def intl_venue_by_id_cmd(db, out_dir, max_calls, plan_only, fixtures_dir):
+    """THE BY-ID VENUE RECEIPT (ARCHITECT 2026-11-19, addendum 433 item 4), read-only: for every venue id stored on a
+    copy, the provider's answer by id (/venues?id=<id>, one call each, kept under --out-dir, capped, resumable), and
+    counts: ids whose by-id country agrees with the stored country, differs, or is not served; for each id that
+    differs, its stored games by home country with the flag now and the flag under the by-id country, the cohort
+    fixtures among them named. A stored id that is not a positive integer is never asked and is its own class; an
+    answer refusing the id is kept as served and is its own class (ARCHITECT 2026-11-21, addendum 437 item 2). Reads no
+    score and no result, writes no row, prints no log-loss. Exit 0 complete, 3 incomplete (the cap, a failed call or
+    any other errors block: re-run to continue), 2 refused."""
+    from sqlalchemy.exc import DBAPIError as _DBAPIError
+
+    from src.ingestion import intl_venue_by_id as vb
+    from src.walters import intl_shadow as us
+    from src.walters import mlb_pitchers_gate as _mpg
+
+    try:
+        out = vb.check_out_dir(out_dir)
+        copy = us.check_copy(db)
+        try:
+            sha_before = us.copy_sha256(copy)
+        except OSError as err:
+            raise vb.ByIdRefused(f"--db {copy}: the copy could not be hashed ({err!r}); nothing read, nothing written")
+        click.echo(f"--db {copy} · sha256 {sha_before} · a .backup copy, opened {_mpg.COPY_URI_QUERY.lstrip('?')} "
+                   "(the app's database is not read)")
+        try:
+            with _mpg.readonly_session(copy) as _s:
+                stored = vb.stored_venues(_s)
+                try:                                       # only the two checks after the read (#940 item 2)
+                    sha_after = us.copy_sha256(copy)
+                    sides_after = us.copy_sidecars(copy)
+                except OSError as err:
+                    raise vb.ByIdRefused(f"--db {copy}: the copy could not be re-read after the read ({err!r})")
+        except _DBAPIError as err:
+            raise vb.ByIdRefused(f"--db {copy}: the copy could not be read ({err.orig!r})")
+        if sides_after:
+            raise vb.ByIdRefused(f"--db {copy} changed during the read: {', '.join(sides_after)} appeared beside it, "
+                                 "which immutable=1 ignores")
+        if sha_after != sha_before:
+            raise vb.ByIdRefused(f"--db {copy} changed during the read (sha256 {sha_before[:16]}… before, "
+                                 f"{sha_after[:16]}… after)")
+        cohort, cohort_why = vb.cohort_ids()
+        grounds, fixtures_read = None, None
+        if fixtures_dir:                                   # read and checked before any call
+            grounds, n_files, n_fixtures = vb.grounds_from_fixtures(fixtures_dir)
+            fixtures_read = (n_files, n_fixtures)
+        fetched = vb.fetch(stored, out, max_calls=max_calls, plan_only=plan_only)
+    except us.ShadowRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    except vb.ByIdRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    if plan_only:
+        click.echo(f"INTL-VENUE-BY-ID ({vb.RULING}) · PLAN, nothing called · stored venue ids {len(stored)} · answers "
+                   f"kept under {out} {fetched['kept_before']} · calls needed {fetched['need']} (cap {max_calls}) · "
+                   f"{vb.NOT_PROVIDER_ID}, never asked: {len(fetched['unaskable'])}")
+        return
+    r = vb.classify(stored, fetched, cohort, grounds)
+    for line in vb.lines(r, fetched, out, max_calls, cohort_why, fixtures_read):
+        click.echo(line)
+    if r["not_asked"]:
+        raise SystemExit(3)
 
 
 @cli.command("intl-elo-backtest")
@@ -6657,9 +6738,11 @@ def nfl_v2_fit_warmup_cmd(db):
 
 @cli.command("soccer-v23-gate")
 @click.option("--preflight", is_flag=True,
-              help="Fits nothing, prices nothing: the slots, the constants, the bar, the copy's production version "
-                   "and poisson params, the counts per competition and season, the scored n, the fences at the cut; "
-                   "its last line is the stream fingerprint.")
+              help="Fits and prices neither arm, scores nothing: the slots, the constants, the bar, the copy's "
+                   "production version and poisson params, the counts per competition and season, the scored n, the "
+                   "fences at the cut, each recorded figure's count on the copy and its wholeness (addendum 443 item "
+                   "2(c): its rows named by soccer-backtest's own walk, ids only); its last line is the stream "
+                   "fingerprint, given only when every recorded set is whole.")
 @click.option("--architect-word", "word", default=None,
               help="The architect's word to start the ONE run, verbatim (216 item 3: 11-27, the operator's block).")
 @click.option("--stream-fingerprint", "fingerprint", default=None,
@@ -6672,13 +6755,17 @@ def nfl_v2_fit_warmup_cmd(db):
               help="Cross-ref guard (#329): skip fetching origin laptop/*.")
 def soccer_v23_gate_cmd(preflight, word, fingerprint, db, no_fetch):
     """soccer-v23 GATE (ARCHITECT 2026-11-04, addendum 248 item 2(b); addendum 230 item 1(d); addendum 216 items
-    1-3; addendum 251 item 2; GATE-CLASS; lane soccer-v23, #656). REGISTERED, NEVER RUN BEFORE THE DECLARATION: the
-    run refuses (exit 2, nothing reserved, nothing recorded) while the registry holds no declared soccer-v23 entry, and
-    it holds none until the architect's declaration (11-20); the one run is the operator's block on the architect's
+    1-3; addendum 251 item 2; addendum 443 item 1(c); GATE-CLASS; lane soccer-v23, #656). DECLARED BY ADDENDUM 449
+    (2026-11-23T13:05:00Z), NOT RUN: the
+    run refuses (exit 2, nothing reserved, nothing recorded) without a declared, unrun soccer-v23 entry (the registry
+    holds it since addendum 449: the slots, the constants, the gate); the one run is the operator's block on the architect's
     word (11-27). THE BAR (src/walters/soccer_v23.py BAR_TEXT, docs/specs/soccer-v23.md): soccer-v23's mean three-way
-    log-loss on the frozen pot at least 0.0050 BELOW BOTH v22's recorded figure (a declaration slot, never
-    recomputed) AND v22 re-walked on this harness (as-of context, same scored set, skip zero); a tie on either a
-    rejection; the early-season matches included."""
+    log-loss at least 0.0050 BELOW v22 re-walked on this harness on the frozen pot (as-of context, same scored set,
+    skip zero) AND, for EACH of v22's recorded figures (the declaration slot v22_recorded, a list, never recomputed),
+    at least 0.0050 below it OVER THE SAME MATCHES (the rows run_soccer_backtest itself scores for that competition
+    and season on the copy at min_prior 40); three comparisons with two recorded figures, PASS iff all hold, a tie on
+    any one a rejection; a recorded set not whole on the copy refuses before the reservation; the early-season matches
+    included."""
     from src.walters import registry as reg
     from src.walters import soccer_v23 as g
 
@@ -6705,6 +6792,77 @@ def soccer_v23_gate_cmd(preflight, word, fingerprint, db, no_fetch):
         raise SystemExit(2)
     click.echo(f"  recorded: {e['run']['n_scored']} scored ids · sha {e['run']['ids_sha256'][:12]}… · "
                f"{e['run']['ids_file']} (commit docs/registry/ in a PR)")
+
+
+@cli.command("leagues-window-read")
+@click.option("--code", "code", default=None, help="PD, SA, FL1, ELC or BL1: the leagues window to read.")
+@click.option("--db", "db", default=None,
+              help="The host's pulled .backup copy, OUTSIDE data/ (law 5), opened mode=ro + immutable=1 (addendum 346's "
+                   "fence: never created, never the app's database, no -wal/-shm/-journal beside it). REQUIRED.")
+@click.option("--exports", "exports", default=None,
+              help="The host's pages, pulled into a folder OUTSIDE the checkout and outside data/ (addendum 447 item 2 "
+                   "B2(a)-(b): refused inside the checkout; never written). REQUIRED.")
+@click.option("--pages-digest", "pages_digest", default=None,
+              help="The digest the host printed for its pages (sha256sum's lines, sorted by name bytewise, hashed: "
+                   "B2(c)); the read refuses a folder whose digest differs. REQUIRED.")
+@click.option("--preflight", is_flag=True,
+              help="Counts only, the first date the read is allowed, then the WINDOW FINGERPRINT; scores nothing, "
+                   "reserves nothing, writes nothing.")
+@click.option("--architect-word", "word", default=None, help="The architect's word to start the ONE read, verbatim.")
+@click.option("--window-fingerprint", "fingerprint", default=None,
+              help="The fingerprint --preflight printed; the read refuses a window that differs.")
+@click.option("--no-fetch", "no_fetch", is_flag=True, help="Cross-ref guard (#329): skip fetching origin laptop/*.")
+@click.option("--record-verdict", "verdict", default=None,
+              help="PASS or REJECT: record the architect's verdict on the recorded read (B1: a separate invocation, "
+                   "refused unless the word equals the computed verdict).")
+@click.option("--ruling", "ruling", default=None, help="With --record-verdict: the architect's words, verbatim.")
+def leagues_window_read_cmd(code, db, exports, pages_digest, preflight, word, fingerprint, no_fetch, verdict, ruling):
+    """THE LEAGUES WINDOWS' ONE READ (ARCHITECT 2026-11-22 09:18 ET, addendum 447 items 1-2 and 4 PR 1; lane leagues,
+    #322). Three invocations: --preflight (counts, the first allowed date, the WINDOW FINGERPRINT); the ONE read
+    (--architect-word, --window-fingerprint); --record-verdict PASS|REJECT --ruling (B1). Every refusal prints REFUSED
+    and exits 2 with nothing reserved, in src/walters/leagues_read.py's order; a failure after the reservation says the
+    read is spent (the reservation stands; released only by the architect's ruling) and records nothing. The read
+    records registry.record_run (the 60 ids; the result with the opening, the per-id account, the audit, the copy's
+    sha256 and the pages digest): commit docs/registry/ on the laptop/<eid>-run-record branch. Changes no prediction
+    output."""
+    from src.walters import leagues_read as lr
+    from src.walters import registry as reg
+
+    if verdict is not None or ruling is not None:
+        if preflight or word or fingerprint:
+            click.echo("REFUSED: --record-verdict is its own invocation (addendum 447 item 2 B1); nothing recorded")
+            raise SystemExit(2)
+        try:
+            e = lr.record_verdict(code, verdict, ruling)
+        except lr.ReadRefused as err:
+            click.echo(f"REFUSED: {err}")
+            raise SystemExit(2)
+        click.echo(f"  recorded: {e['id']} verdict {e['verdict']['verdict']} at {e['verdict']['at']} · status "
+                   f"{e['status']} (commit docs/registry/ in a PR)")
+        return
+    try:
+        if preflight:
+            if word or fingerprint:
+                raise lr.ReadRefused("--preflight takes no word and no fingerprint; nothing read")
+            for line in lr.preflight_lines(code, db, exports, pages_digest):
+                click.echo(line)
+            return
+        click.echo(f"LEAGUES WINDOW READ · THE ONE READ · {code} · word: {word!r} · window fingerprint {fingerprint!r}")
+        res = lr.run(code, db, exports, pages_digest, word, fingerprint, no_fetch=no_fetch,
+                     echo=lambda line: click.echo(f"  {line}"))
+    except lr.ReadRefused as err:
+        click.echo(f"REFUSED: {err}")
+        raise SystemExit(2)
+    for line in lr.run_lines(res):
+        click.echo(line)
+    try:
+        e = lr.record(res["code"], res)
+    except (reg.RegistryError, OSError, ValueError) as err:     # never a traceback after the reservation
+        click.echo(f"NOT RECORDED: {type(err).__name__}: {err} (the reservation stands: the read is spent; inspect "
+                   "docs/registry/ before anything else)")
+        raise SystemExit(2)
+    click.echo(f"  recorded: {e['run']['n_scored']} ids · sha {e['run']['ids_sha256'][:12]}… · {e['run']['ids_file']} "
+               "(commit docs/registry/ on the laptop/<eid>-run-record branch)")
 
 
 @cli.command("capture-weather-nfl")
@@ -7156,17 +7314,27 @@ def kalshi_disagreement_cmd(since):
 _RPS_NOTE = "RPS reported only — not an acceptance criterion"
 
 
-def _soccer_prod_poisson():
+def _soccer_prod_poisson(s=None):
     """(version, rho, elo_goal_coeff) of the PRODUCTION soccer model's stored
-    poisson config, or None when there is no production model (never faked)."""
+    poisson config, or None when there is no production model (never faked).
+    `s`: a session to read through (soccer-expansion-confirm --db: the copy's, addendum 453 item 3(d)); None reads
+    the app's database, as before. With `s`, a database error on the copy is RAISED, never read as "no production
+    model" (law 4): soccer_expansion.on_copy refuses it ("the copy could not be read"), so the NOTE line never vanishes
+    unlabelled on a copy it could not read (review of 453 item 3(d))."""
+    from contextlib import nullcontext as _given
+    from sqlalchemy.exc import DBAPIError
     from src.walters.training import _resolve_model_version
     from src.db.database import session_scope as _scope
     from src.models.poisson import PoissonConfig
     try:
-        with _scope() as _s:
+        with (_scope() if s is None else _given(s)) as _s:
             mv = _resolve_model_version(_s, None, Sport.SOCCER)
             pz = {**PoissonConfig().as_dict(), **((mv.parameters or {}).get("poisson") or {})}
             return mv.version, float(pz["dixon_coles_rho"]), float(pz["elo_goal_coeff"])
+    except DBAPIError:
+        if s is not None:
+            raise
+        return None
     except Exception:
         return None
 
@@ -7725,7 +7893,14 @@ def soccer_expansion_shadow_grade_cmd(days):
 @click.option("--no-fetch", "no_fetch", is_flag=True,
               help="With --freeze-cohort, cross-ref guard (#329): skip fetching origin laptop/*; only the refs this "
                    "clone knows are checked and the receipt says other clones were not checked.")
-def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
+@click.option("--db", "db", default=None,
+              help="A .backup copy of the database OUTSIDE data/ (law 5; addendum 453 item 3(d), intl-elo-confirm "
+                   "--db's fence): the whole read on the copy, opened mode=ro + immutable=1, never created, refused "
+                   "under data/, as the app's configured database, when missing, or with a -wal/-shm/-journal beside "
+                   "it; its path and sha256 are printed first. Serves the no-flag read, --record and --substitute "
+                   "(the pick printed before anything is written; the evidence carries the copy's file name and "
+                   "sha256); --freeze-cohort is refused with it. Registry writes land in this checkout as before.")
+def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch, db):
     """soccer-expansion-v1 CONFIRMATION READ (ARCHITECT 2026-10-08, addendum 11, item 4; declared window): the first
     60 league games of the surviving set kicking off after the verdict, pooled, regular-season rounds only (F3),
     priced by the gate's own walk (per league-season from a cold start, min_prior 40, same-kickoff batching, the run
@@ -7735,7 +7910,14 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
     UNSCOREABLE one (cancelled / abandoned / awarded / walkover, or AET/PEN without a 90-minute score) is released,
     replaced by the next eligible fixture after the cohort and recorded with the raw code (--substitute).
     Without flags: progress only. --record: registry.record_confirmation computes CONFIRMED / NOT_CONFIRMED on
-    exactly the frozen cohort. Refused unless the registry holds the run and a PASS verdict."""
+    exactly the frozen cohort. Refused unless the registry holds the run and a PASS verdict.
+    --db COPY (ARCHITECT 2026-11-23, addendum 453 item 3(d); intl-elo-confirm --db's twin, addendum 346 item 1): the
+    read runs on a .backup copy outside data/ (soccer_expansion.check_copy: mlb_pitchers_gate.check_db's fence, no
+    sidecar beside it) through mlb_pitchers_gate.readonly_session (mode=ro + immutable=1), the copy's path and sha256
+    printed first. It serves the no-flag read, --record and --substitute (453 item 3(b) amends 346 item 1 for
+    --substitute only): the pick is printed before anything is written, and the substitution's evidence gains the
+    copy's file name and sha256. The registry writes land in this checkout's docs/registry/ as before (commit them in
+    a PR). --freeze-cohort is REFUSED with --db. Without --db nothing changes."""
     from collections import Counter
 
     from src.db.database import session_scope
@@ -7743,7 +7925,18 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
     from src.walters import registry as reg
     from src.walters import soccer_expansion as sx
     iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    if db is not None and freeze_cohort:
+        click.echo("REFUSED: --db reads a copy; --freeze-cohort is never run on a copy (addendum 346 item 1, kept by "
+                   "addendum 453 item 3(b): \"--freeze-cohort stays refused on a copy: nothing needs it.\"). Nothing "
+                   "was read or written.")
+        raise SystemExit(2)
+    copy = sha = prod_copy = None
     try:
+        if db is not None:                           # the copy's path and sha256 FIRST, before any read (453 3(d))
+            from src.walters import mlb_pitchers_gate as _mpg
+            copy, sha = sx.open_copy(db)
+            click.echo(f"--db {copy} · sha256 {sha} · a .backup copy, opened {_mpg.COPY_URI_QUERY.lstrip('?')} (the "
+                       "app's database is not read)")
         if freeze_cohort:
             e, surv, _ = sx.confirming()
             with session_scope() as s:
@@ -7777,10 +7970,15 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
             return
         if substitute:
             e, surv, _ = sx.confirming()
-            with session_scope() as s:
-                due = sx.substitutions_due(e, s, surv)
-                unpl = sx.eligible_fixtures(s, e, surv)[1]
-                s.rollback()
+            if db is None:
+                with session_scope() as s:
+                    due = sx.substitutions_due(e, s, surv)
+                    unpl = sx.eligible_fixtures(s, e, surv)[1]
+                    s.rollback()
+            else:                                    # the same calls on the copy's session (453 item 3(b))
+                due, unpl = sx.on_copy(copy, sha, lambda s: (sx.substitutions_due(e, s, surv),
+                                                             sx.eligible_fixtures(s, e, surv)[1]),
+                                       nothing="nothing substituted")
             if not due:
                 click.echo("SUBSTITUTE: no unscoreable fixture in the cohort — nothing released")
                 return
@@ -7791,22 +7989,38 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
                            "before a replacement's kickoff (F3; never guessed, never skipped): " + "; ".join(bad))
                 raise SystemExit(2)
             ledger, ids_dir = sx._reg_paths()
+            if db is not None:                       # 453 item 3(d): the pick PRINTED before anything is written
+                for d in due:
+                    f, rep, last = d["released"], d["replacement"], d["last"]
+                    frm = (f"the first eligible fixture after the latest (kickoff, id) in or ever in the cohort, "
+                           f"({iso(last[0])}, {last[1]})" if last is not None else "no (kickoff, id) in the cohort "
+                           "is stored as eligible")
+                    click.echo(f"  PICK (the rule as built, 453 item 2(b); nothing written yet): release {f['id']} "
+                               f"(raw {f['status_raw'] or 'NULL'}, {f['status']}, reason {d['reason']}, {f['code']} "
+                               f"{iso(f['kickoff'])}) -> "
+                               + (f"{rep['id']} ({rep['code']}, kickoff {iso(rep['kickoff'])}), {frm}"
+                                  if rep is not None else f"none stored yet (WAITING), {frm}"))
             for d in due:
                 f, rep = d["released"], d["replacement"]
                 if rep is None:
                     click.echo(f"  WAITING: {f['id']} ({f['status_raw'] or f['status']}) — no eligible fixture after "
                                "the cohort is stored yet; sync the schedule")
                     continue
-                reg.substitute_cohort_fixture(sx.EID, f["id"], rep["id"], d["reason"], {
-                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,  # incl. STALE_ORPHAN
-                    "kickoff": iso(f["kickoff"]), "code": f["code"],
-                    "replacement_kickoff": iso(rep["kickoff"]), "replacement_code": rep["code"]},
-                    path=ledger, ids_dir=ids_dir)
+                ev = {"status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,  # incl. STALE_ORPHAN
+                      "kickoff": iso(f["kickoff"]), "code": f["code"],
+                      "replacement_kickoff": iso(rep["kickoff"]), "replacement_code": rep["code"]}
+                if db is not None:                   # 453 item 3(b): the evidence carries the copy's name and sha256
+                    ev.update(copy_file=copy.name, copy_sha256=sha)
+                reg.substitute_cohort_fixture(sx.EID, f["id"], rep["id"], d["reason"], ev,
+                                              path=ledger, ids_dir=ids_dir)
                 click.echo(f"  SUBSTITUTED: {f['id']} ({d['reason']}, {f['code']} {iso(f['kickoff'])}) -> {rep['id']} "
                            f"({rep['code']} {iso(rep['kickoff'])})")
             click.echo("  commit docs/registry/ in a PR")
             return
-        r = sx.confirmation_read()
+        if db is None:
+            r = sx.confirmation_read()
+        else:                                        # the read and the production model's NOTE, both on the copy
+            r, prod_copy = sx.on_copy(copy, sha, lambda s: (sx.confirmation_read(s=s), _soccer_prod_poisson(s)))
     except (sx.ExpansionRefused, reg.RegistryError) as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
@@ -7818,7 +8032,7 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
     click.echo(f"  model: the run record's {p['production_version']} (rho {p['rho']}, elo_goal_coeff "
                f"{p['elo_goal_coeff']}; never refit) · walk min_prior {sx.MIN_PRIOR}, regular season, same-kickoff "
                "batched")
-    prod = _soccer_prod_poisson()
+    prod = _soccer_prod_poisson() if db is None else prod_copy
     if prod is not None and (prod[0], prod[1], prod[2]) != (p["production_version"], p["rho"], p["elo_goal_coeff"]):
         click.echo(f"  NOTE: the current production soccer model is {prod[0]} (rho {prod[1]}, elo_goal_coeff "
                    f"{prod[2]}), not the run record's — the read stays on the candidate as gated")
@@ -8981,6 +9195,26 @@ def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit, list_ours):
             click.echo(f"  {x['t']:%Y-%m-%d %H:%M} [{x['season']}] match {x['match_id']} {x['ours']} · "
                        f"{x['cause']} · nearest API: {x['api'] or 'none within ±7d'} · delta {d}"
                        + (f" · API game linked to match {x['api_linked_to']}" if x['api_linked_to'] else ""))
+
+
+@cli.command("nhl-ceiling-probe")
+@click.option("--db", "db_path", required=True, metavar="COPY",
+              help="A .backup copy of the laptop's database (mode=ro + immutable=1; never under data/, never the "
+                   "configured DB). The app's database is never opened.")
+def nhl_ceiling_probe_cmd(db_path):
+    """THE TRUE-STARTER CEILING, A PROBE, ONE RUN (ARCHITECT 2026-11-24, addendum 491; GATE-CLASS).
+
+    Read-only: runs addendum 491's items 3 to 7 in order on the --db copy and
+    writes nothing (no registry entry, no export, no row). It refuses,
+    printing no log-loss, unless the scored games are the 1,394 nhl-v6/v7/v8
+    recorded, both starters are known on every one, v1 reads 0.6909 and the
+    home-rate baseline less 0.010 reads 0.6866. The verdict line is
+    beats_margin(the leave-one-out log-loss, the home-rate baseline). Exit 0
+    when the console reaches the verdict line; 2 on a refusal (not a run)."""
+    from src.walters import nhl_ceiling as nc
+    code = nc.run(db_path, out=click.echo)
+    if code:
+        raise SystemExit(code)
 
 
 @cli.command("nhl-goalie-coverage")
@@ -10779,6 +11013,21 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
         lines = payload.count("\n")
         console.print(f"[green]✓ Wrote {max(lines - 1, 0)} rows to {out_path}[/green]")
     console.print(_window_line(start_date, end_date, window_how))
+    _v23_shadow_receipts(read_if_none=sport_enum == Sport.SOCCER and (competition_code or "PL").upper() == "PL")
+
+
+def _v23_shadow_receipts(read_if_none: bool = False) -> None:
+    """soccer-v23's shadow receipt (ARCHITECT 2026-11-21 08:04 ET, addendum 436 item 7): the line its gate read printed,
+    dormant with the reason or ON with the verdict stamp; printed plain (the reason is never read as markup).
+    `read_if_none` (a PL soccer export): when no PL row was built (an empty window), the gate is read here once, so the
+    export's one line is printed whatever the window held (Codex on #1064)."""
+    from src.walters import soccer_v23_shadow as v23s
+    lines = list(dict.fromkeys(v23s.take_receipts()))
+    if not lines and read_if_none:
+        with session_scope() as s:
+            lines = [v23s.read_gate(s).receipt()]
+    for line in lines:
+        click.echo(line)
 
 
 def _closing():

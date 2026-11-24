@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import socket
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from click.testing import CliRunner
@@ -157,6 +157,7 @@ def test_lanes_data_is_the_print_as_data_with_no_eta_for_an_undated_lane(tmp_pat
                                                                  "pl-availability",       # addendum 198
                                                                  "nfl-confirm",           # addendum 215 item 1
                                                                  "nfl-v2",                # addendum 265 item 4
+                                                                 "mlb-retire",            # addendum 472 item 1: earliest_live null
                                                                  "cups",                  # addendum 256 item 5
                                                                  "availability-record",   # addendum 252 item 7
                                                                  "soccer-v23",            # addendum 216 item 3
@@ -320,6 +321,7 @@ BROKEN = [
 # pd keeps [PD] for its own confirmation; a competition in two lanes is the truth").
 # ARCHITECT 2026-11-05 11:40 ET, addendum 261 item 1: "LANE basketball-market-only (Issue: Code files it; competitions
 # NBA, NCAAMB, WNBA; Sport.BASKETBALL = "basketball")".
+# ARCHITECT 2026-11-23 15:51 ET, addendum 472 item 1: lane mlb-retire on #746, "competitions ["MLB"]".
 RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["PD", "SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
                       "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "nfl-v2": ["NFL"],
                       "nfl-confirm": ["NFL"], "mlb-pitchers": ["MLB"], "pl-availability": ["PL"],
@@ -327,7 +329,8 @@ RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["PD", "SA", "BL1
                       "soccer-v23": ["PL"],       # addendum 216 item 3: the PASS shadow is on the host's PL pages
                       "basketball-market-only": ["NBA", "NCAAMB", "WNBA"],   # addendum 261 item 1: market-only
                       "tennis-market-only": ["ATP", "WTA"],   # addendum 261 item 2: "competitions ATP, WTA"
-                      "inferred-layer": None}   # addendum 375 item 3(c): a data layer across sports, no competitions ruled
+                      "inferred-layer": None,   # addendum 375 item 3(c): a data layer across sports, no competitions ruled
+                      "mlb-retire": ["MLB"]}   # addendum 472 item 1: competitions ["MLB"]
 
 
 def test_each_lane_carries_the_ruled_competitions():
@@ -571,15 +574,17 @@ def test_a_moved_line_that_does_not_match_the_move_fails(bad):
 
 def test_an_earliest_live_moved_needs_its_line_and_passes_with_it():
     lane = _lane(_real(), "unl")
-    base, head = _base_head(lambda d: _lane(d, "unl").__setitem__("earliest_live", "2026-11-20"))
+    # one day after the file's own date, so the move stays after the last step's due (addendum 426 item 3(e))
+    later = (date.fromisoformat(lane["earliest_live"]) + timedelta(days=1)).isoformat()
+    base, head = _base_head(lambda d: _lane(d, "unl").__setitem__("earliest_live", later))
     assert rm.check_moves(base, head) == [
-        f"lane 'unl': earliest_live {lane['earliest_live']} -> 2026-11-20 has no moved line on the head "
-        f"(which 'earliest_live', was {lane['earliest_live']!r}, now \"2026-11-20\")"]
+        f"lane 'unl': earliest_live {lane['earliest_live']} -> {later} has no moved line on the head "
+        f"(which 'earliest_live', was {lane['earliest_live']!r}, now \"{later}\")"]
 
     def edit(d):
         ln = _lane(d, "unl")
-        ln["moved"].append(_mv("earliest_live", ln["earliest_live"], "2026-11-20"))
-        ln["earliest_live"] = "2026-11-20"
+        ln["moved"].append(_mv("earliest_live", ln["earliest_live"], later))
+        ln["earliest_live"] = later
     base, head = _base_head(edit)
     assert rm.validate(head) == [] and rm.check_moves(base, head) == []
 
@@ -847,13 +852,16 @@ def test_one_moved_line_records_one_move():
     assert rm.validate(base) == []
     head = copy.deepcopy(base)
     hl = _lane(head, "unl")
-    hl["earliest_live"] = "2026-11-20"
-    hl["steps"][-1]["due"] = "2026-11-20"
-    hl["moved"].append(_mv("earliest_live", old, "2026-11-20"))
+    # the new date lies after every step of the real lane, so the dues still run forward (addendum 480 item 3(c)
+    # appended steps due in 2027 before the last one)
+    new = (date.fromisoformat(old) + timedelta(days=30)).isoformat()
+    hl["earliest_live"] = new
+    hl["steps"][-1]["due"] = new
+    hl["moved"].append(_mv("earliest_live", old, new))
     assert rm.validate(head) == []
     errs = rm.check_moves(base, head)
     assert len(errs) == 1 and errs[0].startswith("lane 'unl' step "), errs
-    hl["moved"].append(_mv("earliest_live", old, "2026-11-20", why="the step's own line"))
+    hl["moved"].append(_mv("earliest_live", old, new, why="the step's own line"))
     assert rm.check_moves(base, head) == []
 
 

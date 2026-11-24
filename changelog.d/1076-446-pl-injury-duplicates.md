@@ -1,0 +1,13 @@
+## 2026-11-22 (#1076: 446-pl-injury-duplicates — the PL injury duplicate receipt, read-only tooling (ARCHITECT 2026-11-22, addendum 446 item 1; Refs #1052))
+- **scripts/pl_injury_duplicate_receipt.py `--exports DIR|TREE --db COPY [--from INSTANT] [--through INSTANT]`:**
+  - The population is every PL closing row of 2026/27: family SOCCER, row competition PL, row season 2026/27, one row per match (the last in-bound run's). Earlier runs are counted. #688's floor is not inherited.
+  - Every row is printed. For each side it prints the entries, the names shown, and the pairs that fold to one player: kinds `accent` and `double surname` in the headline, `identical` counted, `initial form` apart, AMBIGUOUS never paired. It also prints distinct by fold, and the page's factor_breakdown count and note beside the page count. A row with no pair and no ambiguity prints on one compact line with both sides' fields.
+  - Distinct by fold is "at most" where a side has an AMBIGUOUS entry: each ambiguous group holds at least one duplicate under the fold, so long / short / short reads at most 2. A side above 8 entries is counted as names cut, not fully pairable.
+  - "Two source ids or one" reads UNKNOWN where the copy has no `player_source_id` column or no PL 2026/27 team's row carries one, with its file:line causes and the copy's `PRAGMA table_info(injuries)` result. Where some do, each pair on a recoverable side reads "two ids", "one id" or "unknown (a NULL)", read by the stored row's id. The side's distinct-by-id count is printed only when every stored entry has an id. Everything else reads UNKNOWN with its cause.
+  - A bad `--exports` is refused before the copy is opened.
+  - On a side that #688's `recoverable()` passes, it prints each paired entry's stored type, fixture_source_id and position.
+  - The rule is printed before any result. No player name is printed.
+  - It reuses #688's fold, --db fence, `read_db` and `recoverable` by path.
+  - No provider call; nothing written; nothing de-duplicated.
+- **Tests:** tests/test_pl_injury_duplicate_receipt.py, 57 tests.
+- **docs/CLI.md:** the row. **scripts/README.md:** the TOOL line; the Counts line recounted (117 indexed: LIVE 10, TOOL 65, ONE-OFF 30, UNDETERMINED 12; `git ls-files scripts` 121 at the head, three scripts not yet indexed). Nothing run.

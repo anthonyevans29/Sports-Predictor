@@ -126,14 +126,50 @@ addendum 271 item 3(h); addendum 284 item 1(b)).
 `soccer-refresh` has a service and no timer, and the operator starts it
 (`deploy/hosting/systemd/sp-soccer-refresh.service`; `deploy/hosting/chains.py`, H0-6).
 
-**Laptop.** The morning routine, in order (docs/specs/h2-cutover-runbook.md
-section 1 step 7, addendum 169 item 4(ii)): (1) the daily `.backup`, outside
-`data/`, before anything writes; (2) MLB: the `mlb-morning` chain's steps
-(`deploy/hosting/chains.py`), then `mlb-preslate`'s steps and the MLB closing
-watch at their times; (3) read-only receipts, the day's blocks that read the
-laptop's database; (4) tally: `results-tally`, the last step of
-`mlb-morning`; (5) mirror: `python deploy/hosting/exports_mirror.py push
---role laptop --label morning`. docs/CLI.md "MLB daily operation" holds an
+**Laptop.** The morning routine's steps are one committed list and one
+command (addendum 451 item 3, amended by addendum 461 items 2 to 4):
+`python deploy/hosting/laptop_routine.py [--weekly] [--dry-run]`. It
+refuses (exit 2, nothing run) when `desk_policy.not_laptop_reason()` gives a
+reason, and prints it. It runs each step on the checkout's `cli.py` in
+order, a failing step never stopping the next. The daily list is 16 steps,
+in order: MLB (`sync-matches` from 2026-10-15 to tomorrow, `evaluate`,
+`improve --hold-on-pass`, `export-results`, `sync-kalshi`), NBA and NCAAMB
+one day at a time (today-2 to tomorrow), NCAA (`sync-teams`, `sync-matches`
+today-8 to yesterday, the `dedupe-matches --orphans` dry run), NHL's three
+days, its fixtures export and `nhl-goalie-sync`, ATP and WTA with their two
+Kalshi syncs, and `results-tally`. `--weekly` adds the whole-season pass
+before NCAA's `sync-teams`: `sync-teams` and `sync-matches` for every
+competition-season in the laptop's database with a game from 2026-07-01,
+except MLB, ATP, WTA, WC and NCAA. The list itself is `DAILY` in the module.
+Each step has a limit (461 item 3(a)): "1,200 for a daily step (each
+single-day sync counts as its own step), 2,400 for each line of the weekly
+pass". The limit is each command's, as built, ruled by addendum 469 item
+5(1): "2,400 s for each command of a weekly line and 1,200 s for each command
+of a daily step" (each of a weekly line's two commands gets its own 2,400 s,
+and each command of daily steps 14 and 15 its own 1,200 s). At the limit
+the step gets SIGTERM, then SIGKILL 10 s later; its line and receipt say
+"timed out after N s", its exit is null, it counts as failed, and the next
+step runs. Exits (461 item 3(d)): 0 when every step is clean or its exit is
+marked routine and every receipt is written; 1 when a step failed, timed
+out, could not start, or went unreceipted (a step whose output could not be
+read whole included: "unreceipted in 461 item 3(d)'s sense; the run exits 1
+and the receipt says why", addendum 469 item 5(2)); 2 for the refusal. It counts
+exits, not outcomes (addendum 479 item 1; finding #1102): ten of the twelve
+commands can end a real failure with exit 0 (`sync-kalshi`,
+`sync-kalshi-atp`, `sync-kalshi-wta`, `export-results`, `sync-matches`,
+`sync-teams`, `improve`, `dedupe-matches`, `nhl-goalie-sync`,
+`results-tally`; the module's docstring names the kind of failure each lets
+through), so its last line, after the counts, reads "exits counted, not outcomes: a step that exits 0 may still
+have failed (see #1102)". The architect's block
+keeps the rest (451 item 3(c)): the backup, first (the command is not
+called if it failed), then `coverage`, then the command; the MLB orphan
+dry run (`retire-orphans`, no `--apply`), by hand, after the command returns
+(461 item 2(a)); the roadmap
+read, the mirror push, the stale count and the read of the four guarded
+college rows. No timer, no launchd job, no page, and never `soccer-refresh`.
+Five MLB steps stay in the command through the off-season and the sixth is
+the architect's; `mlb-preslate` is ruled when the season nears (451 item
+3(f) 7, amended by 461 item 2(a)). docs/CLI.md "MLB daily operation" holds an
 earlier two-phase text of the morning chain (architect 2026-10-01).
 
 ## CLI reference

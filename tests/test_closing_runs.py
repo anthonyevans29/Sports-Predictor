@@ -2480,3 +2480,93 @@ def test_568_a_day_whose_only_mlb_row_is_a_stale_orphan_forms_no_closing_and_no_
     capsys.readouterr()
     assert mc.slate_watch("MLB", NOW, dry_run=True) == 0
     assert capsys.readouterr().out == f"  SLATE MLB {day.isoformat()}: no game that day — nothing to run\n"
+
+
+# ======================= addendum 502 item 2 Q5; addendum 503 item 1 Q5-Q7: a notice no channel took is not a notice ==
+
+def no_channel(box, monkeypatch, ops=None):
+    """Every channel refuses: the screen (not macOS), the card topic (ntfy did not accept), the operator topic."""
+    monkeypatch.setattr(mc, "notify", lambda body, title="Closing": {"posted": False, "skipped": "not macOS"})
+    box.page_ok = False
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: (ops.append(b) if ops is not None else None)
+                        or {"accepted": False, "error": "NTFY_TOPIC unset or invalid"})
+
+
+def test_503_a_failed_run_no_channel_took_exits_1_and_its_receipt_says_so(box, monkeypatch):
+    """502 item 2 Q5: "a run whose failure notice was refused by every channel does not exit as notified; it exits
+    as a failure and its receipt says so." The same run with the operator topic taking it stays NOTIFIED."""
+    import sp_receipts
+    no_channel(box, monkeypatch)
+    box.fail_cmd["sync-matches"] = (1, ["boom"])
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == 1
+    r = runs()[-1]
+    assert r["failure_notification"]["channel"] is None and r[mc.NOTICE_NOT_TAKEN] is True
+    assert sp_receipts.key_line(r).endswith("; NOTICE NOT TAKEN: no channel took it") and sp_receipts.failed(r)
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: {"accepted": True, "http": 200})
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW + timedelta(minutes=1)) == mc.NOTIFIED
+    r = runs()[-1]
+    assert r["failure_notification"]["channel"] == "operator" and mc.NOTICE_NOT_TAKEN not in r
+    assert not sp_receipts.key_line(r).endswith("no channel took it")
+
+
+def test_503_a_run_by_hand_is_unchanged(box, monkeypatch):
+    """A run by hand notifies nothing and keeps exit 1 (addendum 45 P3), whatever the channels."""
+    no_channel(box, monkeypatch)
+    box.fail_cmd["sync-matches"] = (1, ["boom"])
+    assert mc.run("NFL", start=at(35), now=NOW) == 1
+    r = runs()[-1]
+    assert "failure_notification" not in r and mc.NOTICE_NOT_TAKEN not in r
+
+
+def test_503_a_closing_miss_no_channel_took_is_sent_again_until_one_takes_it(box, monkeypatch):
+    """503 item 1 Q5 ("a closing miss") and Q6: "a miss is marked as already notified only when a channel took that
+    notice." Today's mark was set on any notice sent (the second case), so it moves to delivery: a miss no channel
+    took is sent again on the next tick, exit 1 each time; once one is taken, a later tick sends nothing (exit 3)."""
+    ops = []
+    no_channel(box, monkeypatch, ops)
+
+    def soccer_misses():
+        return [r for r in receipts() if r["kind"] == "closing_miss" and r["family"] == "SOCCER"]
+
+    def miss_pages():                 # the same ticks also run the 13:25 closing, whose page fails: not counted here
+        return [b for b in ops if ": MISSED: inside T-5" in b]
+    assert mc.watch(now=NOW + timedelta(minutes=31), families=("SOCCER",)) == 1       # first seen inside T-5
+    (first,) = soccer_misses()
+    assert first["reason"].startswith("inside T-5") and first[mc.NOTICE_NOT_TAKEN] is True and len(miss_pages()) == 1
+    assert mc.watch(now=NOW + timedelta(minutes=32), families=("SOCCER",)) == 1       # sent again, not taken again
+    assert len(soccer_misses()) == 2 and len(miss_pages()) == 2
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: ops.append(b) or {"accepted": True, "http": 200})
+    assert mc.watch(now=NOW + timedelta(minutes=33), families=("SOCCER",)) == mc.NOTIFIED   # every notice taken
+    taken = soccer_misses()[-1]
+    assert taken["notified"]["channel"] == "operator" and mc.NOTICE_NOT_TAKEN not in taken and len(miss_pages()) == 3
+    assert mc.watch(now=NOW + timedelta(minutes=34), families=("SOCCER",)) == mc.NOTIFIED   # the miss: nothing sent
+    assert len(soccer_misses()) == 3 and len(miss_pages()) == 3
+
+
+def test_503_record_miss_skips_only_a_miss_a_channel_took(box, monkeypatch):
+    no_channel(box, monkeypatch)
+    a = mc.record_miss("NFL", at(80), "x")
+    assert a["notified"]["channel"] is None and a[mc.NOTICE_NOT_TAKEN] is True and mc.notice_exit(a) == 1
+    b = mc.record_miss("NFL", at(80), "x")
+    assert b is not None and b[mc.NOTICE_NOT_TAKEN] is True                           # sent again
+    box.page_ok = True
+    c_ = mc.record_miss("NFL", at(80), "x")
+    assert c_["notified"]["channel"] == "card" and mc.NOTICE_NOT_TAKEN not in c_ and mc.notice_exit(c_) == mc.NOTIFIED
+    assert mc.record_miss("NFL", at(80), "x") is None and mc.notice_exit(None) == mc.NOTIFIED
+
+
+def test_503_a_refusal_no_channel_took_stays_exit_2_with_the_key(box, monkeypatch):
+    """503 item 1 Q7: "A REFUSAL STAYS EXIT 2, with the same receipt key set when no channel took its notice." """
+    import sp_receipts
+    no_channel(box, monkeypatch)
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "")
+    assert mc.watch(now=NOW, families=("NFL",)) == 2
+    r = runs()[-1]
+    assert "NTFY_CARD_TOPIC" in r["refused"] and r[mc.NOTICE_NOT_TAKEN] is True and r["exit"] == 2
+    assert sp_receipts.key_line(r).endswith("; NOTICE NOT TAKEN: no channel took it")
+
+
+def test_503_notice_taken_reads_the_channel_only():
+    assert mc.notice_taken({"channel": "card"}) and mc.notice_taken({"channel": "operator"})
+    assert not mc.notice_taken({"channel": None}) and not mc.notice_taken({"text": "T", "cut_at_bound_s": 57})
+    assert not mc.notice_taken(None) and not mc.notice_taken({})

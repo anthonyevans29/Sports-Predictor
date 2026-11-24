@@ -1,0 +1,18 @@
+## 2026-11-24 (#0000: 503-notice-rule — a notice no channel took is not a notice (addendum 502 item 2 Q5, in part; addendum 503 item 1 Q5-Q7, item 2 PR 3; money-path))
+- **`deploy/hosting/closing.py`.** A notice whose `channel` is null (no card, screen or operator topic took it) now sets `notice_not_taken: true` on its receipt line. A watch-started tick that sent it exits 1 (the unit's OnFailure → sp_notify), never 3. That covers every case 503 Q5 names:
+  - a failed closing run;
+  - a closing miss;
+  - a slate miss;
+  - a failed slate;
+  - the HELD page (and the deferral page with it).
+- **A refusal** keeps exit 2 and carries the same key (Q7).
+- **The mark moves to delivery (Q6).** A closing miss, a slate miss and a HELD page count as already sent only where a channel took them. Today the mark is set on any notice sent, so the next tick's silence was the same failure again. Now a miss or page no channel took is sent again on the next tick, and that tick exits 1 again.
+- **Unchanged:**
+  - a tick with nothing to send;
+  - a slate page cut at its bound (DEV 3's Q6 named it beside the deduplicated miss), which is not taken either, so a later tick sends it again;
+  - a run by hand;
+  - the notices after a closing's page (the closing file, the push, the bulletin), which are 502 item 3's;
+  - the refusals' own once-per-reason rule.
+- **`deploy/hosting/sp_receipts.py`:** such a line's key text ends `NOTICE NOT TAKEN: no channel took it`, and it counts as failing.
+- **Words:** docs/CLI.md, cli.py's closing-watch help, and sp-closing-watch.service's comment (no directive).
+- **Tests:** 10 new tests, closing and slate; every existing closing, slate and hosting test unchanged.

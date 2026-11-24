@@ -34,7 +34,19 @@ def _q(v) -> str:
     return "?" if v is None else str(v)
 
 
+NOTICE_NOT_TAKEN_TEXT = "NOTICE NOT TAKEN: no channel took it"
+
+
 def key_line(r: dict) -> str:
+    """The line's key text; addendum 503 item 1 Q7: a line whose notice no channel took says so ("it must read
+    plainly in the receipts' steps view")."""
+    out = _key_line(r)
+    if r.get(cl.NOTICE_NOT_TAKEN):
+        return f"{out}; {NOTICE_NOT_TAKEN_TEXT}" if out else NOTICE_NOT_TAKEN_TEXT
+    return out
+
+
+def _key_line(r: dict) -> str:
     k = r.get("kind")
     if k == "chain":
         if r.get("skipped") or r.get("refused"):
@@ -112,8 +124,11 @@ def failed(r: dict) -> bool:
     the Cockpit read, and it is short of that file until the next push." Addendum 48 item 5 (#459): "A closing
     whose file was not written counts as failing in the receipts table, and its key line says so. It is the failed
     push's case and worse: no later push carries a file that was never written." A slate miss (addendum 126, #590)
-    counts as failing, as a closing miss does; a slate run's failure has exit 1 and a refusal exit 2."""
+    counts as failing, as a closing miss does; a slate run's failure has exit 1 and a refusal exit 2. A line whose
+    notice no channel took counts as failing (addendum 502 item 2 Q5: "it exits as a failure and its receipt says
+    so"), a HELD page's included."""
     return (r.get("kind") in ("failure", "closing_miss", "slate_miss") or (r.get("exit") not in (0, None))
+            or bool(r.get(cl.NOTICE_NOT_TAKEN))
             or (r.get("kind") == "closing" and bool(r.get("push_failed") or r.get("closing_file_failed"))))
 
 

@@ -399,7 +399,7 @@ def closing_state(fam: str, start: str) -> dict:
     """For one start time of a family: a successful closing? how many attempts? how many misses?"""
     runs = _attempts(fam, start)
     misses = {r.get("reason") for r in receipts(("closing_miss",)) if r.get("family") == fam and r.get("start") == start}
-    # one per reason (503 item 1 Q6: a miss no channel took is written again on each send, still one miss)
+    # one per reason (503 item 1 Q6, 509 item 3: a miss no channel took may have several lines, still one miss)
     return {"success": any(r.get("exit") == 0 for r in runs), "attempts": len(runs), "misses": len(misses)}
 
 
@@ -1956,9 +1956,11 @@ def write_if_changed(line: dict, n, earlier: list, field) -> dict:
     reads it as before (item 3(c): "The tick's exit does not change")."""
     mark_notice(line, n)
     now = outcome(n)
-    if earlier and now != "taken" and outcome(field(earlier[-1])) == now:
-        return line                   # the same outcome as the last line: the try writes nothing
-    return c.append_receipt(line)
+    # the ruled words exactly: the first send, a take, or a first cut after a line that was not a cut; nothing else
+    # (an untaken try after a cut writes nothing either: item 3(a) names only the two changes)
+    if not earlier or now == "taken" or (now == "cut" and outcome(field(earlier[-1])) != "cut"):
+        return c.append_receipt(line)
+    return line
 
 
 def _untaken_before(kind: str, match) -> bool:
@@ -3153,7 +3155,8 @@ def send_slate_page(p: dict, now: datetime) -> int:
     (next_tick from the tick's start `tick_at`; no closing ahead, no test). That closing is closing_ahead's, an MLB
     closing whose feed did not answer this tick included (ARCHITECT 2026-10-19, addendum 138 item 3(c): "test against
     `closing_ahead` (feed-down MLB closings included). The invariant is that no page costs a closing its T-35"); the
-    page's text still names the closing the slate waits for (`ahead`, slate_ahead's). Sent: receipted on the hold's (or
+    page's text still names the closing the slate waits for (`ahead`, slate_ahead's). Sent (a page of the same text
+    already receipted with the same outcome writes no page line: 509 item 3(b)): receipted on the hold's (or
     deferral's) line as `held_page` {text, notified}, exit NOTIFIED where a channel took it, 1 with the key where none
     did (503 item 1 Q5), NOTIFIED with no key where the send was cut at its bound (504 item 4(b)); a page not taken is
     owed again (_page_owed). Not sent: it waits for a later tick, the line
@@ -3166,7 +3169,7 @@ def send_slate_page(p: dict, now: datetime) -> int:
         # 509 item 3(b): the HELD and deferral pages are under the same rule: a try whose outcome is the last page's
         # writes no page line (the hold itself, when not yet receipted, is written plain)
         earlier = [r for r in receipts((SLATE_KIND,)) if r.get("family") == fam and r.get("date") == day_s
-                   and r.get("held_page")]
+                   and (r.get("held_page") or {}).get("text") == p["text"]]   # the same page: its text
         line = {**p["line"], "held_page": {"text": p["text"], "notified": n}}
         written = write_if_changed(line, n, earlier, lambda r: (r.get("held_page") or {}).get("notified"))
         if written is line and not p["seen"]:    # the page line was not written: the hold still is, once
@@ -3197,7 +3200,8 @@ def send_resend(item: dict, tick_at: datetime, now: datetime, fams: tuple[str, .
     ("feed-down MLB closings included"): the next tick may run them. Sent: its line
     written (`resent`), exit NOTIFIED where a channel took it, 1 where none did, NOTIFIED where the send was cut at
     its bound (504 item 4(b); not taken, so a later tick sends it again); a refusal's is 2 whatever its notice. Not
-    sent: it waits for a later tick, nothing written, and this tick exits 1 (a refusal's 2)."""
+    sent: it waits for a later tick, nothing written, and this tick exits 1 (a refusal's 2). A try writes its line only
+    as 509 item 3 rules (write_if_changed): a take, or a first cut; a try with the last line's outcome writes nothing."""
     fam = item["fam"]
     bound = closing_ahead(tuple(fams or (fam,)), utc(now), skip=no_chain)
     if bound is not None and utc(now) + timedelta(seconds=NOTIFY_MAX_S) >= next_tick(utc(tick_at), utc(now),
@@ -3245,7 +3249,8 @@ def record_slate_hold(fam: str, day: date, base: dict, ahead: dict, why: str | N
     THE HELD PAGE (ARCHITECT 2026-10-18, addendum 133 item 4, item 2): "`SLATE <FAMILY> <date> HELD for <closing> — RUN
     BY HAND: <block>`, once per family and day, when a slate is still held with no SLATE_GUARD_MIN window left before
     its family's first UNSTARTED kickoff" (_page_owed). Notified (card and phone, as a miss) and receipted on the
-    hold's line (`held_page`), written then even when the hold for that closing is already receipted. It is sent after
+    hold's line (`held_page`), written then even when the hold for that closing is already receipted (a resend of the
+    same page text writes its line only as 509 item 3 rules: send_slate_page, write_if_changed). It is sent after
     the tick's whole slate stage, against its bound (send_slate_page; on a direct call with no `tick`, at once): it
     never costs a closing its tick. Exit NOTIFIED when the page goes out here and a channel took it, 1 when none did
     (503 item 1 Q5), else 0 (a queued page's exit is the

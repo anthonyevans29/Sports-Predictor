@@ -2625,9 +2625,12 @@ def test_503_the_ticks_closings_run_before_any_resend(box, monkeypatch):
 
 
 def test_503_closing_state_counts_one_miss_per_reason(box, monkeypatch):
+    """Several lines of one miss (its first send, then a first cut: 509 item 3) are still one miss."""
     no_channel(box, monkeypatch)
-    for _ in range(3):
-        mc.record_miss("NFL", at(80), "x")
+    mc.record_miss("NFL", at(80), "x")
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "cut_at_bound_s": 57})
+    mc.record_miss("NFL", at(80), "x", bounded=True)
+    assert len([r for r in receipts() if r["kind"] == "closing_miss"]) == 2
     assert mc.closing_state("NFL", at(80))["misses"] == 1
 
 

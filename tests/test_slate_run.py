@@ -2016,5 +2016,25 @@ def test_509_a_try_writes_a_line_only_when_its_outcome_changes(box, monkeypatch)
         exits.append(mc.notice_exit(r))
         lines.append(len(misses()))
     assert exits == [1, 1, mc.NOTIFIED, mc.NOTIFIED, 1, mc.NOTIFIED]
-    assert lines == [1, 1, 2, 2, 3, 4]                                       # untaken, cut, untaken, taken
+    assert lines == [1, 1, 2, 2, 2, 3]       # the first send, the first cut, the take; untaken after a cut: none
     assert mc.record_slate_miss("NFL", D18, "x") is None                     # taken: nothing more
+
+
+def test_509_a_page_try_of_the_same_text_writes_no_page_line_and_a_new_text_does(box, monkeypatch):
+    """509 item 3(b): the HELD page under the same rule. A page of the same text, untaken again, writes no page line
+    (a hold not yet receipted is still written, plain); a page naming another closing is a first send and is
+    written."""
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): None)
+    monkeypatch.setattr(mc, "notify_failure", lambda text, fam="", title=None: {"text": text, "channel": None})
+
+    def page(text, held, seen):
+        line = {"kind": "slate", "family": "NFL", "date": "2026-10-18", "held": held, "exit": 0}
+        return mc.send_slate_page({"fam": "NFL", "day": D18, "line": line, "seen": seen, "ahead": None, "text": text,
+                                   "tick_at": BASE}, BASE)
+    assert page("HELD for A", "A", False) == 1
+    assert page("HELD for A", "A", True) == 1                               # the same text, untaken: no line
+    assert page("HELD for A", "A2", False) == 1                             # its hold not yet receipted: plain
+    assert page("HELD for B", "B", False) == 1                              # a new text: a first send, written
+    rs = receipts()
+    assert [(r["held"], (r.get("held_page") or {}).get("text"), r.get(mc.NOTICE_NOT_TAKEN)) for r in rs] == [
+        ("A", "HELD for A", True), ("A2", None, None), ("B", "HELD for B", True)]

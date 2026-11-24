@@ -379,3 +379,14 @@ def test_python_310_floor_no_fstrings_at_all():
         if name == "STRING":
             prefix = tok.string[: len(tok.string) - len(tok.string.lstrip("rRbBuUfF"))]
             assert "f" not in prefix.lower(), tok
+
+
+def test_a_zip_member_named_data_is_not_a_path_on_disk(tmp_path):
+    """ARCHITECT 2026-11-24, addendum 521 item 6 Q1: "A member's name inside a zip is not a path on disk and is not
+    refused for holding that word." The archive itself sits outside any data/ directory."""
+    p = tmp_path / "m.zip"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("data/shots.csv", CSV)
+    code, text = run([str(p)])
+    assert code == 0 and "REFUSED" not in text
+    assert "FILE {}!data/shots.csv".format(p) in text and "rows 3" in text

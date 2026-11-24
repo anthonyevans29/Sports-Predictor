@@ -1,4 +1,4 @@
-**2026-11-24 — The true-starter ceiling probe, built, not run (addendum 491 item 9; #105; #0000).**
+**2026-11-24 — The true-starter ceiling probe, built, not run (addendum 491 item 9; #105; #1107).**
 - **Ruling (491 item 1, in part):** "DECLARED: THE TRUE-STARTER CEILING, A PROBE, ONE RUN. It is not a candidate. It registers nothing, promotes nothing, sets no status and runs no shadow."
 - **What landed:**
   - The hindsight tracker (leave-one-out, per goalie per season), beside an untouched GoalieTracker.

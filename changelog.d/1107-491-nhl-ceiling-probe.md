@@ -1,4 +1,4 @@
-## 2026-11-24 (#0000: 491-nhl-ceiling-probe — the true-starter ceiling probe, built and not run (ARCHITECT 2026-11-24, addendum 491 item 9; GATE-CLASS; lane nhl, #105))
+## 2026-11-24 (#1107: 491-nhl-ceiling-probe — the true-starter ceiling probe, built and not run (ARCHITECT 2026-11-24, addendum 491 item 9; GATE-CLASS; lane nhl, #105))
 - **src/models/nhl_goalie.py:** `SeasonAppearance` and `HindsightTracker`, with GoalieTracker's interface (`advance_to`, `elo_adjustment`). GoalieTracker and every frozen constant are untouched.
   - **The rate, per goalie per season S** (491 item 5): sum(saves − m × shots) / (sum(shots) + PRIOR_SHOTS).
     - It takes only the appearances linked to the stream's games of S, relief included. No decay; PRIOR_SHOTS 2,000.

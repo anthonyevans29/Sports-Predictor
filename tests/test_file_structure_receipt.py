@@ -111,7 +111,7 @@ def test_vocab_lists_values_and_counts_of_a_named_column_only(tmp_path):
     p.write_text(CSV, encoding="utf-8")
     code, text = run([str(p), "--vocab", "game_type", "--vocab", "absent_col"])
     assert code == 0
-    assert "VOCAB 'game_type' (2 distinct, 3 cells):" in text
+    assert "VOCAB COL 2 'game_type' (2 distinct, 3 cells):" in text
     assert "    '2' 2" in text and "    '3' 1" in text
     assert "VOCAB 'absent_col': no file read has a column with that exact name" in text
 
@@ -122,7 +122,7 @@ def test_vocab_counts_null_and_empty_cells_and_caps_the_listing(tmp_path):
     code, text = run([str(p), "--vocab", "k", "--vocab-max", "2"])
     assert code == 0
     assert "blank records 1" in text                    # an empty line is a blank record, not a row
-    assert "VOCAB 'k' (5 distinct, 11 cells):" in text
+    assert "VOCAB COL 1 'k' (5 distinct, 11 cells):" in text
     assert "    'a' 5" in text and "    'b' 3" in text
     assert "... and 3 more values (3 cells)" in text
 
@@ -133,7 +133,7 @@ def test_distinct_cap(tmp_path):
     code, text = run([str(p), "--distinct-cap", "10", "--vocab", "n"])
     assert code == 0
     assert "distinct more than 10 (cap)" in col_line(text, "n")
-    assert "VOCAB 'n': more than 10 distinct values (cap); not listed" in text
+    assert "VOCAB COL 1 'n': more than 10 distinct values, null and empty cells included (cap); not listed" in text
     assert "min 0 · max 49" in col_line(text, "n")
 
 
@@ -282,7 +282,9 @@ def test_a_data_folder_inside_a_recursive_walk_is_refused(tmp_path):
 @pytest.mark.parametrize("argv,needle", [
     ([], "name at least one PATH"),
     (["x.csv", "--delimiter", ";;"], "--delimiter must be one character"),
-    (["x.csv", "--encoding", "no-such-codec"], "not an encoding Python knows"),
+    (["x.csv", "--encoding", "no-such-codec"], "not a text encoding Python knows"),
+    (["x.csv", "--encoding", "hex"], "not a text encoding Python knows"),          # a bytes codec, refused first
+    (["x.csv", "--delimiter", '"'], "not a quote or a line break"),
     (["x.csv", "--vocab-max", "0"], "--vocab-max must be 1 or more"),
     (["x.csv", "--distinct-cap", "0"], "--distinct-cap must be 1 or more"),
 ])
@@ -350,10 +352,9 @@ def test_a_csv_error_exits_1(tmp_path):
     p = tmp_path / "nul.csv"
     p.write_bytes(b"a,b\n1,2\n3,\x004\n")
     code, text = run([str(p)])
-    # Python 3.11+ reads a NUL inside a field; 3.10 refuses it as a csv.Error. Either way nothing of it is printed.
-    assert code in (0, 1)
-    if code == 1:
-        assert "csv.Error" in text
+    # 3.10's csv refuses a NUL and 3.11+ would read it: the receipt refuses it on every Python, the same way
+    assert code == 1
+    assert "ERROR: not read whole, at record 3 (a NUL character in the text)" in text
 
 
 # ---- what it writes: nothing --------------------------------------------------------------------------------------
@@ -390,3 +391,226 @@ def test_a_zip_member_named_data_is_not_a_path_on_disk(tmp_path):
     code, text = run([str(p)])
     assert code == 0 and "REFUSED" not in text
     assert "FILE {}!data/shots.csv".format(p) in text and "rows 3" in text
+
+
+# ---- the review's findings, pinned (each found and reproduced before the PR) ---------------------------------------
+
+
+def test_an_unclosed_quote_is_an_error_never_a_silent_merge(tmp_path):
+    p = tmp_path / "u.csv"
+    p.write_text('a,b\n1,"x\n2,y\n3,z\n4,w\n', encoding="utf-8")
+    code, text = run([str(p)])
+    assert code == 1
+    assert "ERROR: not read whole, at record 2 (csv.Error" in text
+    assert "PARTIAL (up to the error) rows 0" in text
+
+
+def test_a_character_after_a_closing_quote_is_an_error(tmp_path):
+    p = tmp_path / "q.csv"
+    p.write_text('a,b\n1,"x"y\n', encoding="utf-8")
+    code, text = run([str(p)])
+    assert code == 1 and "csv.Error" in text
+
+
+def test_blank_lines_before_the_header_are_blank_records(tmp_path):
+    p = tmp_path / "lead.csv"
+    p.write_text("\n\na,b\n1,2\n3,4\n", encoding="utf-8")
+    code, text = run([str(p), "--vocab", "a"])
+    assert code == 0
+    assert "rows 2 · columns 2 · blank records 2 · ragged rows 0" in text
+    assert "VOCAB COL 1 'a' (2 distinct, 2 cells):" in text and "no file read has" not in text
+
+
+@pytest.mark.parametrize("first", ["Federer,NA,true", "Federer,Nadal,Wimbledon,R,true"])
+def test_a_header_with_a_bool_or_null_cell_is_withheld(tmp_path, first):
+    p = tmp_path / "h.csv"
+    second = "Djokovic,NA,false" if first.count(",") == 2 else "Djokovic,Murray,Wimbledon,L,false"
+    p.write_text(first + "\n" + second + "\n", encoding="utf-8")
+    code, text = run([str(p)])
+    assert code == 0
+    assert "HEADER WITHHELD" in text and "Federer" not in text and "Djokovic" not in text
+
+
+def test_a_header_cell_that_recurs_as_its_own_columns_value_is_withheld(tmp_path):
+    p = tmp_path / "w.csv"
+    p.write_text("Alpha,Wimbledon\nBravo,Wimbledon\nCharlie,Paris\n", encoding="utf-8")
+    code, text = run([str(p)])
+    assert code == 0
+    assert "HEADER WITHHELD: 1 of 2" in text and "Alpha" not in text and "Wimbledon" not in text
+
+
+def test_a_real_header_is_not_withheld(tmp_path):
+    p = tmp_path / "ok.csv"
+    p.write_text(CSV, encoding="utf-8")
+    code, text = run([str(p)])
+    assert code == 0 and "HEADER WITHHELD" not in text
+
+
+def test_an_int_cell_past_the_digit_limit_is_read(tmp_path):
+    p = tmp_path / "big.csv"
+    p.write_text("n\n" + "1" * 5000 + "\n3\n", encoding="utf-8")
+    ok = tmp_path / "ok.csv"
+    ok.write_text(CSV, encoding="utf-8")
+    code, text = run([str(p), str(ok)])
+    assert code == 0
+    assert "kind int" in col_line(text, "n") and "min 3 · max" in col_line(text, "n")
+    assert "SUMMARY: read whole 2" in text
+    if hasattr(sys, "get_int_max_str_digits"):
+        assert sys.get_int_max_str_digits() != 0           # the interpreter's limit is restored after the run
+
+
+def test_any_decompressor_error_is_an_error_line_and_later_files_are_read(tmp_path):
+    import random
+    rows = "a,b\n" + "".join("{},{}\n".format(i, i * 7) for i in range(20000))
+    z = tmp_path / "a.zip"
+    with zipfile.ZipFile(z, "w", zipfile.ZIP_LZMA) as zf:
+        zf.writestr("a.csv", rows)
+    raw = bytearray(z.read_bytes())
+    rnd = random.Random(7)
+    start = len(raw) // 3
+    for i in range(start, start + 64):
+        raw[i] ^= rnd.randrange(1, 256)
+    z.write_bytes(bytes(raw))
+    ok = tmp_path / "b.csv"
+    ok.write_text(CSV, encoding="utf-8")
+    code, text = run([str(z), str(ok)])
+    assert code == 1
+    assert "ERROR: not read whole" in text and "FILE {}".format(ok) in text and "SUMMARY:" in text
+
+
+def test_a_fifo_is_never_opened(tmp_path):
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("no FIFOs here")
+    d = tmp_path / "f"
+    d.mkdir()
+    os.mkfifo(str(d / "pipe.csv"))
+    (d / "a.csv").write_text(CSV, encoding="utf-8")
+    res = subprocess.run([sys.executable, str(SCRIPT), str(d)], capture_output=True, text=True, timeout=30)
+    assert res.returncode == 0
+    assert "pipe.csv (not a regular file; not opened)" in res.stdout
+    res = subprocess.run([sys.executable, str(SCRIPT), str(d / "pipe.csv")], capture_output=True, text=True,
+                         timeout=30)
+    assert res.returncode == 1 and "not a regular file or a folder; not opened" in res.stdout
+
+
+def test_subfolders_and_symlinked_folders_are_named_never_silently_dropped(tmp_path):
+    top = tmp_path / "top"
+    (top / "sub").mkdir(parents=True)
+    (top / "a.csv").write_text(CSV, encoding="utf-8")
+    (top / "sub" / "c.csv").write_text(CSV, encoding="utf-8")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "b.csv").write_text(CSV, encoding="utf-8")
+    try:
+        os.symlink(elsewhere, top / "linked")
+    except (OSError, NotImplementedError):
+        pytest.skip("no symlinks here")
+    code, text = run([str(top)])
+    assert code == 0 and "sub (a subfolder; not entered without --recursive)" in text
+    code, text = run([str(top), "--recursive"])
+    assert code == 0 and "linked (a symlinked folder; not entered)" in text
+    assert "FILE {}/sub/c.csv".format(top) in text and "b.csv" not in text
+
+
+def test_an_unlistable_subfolder_exits_1(tmp_path, monkeypatch):
+    top = tmp_path / "top"
+    (top / "locked").mkdir(parents=True)
+    (top / "a.csv").write_text(CSV, encoding="utf-8")
+    real_scandir = os.scandir
+
+    def scandir(path="."):
+        if str(path).endswith("locked"):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_scandir(path)
+    monkeypatch.setattr(os, "scandir", scandir)            # root ignores chmod 000: the refusal is simulated
+    code, text = run([str(top), "--recursive"])
+    assert code == 1
+    assert "ERROR {}/locked: a folder that could not be listed (PermissionError)".format(top) in text
+    assert "FILE {}/a.csv".format(top) in text
+
+
+def test_an_unlistable_folder_named_directly_exits_1(tmp_path, monkeypatch):
+    d = tmp_path / "d"
+    d.mkdir()
+    ok = tmp_path / "ok.csv"
+    ok.write_text(CSV, encoding="utf-8")
+
+    def listdir(path="."):
+        raise PermissionError(13, "Permission denied", str(path))
+    monkeypatch.setattr(os, "listdir", listdir)
+    code, text = run([str(d), str(ok)])
+    assert code == 1 and "could not be listed (PermissionError)" in text and "FILE {}".format(ok) in text
+
+
+def test_macos_metadata_is_skipped_in_zips_and_folders(tmp_path):
+    blob = b"\x00\x05\x16\x07\x00\x02\x00\x00Mac OS X        " + b"\x00" * 64
+    z = tmp_path / "mac.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("shots/shots.csv", CSV)
+        zf.writestr("__MACOSX/shots/._shots.csv", blob)
+    d = tmp_path / "tfold"
+    d.mkdir()
+    (d / "atp.csv").write_text(CSV, encoding="utf-8")
+    (d / "._atp.csv").write_bytes(blob)
+    code, text = run([str(z), str(d)])
+    assert code == 0
+    assert "__MACOSX/shots/._shots.csv (macOS metadata; not read)" in text
+    assert "._atp.csv (macOS AppleDouble metadata; not opened)" in text
+    assert "Mac OS X" not in text
+
+
+def test_a_partial_file_prints_its_error_first_and_marks_every_figure(tmp_path):
+    p = tmp_path / "p.csv"
+    # past the decoder's first 1 MiB chunk, so the figures before the fault exist and must be marked PARTIAL
+    p.write_bytes(b"a\n" + b"".join(str(i).encode() + b"\n" for i in range(300000)) + b"\xff\n")
+    code, text = run([str(p)])
+    assert code == 1
+    lines = text.splitlines()
+    i = lines.index("FILE {}".format(p))
+    assert lines[i + 1].startswith("  ERROR: not read whole")
+    assert any(ln.startswith("  PARTIAL (up to the error) rows") for ln in lines)
+    assert any(ln.startswith("  PARTIAL (up to the error) COL 1") for ln in lines)
+
+
+def test_small_shares_never_round_to_0_or_100(tmp_path):
+    p = tmp_path / "s.csv"
+    p.write_text("x,y\n" + "NA,5\n" + "1,NA\n" * 19999, encoding="utf-8")
+    code, text = run([str(p)])
+    assert code == 0
+    assert "null <0.1%" in col_line(text, "x") and "null >99.9%" in col_line(text, "y")
+
+
+def test_names_print_with_control_characters_escaped(tmp_path):
+    z = tmp_path / "inj.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("a.csv\n  COL 1 'fake' · kind int\nx.txt", "hello")
+        zf.writestr("b.csv", CSV)
+    code, text = run([str(z)])
+    assert code == 0
+    assert not any(ln.startswith("  COL 1 'fake'") for ln in text.splitlines())
+    assert "a.csv\\n  COL 1 'fake'" in text
+
+
+def test_vocab_blocks_name_their_column_position_on_duplicate_names(tmp_path):
+    p = tmp_path / "dup.csv"
+    p.write_text("x,y,x\n1,a,p\n2,b,q\n2,c,NA\n", encoding="utf-8")
+    code, text = run([str(p), "--vocab", "x"])
+    assert code == 0
+    assert "DUPLICATE column names: 'x'" in text
+    assert "VOCAB COL 1 'x' (2 distinct, 3 cells):" in text and "VOCAB COL 3 'x' (3 distinct, 3 cells):" in text
+
+
+def test_only_ascii_digits_make_a_number_and_a_zone_minute_over_59_is_not_iso(tmp_path):
+    p = tmp_path / "uni.csv"
+    p.write_text("a,b,c\n\u0662\u0660\u0662\u0664\u0660\u0661\u0660\u0661,2024-01-01T10:00+01:99,\uff11\n"
+                 "\u0662\u0660\u0662\u0664\u0660\u0661\u0660\u0662,2024-01-01T11:00+01:00,\uff12\n",
+                 encoding="utf-8")
+    code, text = run([str(p)])
+    assert code == 0
+    for name in ("a", "b", "c"):
+        assert "kind text" in col_line(text, name), name
+
+
+def test_an_unknown_user_is_refused_not_a_traceback():
+    code, text = run(["~nosuchuserzz_fsr/a.csv"])
+    assert code == 2 and "cannot be resolved" in text

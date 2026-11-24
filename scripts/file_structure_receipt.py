@@ -1,62 +1,74 @@
 """
-THE FILE STRUCTURE RECEIPT (DEV 4, Lane D; the brief of addendum 518 item 5; Refs #105, #838), READ-ONLY.
+THE FILE STRUCTURE RECEIPT (DEV 4, Lane D; the brief of addendum 518 item 5, ruled by addendum 521 item 6; Refs #105,
+#838), READ-ONLY.
 
 WHAT IT IS FOR. The architect's blocks run it on the laptop over files this session never sees: MoneyPuck's files
 (reopened by the operator, addendum 517; their structure read by block before the depth probe, 517 item 2(f)) and
-the tennis archive (reopened, addendum 518 item 2). Counts and structure only leave the laptop (517 item 2(d), 518
-item 2(b)). So the script ASSUMES NO COLUMN NAME (law 1): every name it prints is read from the file's own header.
+the tennis archive (reopened, addendum 518 item 2), kept under logs/sources/ (521 item 6 Q1). Counts and structure
+only leave the laptop (517 item 2(d), 518 item 2(b)). So the script ASSUMES NO COLUMN NAME (law 1): every name it
+prints is read from the file's own header.
 
 WHAT IT READS. One or more PATHs, each a file or a folder:
-- a FILE is read by its name: *.zip as a zip archive, *.gz as a gzip stream of CSV text, anything else as CSV text.
-- a FOLDER lists its files directly inside it (every subfolder too with --recursive), in name order, and reads those
-  named *.csv, *.csv.gz or *.zip (case ignored). Every other file is named as SKIPPED and not opened.
-- in a ZIP, each member named *.csv is its own entry (ARCHIVE!MEMBER); every other member is named as SKIPPED and
-  not read. Nothing is extracted.
-- the FIRST RECORD of each CSV is its header. The text is decoded with --encoding (default utf-8-sig) and split with
-  --delimiter (default a comma). Neither is guessed.
+- a FILE named as a PATH is read by its name: *.zip as a zip archive, *.gz as a gzip stream of CSV text, anything
+  else as CSV text. It must be a regular file (a FIFO or a device is never opened).
+- a FOLDER lists what is directly inside it (with --recursive, every subfolder too, in name order) and reads the
+  regular files named *.csv, *.csv.gz or *.zip (case ignored). Everything else is named as SKIPPED with its reason
+  and not opened: another kind of file, a macOS AppleDouble file (._name), a subfolder without --recursive, a
+  symlinked subfolder (never entered). A folder that cannot be listed is an ERROR.
+- in a ZIP, each member named *.csv is its own entry (ARCHIVE!MEMBER); every other member, and macOS metadata
+  (__MACOSX/, ._name), is named as SKIPPED and not read. Nothing is extracted.
+- the FIRST NON-BLANK RECORD of each CSV is its header (blank records before it are counted as blank). The text is
+  decoded with --encoding (default utf-8-sig) and split with --delimiter (default a comma), strictly: an unclosed
+  quote or a character after a closing quote is a csv error, never a silent merge. Neither option is guessed.
 
-WHAT IT PRINTS, per CSV (the rules line before the first file states every rule below):
-- the name, the size in bytes and the sha256 of the bytes on disk (for a zip member, the archive's size and sha256);
-  for a .gz file or a zip member, also the size and sha256 of the decompressed CSV bytes it read;
+WHAT IT PRINTS, per CSV (the RULES line before the first file states every rule below):
+- the name, the size in bytes and the sha256 of the bytes on disk (for a zip member, the archive's size and sha256,
+  then the member's); for a .gz file or a zip member, also the size and sha256 of the decompressed CSV bytes read;
 - the row count (records after the header; a blank record is counted apart and is not a row), the column count, the
   columns in order, and the ragged rows (a field count other than the header's);
 - per column: the null share (a cell exactly one of NULL_TOKENS), the empty share ('' or whitespace only), the absent
   share (a ragged row too short to reach it), the kind of its other cells (KINDS), the distinct count of its other
-  cells (exact, on the raw text, up to --distinct-cap), and the minimum and maximum ONLY for an int, float, date or
-  datetime column;
+  cells (exact, on the raw text, up to --distinct-cap, printed as "more than N (cap)" above it), and the minimum and
+  maximum ONLY for an int, float, date or datetime column. A share above 0 that rounds to 0.0% prints "<0.1%"; one
+  below 100 that rounds to 100.0% prints ">99.9%";
 - for a column named with --vocab (the header's exact text; repeatable): each distinct raw value with its count,
   null and empty cells included, the most frequent first, at most --vocab-max values, then the rest as one count.
+- a file NOT READ WHOLE prints its ERROR line first, and every figure after it is marked PARTIAL (up to the error).
 
 WHAT IT NEVER DOES. It never prints a row, nor a value of a column that was not named, save the minimum and maximum
-of a numeric or date column (the brief names those). An error line names the record number and the error's class,
-never the bytes. A header whose cells parse as a number or a date may be a data row: its names are WITHHELD and the
-columns print by position. It writes nothing: no file, no cache, no temporary file.
+of a numeric or date column (the brief's one exception, 521 item 6 Q2). An error line names the record number and the
+error's class, never the bytes. A header that may be a data row is WITHHELD and its columns print by position: one
+with a cell that parses as a number, a date, a bool or a null token, or a cell whose text recurs as a value in its
+own column. A name (a file's, a member's, a column's) prints with its control characters escaped. It writes nothing:
+no file, no cache, no temporary file.
 
-REFUSED, exit 2, before any file is opened (law 5): a PATH, or a file found inside a folder, any part of whose path,
-as given or resolved (a symlink followed), is named data (case ignored: the laptop's filesystem ignores case; the
-tennis receipt's rule, addendum 308 item 1(c)), or that resolves under the checkout's data/ (sp_common's rule,
-written out here so the script imports nothing of deploy/). Also refused: no PATH, a --delimiter that is not one
-character, an --encoding Python does not know, a --vocab-max or --distinct-cap below 1.
+REFUSED, exit 2, before any file is opened (law 5; 521 item 6 Q1: "ANY DIRECTORY NAMED data ... read on the path on
+disk as given and as resolved"): a PATH, or anything found inside a folder, any part of whose path, as given or
+resolved (a symlink followed), is named data (case ignored), or that resolves under the checkout's data/
+(sp_common's rule, written out here so the script imports nothing of deploy/). A zip member's name is not a path on
+disk and is not refused for holding that word (521 item 6 Q1). Also refused: no PATH, a --delimiter that is not one
+character, an --encoding that is not a text encoding Python knows, a --vocab-max or --distinct-cap below 1, and a
+PATH that cannot be resolved (an unknown ~user, a symlink loop).
 
-EXIT: 0 when every CSV entry was read whole; 1 when a PATH does not exist, a file or member could not be read whole
-(a decode error, a csv error, a truncated or corrupt .gz or .zip, an encrypted member, an OS error), or no CSV entry
-was found at all; the others are still read and printed. 2 on a refusal, nothing read.
+EXIT: 0 when every CSV entry was read whole; 1 when a PATH does not exist or is not a regular file or a folder, a
+folder could not be listed, a file or member could not be read whole (a decode error, a csv error, a NUL character in
+the text, a truncated or corrupt .gz or .zip, an encrypted member, an OS error), or no CSV entry was found at all; the
+others are still read and printed, and the SUMMARY line always ends the run. 2 on a refusal, nothing opened.
 
-Python 3.10 is the floor (CONTRIBUTING.md): stdlib only, no PEP 701 f-strings.
+Python 3.10 is the floor (CONTRIBUTING.md): stdlib only, no f-strings at all.
 """
 from __future__ import annotations
 
 import argparse
-import codecs
 import csv
 import gzip
 import hashlib
 import io
 import os
 import re
+import stat
 import sys
 import zipfile
-import zlib
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -73,24 +85,35 @@ DEFAULT_DISTINCT_CAP = 100_000
 DEFAULT_VOCAB_MAX = 200
 CHUNK = 1 << 20
 
-_INT = re.compile(r"[+-]?\d+")
-_FLOAT = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
-_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+_INT = re.compile(r"[+-]?\d+", re.ASCII)
+_FLOAT = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?", re.ASCII)
+_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})", re.ASCII)
 _DATETIME = re.compile(r"(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?"
-                       r"(Z|[+-]\d{2}:\d{2})?")
+                       r"(Z|[+-]\d{2}:\d{2})?", re.ASCII)
 _BOOLS = frozenset({"true", "false"})
 
-RULES = ("RULES: the first record is the header; null = a cell exactly one of " + ", ".join(NULL_TOKENS)
-         + "; empty = '' or whitespace only; absent = a ragged row too short to reach the column; a kind and a "
-           "distinct count are of the other cells (kind on the cell stripped, distinct on its raw text); kinds "
-           "bool (true/false, case ignored), int, float, date (YYYY-MM-DD), datetime (ISO 8601, T or space, "
-           "Z or +hh:mm, all with or all without a zone), text (anything else, or a mix), none (no other cell); "
-           "no MM/DD or DD/MM date is read as a date; min and max print for int, float, date and datetime only; "
-           "a vocab lists the raw values of a column named with --vocab, null and empty cells included")
+RULES = ("RULES: the first non-blank record is the header, read strictly; null = a cell exactly one of "
+         + ", ".join(NULL_TOKENS)
+         + "; empty = '' or whitespace only; absent = a ragged row too short to reach the column; shares are of "
+           "the rows; a kind and a distinct count are of the other cells (kind on the cell stripped, distinct on "
+           "its raw text); kinds bool (true/false, case ignored), int, float (ASCII digits), date (YYYY-MM-DD), "
+           "datetime (ISO 8601, T or space, Z or +hh:mm, all with or all without a zone), text (anything else, or "
+           "a mix), none (no other cell); no MM/DD or DD/MM date is read as a date; min and max print for int, "
+           "float, date and datetime only; a vocab lists the raw values of a column named with --vocab, null and "
+           "empty cells included; a header that may be a data row is withheld")
 
 
 class Refused(Exception):
     """A refused run: exit 2, nothing opened."""
+
+
+class NulInText(ValueError):
+    """A NUL character in the decoded text: an error on every Python (3.10's csv refuses it, 3.11+ would read it)."""
+
+
+def show(name) -> str:
+    """A name as printed: its control and other non-printable characters escaped, so no name can forge a line."""
+    return "".join(ch if ch.isprintable() else ch.encode("unicode_escape").decode("ascii") for ch in str(name))
 
 
 # --------------------------------------------------------------------------
@@ -98,19 +121,19 @@ class Refused(Exception):
 # --------------------------------------------------------------------------
 
 
-def data_refusal(raw: str | os.PathLike, root: Path = ROOT) -> str | None:
+def data_refusal(raw, root: Path = ROOT) -> str | None:
     """The REFUSED line for a path under a data/ directory, else None. Any part named data, case ignored, as given
     or resolved (a symlink followed); and anything that resolves under the checkout's data/ (sp_common's rule)."""
-    p = Path(raw).expanduser()
     try:
+        p = Path(raw).expanduser()
         resolved = p.resolve()
-    except (RuntimeError, OSError) as e:            # a symlink loop, an unknown ~user: refused, never a trace
-        return "REFUSED: {} cannot be resolved ({})".format(raw, type(e).__name__)
+    except (RuntimeError, OSError) as e:            # an unknown ~user, a symlink loop: refused, never a trace
+        return "REFUSED: {} cannot be resolved ({})".format(show(raw), type(e).__name__)
     if any(part.casefold() == "data" for part in list(p.parts) + list(resolved.parts)):
-        return "REFUSED: {} is under a data/ directory (law 5); name a path outside it".format(raw)
+        return "REFUSED: {} is under a data/ directory (law 5); name a path outside it".format(show(raw))
     data = (root / "data").resolve()
     if resolved == data or data in resolved.parents:
-        return "REFUSED: {} resolves under the checkout's data/ ({}) (law 5)".format(raw, data)
+        return "REFUSED: {} resolves under the checkout's data/ ({}) (law 5)".format(show(raw), data)
     return None
 
 
@@ -125,54 +148,105 @@ class Target:
     shown: str
 
 
+@dataclass
+class Collected:
+    targets: list = field(default_factory=list)     # Target
+    failed: list = field(default_factory=list)      # (shown, why): exit 1
+    skipped: list = field(default_factory=list)     # (shown, why)
+
+
 def _readable_name(name: str) -> bool:
     low = name.lower()
     return any(low.endswith(s) for s in READ_SUFFIXES)
 
 
-def collect(raws: list[str], recursive: bool) -> tuple[list[Target], list[str], list[str]]:
-    """(the files to read, the missing paths, the files skipped). Lists folders; opens no file. Raises Refused
-    on the first path under data/, before anything is opened."""
-    targets: list[Target] = []
-    missing: list[str] = []
-    skipped: list[str] = []
+def _is_appledouble(name: str) -> bool:
+    return name.startswith("._")
+
+
+def _refuse(p) -> None:
+    why = data_refusal(p)
+    if why:
+        raise Refused(why)
+
+
+def _join(raw: str, rel: str) -> str:
+    return "{}/{}".format(raw.rstrip("/\\") or "/", rel)
+
+
+def collect(raws: list[str], recursive: bool) -> Collected:
+    """Lists folders; opens no file. Raises Refused on the first path under data/, before anything is opened."""
+    c = Collected()
     for raw in raws:
-        why = data_refusal(raw)
-        if why:
-            raise Refused(why)
+        _refuse(raw)
         p = Path(raw).expanduser()
-        if p.is_dir():
-            found: list[tuple[str, Path]] = []
-            if recursive:
-                for dirpath, dirnames, filenames in os.walk(p):
-                    dirnames.sort()
-                    for d in dirnames:
-                        why = data_refusal(Path(dirpath) / d)
-                        if why:
-                            raise Refused(why)
-                    for fn in sorted(filenames):
-                        fp = Path(dirpath) / fn
-                        found.append((str(fp.relative_to(p)), fp))
-            else:
-                for fn in sorted(os.listdir(p)):
-                    fp = p / fn
-                    if fp.is_dir():
-                        continue
-                    found.append((fn, fp))
-            for rel, fp in found:
-                why = data_refusal(fp)
-                if why:
-                    raise Refused(why)
-                shown = "{}/{}".format(raw.rstrip("/\\"), rel)
-                if _readable_name(fp.name):
-                    targets.append(Target(fp, shown))
-                else:
-                    skipped.append(shown)
-        elif p.exists():
-            targets.append(Target(p, raw))
+        try:
+            st = os.stat(p)
+        except FileNotFoundError:
+            c.failed.append((show(raw), "MISSING (no such file or folder)"))
+            continue
+        except OSError as e:
+            c.failed.append((show(raw), "not read ({})".format(type(e).__name__)))
+            continue
+        if stat.S_ISREG(st.st_mode):
+            c.targets.append(Target(p, show(raw)))
+            continue
+        if not stat.S_ISDIR(st.st_mode):
+            c.failed.append((show(raw), "not a regular file or a folder; not opened"))
+            continue
+        found: list = []                             # (rel, path)
+        if recursive:
+            def onerror(e, raw=raw, p=p):
+                rel = os.path.relpath(e.filename, p) if getattr(e, "filename", None) else "."
+                c.failed.append((show(_join(raw, rel)), "a folder that could not be listed ({})".format(
+                    type(e).__name__)))
+            for dirpath, dirnames, filenames in os.walk(p, onerror=onerror):
+                dirnames.sort()
+                for d in list(dirnames):
+                    dp = Path(dirpath) / d
+                    _refuse(dp)
+                    if dp.is_symlink():
+                        c.skipped.append((show(_join(raw, str(dp.relative_to(p)))),
+                                          "a symlinked folder; not entered"))
+                for fn in sorted(filenames):
+                    fp = Path(dirpath) / fn
+                    found.append((str(fp.relative_to(p)), fp))
         else:
-            missing.append(raw)
-    return targets, missing, skipped
+            try:
+                names = sorted(os.listdir(p))
+            except OSError as e:
+                c.failed.append((show(raw), "a folder that could not be listed ({})".format(type(e).__name__)))
+                continue
+            for fn in names:
+                fp = p / fn
+                _refuse(fp)
+                try:
+                    is_dir = fp.is_dir()
+                except OSError:
+                    is_dir = False
+                if is_dir:
+                    c.skipped.append((show(_join(raw, fn)), "a subfolder; not entered without --recursive"))
+                    continue
+                found.append((fn, fp))
+        for rel, fp in found:
+            _refuse(fp)
+            shown = show(_join(raw, rel))
+            if _is_appledouble(fp.name):
+                c.skipped.append((shown, "macOS AppleDouble metadata; not opened"))
+                continue
+            if not _readable_name(fp.name):
+                c.skipped.append((shown, "not .csv, .csv.gz or .zip; not opened"))
+                continue
+            try:
+                regular = stat.S_ISREG(os.stat(fp).st_mode)
+            except OSError as e:
+                c.failed.append((shown, "not read ({})".format(type(e).__name__)))
+                continue
+            if not regular:
+                c.skipped.append((shown, "not a regular file; not opened"))
+                continue
+            c.targets.append(Target(fp, shown))
+    return c
 
 
 # --------------------------------------------------------------------------
@@ -191,11 +265,11 @@ def _parse_datetime(s: str):
         if tz == "Z":
             tzinfo = timezone.utc
         elif tz:
-            sign = 1 if tz[0] == "+" else -1
-            off = timedelta(hours=int(tz[1:3]), minutes=int(tz[4:6]))
-            if off >= timedelta(hours=24):
+            oh, om = int(tz[1:3]), int(tz[4:6])
+            if oh > 23 or om > 59:
                 return None
-            tzinfo = timezone(sign * off)
+            off = timedelta(hours=oh, minutes=om)
+            tzinfo = timezone(off if tz[0] == "+" else -off)
         return datetime(int(y), int(mo), int(d), int(hh), int(mm), int(ss or 0), micro, tzinfo=tzinfo)
     except ValueError:
         return None
@@ -212,7 +286,7 @@ def _parse_date(s: str):
 
 
 def _yyyymmdd(s: str) -> bool:
-    if len(s) != 8 or not s.isdigit():
+    if len(s) != 8 or not (s.isascii() and s.isdigit()):
         return False
     try:
         date(int(s[:4]), int(s[4:6]), int(s[6:]))
@@ -239,7 +313,6 @@ class ColumnStats:
     tz_seen: set = field(default_factory=set)      # {True, False}: aware / naive datetimes seen
     distinct: set | None = field(default_factory=set)
     vocab_counts: Counter | None = None
-    vocab_capped: bool = False
     lo: dict = field(default_factory=dict)         # kind -> (value, token)
     hi: dict = field(default_factory=dict)
 
@@ -258,12 +331,19 @@ class ColumnStats:
     def absent(self) -> None:
         self.n_absent += 1
 
+    def has_value(self, raw: str) -> bool | None:
+        """Whether this raw text was seen as a value of the column (None: past the cap, unknown)."""
+        if self.vocab_counts is not None and raw in self.vocab_counts:
+            return True
+        if self.distinct is None:
+            return None
+        return raw in self.distinct
+
     def add(self, raw: str) -> None:
-        if self.vocab_counts is not None and not self.vocab_capped:
+        if self.vocab_counts is not None:
             self.vocab_counts[raw] += 1
             if len(self.vocab_counts) > self.distinct_cap:
-                self.vocab_capped = True
-                self.vocab_counts = None
+                self.vocab_counts = None             # over the cap: freed, printed as "more than CAP"
         if raw in _NULLS:
             self.n_null += 1
             return
@@ -279,12 +359,18 @@ class ColumnStats:
         if self.can_bool and s.lower() not in _BOOLS:
             self.can_bool = False
         if self.can_int:
+            v = None
             if _INT.fullmatch(s):
-                self._track("int", int(s), s)
+                try:
+                    v = int(s)
+                except ValueError:                  # past the interpreter's int digit limit: not read as an int
+                    v = None
+            if v is None:
+                self.can_int = False
+            else:
+                self._track("int", v, s)
                 if self.all_yyyymmdd and not _yyyymmdd(s):
                     self.all_yyyymmdd = False
-            else:
-                self.can_int = False
         if self.can_float:
             if _FLOAT.fullmatch(s):
                 self._track("float", float(s), s)
@@ -346,11 +432,11 @@ class HashingReader(io.RawIOBase):
 
 @dataclass
 class CsvResult:
-    header: list[str] | None = None
+    header: list | None = None
     rows: int = 0
     blank: int = 0
     ragged: int = 0
-    columns: list[ColumnStats] = field(default_factory=list)
+    columns: list = field(default_factory=list)
     error: str | None = None
     bytes_read: int = 0
     sha_read: str = ""
@@ -361,44 +447,50 @@ def _error_text(e: BaseException, record: int, encoding: str) -> str:
     where = "at record {}".format(record)
     if isinstance(e, UnicodeError):     # text is decoded ahead by chunks: the fault is at or after that record
         return "{}, or after it ({}; encoding {})".format(where, type(e).__name__, encoding)
-    if isinstance(e, csv.Error):
+    if isinstance(e, NulInText):
+        return "{} (a NUL character in the text)".format(where)
+    if isinstance(e, csv.Error):        # CPython's csv messages name the rule broken, never a field's text
         return "{} (csv.Error: {})".format(where, e)
     return "{} ({})".format(where, type(e).__name__)
 
 
-def read_csv(raw: IO[bytes], encoding: str, delimiter: str, vocab: set[str], distinct_cap: int) -> CsvResult:
+def _no_nul(lines):
+    for line in lines:
+        if "\x00" in line:
+            raise NulInText()
+        yield line
+
+
+def read_csv(raw: IO[bytes], encoding: str, delimiter: str, vocab: set, distinct_cap: int) -> CsvResult:
     """Read one CSV stream whole. Every record is counted; no record is kept."""
     r = CsvResult()
     hr = HashingReader(raw)
-    record = 0
+    record = 0          # records the reader has yielded
+    busy = False        # True while one yielded record is being counted: an error then is that record's
     try:
         text = io.TextIOWrapper(io.BufferedReader(hr, CHUNK), encoding=encoding, newline="")
-        reader = csv.reader(text, delimiter=delimiter)
+        reader = csv.reader(_no_nul(text), delimiter=delimiter, strict=True)
         for rec in reader:
             record += 1
-            if r.header is None:
-                r.header = rec
-                r.columns = [ColumnStats(name, vocab=name in vocab, distinct_cap=distinct_cap) for name in rec]
-                continue
+            busy = True
             if not rec:
                 r.blank += 1
-                continue
-            r.rows += 1
-            cols = r.columns
-            n = len(cols)
-            if len(rec) != n:
-                r.ragged += 1
-            for i, c in enumerate(cols):
-                if i < len(rec):
-                    c.add(rec[i])
-                else:
-                    c.absent()
-        # The reader stops at the decoder's end: drain whatever is left so a trailing corruption is still seen.
-        while text.read(CHUNK):
-            pass
-    except (UnicodeError, csv.Error, OSError, EOFError, zipfile.BadZipFile, zlib.error, RuntimeError,
-            NotImplementedError, ValueError) as e:
-        r.error = _error_text(e, record + 1, encoding)
+            elif r.header is None:
+                r.header = rec
+                r.columns = [ColumnStats(name, vocab=name in vocab, distinct_cap=distinct_cap) for name in rec]
+            else:
+                r.rows += 1
+                cols = r.columns
+                if len(rec) != len(cols):
+                    r.ragged += 1
+                for i, c in enumerate(cols):
+                    if i < len(rec):
+                        c.add(rec[i])
+                    else:
+                        c.absent()
+            busy = False
+    except Exception as e:      # every failure is reported by class, never as a traceback that could print content
+        r.error = _error_text(e, record if busy else record + 1, encoding)
     r.bytes_read = hr.n
     r.sha_read = hr.sha.hexdigest()
     return r
@@ -410,40 +502,58 @@ def read_csv(raw: IO[bytes], encoding: str, delimiter: str, vocab: set[str], dis
 
 
 def _share(n: int, d: int) -> str:
-    return "{:.1f}%".format(100.0 * n / d) if d else "n/a"
+    if not d:
+        return "n/a"
+    v = 100.0 * n / d
+    s = "{:.1f}%".format(v)
+    if n and s == "0.0%":
+        return "<0.1%"
+    if n < d and s == "100.0%":
+        return ">99.9%"
+    return s
 
 
-def header_withheld(header: list[str]) -> int:
-    """How many header cells parse as a number or a date: >0 and the header may be a data row."""
+def _looks_like_data(s: str) -> bool:
+    t = s.strip()
+    return bool(t) and (s in _NULLS or t.lower() in _BOOLS or bool(_FLOAT.fullmatch(t))
+                        or _parse_date(t) is not None or _parse_datetime(t) is not None)
+
+
+def header_withheld(r: CsvResult) -> int:
+    """How many header cells suggest the header is a data row: a cell that parses as a number, a date, a bool or a
+    null token, or whose text recurs as a value in its own column. More than 0 and the names are withheld."""
     k = 0
-    for h in header:
-        s = h.strip()
-        if s and (_FLOAT.fullmatch(s) or _parse_date(s) or _parse_datetime(s)):
+    for i, h in enumerate(r.header or []):
+        if _looks_like_data(h):
+            k += 1
+        elif i < len(r.columns) and h.strip() and r.columns[i].has_value(h):
             k += 1
     return k
 
 
-def print_csv(r: CsvResult, out: Callable[[str], None], vocab_max: int) -> None:
+def print_csv(r: CsvResult, out: Callable[[str], None], vocab_max: int, part: str) -> None:
     if r.header is None:
         if r.error is None:
-            out("  rows 0 · columns 0 (the file holds no record, not even a header)")
+            out("  rows 0 · columns 0 (the file holds no record, not even a header; blank records {})".format(
+                r.blank))
         return
     n = len(r.header)
-    out("  rows {} · columns {} · blank records {} · ragged rows {}".format(r.rows, n, r.blank, r.ragged))
-    withheld = header_withheld(r.header)
+    out("  {}rows {} · columns {} · blank records {} · ragged rows {}".format(part, r.rows, n, r.blank, r.ragged))
+    withheld = header_withheld(r)
     if withheld:
-        out("  HEADER WITHHELD: {} of {} header cells parse as a number or a date, so the first record may be a "
-            "data row; columns print by position".format(withheld, n))
+        out("  HEADER WITHHELD: {} of {} header cells parse as a number, a date, a bool or a null token, or recur as "
+            "a value in their own column, so the first record may be a data row; columns print by "
+            "position".format(withheld, n))
     seen = Counter(r.header)
     dups = sorted(h for h, c in seen.items() if c > 1)
     if dups and not withheld:
-        out("  DUPLICATE column names: {}".format(", ".join(repr(h) for h in dups)))
+        out("  DUPLICATE column names: {}".format(", ".join(show(repr(h)) for h in dups)))
     for i, c in enumerate(r.columns, 1):
-        name = "#{}".format(i) if withheld else repr(c.name)
+        name = "#{}".format(i) if withheld else show(repr(c.name))
         if not withheld and not c.name.strip():
             name += " (blank name)"
         kind = c.kind
-        bits = ["COL {} {}".format(i, name), "kind " + kind]
+        bits = ["{}COL {} {}".format(part, i, name), "kind " + kind]
         if kind == "int" and c.all_yyyymmdd:
             bits[-1] += " (every value is 8 digits and a valid YYYYMMDD date)"
         if kind == "datetime":
@@ -453,26 +563,27 @@ def print_csv(r: CsvResult, out: Callable[[str], None], vocab_max: int) -> None:
             bits.append("absent " + _share(c.n_absent, r.rows))
         bits.append("distinct " + ("more than {:,} (cap)".format(c.distinct_cap) if c.distinct is None
                                    else str(len(c.distinct))))
-        if kind in ("int", "float", "date", "datetime"):
-            bits += ["min " + c.lo[kind][1], "max " + c.hi[kind][1]]
+        if kind in c.lo:                            # int, float, date, datetime only: KINDS' other kinds track none
+            bits += ["min " + show(c.lo[kind][1]), "max " + show(c.hi[kind][1])]
         out("  " + " · ".join(bits))
     for i, c in enumerate(r.columns, 1):
         if not c.vocab:
             continue
-        label = "#{}".format(i) if withheld else repr(c.name)
+        label = "COL {} {}".format(i, "#{}".format(i) if withheld else show(repr(c.name)))
         if c.vocab_counts is None:
-            out("  VOCAB {}: more than {:,} distinct values (cap); not listed".format(label, c.distinct_cap))
+            out("  {}VOCAB {}: more than {:,} distinct values, null and empty cells included (cap); not "
+                "listed".format(part, label, c.distinct_cap))
             continue
         items = sorted(c.vocab_counts.items(), key=lambda kv: (-kv[1], kv[0]))
-        out("  VOCAB {} ({} distinct, {} cells):".format(label, len(items), sum(c.vocab_counts.values())))
+        out("  {}VOCAB {} ({} distinct, {} cells):".format(part, label, len(items), sum(c.vocab_counts.values())))
         for v, cnt in items[:vocab_max]:
-            out("    {} {}".format(repr(v), cnt))
+            out("    {} {}".format(show(repr(v)), cnt))
         rest = items[vocab_max:]
         if rest:
             out("    ... and {} more values ({} cells)".format(len(rest), sum(cnt for _, cnt in rest)))
 
 
-def sha256_file(p: Path) -> tuple[int, str]:
+def sha256_file(p: Path) -> tuple:
     h = hashlib.sha256()
     n = 0
     with open(p, "rb") as f:
@@ -495,68 +606,82 @@ class Tally:
     vocab_found: set = field(default_factory=set)
 
 
-def _entry(shown: str, size_sha: tuple[int, str], r: CsvResult, kind: str, tally: Tally,
+def _fail(shown: str, why: str, tally: Tally, out: Callable[[str], None], size_sha=None) -> None:
+    out("FILE {}".format(shown))
+    out("  ERROR: not read whole, {}".format(why))
+    if size_sha:
+        out("  bytes {} · sha256 {}".format(size_sha[0], size_sha[1]))
+    tally.failed += 1
+
+
+def _entry(shown: str, size_sha: tuple, r: CsvResult, kind: str, tally: Tally,
            out: Callable[[str], None], vocab_max: int) -> None:
     """kind: 'plain' (the bytes on disk are the CSV), 'gz' (the file's bytes, then the CSV it decompressed to) or
-    'member' (the archive's bytes, then the member's decompressed bytes)."""
+    'member' (the archive's bytes, then the member's decompressed bytes). A file not read whole prints its ERROR
+    line first and every figure after it as PARTIAL."""
     out("FILE {}".format(shown))
+    part = ""
+    if r.error:
+        out("  ERROR: not read whole, {}".format(r.error))
+        part = "PARTIAL (up to the error) "
     if kind == "member":
         out("  archive bytes {} · archive sha256 {}".format(size_sha[0], size_sha[1]))
-        out("  member bytes read {} · member sha256 {}".format(r.bytes_read, r.sha_read))
+        out("  {}member bytes read {} · member sha256 {}".format(part, r.bytes_read, r.sha_read))
     else:
         out("  bytes {} · sha256 {}".format(size_sha[0], size_sha[1]))
         if kind == "gz":
-            out("  decompressed bytes read {} · sha256 {}".format(r.bytes_read, r.sha_read))
-    print_csv(r, out, vocab_max)
-    if r.header:
+            out("  {}decompressed bytes read {} · sha256 {}".format(part, r.bytes_read, r.sha_read))
+    print_csv(r, out, vocab_max, part)
+    if r.header is not None:
         tally.vocab_found.update(c.name for c in r.columns if c.vocab)
     if r.error:
-        out("  ERROR: not read whole, {}".format(r.error))
         tally.failed += 1
     else:
         tally.whole += 1
 
 
-def read_target(t: Target, args, vocab: set[str], tally: Tally, out: Callable[[str], None]) -> None:
+def _zip_skip_reason(name: str) -> str | None:
+    base = name.rsplit("/", 1)[-1]
+    if name.startswith("__MACOSX/") or "/__MACOSX/" in name or _is_appledouble(base):
+        return "macOS metadata; not read"
+    if not name.lower().endswith(".csv"):
+        return "a zip member not named .csv; not read"
+    return None
+
+
+def read_target(t: Target, args, vocab: set, tally: Tally, out: Callable[[str], None]) -> None:
     name = t.path.name.lower()
     try:
         size_sha = sha256_file(t.path)
     except OSError as e:
-        out("FILE {}".format(t.shown))
-        out("  ERROR: not read whole, before the first record ({})".format(type(e).__name__))
-        tally.failed += 1
+        _fail(t.shown, "before the first record ({})".format(type(e).__name__), tally, out)
         return
     if name.endswith(".zip"):
         try:
             zf = zipfile.ZipFile(t.path)
-        except (zipfile.BadZipFile, OSError, ValueError, NotImplementedError, EOFError) as e:
-            out("FILE {}".format(t.shown))
-            out("  bytes {} · sha256 {}".format(*size_sha))
-            out("  ERROR: not read whole, not a readable zip archive ({})".format(type(e).__name__))
-            tally.failed += 1
+        except Exception as e:
+            _fail(t.shown, "not a readable zip archive ({})".format(type(e).__name__), tally, out, size_sha)
             return
         with zf:
             members = [m for m in zf.infolist() if not m.is_dir()]
-            csvs = [m for m in members if m.filename.lower().endswith(".csv")]
+            csvs = []
             for m in members:
-                if m not in csvs:
-                    out("SKIPPED {}!{} (a zip member not named .csv; not read)".format(t.shown, m.filename))
+                why = _zip_skip_reason(m.filename)
+                if why:
+                    out("SKIPPED {}!{} ({})".format(t.shown, show(m.filename), why))
                     tally.skipped += 1
+                else:
+                    csvs.append(m)
             if not csvs:
-                out("FILE {}".format(t.shown))
-                out("  bytes {} · sha256 {}".format(*size_sha))
-                out("  ERROR: the archive holds no member named .csv")
-                tally.failed += 1
+                _fail(t.shown, "the archive holds no member named .csv", tally, out, size_sha)
                 return
             for m in csvs:
-                shown = "{}!{}".format(t.shown, m.filename)
+                shown = "{}!{}".format(t.shown, show(m.filename))
                 try:
                     f = zf.open(m)
-                except (zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError, ValueError, EOFError) as e:
-                    out("FILE {}".format(shown))
+                except Exception as e:
+                    _fail(shown, "before the first record ({})".format(type(e).__name__), tally, out)
                     out("  archive bytes {} · archive sha256 {}".format(*size_sha))
-                    out("  ERROR: not read whole, before the first record ({})".format(type(e).__name__))
-                    tally.failed += 1
                     continue
                 with f:
                     r = read_csv(f, args.encoding, args.delimiter, vocab, args.distinct_cap)
@@ -597,12 +722,12 @@ def _parser() -> argparse.ArgumentParser:
 def _check_args(args) -> str | None:
     if not args.paths:
         return "REFUSED: name at least one PATH (a file or a folder)"
-    if len(args.delimiter) != 1:
-        return "REFUSED: --delimiter must be one character"
+    if len(args.delimiter) != 1 or args.delimiter in ('"', "\r", "\n"):
+        return "REFUSED: --delimiter must be one character, not a quote or a line break"
     try:
-        codecs.lookup(args.encoding)
+        io.TextIOWrapper(io.BytesIO(b""), encoding=args.encoding)     # a bytes codec (hex, zlib) refuses here
     except LookupError:
-        return "REFUSED: --encoding {!r} is not an encoding Python knows".format(args.encoding)
+        return "REFUSED: --encoding {!r} is not a text encoding Python knows".format(args.encoding)
     if args.vocab_max < 1:
         return "REFUSED: --vocab-max must be 1 or more"
     if args.distinct_cap < 1:
@@ -610,16 +735,16 @@ def _check_args(args) -> str | None:
     return None
 
 
-def main(argv: list[str] | None = None, out: Callable[[str], None] = print) -> int:
+def main(argv: list | None = None, out: Callable[[str], None] = print) -> int:
     args = _parser().parse_args(argv)
     why = _check_args(args)
     if why:
         out(why)
         return 2
-    out("THE FILE STRUCTURE RECEIPT (read-only; no row printed; values only of the columns named with --vocab, and the "
-        "min and max of numeric and date columns; nothing written)")
+    out("THE FILE STRUCTURE RECEIPT (read-only; no row printed; values only of the columns named with --vocab, and "
+        "the min and max of numeric and date columns; nothing written)")
     try:
-        targets, missing, skipped = collect(args.paths, args.recursive)
+        found = collect(args.paths, args.recursive)
     except Refused as e:
         out(str(e))
         out("EXIT 2 (refused; no file opened)")
@@ -627,20 +752,32 @@ def main(argv: list[str] | None = None, out: Callable[[str], None] = print) -> i
     out(RULES)
     out("OPTIONS: encoding {} · delimiter {!r} · distinct cap {:,} · vocab max {} · vocab {}".format(
         args.encoding, args.delimiter, args.distinct_cap, args.vocab_max,
-        ", ".join(repr(v) for v in args.vocab) or "none"))
-    for name in skipped:
-        out("SKIPPED {} (not .csv, .csv.gz or .zip; not opened)".format(name))
+        ", ".join(show(repr(v)) for v in args.vocab) or "none"))
+    old_limit = csv.field_size_limit()
+    old_digits = sys.get_int_max_str_digits() if hasattr(sys, "get_int_max_str_digits") else None
     csv.field_size_limit(min(sys.maxsize, 2 ** 31 - 1))   # a long field is read, not refused: the file is read whole
-    vocab = set(args.vocab)
-    tally = Tally(skipped=len(skipped))
-    for m in missing:
-        out("MISSING {} (no such file or folder)".format(m))
-        tally.failed += 1
-    for t in targets:
-        read_target(t, args, vocab, tally, out)
+    if old_digits is not None:
+        sys.set_int_max_str_digits(0)                      # a long int cell is read as an int, never a ValueError
+    tally = Tally(skipped=len(found.skipped))
+    try:
+        for shown, why in found.skipped:
+            out("SKIPPED {} ({})".format(shown, why))
+        for shown, why in found.failed:
+            out("ERROR {}: {}".format(shown, why))
+            tally.failed += 1
+        vocab = set(args.vocab)
+        for t in found.targets:
+            try:
+                read_target(t, args, vocab, tally, out)
+            except Exception as e:                      # never a traceback: a traceback could carry content
+                _fail(t.shown, "({})".format(type(e).__name__), tally, out)
+    finally:
+        csv.field_size_limit(old_limit)
+        if old_digits is not None:
+            sys.set_int_max_str_digits(old_digits)
     for v in args.vocab:
         if v not in tally.vocab_found:
-            out("VOCAB {!r}: no file read has a column with that exact name".format(v))
+            out("VOCAB {}: no file read has a column with that exact name".format(show(repr(v))))
     code = 0
     if tally.failed:
         code = 1

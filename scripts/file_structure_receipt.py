@@ -51,9 +51,11 @@ character, an --encoding that is not a text encoding Python knows, a --vocab-max
 PATH that cannot be resolved (an unknown ~user, a symlink loop).
 
 EXIT: 0 when every CSV entry was read whole; 1 when a PATH does not exist or is not a regular file or a folder, a
-folder could not be listed, a file or member could not be read whole (a decode error, a csv error, a NUL character in
+folder could not be listed, an entry found inside a folder cannot be resolved (a symlink loop; never opened), a file or member could not be read whole (a decode error, a csv error, a NUL character in
 the text, a truncated or corrupt .gz or .zip, an encrypted member, an OS error), or no CSV entry was found at all; the
-others are still read and printed, and the SUMMARY line always ends the run. 2 on a refusal, nothing opened.
+others are still read and printed, and the SUMMARY line always ends the run. 2 on a refusal, nothing opened. An error
+found while the bytes are read is placed "at record N, or after it": they are decompressed and decoded ahead of the
+reader, by chunks.
 
 Python 3.10 is the floor (CONTRIBUTING.md): stdlib only, no f-strings at all.
 """
@@ -61,6 +63,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import errno
 import gzip
 import hashlib
 import io
@@ -121,14 +124,32 @@ def show(name) -> str:
 # --------------------------------------------------------------------------
 
 
+def unresolvable(raw) -> str | None:
+    """The error's class name when a path cannot be resolved (an unknown ~user; a symlink loop, read the same way on
+    every Python: 3.10's resolve raises, 3.13's does not, so os.stat's ELOOP is checked too), else None."""
+    try:
+        Path(raw).expanduser().resolve()
+    except (RuntimeError, OSError) as e:
+        return type(e).__name__
+    try:
+        os.stat(Path(raw).expanduser())
+    except OSError as e:
+        if e.errno == errno.ELOOP:
+            return "a symlink loop"
+    except (RuntimeError, ValueError) as e:
+        return type(e).__name__
+    return None
+
+
 def data_refusal(raw, root: Path = ROOT) -> str | None:
     """The REFUSED line for a path under a data/ directory, else None. Any part named data, case ignored, as given
-    or resolved (a symlink followed); and anything that resolves under the checkout's data/ (sp_common's rule)."""
-    try:
-        p = Path(raw).expanduser()
-        resolved = p.resolve()
-    except (RuntimeError, OSError) as e:            # an unknown ~user, a symlink loop: refused, never a trace
-        return "REFUSED: {} cannot be resolved ({})".format(show(raw), type(e).__name__)
+    or resolved (a symlink followed); and anything that resolves under the checkout's data/ (sp_common's rule).
+    A path that cannot be resolved is refused too: it cannot be shown to lie outside data/."""
+    why = unresolvable(raw)
+    if why:
+        return "REFUSED: {} cannot be resolved ({})".format(show(raw), why)
+    p = Path(raw).expanduser()
+    resolved = p.resolve()
     if any(part.casefold() == "data" for part in list(p.parts) + list(resolved.parts)):
         return "REFUSED: {} is under a data/ directory (law 5); name a path outside it".format(show(raw))
     data = (root / "data").resolve()
@@ -171,12 +192,22 @@ def _refuse(p) -> None:
 
 
 def _join(raw: str, rel: str) -> str:
-    return "{}/{}".format(raw.rstrip("/\\") or "/", rel)
+    return raw if rel in ("", ".") else os.path.join(raw, rel)
 
 
 def collect(raws: list[str], recursive: bool) -> Collected:
-    """Lists folders; opens no file. Raises Refused on the first path under data/, before anything is opened."""
+    """Lists folders; opens no file. Raises Refused on the first path under data/, before anything is opened. A
+    PATH named by the caller that cannot be resolved is refused; an entry found inside a folder that cannot be
+    resolved (a symlink loop) is an ERROR and is never opened."""
     c = Collected()
+
+    def entry_ok(fp, shown) -> bool:
+        why = unresolvable(fp)
+        if why:
+            c.failed.append((shown, "cannot be resolved ({}); not opened".format(why)))
+            return False
+        _refuse(fp)
+        return True
     for raw in raws:
         _refuse(raw)
         p = Path(raw).expanduser()
@@ -204,10 +235,11 @@ def collect(raws: list[str], recursive: bool) -> Collected:
                 dirnames.sort()
                 for d in list(dirnames):
                     dp = Path(dirpath) / d
-                    _refuse(dp)
-                    if dp.is_symlink():
-                        c.skipped.append((show(_join(raw, str(dp.relative_to(p)))),
-                                          "a symlinked folder; not entered"))
+                    shown_d = show(_join(raw, str(dp.relative_to(p))))
+                    if not entry_ok(dp, shown_d):
+                        continue
+                    if os.path.islink(dp):              # False on any error: never a traceback
+                        c.skipped.append((shown_d, "a symlinked folder; not entered"))
                 for fn in sorted(filenames):
                     fp = Path(dirpath) / fn
                     found.append((str(fp.relative_to(p)), fp))
@@ -219,7 +251,8 @@ def collect(raws: list[str], recursive: bool) -> Collected:
                 continue
             for fn in names:
                 fp = p / fn
-                _refuse(fp)
+                if not entry_ok(fp, show(_join(raw, fn))):
+                    continue
                 try:
                     is_dir = fp.is_dir()
                 except OSError:
@@ -229,8 +262,9 @@ def collect(raws: list[str], recursive: bool) -> Collected:
                     continue
                 found.append((fn, fp))
         for rel, fp in found:
-            _refuse(fp)
             shown = show(_join(raw, rel))
+            if not entry_ok(fp, shown):
+                continue
             if _is_appledouble(fp.name):
                 c.skipped.append((shown, "macOS AppleDouble metadata; not opened"))
                 continue
@@ -311,6 +345,7 @@ class ColumnStats:
     can_datetime: bool = True
     all_yyyymmdd: bool = True
     tz_seen: set = field(default_factory=set)      # {True, False}: aware / naive datetimes seen
+    header_hit: bool = False                       # the header's own text seen as a value: kept past any cap
     distinct: set | None = field(default_factory=set)
     vocab_counts: Counter | None = None
     lo: dict = field(default_factory=dict)         # kind -> (value, token)
@@ -331,15 +366,9 @@ class ColumnStats:
     def absent(self) -> None:
         self.n_absent += 1
 
-    def has_value(self, raw: str) -> bool | None:
-        """Whether this raw text was seen as a value of the column (None: past the cap, unknown)."""
-        if self.vocab_counts is not None and raw in self.vocab_counts:
-            return True
-        if self.distinct is None:
-            return None
-        return raw in self.distinct
-
     def add(self, raw: str) -> None:
+        if raw == self.name:
+            self.header_hit = True
         if self.vocab_counts is not None:
             self.vocab_counts[raw] += 1
             if len(self.vocab_counts) > self.distinct_cap:
@@ -442,11 +471,13 @@ class CsvResult:
     sha_read: str = ""
 
 
-def _error_text(e: BaseException, record: int, encoding: str) -> str:
-    """The error's class and, where the message carries no content of the file, its message. Never the bytes."""
-    where = "at record {}".format(record)
-    if isinstance(e, UnicodeError):     # text is decoded ahead by chunks: the fault is at or after that record
-        return "{}, or after it ({}; encoding {})".format(where, type(e).__name__, encoding)
+def _error_text(e: BaseException, record: int, encoding: str, exact: bool = False) -> str:
+    """The error's class and, where the message carries no content of the file, its message. Never the bytes.
+    An error raised while the stream is read is placed "at record N, or after it": the bytes are decompressed and
+    decoded ahead of the reader, by chunks."""
+    where = "at record {}".format(record) if exact else "at record {}, or after it".format(record)
+    if isinstance(e, UnicodeError):
+        return "{} ({}; encoding {})".format(where, type(e).__name__, show(encoding))
     if isinstance(e, NulInText):
         return "{} (a NUL character in the text)".format(where)
     if isinstance(e, csv.Error):        # CPython's csv messages name the rule broken, never a field's text
@@ -473,8 +504,8 @@ def read_csv(raw: IO[bytes], encoding: str, delimiter: str, vocab: set, distinct
         for rec in reader:
             record += 1
             busy = True
-            if not rec:
-                r.blank += 1
+            if not rec or (r.header is None and all(not x.strip() for x in rec)):
+                r.blank += 1                    # before the header, a record of blank cells is blank, never a header
             elif r.header is None:
                 r.header = rec
                 r.columns = [ColumnStats(name, vocab=name in vocab, distinct_cap=distinct_cap) for name in rec]
@@ -490,7 +521,7 @@ def read_csv(raw: IO[bytes], encoding: str, delimiter: str, vocab: set, distinct
                         c.absent()
             busy = False
     except Exception as e:      # every failure is reported by class, never as a traceback that could print content
-        r.error = _error_text(e, record if busy else record + 1, encoding)
+        r.error = _error_text(e, record if busy else record + 1, encoding, exact=busy)
     r.bytes_read = hr.n
     r.sha_read = hr.sha.hexdigest()
     return r
@@ -526,7 +557,7 @@ def header_withheld(r: CsvResult) -> int:
     for i, h in enumerate(r.header or []):
         if _looks_like_data(h):
             k += 1
-        elif i < len(r.columns) and h.strip() and r.columns[i].has_value(h):
+        elif i < len(r.columns) and h.strip() and r.columns[i].header_hit:
             k += 1
     return k
 
@@ -727,7 +758,7 @@ def _check_args(args) -> str | None:
     try:
         io.TextIOWrapper(io.BytesIO(b""), encoding=args.encoding)     # a bytes codec (hex, zlib) refuses here
     except LookupError:
-        return "REFUSED: --encoding {!r} is not a text encoding Python knows".format(args.encoding)
+        return "REFUSED: --encoding {} is not a text encoding Python knows".format(show(repr(args.encoding)))
     if args.vocab_max < 1:
         return "REFUSED: --vocab-max must be 1 or more"
     if args.distinct_cap < 1:
@@ -749,9 +780,13 @@ def main(argv: list | None = None, out: Callable[[str], None] = print) -> int:
         out(str(e))
         out("EXIT 2 (refused; no file opened)")
         return 2
+    except Exception as e:                              # never a traceback: a traceback could carry content
+        out("ERROR: the PATHs could not be listed ({}); no file opened".format(type(e).__name__))
+        out("SUMMARY: read whole 0 · not read whole 0 · skipped 0 · EXIT 1")
+        return 1
     out(RULES)
-    out("OPTIONS: encoding {} · delimiter {!r} · distinct cap {:,} · vocab max {} · vocab {}".format(
-        args.encoding, args.delimiter, args.distinct_cap, args.vocab_max,
+    out("OPTIONS: encoding {} · delimiter {} · distinct cap {:,} · vocab max {} · vocab {}".format(
+        show(args.encoding), show(repr(args.delimiter)), args.distinct_cap, args.vocab_max,
         ", ".join(show(repr(v)) for v in args.vocab) or "none"))
     old_limit = csv.field_size_limit()
     old_digits = sys.get_int_max_str_digits() if hasattr(sys, "get_int_max_str_digits") else None

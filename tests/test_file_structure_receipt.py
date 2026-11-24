@@ -354,7 +354,7 @@ def test_a_csv_error_exits_1(tmp_path):
     code, text = run([str(p)])
     # 3.10's csv refuses a NUL and 3.11+ would read it: the receipt refuses it on every Python, the same way
     assert code == 1
-    assert "ERROR: not read whole, at record 3 (a NUL character in the text)" in text
+    assert "ERROR: not read whole, at record 3, or after it (a NUL character in the text)" in text
 
 
 # ---- what it writes: nothing --------------------------------------------------------------------------------------
@@ -401,7 +401,7 @@ def test_an_unclosed_quote_is_an_error_never_a_silent_merge(tmp_path):
     p.write_text('a,b\n1,"x\n2,y\n3,z\n4,w\n', encoding="utf-8")
     code, text = run([str(p)])
     assert code == 1
-    assert "ERROR: not read whole, at record 2 (csv.Error" in text
+    assert "ERROR: not read whole, at record 2, or after it (csv.Error" in text
     assert "PARTIAL (up to the error) rows 0" in text
 
 
@@ -614,3 +614,82 @@ def test_only_ascii_digits_make_a_number_and_a_zone_minute_over_59_is_not_iso(tm
 def test_an_unknown_user_is_refused_not_a_traceback():
     code, text = run(["~nosuchuserzz_fsr/a.csv"])
     assert code == 2 and "cannot be resolved" in text
+
+
+# ---- the second review pass, pinned -------------------------------------------------------------------------------
+
+
+def test_a_line_of_spaces_before_the_header_is_blank(tmp_path):
+    p = tmp_path / "ws.csv"
+    p.write_text(" \n , \na,b\n1,2\n3,4\n", encoding="utf-8")
+    code, text = run([str(p), "--vocab", "a"])
+    assert code == 0
+    assert "rows 2 · columns 2 · blank records 2 · ragged rows 0" in text
+    assert "VOCAB COL 1 'a'" in text
+
+
+def test_the_recurrence_rule_holds_past_the_distinct_cap(tmp_path):
+    p = tmp_path / "hl.csv"
+    p.write_text("Hard,Wimbledon\nHard,Wimbledon\nClay,Roland Garros\nGrass,Halle\n", encoding="utf-8")
+    for cap in ("100000", "2", "1"):
+        code, text = run([str(p), "--distinct-cap", cap])
+        assert code == 0
+        assert "HEADER WITHHELD: 2 of 2" in text and "Hard" not in text and "Wimbledon" not in text, cap
+
+
+@pytest.mark.parametrize("header,row", [
+    ("shotID,season,game_id,team,homeTeamCode,awayTeamCode,event,xCord,yCord,shotType,goal,isHomeTeam,period,time",
+     "{i},2023,2023020{i:03d},{side},TOR,MTL,{ev},{x},-12,WRIST,{g},1,2,{t}"),
+    ("tourney_id,tourney_name,surface,draw_size,tourney_level,tourney_date,match_num,winner_id,winner_name,"
+     "winner_hand,score,best_of,round,minutes",
+     "2023-{i:04d},Event {i},Hard,32,A,20230102,{i},10{i:04d},Player {i},R,6-4 3-6 7-6(5),3,R32,{t}"),
+])
+def test_real_shaped_headers_are_not_withheld(tmp_path, header, row):
+    rows = [row.format(i=i, side="HOME" if i % 2 else "AWAY", ev="SHOT" if i % 3 else "GOAL", x=i % 89,
+                       g=1 if i % 3 == 0 else 0, t=100 + i) for i in range(1, 200)]
+    p = tmp_path / "real.csv"
+    p.write_text(header + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    code, text = run([str(p), "--vocab", "season" if "season" in header else "surface"])
+    assert code == 0
+    assert "HEADER WITHHELD" not in text and "rows 199 · columns 14" in text
+    assert "kind int (every value is 8 digits and a valid YYYYMMDD date)" in text or "shotID" in text
+
+
+def test_a_symlink_loop_is_read_the_same_on_every_python(tmp_path):
+    d = tmp_path / "loop"
+    d.mkdir()
+    (d / "good.csv").write_text(CSV, encoding="utf-8")
+    try:
+        os.symlink("l2", str(d / "l1.csv"))
+        os.symlink("l1.csv", str(d / "l2"))
+    except (OSError, NotImplementedError):
+        pytest.skip("no symlinks here")
+    code, text = run([str(d / "l1.csv")])                  # a named PATH that cannot be resolved: refused
+    assert code == 2 and "cannot be resolved" in text
+    code, text = run([str(d)])                             # an entry inside a folder: an ERROR, never opened
+    assert code == 1 and "FILE {}".format(d / "good.csv") in text
+    assert "l1.csv: cannot be resolved (" in text and "REFUSED" not in text
+
+
+def test_shown_names_join_like_the_os(tmp_path):
+    assert fsr._join("/", "bin") == "/bin"
+    assert fsr._join("", "t.csv") == "t.csv"
+    assert fsr._join("top", ".") == "top"
+    assert fsr._join("a/", "b.csv") == "a/b.csv"
+
+
+def test_an_odd_encoding_name_is_escaped(tmp_path):
+    p = tmp_path / "e.csv"
+    p.write_bytes(b"a\n\xff\n")
+    code, text = run([str(p), "--encoding", "utf\n8"])
+    assert code == 1
+    assert not any(ln.startswith("8") for ln in text.splitlines())
+    assert "encoding utf\\n8" in text
+
+
+def test_a_collect_failure_still_ends_with_the_summary(tmp_path, monkeypatch):
+    def boom(raws, recursive):
+        raise OSError("simulated")
+    monkeypatch.setattr(fsr, "collect", boom)
+    code, text = run([str(tmp_path)])
+    assert code == 1 and text.splitlines()[-1].startswith("SUMMARY:") and "simulated" not in text

@@ -10993,7 +10993,10 @@ def closing_watch_cmd(families, dry_run):
     2(5)); the pages go out after the slate stage, cut at 57 s. Exit: 0 success, 2 a refusal, 3 a failure, a miss or
     a HELD page already receipted and notified, 1 what it could not report, or a failure, miss or HELD page whose
     notice no channel took (addendum 502 item 2 Q5, addendum 503 item 1 Q5: its receipt line carries
-    notice_not_taken; a refusal keeps 2 and carries it too, Q7). (= python deploy/hosting/closing.py watch)"""
+    notice_not_taken; a refusal keeps 2 and carries it too, Q7). A notice no channel took, a miss's or a refusal's, is
+    sent again on a later tick, at the tick's end after its closings, under the pages' 57 s bound; a send cut at that
+    bound exits 3 with no key and is sent again (addendum 504 item 4(b)). (= python deploy/hosting/closing.py
+    watch)"""
     argv = ["watch"] + [x for f in families for x in ("--family", f.upper())] + (["--dry-run"] if dry_run else [])
     raise SystemExit(_closing().main(argv))
 

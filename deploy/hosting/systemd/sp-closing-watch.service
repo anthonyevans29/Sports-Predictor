@@ -8,7 +8,8 @@
 # unhandled error, exit 1, the 45-minute bound); sp_notify sends that page at most once in thirty minutes for
 # this unit, by name, and receipts every failure (addendum 47 item 7(b)). Addendum 502 item 2 Q5 and 503 item 1 Q5
 # (2026-11-24): a failure, miss or HELD page whose notice no channel took is not notified: it exits 1, so this
-# path pages it (its receipt line carries notice_not_taken; a refusal keeps exit 2 and carries it too).
+# path pages it (its receipt line carries notice_not_taken; a refusal keeps exit 2 and carries it too). Such a
+# notice is sent again on a later tick, at the tick's end; a send cut at its 57 s bound exits 3 (504 item 4(b)).
 [Unit]
 Description=sports-predictor closing watch (NFL, SOCCER)
 Wants=network-online.target

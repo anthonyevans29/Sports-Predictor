@@ -10,6 +10,7 @@
 - **A resend never costs a closing its T-35** (my adversarial review's P1; #613 P1-2's class).
   - It is queued for the end of the tick, after its closings and its slate stage.
   - It is sent there by `send_resend` under the slate pages' 57 s bound, and only where the send ends before the first tick that could start the next closing. Otherwise it waits, and that tick exits 1.
+  - A closing the tick refused, or found feed-down, starts no chain on the next tick either, so it never holds a resend. Without this, a refused closing, still open with its T-35 past, would hold its own refusal's resend until T-5, when it is lost (my second adversarial review's P1).
   - The resent line carries `resent: true`. `closing_state`'s miss count is one per reason.
 - **A send cut at its bound** (HELD page or resend) stays exit 3, with no key, and is sent again on a later tick: ARCHITECT 2026-11-24, addendum 504 item 4(b), "The slate page cut at its bound staying exit 3 and being sent again stands".
 - **Refusals follow the same rule** (504 item 4(b): "THE REFUSALS' ONCE-PER-REASON MARK FOLLOWS THE SAME RULE: it is set when a channel took the notice, not when one was sent"). A closing or slate refusal no channel took is notified again on a later tick. It is queued for the tick's end like a miss's resend, and stays exit 2 with the key. The slate's family refusal, which pages nothing, stays marked when receipted.
@@ -20,5 +21,5 @@
 - **`deploy/hosting/sp_receipts.py`:** such a line's key text ends `NOTICE NOT TAKEN: no channel took it`, and it counts as failing.
 - **Words:** docs/CLI.md, cli.py's closing-watch help, and sp-closing-watch.service's comment (no directive).
 - **Tests:**
-  - 17 new tests, closing and slate, among them the resend queue and its bound, and the refusals' mark on delivery;
+  - 20 new tests, closing and slate, among them the resend queue and its bound, the refusals' mark on delivery, a cut resend, and a refused closing that no longer holds its own refusal's resend;
   - every other existing closing, slate and hosting test unchanged.

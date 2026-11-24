@@ -55,8 +55,10 @@ the cases where only the guard changed the call. Measurement only; no rule, thre
   trace, so there the receipt reads the priced snapshot before it where the export had none. The changed cases are
   split by where their reference was read, so a change that rests on a snapshot read shows. This reference is NOT the grading close above (that close is read at kickoff): the edge and cohort lines
   keep the grading close, the Desk reads what it had. The Desk is desk_policy.evaluate, every switch as it stands; the
-  second run differs by the guard's own switch alone (desk_policy.injuries_one_sided_rule_off), so a call that
-  differs is a call the guard alone changed. A prediction with no computed_at is not evaluated, counted.
+  second run differs by the guard's own switch alone (desk_policy.injuries_one_sided_rule_off). Since addendum 503
+  item 1 Q3 that switch also lifts the both-empty rule (its own kind, injuries_both_empty), so a both-empty case
+  differs too: it is counted apart (both_empty_held) and never as the guard's change; every other call that differs
+  is a call the guard alone changed. A prediction with no computed_at is not evaluated, counted.
 - The block also counts the one-sided cases (exactly one list empty, the other with names: the guard's own condition)
   an earlier rule reached first (shadow league, kickoff clock, started, default rating: the Desk checks those before
   the guard, so both runs read the same), by kind; one-sided = held + reached earlier. A changed call is graded by its

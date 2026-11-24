@@ -2369,6 +2369,9 @@ def _rescore(doc: dict) -> list[dict]:
                                 # addendum 305: a published PLAY the current Desk passes at exec <= 0 is its own
                                 # transition, never "halved" (0u < the v1.1 units)
                                 "exec non-positive" if c.get("passKind") == EXEC_NON_POSITIVE_KIND else
+                                # addendum 503 item 1 Q3: the both-empty rule rides the one-sided switch, which
+                                # addendum_off holds, so a published PLAY it now passes would read 0u = 0u "unchanged"
+                                "injuries both empty" if c.get("passKind") == INJURIES_BOTH_EMPTY_KIND else
                                 "halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
                                 else "raised")})
     return out

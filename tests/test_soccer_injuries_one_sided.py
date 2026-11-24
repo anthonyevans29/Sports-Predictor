@@ -610,3 +610,16 @@ def test_the_receipt_counts_both_empty_apart_from_the_guard():
     g = rc.guard_summary([case(1, (3, 0), one, play), case(2, (0, 0), both, play), case(3, (0, 0), both, play)])
     assert (g["held"], g["both_empty_held"], g["changed_call"], g["changed_ids"]) == (1, 2, 1, [1])
     assert g["both_empty_held_off"] == {"PLAY": 2} and g["one_sided"] == 1
+
+
+def test_desk_rescore_names_a_published_play_the_both_empty_rule_now_passes():
+    """The both-empty rule rides the one-sided switch, which addendum_off holds on both sides of desk-rescore, so a
+    published PLAY it now passes would read 0u = 0u "unchanged": it is its own verdict, as the host fence's is."""
+    r = row_9226(0, 0)
+    with dp.injuries_one_sided_rule_off():
+        doc = dp.annotate({"sport": "soccer", "predictions": [json.loads(json.dumps(r))]}, now=NOW)
+    d = doc["predictions"][0]["desk"]
+    d["call"] = "PLAY"                      # a file published before the rule, with a staked call on (0, 0)
+    rows = dp.rescore(doc)
+    assert [x["verdict"] for x in rows] == ["injuries both empty"]
+    assert rows[0]["addendum_call"] == "PASS" and rows[0]["pass_reason"].startswith("injury lists both empty")

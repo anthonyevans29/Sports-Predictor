@@ -9100,6 +9100,26 @@ def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit, list_ours):
                        + (f" · API game linked to match {x['api_linked_to']}" if x['api_linked_to'] else ""))
 
 
+@cli.command("nhl-ceiling-probe")
+@click.option("--db", "db_path", required=True, metavar="COPY",
+              help="A .backup copy of the laptop's database (mode=ro + immutable=1; never under data/, never the "
+                   "configured DB). The app's database is never opened.")
+def nhl_ceiling_probe_cmd(db_path):
+    """THE TRUE-STARTER CEILING, A PROBE, ONE RUN (ARCHITECT 2026-11-24, addendum 491; GATE-CLASS).
+
+    Read-only: runs addendum 491's items 3 to 7 in order on the --db copy and
+    writes nothing (no registry entry, no export, no row). It refuses,
+    printing no log-loss, unless the scored games are the 1,394 nhl-v6/v7/v8
+    recorded, both starters are known on every one, v1 reads 0.6909 and the
+    home-rate baseline less 0.010 reads 0.6866. The verdict line is
+    beats_margin(the leave-one-out log-loss, the home-rate baseline). Exit 0
+    when the console reaches the verdict line; 2 on a refusal (not a run)."""
+    from src.walters import nhl_ceiling as nc
+    code = nc.run(db_path, out=click.echo)
+    if code:
+        raise SystemExit(code)
+
+
 @cli.command("nhl-goalie-coverage")
 @click.option("--db", "db_path", default=None, metavar="PATH",
               help="A .backup copy (mode=ro + immutable=1; never under data/, never the configured DB): prints "

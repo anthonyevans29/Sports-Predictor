@@ -4,7 +4,9 @@
     - It takes only the appearances linked to the stream's games of S, relief included. No decay; PRIOR_SHOTS 2,000.
     - m and the league shots and goals per team-game are S's own, whole season, with no boot prior.
     - **Leave-one-out** (the declared measure) leaves out the starter's own appearance in the game priced. With `leave_one_out=False` it is item 7's leaked line.
-  - **`elo_adjustment` takes the game's match id**, which leave-one-out needs. Without it the call refuses, never pricing a game it cannot place.
+  - **`elo_adjustment` takes the game's match id and its own season**, which leave-one-out needs. Without the match id the call refuses, never pricing a game it cannot place.
+  - A game whose starter's rows carry no shots or saves (NULL, law 4) is placed by its own season, with nothing to leave out.
+  - One goalie twice in one game, or one game in two seasons, refuses at construction, and the run reads it as INVALID before any log-loss.
 - **src/walters/nhl_ceiling.py:** the probe's run, items 3 to 7 in order. It writes nothing; the registry is only read.
   - **The copy:** the shared fence, no sidecar, opened mode=ro + immutable=1. nhl_backtest's own loaders read it unchanged, through a session binding restored on exit. Its path and sha256 print first and are read again after the walks.
   - **Item 3's refusals print no log-loss:**
@@ -14,7 +16,7 @@
   - **`NHLEloHindsight`** is NHLEloV5 exactly, with the game's match id passed to the tracker.
   - **The verdict line** is `beats_margin(leave-one-out, home-rate baseline)`. Beside it: v1, v5 (as-of), leave-one-out less v1, the LEAKED line, and the eight prior reads.
 - **cli.py:** `nhl-ceiling-probe --db COPY`. Exit 0 when the console reaches the verdict line, 2 on a refusal. A row in docs/CLI.md.
-- **tests/test_491_nhl_ceiling.py** (16, synthetic rows only):
+- **tests/test_491_nhl_ceiling.py** (18, synthetic rows only):
   - the leave-one-out sums leave out exactly the game's own appearance;
   - the league figures;
   - the conversion;
@@ -22,7 +24,10 @@
   - each refusal of item 3 prints no log-loss;
   - the one run prints items 3 to 7 in order and writes nothing (the copy's bytes, the registry's bytes and its ids folder unchanged);
   - the verdict is the gate's function;
-  - the fence;
+  - a starter on rows with NULL stats is priced and the run reaches its verdict;
+  - one goalie twice in one game is INVALID with no log-loss;
+  - the fence, each refusal asserted by its own words;
+  - the session binding restored after every refusal;
   - a declaration naming the 2025 set is still refused.
 
   Nothing was run on real data. No figure of the probe exists. No bar moves: the bar is 0.6866.

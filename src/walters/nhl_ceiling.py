@@ -61,14 +61,16 @@ class CeilingRefused(Exception):
 
 class NHLEloHindsight(NHLEloV5):
     """NHLEloV5 exactly (491 item 4: "the goalie term inside the expected score in predict and in update, as v5 ran"),
-    the tracker a HindsightTracker: the one difference is that the game's match id reaches elo_adjustment, which
-    leave-one-out needs. predict, update and the unknown-starter count are v5's own."""
+    the tracker a HindsightTracker: the one difference is that the game's match id and season reach elo_adjustment,
+    which leave-one-out needs. predict, update and the unknown-starter count are v5's own."""
     name = "nhl_elo_v5_hindsight_probe"
 
     def _goalie_diff(self, g) -> float:
         self.tracker.advance_to(g.utc_date)
-        h = self.tracker.elo_adjustment(getattr(g, "home_goalie", None), g.utc_date, match_id=g.match_id)
-        a = self.tracker.elo_adjustment(getattr(g, "away_goalie", None), g.utc_date, match_id=g.match_id)
+        h = self.tracker.elo_adjustment(getattr(g, "home_goalie", None), g.utc_date, match_id=g.match_id,
+                                        season=g.season)
+        a = self.tracker.elo_adjustment(getattr(g, "away_goalie", None), g.utc_date, match_id=g.match_id,
+                                        season=g.season)
         return h - a
 
 
@@ -236,14 +238,20 @@ def walk(out: Callable[[str], None] = print) -> dict:
     out(f"ITEM 3 · THE STREAM, UNCHANGED (nhl_backtest's own: warm-up {nb.TRAIN_SEASON} {len(stream.train)} games, "
         f"scored {nb.TEST_SEASON} {len(stream.test)}, preseason cut by its rule, predict then update)")
     lines = check_identity(stream) + check_starters(stream)
+    apps = season_appearances(stream)
+    by_season = {s_: sum(1 for a in apps if a.season == s_) for s_ in (nb.TRAIN_SEASON, nb.TEST_SEASON)}
+    try:                                     # item 5's inputs, checked before any figure of a model is computed
+        loo_tr = ng.HindsightTracker(apps, leave_one_out=True)
+        leak_tr = ng.HindsightTracker(apps, leave_one_out=False)
+        for s_ in by_season:
+            loo_tr.league(s_)
+    except (ValueError, KeyError) as err:
+        raise CeilingRefused(f"INVALID (491 item 5): the appearances cannot be summed as declared ({err}); no figure "
+                             "printed, not a run") from None
     cfg = NHLEloConfig(home_advantage=home_advantage_from_rate(base.home_rate))
     ref, v1 = check_reference(stream, base, cfg)
     for line in lines + ref:
         out(line)
-    apps = season_appearances(stream)
-    by_season = {s_: sum(1 for a in apps if a.season == s_) for s_ in (nb.TRAIN_SEASON, nb.TEST_SEASON)}
-    loo_tr = ng.HindsightTracker(apps, leave_one_out=True)
-    leak_tr = ng.HindsightTracker(apps, leave_one_out=False)
     loo_model = NHLEloHindsight(cfg, tracker=loo_tr)
     loo = nb.run_gate(stream, loo_model)
     leaked = nb.run_gate(stream, NHLEloHindsight(cfg, tracker=leak_tr))

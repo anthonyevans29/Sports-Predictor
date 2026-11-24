@@ -76,10 +76,22 @@ def test_491_5c_the_elo_points_are_v5s_conversion_on_the_seasons_own_figures():
     assert t.elo_adjustment(7, datetime(2025, 11, 1), match_id=2) == pytest.approx(want, abs=1e-12)
     assert t.elo_adjustment(None, datetime(2025, 11, 1), match_id=2) == 0.0
     assert t.elo_adjustment(12345, datetime(2025, 11, 1), match_id=2) == 0.0       # no appearance in S: the prior
-    with pytest.raises(ValueError, match="cannot be placed in a season"):
+    with pytest.raises(ValueError, match="no match id"):
         t.elo_adjustment(7, datetime(2025, 11, 1))                                  # no match id: never priced
-    with pytest.raises(ValueError):
-        t.elo_adjustment(7, datetime(2025, 11, 1), match_id=999)
+    with pytest.raises(ValueError, match="cannot be placed in a season"):
+        t.elo_adjustment(7, datetime(2025, 11, 1), match_id=999)                    # no season to place it in
+    with pytest.raises(ValueError, match="not the game's 2024"):
+        t.elo_adjustment(7, datetime(2025, 11, 1), match_id=2, season="2024")
+
+
+def test_491_5_a_game_with_no_stat_bearing_appearance_is_placed_by_its_own_season_and_leaves_nothing_out():
+    """The review on the build: a starter flagged on rows whose stats are NULL (law 4) still prices from his season's
+    sums; the game has nothing of his to leave out, so its leave-one-out and leaked rates are the same."""
+    t, leak = ng.HindsightTracker(_apps()), ng.HindsightTracker(_apps(), leave_one_out=False)
+    m = t.league("2025")[0]
+    full = ((28 - m * 30) + (25 - m * 30) + (29 - m * 30)) / (90 + ng.PRIOR_SHOTS)
+    assert t.rate(7, 77, season="2025") == pytest.approx(full, abs=1e-15) == leak.rate(7, 77, season="2025")
+    assert t.elo_adjustment(7, datetime(2025, 11, 1), match_id=77, season="2025") > 0
     assert t.advance_to(datetime(2025, 11, 1)) is None                             # GoalieTracker's interface
 
 
@@ -97,23 +109,23 @@ def test_491_4_the_model_is_v5_and_only_the_tracker_and_the_match_id_change():
         def advance_to(self, t):
             pass
 
-        def elo_adjustment(self, gid, t, match_id=None):
-            self.calls.append((gid, match_id))
+        def elo_adjustment(self, gid, t, match_id=None, season=None):
+            self.calls.append((gid, match_id, season))
             return 0.0
     g = nb.Game(1, 2, "2025", datetime(2025, 10, 20, 19), 3, 2, match_id=55, home_goalie=7, away_goalie=8)
     cfg = NHLEloConfig(home_advantage=40.0)
     m = nc.NHLEloHindsight(cfg, tracker=Spy())
     assert isinstance(m, NHLEloV5)
     p = m.predict(g)
-    assert Spy.calls == [(7, 55), (8, 55)]
+    assert Spy.calls == [(7, 55, "2025"), (8, 55, "2025")]
     assert p == pytest.approx(NHLEloV1(cfg).predict(g), abs=1e-12)     # a zero goalie term is v1 exactly (v5's form)
     m.update(g)
-    assert Spy.calls[-2:] == [(7, 55), (8, 55)]                        # the update prices the same term (v5's form)
+    assert Spy.calls[-2:] == [(7, 55, "2025"), (8, 55, "2025")]                        # the update prices the same term (v5's form)
 
 
 # ------------------------------------------------------------------- item 3 and the command, on a file DB --
 
-def _copy(tmp_path, n_per_season=30, drop_starter=None):
+def _copy(tmp_path, n_per_season=30, drop_starter=None, null_stats=None, twice=None):
     """A throwaway file database (a stand-in for a .backup copy): NHL 2024 and 2025 finished games after each opener,
     two starters per game linked by match id, one relief appearance; a 2023-24 appearance linked to no match."""
     from sqlalchemy import create_engine
@@ -148,8 +160,14 @@ def _copy(tmp_path, n_per_season=30, drop_starter=None):
                 for sd, goalie, saves in (("home", 7000 + teams.index(h), 26 + (i * 3) % 5),
                                           ("away", 7000 + teams.index(a), 25 + (i * 2) % 6)):
                     starter = not (drop_starter == (season, i, sd))
+                    blank = null_stats == (season, i)
                     s.add(NHLGoalieAppearance(nhl_game_id=gid, match_id=m.id, game_start=when, side=sd,
-                                              goalie_id=goalie, is_starter=starter, shots_against=30, saves=saves))
+                                              goalie_id=goalie, is_starter=starter,
+                                              shots_against=None if blank else 30, saves=None if blank else saves))
+                if twice == (season, i):                       # the same goalie, a second API game linked to one match
+                    s.add(NHLGoalieAppearance(nhl_game_id=gid + 900000, match_id=m.id, game_start=when, side="home",
+                                              goalie_id=7000 + teams.index(h), is_starter=False, shots_against=3,
+                                              saves=3))
                 if i == 3:
                     s.add(NHLGoalieAppearance(nhl_game_id=gid, match_id=m.id, game_start=when, side="home",
                                               goalie_id=7100, is_starter=False, shots_against=5, saves=4))
@@ -183,6 +201,11 @@ def _identity_of(path, monkeypatch):
     return st
 
 
+def _binding():
+    import src.db.database as database
+    return database._engine, database.SessionLocal
+
+
 def _no_loss(out):
     low = out.lower()
     return "log-loss" not in low.replace("printing no log-loss", "") and "logloss" not in low
@@ -190,9 +213,10 @@ def _no_loss(out):
 
 def test_491_3a_a_stream_that_is_not_the_recorded_set_refuses_and_prints_no_log_loss(tmp_path, capsys):
     path = _copy(tmp_path)
-    before, reg_before = _sha(path), _registry_state()
+    before, reg_before, bound = _sha(path), _registry_state(), _binding()
     lines = []
     assert nc.run(str(path), out=lines.append) == 2
+    assert _binding() == bound                                                  # the copy binding restored on refusal
     out = "\n".join(lines)
     assert "REFUSED: INVALID (491 item 3(a))" in out and "not 1394 with ab890242" in out
     assert _no_loss(out) and "ITEM 6" not in out and "ITEM 7" not in out
@@ -211,8 +235,8 @@ def test_491_3a_the_registrys_three_entries_hold_the_declared_set():
 def test_491_3b_an_unknown_starter_on_a_scored_game_refuses_and_prints_no_log_loss(tmp_path, monkeypatch):
     path = _copy(tmp_path, drop_starter=("2025", 5, "away"))
     _identity_of(path, monkeypatch)
-    lines = []
-    assert nc.run(str(path), out=lines.append) == 2
+    lines, bound = [], _binding()
+    assert nc.run(str(path), out=lines.append) == 2 and _binding() == bound
     out = "\n".join(lines)
     assert "REFUSED: INVALID (491 item 3(b)): both starters are known on 29 of 30 scored games" in out
     assert _no_loss(out) and "(a) scored games 30" not in out          # a refusal prints no check line after it either
@@ -221,8 +245,8 @@ def test_491_3b_an_unknown_starter_on_a_scored_game_refuses_and_prints_no_log_lo
 def test_491_3c_v1_not_reading_0_6909_refuses_and_prints_neither_figure(tmp_path, monkeypatch):
     path = _copy(tmp_path)
     _identity_of(path, monkeypatch)
-    lines = []
-    assert nc.run(str(path), out=lines.append) == 2
+    lines, bound = [], _binding()
+    assert nc.run(str(path), out=lines.append) == 2 and _binding() == bound
     out = "\n".join(lines)
     assert "REFUSED: INVALID (491 item 3(c))" in out and _no_loss(out)
     st, base = _stream_on(path)
@@ -286,6 +310,23 @@ def test_491_a_warm_up_side_with_no_known_starter_prices_at_zero_and_is_counted(
     assert any("warm-up sides with no known starter (priced at zero, as in v5): 1" in x for x in lines)
 
 
+def test_491_a_starter_on_rows_with_null_stats_is_priced_and_the_run_reaches_its_verdict(tmp_path, monkeypatch):
+    path = _full_run(tmp_path, monkeypatch, null_stats=("2024", 6))
+    lines = []
+    assert nc.run(str(path), out=lines.append) == 0
+    assert any(x.startswith("ITEM 6 · THE VERDICT LINE") for x in lines)
+
+
+def test_491_5_one_goalie_twice_in_one_game_refuses_as_invalid_and_prints_no_log_loss(tmp_path, monkeypatch):
+    path = _copy(tmp_path, twice=("2024", 8))
+    _identity_of(path, monkeypatch)
+    lines, bound = [], _binding()
+    assert nc.run(str(path), out=lines.append) == 2 and _binding() == bound
+    out = "\n".join(lines)
+    assert "REFUSED: INVALID (491 item 5): the appearances cannot be summed as declared" in out and _no_loss(out)
+    assert "ITEM 6" not in out
+
+
 # ------------------------------------------------------------------------- the fence and the registry --
 
 def test_491_the_copy_fence_refuses_the_configured_database_a_missing_file_and_a_sidecar(tmp_path):
@@ -293,8 +334,10 @@ def test_491_the_copy_fence_refuses_the_configured_database_a_missing_file_and_a
     app = os.environ["DATABASE_URL"].split("sqlite:///", 1)[1]                # tests/conftest.py's throwaway file
     lines = []
     assert nc.run(app, out=lines.append) == 2 and lines[0].startswith("REFUSED: ")
+    assert "is the app's configured database" in lines[0] and len(lines) == 1      # nothing opened, nothing printed
     lines = []
-    assert nc.run(str(tmp_path / "none.db"), out=lines.append) == 2 and lines[0].startswith("REFUSED: ")
+    assert nc.run(str(tmp_path / "none.db"), out=lines.append) == 2 and "no file at" in lines[0] and len(lines) == 1
+    assert not (tmp_path / "none.db").exists()
     path = _copy(tmp_path)
     (path.parent / "sports.db-wal").write_bytes(b"")
     lines = []

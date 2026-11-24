@@ -168,8 +168,9 @@ class HindsightTracker:
     """GoalieTracker's interface (advance_to, elo_adjustment), priced in hindsight: every figure is season S's whole
     season, computed once. `leave_one_out` True is 491's declared measure (the starter's own appearance in the game
     priced is left out of his sums); False is item 7's LEAKED line, printed and labelled, deciding nothing.
-    elo_adjustment needs the game's match id (a keyword GoalieTracker does not take), because leave-one-out is by game:
-    without it the call refuses (ValueError), never prices a game it cannot place."""
+    elo_adjustment needs the game's match id and its season (keywords GoalieTracker does not take), because
+    leave-one-out is by game: without the match id the call refuses (ValueError), never prices a game it cannot place.
+    A data defect in the inputs (one goalie twice in one game, one game in two seasons) refuses at construction."""
     appearances: list[SeasonAppearance]
     leave_one_out: bool = True
     _league: dict[str, tuple[float, float, float]] = field(default_factory=dict)    # S -> (m, shots/tg, goals/tg)
@@ -211,15 +212,21 @@ class HindsightTracker:
         """GoalieTracker's interface: nothing to ingest, every figure is the whole season's."""
         return None
 
-    def rate(self, goalie_id: int | None, match_id: int | None) -> float:
-        """sum(saves - m x shots) / (sum(shots) + PRIOR_SHOTS) over the goalie's appearances of the match's season,
-        less his own appearance in that match when leave_one_out (491 item 5(b))."""
+    def rate(self, goalie_id: int | None, match_id: int | None, season: str | None = None) -> float:
+        """sum(saves - m x shots) / (sum(shots) + PRIOR_SHOTS) over the goalie's appearances of season S, less his own
+        appearance in that match when leave_one_out (491 item 5(b)). S is the game's own season (`season`, the stream
+        game's), or, without it, the season the match's appearances carry. A game with no stat-bearing appearance (its
+        rows' stats NULL, law 4) still has its season: it leaves nothing out."""
         if goalie_id is None:
             return 0.0
-        if match_id is None or match_id not in self._season_of:
-            raise ValueError(f"match {match_id!r} is not a stream game with appearances: it cannot be placed in a "
+        if match_id is None:
+            raise ValueError("no match id: a game cannot be placed for leave-one-out")
+        s_ = self._season_of.get(match_id, season)
+        if season is not None and s_ != season:
+            raise ValueError(f"match {match_id} carries season {s_}, not the game's {season}")
+        if s_ is None or s_ not in self._league:
+            raise ValueError(f"match {match_id!r}: season {s_!r} has no league figures: it cannot be placed in a "
                              "season")
-        s_ = self._season_of[match_id]
         g = self._sums.get((s_, goalie_id))
         if g is None:
             return 0.0
@@ -230,10 +237,11 @@ class HindsightTracker:
             gsaa -= own_saves - self._league[s_][0] * own_shots
         return gsaa / (shots + PRIOR_SHOTS)
 
-    def elo_adjustment(self, goalie_id: int | None, t: datetime, match_id: int | None = None) -> float:
+    def elo_adjustment(self, goalie_id: int | None, t: datetime, match_id: int | None = None,
+                       season: str | None = None) -> float:
         """Elo points for this starter, as v5 converts them (491 item 5(c)); 0 when the starter is unknown."""
         if goalie_id is None:
             return 0.0
-        r = self.rate(goalie_id, match_id)
-        _, spg, gpg = self._league[self._season_of[match_id]]
+        r = self.rate(goalie_id, match_id, season)
+        _, spg, gpg = self._league[self._season_of.get(match_id, season)]
         return ELO_PER_LOGIT * PYTH_EXP / gpg * (r * spg)

@@ -15,10 +15,11 @@
   - **Codex's first review (3 P1, 3 P2), all verified and fixed:**
     - one domain per call, so a destroy never leaves a claim made from the destroyed text;
     - each call's ordered input manifest;
-    - `InaccessiblePaths` on host.env for the other units, beside `UnsetEnvironment`, because host.env is re-read in-process (my own review had wrongly refuted this);
-    - a source lock that every writer and the destroy hold;
-    - a token reservation before each call;
-    - a fixed name-to-NHL-id rule, with no fuzzy match.
+    - the key: host.env is re-read in-process, so `UnsetEnvironment` alone cannot keep it from the other units (my own review had wrongly refuted this). Hiding host.env would make the host's role unknown under 116 item 2, so §3.3 sets out three options for the ruling;
+    - a source lock that every writer and the destroy hold, and the graph rebuild's own lock;
+    - a token reservation before each timer call, as append-only reservation and settlement rows, with `max_retries=0`;
+    - a fixed name-to-NHL-id rule, with no fuzzy match;
+    - then a second check of those fixes, which held 30 more findings, all fixed: the evidence rule, one `sp-inferred@` instance per domain, the domain in the lineage and the gate per lineage, §10 per domain, and the bench outside the ledger and the cap.
   - **§12 lists twelve points for the ruling of 12-03.**
 
   Nothing is built and nothing is run. No bar, date or held timer moves.

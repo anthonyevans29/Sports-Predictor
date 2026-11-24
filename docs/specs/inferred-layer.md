@@ -127,8 +127,10 @@ Each tier has its own tables. No table holds both tiers, and every row still car
   - `api_observations`: the payload's sha256, the fetch time and the HTTP status;
   - `api_assertions`: the kind, the provider ids, the source's own stamp, and the league's words verbatim in `attrs`.
 - **Tier inferred:**
-  - `inferred_observations`: the exact text handed to the model, its sha256 and the fetch time, one row per page;
-  - `inferred_call_inputs`: each call's ordered input manifest, one row per input page: the `call_id`, the position, the observation's id and its sha256. Together with the prompt file's sha256 it names exactly which stored texts a call was handed, in order, so §5's reproduction and audit do not rest on the evidence the answer chose to cite. It lives in the domain's own store, so it goes with the domain (§4);
+  - `inferred_observations`: one row per text actually handed to a call. Each row holds that text (the page trimmed for one game by the trim rule of §12(d)), its sha256, the page's URL, the raw page's sha256, the trim rule's version and the fetch time. The raw page is fetched once per run and kept once, in the domain's `payloads/` (375 item 2(i): one fetch per page per run), so a page that feeds two games gives one payload and two observations;
+  - `inferred_call_inputs`: each call's ordered input manifest. It has one row per observation handed, with the `call_id`, the position, the observation's id and its sha256. It also has one row for the facts handed: the two teams' provider ids and the game's start time, as handed. Together with the prompt file's sha256 and `max_tokens`, it names exactly what a call was handed, in order. So §5's reproduction and audit do not rest on the evidence the answer chose to cite. It lives in the domain's own store, so it goes with the domain (§4);
+  - **the write order:** a call's observations and its manifest are committed to the domain's store BEFORE its reservation row (§6) and before the request is sent. A call that crashes after sending still has its full input on record;
+  - **the evidence rule:** every evidence link of a claim must resolve to an observation in that call's own manifest, and so to the call's own domain. The writer refuses a claim that cites anything else and counts the refusal by cause, with a test. So a claim can never carry another domain's page past that domain's destroy;
   - `inferred_assertions`, each carrying:
     - `status_word` (projected | likely | stated, 375 item 2(b));
     - `evidence` (each link with the publication time its page showed);
@@ -138,12 +140,10 @@ Each tier has its own tables. No table holds both tiers, and every row still car
     - `lineage` (§7.5);
     - `confidence`;
     - the call's `call_id`.
-- **The calls ledger, its own source (the P1 of the design's review).** `inferred_calls` lives in its own folder, `<SP_PRIVATE_DIR>/inferred_calls/`, and holds one row per provider call, written whatever the outcome. Each row carries:
-  - `call_id`, the element, the games and sides asked, and the one domain whose pages it read (§3.2);
-  - the provider, its model, and the prompt's sha256;
-  - the start and end times;
-  - the provider's own input and output token counts;
-  - the outcome: answered, no evidence, refused, or failed.
+- **The calls ledger, its own source (the P1 of the design's review).** `inferred_calls` lives in its own folder, `<SP_PRIVATE_DIR>/inferred_calls/`. It is append-only like every store, and it holds TIMER calls only: a bench call is recorded in its own bench folder in the same shape, never here (§6; 376 item 2(d)). Each timer call writes two rows, keyed by `call_id`:
+  - **the reservation row,** before the request: the element, the games and sides asked, the one domain whose pages it read (§3.2), the provider, its model, the prompt's sha256, the start time and the call's bound (§6);
+  - **the settlement row,** after: the end time, the provider's own token counts (input as the sum of `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`, and `output_tokens`), and the outcome. The outcome is answered, no evidence, refused, or failed.
+  - **A call with no settlement row** (a crash) is open. It counts at its bound for its UTC day, and the day's report prints it as open. **A call that ends without a provider usage block** (a timeout, a connection error) settles as failed and keeps its bound as its count, because tokens may have been billed.
 
   It holds no page text, no page hash and no answer text: the input manifest stays in the domain's store. The daily caps count it (§6), so a call that writes no claim (375 item 2(g)) is still counted. A destroy of a domain leaves its calls' counts here and removes everything the domain supplied (§4). On an objection to the provider, it goes with the provider's destroy (§3.3).
 - A source's file holds only its own tier's tables. An api source's file has no inferred tables, and an inferred reader's file has no api tables.
@@ -165,7 +165,7 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
 - **The tables** are SQLAlchemy Core `Table()` objects in their own `MetaData`, in `src/private/schema.py`, with no `__tablename__`. The test that only `src/db/schema.py` assigns `__tablename__` (tests/test_schema_ddl_check.py) holds unchanged.
 - **A schema change** ships with a root `migrate_private_<what>.py` (354 item 2). `sp_deploy.py`'s `MIGRATION_NAME` already matches that name. The build that follows this design adds:
   - `sp_deploy`'s schema warning (`SCHEMA_FILE`, today `src/db/schema.py` only) reads `src/private/schema.py` too;
-  - `run_migrations` backs up every private store (§2) before a `migrate_private_*` file runs, under its lock; that backup is not sports.db's;
+  - `run_migrations` backs up every private store (§2) before a `migrate_private_*` file runs, under the deploy's own lock and, per store, under that source's lock (§4), taken before the store is opened. A store whose lock it cannot take is not migrated, and the deploy reports it. That backup is not sports.db's;
   - `schema_ddl_check.py`'s DUMP compiles both MetaData;
   - CONTRIBUTING's stated limits name the second MetaData. Its sentence "Every table is declared in src/db/schema.py (a test pins it)" becomes false and is rewritten; the test that pins the limits is updated with it.
 - **The readiness predicate** is `private.migrated(session, <file>)`, on the pattern of `record.migrated(rs)`, which takes a session.
@@ -205,7 +205,8 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
 - **One call reads one domain (the proposal, §12(b)).** Each call is handed the pages of ONE domain only, and writes its claims, its input manifest and its pages into that domain's file alone.
   - **Why:** a claim made from several domains' text depends on each of them. A copy kept in domain B of a claim the model made from A's text would outlive A's destroy, which is the exact case the destroy exists for. Removing that copy from B would touch another source's append-only rows, which 368 item 3(d) forbids ("destroyable whole without touching any other source's append-only rows").
   - With one domain per call, every claim depends on one source, and destroying it is removing its folder (§4). No other source's rows are touched.
-  - **The cost:** a game read from three domains is three calls and three claims. Each is scored on its own (§7), by domain, so the report also says which domain is worth its calls.
+  - **The cost:** a game read from three domains is three calls and three claims (§10 counts calls per domain). Each domain's claims are their own lineage (§7.5) and are scored and gated on their own (§7.4), so the report also says which domain is worth its calls.
+- **One timer per domain.** The reader is a templated unit, `sp-inferred@<domain>.service` with its `.timer`, one instance per domain. Disabling one domain is disabling its instance, so 368 item 3(d)'s "the timer stops the same day" applies to that domain alone (§4).
 - **The score's key.** The score counts one claim per (`call_id`, side, element), since one call answers for both sides (§5).
 
 ### 3.3 The Provider plug
@@ -219,16 +220,16 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
 - **TWO FACTS for the ruling (§12(h)):**
   - **host.env says keys don't live there.** `deploy/hosting/etc/host.env.example`'s header reads: "API keys do NOT live here: they travel in the checkout's .env (H0-15 manifest) and are read by config.py as on the laptop." 376 item 1(a) rules the key into host.env, so that comment changes with the build.
   - **Eleven units load host.env** (`EnvironmentFile=-/etc/sports-predictor/host.env`), so each would hold the key in its environment. They are sp-availability-observe, sp-backup-prune, sp-backup, sp-boot-receipt, sp-chain@, sp-closing-watch, sp-cup-observe, sp-exports-squash, sp-notify@, sp-soccer-refresh and sp-web.
-  - **`UnsetEnvironment` alone does not keep the key from them.** host.env is root:sp mode 0640 (`install.sh`), every unit runs as `User=sp`, and `sp_common.setting()` and `load_host_env()` read the file again in-process. A unit with the key unset from its environment could still read it from the file.
-  - **The proposal:** the key's NAME and value live in host.env, as 376 item 1(a) rules. Each of the other eleven units carries two lines:
-    - `UnsetEnvironment=ANTHROPIC_API_KEY`, so its environment does not hold the key;
-    - `InaccessiblePaths=/etc/sports-predictor/host.env`, so the process cannot reopen the file. systemd reads an `EnvironmentFile` as root before the process starts, so those units still get every other setting.
-  - Reading the file in-process then fails with a permission error, and `sp_common.parse_env_file` already answers that with no settings (`sp_common.py`, the `PermissionError` branch). So `setting()` falls through to the environment's values, which systemd loaded. The graph unit already carries `InaccessiblePaths=/etc/sports-predictor`, the precedent.
-  - The build pins both lines on every unit other than the reader's, with a test.
-  - **What is left, for the ruling:** a process run by hand as `sp`, outside a unit, can still read host.env. That is the operator's own hand on the host, and this design does not close it.
-  - **The alternative departs from 376 item 1(a):** a second file, root-only and passed to the reader's unit alone (for example by systemd's `LoadCredential=`), would close that too. But it moves the value out of host.env, so it is set out only as the architect's to rule (§12(h)), never proposed as within the ruling.
+  - **`UnsetEnvironment` alone does not keep the key from them.** host.env is root:sp mode 0640 (`install.sh`), every unit runs as `User=sp`, and the code reads the file again in-process: `sp_common.setting()` and `load_host_env()`, `sync_hold`'s re-read of `SP_SYNC_HOLD`, and `desk_policy.role_reading()`. A unit with the key unset from its environment could still read it from the file.
+  - **Hiding the file from those units breaks the host.** `desk_policy` reads the machine's role from host.env strictly. By addendum 116 item 2, "a host.env that EXISTS but cannot be read makes the role UNKNOWN" (`HOST_FENCE_UNREADABLE_REASON`). An `InaccessiblePaths` line on host.env leaves the path existing and unreadable. So inside sp-chain@ and sp-closing-watch, every host-only command would refuse: the expansion leagues' shadow export at the end of the soccer chains, the PL availability arm, and the other host-only shadows. sp-web would also stop honouring an `SP_SYNC_HOLD` set after it started, because `sync_hold` would silently read nothing. The graph unit's `InaccessiblePaths=/etc/sports-predictor` shows only the mechanism: that unit loads no host.env and runs no host-only command.
+  - **So no option keeps the value in host.env, keeps it from the other units, and leaves 116 item 2 as it stands.** The three options, for the ruling (§12(h)):
+    - **(A) The proposal: as ruled, with the exposure every key has today.** The value lives in host.env (376 item 1(a)). Each of the other eleven units carries `UnsetEnvironment=ANTHROPIC_API_KEY`, so no other unit's environment holds the key and no child process inherits it, pinned by a test. Any sp process can still read the file, as every sp unit today can read the checkout's .env, where every other provider key lives (host.env.example's header; the graph unit's header). This adds no exposure the other keys do not already have.
+    - **(B) Hide host.env from the units that run no role-reading or hold-reading path.** The build would list them unit by unit, with a test. sp-chain@, sp-closing-watch and sp-web cannot be on that list, so the key stays readable where most code runs. This adds lines without closing much.
+    - **(C) A root-only second file passed to the reader's instances alone,** for example by systemd's `LoadCredential=`. That closes the exposure, but it moves the value out of host.env and departs from 376 item 1(a). So it is set out only as the architect's to rule, never proposed as within the ruling.
+  - **What every option leaves open:** a process run by hand as `sp` can read whatever sp can. That is the operator's own hand on the host.
+- **The plug's request settings, pinned by test:** `max_retries=0`, so one reservation covers exactly one billed attempt (§6), and no `cache_control`, so the settled input is the plain input (§1.1 counts all three input fields all the same).
 - **The provider's destroy path.** What the provider holds is our calls' inputs and outputs; our own copies are the store's rows and payloads, which go by §4, per source. On an objection to the provider:
-  - the timer stops;
+  - every `sp-inferred@` timer stops;
   - the block disables the provider plug;
   - every inferred source made through that provider, and the calls ledger, is destroyed by §4.
 
@@ -256,10 +257,13 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
 
 - **Who runs it.** It runs on the host only (`desk_policy.not_host_reason`), and the architect's block alone runs it. It refuses without a ruling string, and while the source's timer is still enabled.
 - **No writer runs while it removes.** A disabled timer does not stop a service that has already started, and that service could recreate the folder or write a payload after the removal. So:
-  - **the lock:** every writer of a source (its timer's service, the bench, `private-init`) holds the source's lock, `<SP_PRIVATE_DIR>/.locks/<source>.lock` (an exclusive `flock`), for its whole run. The lock sits outside the source's folder, so it outlives the removal;
-  - **the order:** the destroy refuses while the source's service is active (`systemctl is-active`). It then takes the same lock, non-blocking, and refuses if it cannot. It holds the lock through the removal, the graph step and the receipt line;
-  - **the check:** after the removal, still holding the lock, it checks that the folder is gone and refuses (exit 2, receipt not written) if it is not;
-  - **what is left behind:** the lock file. It holds no row and no text.
+  - **the lock:** any process that writes under `<source>/`, or writes a private backup of it, holds the source's lock, `<SP_PRIVATE_DIR>/.locks/<source>.lock` (an exclusive `flock`), for its whole run. That means its timer's service, the bench, `private-init`, the daily private backup, `run_migrations`' backup and migrate (§1.4), and the NBA probe's report phase if its receipts move there (§12(l)). The lock sits outside the source's folder, so it outlives the removal;
+  - **a reader holds two locks:** an `sp-inferred@` run and the bench take their domain's lock and then the ledger's (`inferred_calls`), always in that order;
+  - **writers take the lock non-blocking and refuse if it is held.** Once holding it, every writer but `private-init` refuses if `<source>/` or a migrated `store.db` is absent. None of them ever creates the folder. A writer that waited could otherwise recreate the source after its destroy;
+  - **the order:** the destroy refuses while the source's timer is enabled or its service is active (`systemctl is-active`). For an inferred domain, that is its `sp-inferred@<domain>` instance. For the ledger, it refuses while ANY `sp-inferred@` timer is enabled or service is active. It also refuses while `sp-availability-graph.service` is active. It then takes the source's lock non-blocking and refuses if it cannot. It holds the lock through the removal, the graph step and the receipt line;
+  - **the graph's own lock:** the graph unit cannot see `<SP_PRIVATE_DIR>` (§9), so the rebuild takes a second lock it can reach, `logs/availability/graph/.rebuild.lock`. The destroy takes that one non-blocking too, after the source's, and holds it through the graph step. A rebuild that opened the old backups therefore cannot write its file after the destroy;
+  - **the check:** after the removal, still holding both locks, it checks three things: the folder is gone, no `<source>_*.db`, `.sha256` or `.partial` is left in `/var/backups/sports-predictor-private/`, and the graph file is absent. If any check fails, it refuses (exit 2) and writes no receipt;
+  - **what is left behind:** the two lock files. They hold no row and no text.
 - **What it prints first, before it removes anything:**
   - the store's rows by table, and its sha256;
   - the payload count and bytes;
@@ -296,22 +300,23 @@ A row links to a game by provider ids: the league's own ids, and the stored matc
 
 ## 6. The bench for the controlled tests (376 item 2; 376 item 3)
 
-- **The command:** `cli.py inferred-bench --provider claude --prompt prompts/nhl_goalie/v1.md --games <ids…> --max-calls N --max-pages M`.
+- **The command:** `cli.py inferred-bench --provider claude --source <domain> --prompt prompts/nhl_goalie/v1.md --games <ids…> --max-calls N --max-pages M`. One domain per run (§3.2).
   - It runs on the host only, by hand, by the architect's block (376 item 2(a)). It refuses under systemd (an `INVOCATION_ID` check) and is never on a chain or a timer.
 - **What it prints.** First the two bounds, at which it stops (376 item 2(b)). Then, per call and in total, the input and output tokens and the model name (376 item 2(c)). No dollar figure is printed or written.
 - **Where its output goes:**
-  - its inputs, outputs and rows go to `<source>/bench/<ts>/` under the private folder. The scoring report never reads them, and §4 destroys them with the source (376 item 2(d));
+  - its inputs, outputs and rows go to `<source>/bench/<ts>/` under the private folder, with each call's record and input manifest in the ledger's and manifest's own shapes. The scoring report never reads them, and §4 destroys them with the source (376 item 2(d));
+  - its calls write no row to the calls ledger, so they never count against the timer's daily cap.
   - the prompts are files in the repo, each with its version and sha256 (376 item 3).
 - **The caps.** No spend cap applies during the controlled tests (376 item 1(b)). Before any timer runs, the daily cap is set by the operator on the measured cost (376 item 1(b)), which the operator and the architect work out from the bench's token counts (376 item 2(c)).
   - **Its unit is a proposal:** 375 item 1(iii) rules "a daily spend cap", and this design holds it as two NAMES in host.env, `SP_INFERRED_DAILY_CALLS` and `SP_INFERRED_DAILY_TOKENS`, in calls and tokens rather than money. No dollar figure is written anywhere (376 item 2(c)). That unit is the architect's to rule (§12(e)).
   - The timer refuses if either is unset.
   - It stops at either cap, counted from the calls ledger (§1.1) for the UTC day, one count per call whatever its outcome.
-  - **A call is reserved before it is sent, so the last call of a day cannot run past the cap.**
+  - **A timer call is reserved before it is sent, so the last call of a day cannot run past the cap.** The reservation and the cap check run in the timer's path only. The bench stops at `--max-calls` and `--max-pages` alone, which is a stop on a fault and not a spend cap (376 item 2(b)).
     - Each call sets a fixed output bound, `max_tokens`, from the prompt file.
-    - Its input is bounded before sending by its byte count, because no token is shorter than one byte.
-    - Before the request, the ledger row is written as `reserved`, with input bytes plus `max_tokens` as the call's bound.
-    - The call is refused unless the day's settled tokens, plus every open reservation, plus this bound, stays within `SP_INFERRED_DAILY_TOKENS`. The calls cap counts reserved calls the same way.
-    - After the answer, the row settles to the provider's own counts. A row still `reserved` when its run ends (a crash) counts at its bound until the day ends.
+    - **The input bound is a working bound, not a property of the tokenizer.** It is the UTF-8 byte length of the whole serialised request body (the system text, the messages and any output schema), plus a fixed per-call overhead that the prompt file names. The bench measures how far the provider's reported input stays under it, and the prompt's PR prints that margin.
+    - The reservation row (§1.1) carries the input bound plus `max_tokens` as the call's bound.
+    - The call is refused unless the day's settled tokens, plus every open call at its bound, plus this bound, stays within `SP_INFERRED_DAILY_TOKENS`. The calls cap counts open calls the same way.
+    - The settlement row (§1.1) replaces the bound with the provider's own counts. A call that has none keeps its bound.
 
 ## 7. Scored and gated (375 item 2(d)): `cli.py inferred-score --element nhl_starting_goalie --sports-copy <a sports .backup copy> --private-backup-dir <the private backups' folder>`
 
@@ -330,13 +335,19 @@ The proposal for a side's truth (part of §12(f)):
 
 A claim that names a reliever is never counted correct.
 
-**The answer's goalie and the truth's goalie are matched by NHL player id, never by name (part of §12(f)).** The model names a goalie in words, while both truths carry the NHL `playerId` (`nhl_goalie_appearances.goalie_id`). So each claim's name is resolved to an id by one fixed rule before it is scored:
-- **The pool:** the goalies stored in `nhl_goalie_appearances` for that team in that season, in games that started before the claim was made. The resolver reads them from the sports copy.
+**The answer's goalie and the truth's goalie are matched by NHL player id, never by name (part of §12(f)).** The model names a goalie in words, while both truths carry the NHL `playerId`, in two different places:
+- the `is_starter` truth, as `nhl_goalie_appearances.goalie_id` (an integer);
+- the `eventual_starter` truth, as `availability_assertions.source_player_id` (the playerId as text; that row's `player_id` is NULL by design, `nhl_landing.py`). The resolver's integer is compared with `int(source_player_id)`, and a value that does not parse leaves the side unscored by cause.
+
+So each claim's name is resolved to an id by one fixed rule before it is scored:
+- **The team:** the side's `team_abbrev`, taken from the claimed game's own appearance row for that side (by `nhl_game_id` or `match_id`, plus side). Where that row is missing or its `team_abbrev` is NULL, the claim is unscored under its own counted cause (law 4).
+- **The season:** `nhl_goalies.season_label(game_start)`, applied to the claimed game's start and to each appearance row's `game_start` alike. It is never read from `matches.season`, which is int-style and would match nothing.
+- **The pool:** the goalies stored in `nhl_goalie_appearances` with that `team_abbrev` in that season, in games that started before the claim was made. Rows with a NULL `team_abbrev` are left out. The resolver reads them from the sports copy.
 - **The normalisation:** Unicode NFKD, accents stripped, case-folded, every character that is not a letter turned into one space, and spaces collapsed. It is applied to the answer's name and to each stored `goalie_name` alike.
 - **The match:** exact equality after normalisation, against the pool.
   - Exactly one goalie matches: the claim carries that id.
   - None matches, or more than one: the claim is unscored and counted by cause ("not in the pool" or "ambiguous"). There is no fuzzy match, no initials rule and no guess (law 4).
-- **A known cost:** a goalie with no stored game for his team that season (a debut or a recall) is never in the pool. A claim naming him is counted "not in the pool", and the report prints that count beside the score.
+- **A known cost:** a goalie with no stored game for this team this season is never in the pool: a debut, a recall, a trade or waiver arrival whose games were all for another club, or a backup not yet used. Early in a season that is common. A claim naming him is counted "not in the pool", and the report prints that count by cause beside the score.
 - The resolver's id, its rule's version and the cause are stored with the score's rows, never written back to the claim.
 
 ### 7.2 The two free baselines, as they stand
@@ -359,7 +370,7 @@ The lead times are the reads the reader makes (§10: a morning read at T-8h and 
 ### 7.4 The fixed point and the gate
 
 - **The sample and the margin are written before the first row.** They go in `docs/inferred/register.json` before the store accepts its first inferred row (375 item 2(d)). `private-init` and the writer refuse an element with no written sample and margin, and the values do not move. They are the architect's, at 12-03 (the roadmap's step: "the pilot's gate written").
-- **The gate:** `cli.py inferred-gate --element …` reads the report against the written sample and margin.
+- **The gate is per lineage, so per domain** (§7.5). `cli.py inferred-gate --element … --lineage …` reads one lineage's report against the written sample and margin. The sample counts that lineage's scored claims, one per game, side and read. Claims from several domains are never pooled into one sample, because the same game-side read from D domains would reach the sample D times as fast on correlated claims. The unit is written with the sample (§12(k)).
   - It prints PASS, FAIL, or NOT YET (the sample is not reached), and writes nothing else.
   - A tie is a rejection.
 - **What a PASS allows.** An element that passes may only be DECLARED as an input to a candidate, which then runs at that sport's UNCHANGED gate (375 item 2(d)). Nothing inferred changes a call or a stake before its gates (375 item 2(k)).
@@ -367,7 +378,7 @@ The lead times are the reads the reader makes (§10: a morning read at T-8h and 
 
 ### 7.5 Lineage (375 item 2(h))
 
-- A lineage is the element, plus the provider's model, plus the prompt's sha256. A new model or a new prompt starts a new lineage, and no row is ever regenerated.
+- A lineage is the element, plus the domain (§3.2), plus the provider's model, plus the prompt's sha256. A new model, a new prompt or a new domain starts a new lineage, and no row is ever regenerated. So a claim's successor (§9) is always the same source's later claim, a change of mind (375 item 2(b)), never another domain's.
 - A destroyed source's rows leave their lineage. The report prints that as a count, so a lineage is never silently rescored.
 - The 11-14 proposal called this a "series". It is renamed here because `nhl_landing.py` already uses "series" for its polls (`SERIES_SCOPE`, addendum 343 item 1).
 
@@ -395,7 +406,7 @@ Under (A) and (B), §§1 to 11 stand as written. Under (C), the truth, the basel
   - This adds a second input to the graph, whose scope 252 item 4 and 347 item 5(b) rule as "reading a `.backup` COPY of the database". So the second input is the architect's to rule (§12(i)).
 - **An inferred claim is a node** (379 item 2), with edges:
   - to its evidence: one node per cited page, carrying the shown publication time;
-  - to its successor: the next claim in its lineage for the same game, side and element;
+  - to its successor: the next claim in its lineage (so from the same domain, §7.5) for the same game, side and element;
   - to its truth: the side's truth as §7.1 defines it, once stored, or no truth edge where the side has none.
 
   An api fact for the same question is its own node, and the precedence of §3.4 is read on the projection.
@@ -404,20 +415,20 @@ Under (A) and (B), §§1 to 11 stand as written. Under (C), the truth, the basel
   - The same care applies here. The live stores under `SP_PRIVATE_DIR` are hidden from the graph unit by `TemporaryFileSystem=<SP_PRIVATE_DIR>:ro`, which the fence never walks. The private backups stay readable.
   - A test pins the line.
   - Mode 0700 gives no isolation between sp's own units, so every other sp unit that does not need the live stores gets the same line.
-- **The graph file** stays on the host (`logs/availability/graph`, never mirrored, never backed up). §4 rebuilds it on a destroy.
+- **The graph file** stays on the host (`logs/availability/graph`, never mirrored, never backed up). §4 removes it on a destroy, holding the rebuild's own lock (`logs/availability/graph/.rebuild.lock`), and the next run of the unit rebuilds it.
 
 ## 10. The cost estimate for the NHL pilot, in tokens and calls (376 item 3)
 
-These are estimates, to be replaced by the bench's measured figures. No dollar figure is written (376 item 2(c)).
+These are estimates, to be replaced by the bench's measured figures. No dollar figure is written (376 item 2(c)). **They are for ONE domain (D = 1).** One call reads one domain (§3.2), so with D listed domains every call, token and fetch figure below is multiplied by D. The domains are named in the reader's PR (§5), and the bench's call and page bounds are set from D.
 - **Volume:** about 1,312 games over about 180 days, so 7 to 8 games on an average day and up to 16 on a full slate.
-- **Per game:** two calls, a morning read (T-8h) and a late read (T-90).
-  - Each call is about 6,000 input tokens (about 2,500 a team from the trimmed pages, plus the prompt and the facts) and about 300 output tokens.
+- **Per game, per domain:** two calls, a morning read (T-8h) and a late read (T-90).
+  - Each call is about 6,000 input tokens (about 2,500 a team from one domain's trimmed pages, plus the prompt and the facts) and about 300 output tokens.
   - That is about 12,000 input and 600 output tokens a game.
 - **Per day:**
   - about 16 calls on an average day: about 95,000 input and 5,000 output tokens;
   - about 32 calls on a full slate: about 190,000 input and 10,000 output tokens.
 - **Bench:** a test of 10 games and 20 calls is about 120,000 input and 6,000 output tokens.
-- **Fetches:** about 4 pages a game per read, two a team. The bench's page bound is set on that.
+- **Fetches:** about 4 pages a game per read per domain, two a team. The bench's page bound is set on that, times D.
 
 ## 11. The NBA report (368): source `nba_injury_report`, tier api, in its own folder
 
@@ -435,7 +446,7 @@ These are estimates, to be replaced by the bench's measured figures. No dollar f
 ## 12. For the architect's ruling, 2026-12-03
 
 - (a) Per-source folders, each with per-tier tables (§1), against one private store with per-tier tables. Both keep the two tiers in separate tables. Per source makes a destroy one folder, never a DELETE.
-- (b) One domain per call (§3.2), so every claim depends on one source and a destroy never touches another source's rows. The alternative is one inferred store with a per-domain DELETE exception against 368 item 3(d).
+- (b) One domain per call (§3.2), so every claim depends on one source and a destroy never touches another source's rows, with the evidence rule that enforces it (§1.1) and one `sp-inferred@` instance per domain. The alternative is one inferred store with a per-domain DELETE exception against 368 item 3(d). Its cost is D times the calls (§10).
 - (c) The second kept subtree in `exports_mirror` (§8).
 - (d) The market-word list and the trim rule (§5), as data. The proposal:
   - the words: odds, line, spread, moneyline, sportsbook, betting, and a signed price such as +/-<digits>;
@@ -443,10 +454,10 @@ These are estimates, to be replaced by the bench's measured figures. No dollar f
 - (e) The cap's unit: calls and tokens, against 375 item 1(iii)'s "spend cap". Its two NAMES; the calls ledger that counts them (§1.1, §6); and the register's path and shape (§5, §7.4).
 - (f) The pilot's truth, its rule for a side with two goalies in net, its name-to-id rule and its baselines (§7.1, §7.2). Keeping the landing projection out of the model's inputs (§5).
 - (g) 376 item 3's question: the fixed list of domains, fetched by the reader (§5).
-- (h) The key: its value in host.env as ruled, with `UnsetEnvironment` and `InaccessiblePaths` on the other eleven units, and a manual run as `sp` left open. The alternative is a root-only second file passed to the reader alone, which departs from 376 item 1(a) (§3.3).
+- (h) The key (§3.3). (A), proposed: its value in host.env as ruled, with `UnsetEnvironment` on the other eleven units, readable by any sp process as every other provider key is today. (B): hiding host.env from the units that read no role, which cannot include the chains. (C): a root-only second file passed to the reader alone, which departs from 376 item 1(a). Hiding host.env from every unit is not offered: under 116 item 2 it makes the host's role unknown.
 - (i) The graph's second input, and the node shape of an inferred claim (§9).
 - (j) What the NHL pilot is now for (§7.6). This document does not choose.
-- (k) The pilot's gate: its sample, its margin, its lead-time buckets, its confidence bands and its lineage's declared start (§5, §7.3, §7.4). The private backups' retention (§2).
+- (k) The pilot's gate: its sample and the sample's unit (one claim per game, side and read, per lineage, never pooled across domains), its margin, its lead-time buckets, its confidence bands and its lineage's declared start (§5, §7.3, §7.4). The private backups' retention (§2).
 - (l) Choices in the body that change or add to something already built or ruled:
   - the NBA probe's receipts moving from 368 item 4(ii)'s `logs/availability/` (§4);
   - the destroy's `--also` list until then (§4);
@@ -454,15 +465,16 @@ These are estimates, to be replaced by the bench's measured figures. No dollar f
   - the bench's `INVOCATION_ID` refusal (§6);
   - the masking line on every sp unit that does not need the live stores (§9);
   - the first private migrate file (§1.4);
-  - the source lock that every writer and the destroy hold (§4);
-  - the token reservation before each call (§6).
+  - the source lock that every writer and the destroy hold, and the graph rebuild's own lock (§4);
+  - the token reservation before each timer call, with `max_retries=0` (§3.3, §6);
+  - the templated `sp-inferred@` unit (§3.2).
 
 ## 13. Since the proposal of 11-14: the repository facts re-read on main `822ff041`
 
 - **`install.sh`.** The proposal said it "runs unconditionally on every deploy that ships a unit file". It does not: the deploy never calls it, and it runs only in the architect's enabling blocks (374 item 2). The conclusion stands (§1): the block makes the folders.
 - **The graph unit.** The proposal put `SP_PRIVATE_DIR` in `InaccessiblePaths` "beside data/". Since 378 item 3, data/ is masked by `TemporaryFileSystem`, because an inaccessible data/ refused every run. §9 follows the masked form.
 - **The NBA probe's receipts.** The proposal said "one `--out` default change". `--out` has no default; the report phase requires it under `logs/availability/` (`refuse_report_out`). §4 changes that rule.
-- **host.env and the key.** host.env.example says keys do not live there, and eleven units load the file. §3.3 sets both facts out for (h). host.env is root:sp 0640 and `sp_common.setting()` re-reads it in-process, so `UnsetEnvironment` alone cannot keep the key from a unit (Codex's review of #1112; my own review had wrongly refuted this).
+- **host.env and the key.** host.env.example says keys do not live there, and eleven units load the file. §3.3 sets both facts out for (h). host.env is root:sp 0640 and is re-read in-process, so `UnsetEnvironment` alone cannot keep the key from a unit (Codex's review of #1112; my own review had wrongly refuted this). Hiding the file is not a fix either: `desk_policy` reads the role from it strictly, and by 116 item 2 an unreadable host.env makes the role unknown.
 - **The secret lists.** `record._SECRET_ENV` lacks `API_BASKETBALL_KEY`, which `sp_common.SECRET_ENV` has. §3.3.
 - **The carriers.** `sp_migrate.py pack` copies `exports/` recursively, and `pull_exports`' `--remote-dir` override reads `SP_HOST_EXPORTS`. §1 pins both.
 - **The lists.** No test ties `TIMERS_BY_BLOCK` to THE HELD LIST; THE HELD LIST is two entries now. §3.5.

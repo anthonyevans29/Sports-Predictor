@@ -1,4 +1,4 @@
-## 2026-11-24 (#0000: 992-inferred-layer-design — the inferred data layer and the host-only store, the design PR, nothing built behind it (lane inferred-layer, #992; addenda 375, 376, 496 item 4(d), 501))
+## 2026-11-24 (#1112: 992-inferred-layer-design — the inferred data layer and the host-only store, the design PR, nothing built behind it (lane inferred-layer, #992; addenda 375, 376, 496 item 4(d), 501))
 - **docs/specs/inferred-layer.md (new): the design only.** No code, store, timer, key, prompt, folder or row exists for anything in it. The architect rules on it on 2026-12-03.
   - **The rulings, quoted word for word:**
     - 375 items 1 and 2 and 376 items 1 and 2, from #992;

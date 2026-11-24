@@ -1,0 +1,13 @@
+## 2026-11-24 (#000: 500-nfl-team-refusal — the NFL-team refusal of Q9 with its count line (ARCHITECT 2026-11-24, addendum 500 Q9 and item 3(a); the finding 493 item 2(d); #1108))
+- **src/ingestion/service.py:** `_upsert_match` refuses a college ("NCAA") listing either of whose teams holds a membership of the NFL competition.
+  - The check sits before the lookup by id, so it covers the update by id, both re-keys and the create. Nothing is written for the listing: no row, no key, no cache entry, no re-key claim.
+  - `_nfl_members` reads the NFL competition's member team ids (any season) once per run, in sync_matches' prefetch cache; empty, with no query, for any other competition.
+  - `SyncResult.nfl_team_refused`: the listing's provider id of each refusal, in listing order, also counted in `skipped`.
+  - `nfl_team_refused_line`: `nfl_team_refused N: <listing ids>`.
+- **cli.py:** sync-matches prints the line on its own line only when N > 0, after the collision lines (both the --seasons loop and the single run); the scores-by-team line stays the last.
+- **src/web/routes/admin.py:** the sync job's summary carries ` · nfl_team_refused N: <ids>` when N > 0.
+- **deploy/hosting/sp_run.py:** `NFL_TEAM_REFUSED_LINE`, in `_SYNC_LINES`; `sync_counts` adds the key `nfl_team_refused` {n, ids}, every such line of a step adding.
+- **deploy/hosting/laptop_routine.py:** the line is one of `_COUNT_LINES`, so step 9 (NCAA sync-matches) echoes it and its receipt carries it.
+- **Choices named for the architect** (the ledger entry lists them): any season; the provider id on the line; the check after the unknown-team branch; the 297 C(ii) mismatch key not written for a refused listing (needs a ruling); refresh-by-id not covered; placeholder 345's membership; --match-ids STRICT wording.
+- **Not changed:** no stored row (66178 and the two memberships wait for the architect's OPERATOR ONLY block), refresh-by-id, sync-teams, the adapter, the exports, --match-ids. No prediction output changes.
+- **Tests:** tests/test_nfl_team_refusal.py (18, new); one each added to tests/test_sync_counts_scores_by_team.py and tests/test_laptop_routine.py.

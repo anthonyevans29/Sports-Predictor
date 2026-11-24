@@ -979,3 +979,20 @@ def test_the_last_line_says_exits_are_counted_not_outcomes_and_a_dry_run_prints_
         assert cmd in doc, cmd
     assert lr.main(["--dry-run"]) == 0
     assert lr.EXITS_NOTE not in capsys.readouterr().out
+
+
+def test_the_ncaa_step_echoes_and_counts_the_nfl_team_refused_line(box, capsys):
+    """ARCHITECT 2026-11-24, addendum 500 item 3(a): "THE NFL-TEAM REFUSAL of Q9, with its count line". Step 9 is the
+    NCAA sync-matches: its line is echoed under the step line and carried on the step's receipt."""
+    def answer(argv):
+        if argv[:3] == ["sync-matches", "--competition", "NCAA"]:
+            return (["✓ Matches (NCAA): created=0 updated=4 skipped=1", "nfl_team_refused 1: 61234"], 0)
+        return (["done"], 0)
+    box.answer = staticmethod(answer)
+    lr.main([])
+    out = capsys.readouterr().out.splitlines()
+    i = out.index(next(x for x in out if x.startswith("9 · ")))
+    assert out[i + 1:i + 3] == ["    > ✓ Matches (NCAA): created=0 updated=4 skipped=1",
+                                "    > nfl_team_refused 1: 61234"]
+    step = next(r for r in receipts(box.tmp) if r["kind"] == "step" and r["step"] == "9")
+    assert step["sync"]["nfl_team_refused"] == {"n": 1, "ids": ["61234"]}

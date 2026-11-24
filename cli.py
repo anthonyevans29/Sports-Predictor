@@ -530,6 +530,16 @@ def _print_provider_id_collision(result) -> None:
         print(season_unknown_line(result.provider_id_season_unknown), flush=True)
 
 
+def _print_nfl_team_refused(result) -> None:
+    """THE NFL-TEAM REFUSAL (ARCHITECT 2026-11-24, addendum 500 Q9 and item 3(a): "THE NFL-TEAM REFUSAL of Q9, with
+    its count line"): "nfl_team_refused N: <listing ids>", printed plainly on its own line (never rich-wrapped) only
+    when N > 0 (sp_run.NFL_TEAM_REFUSED_LINE reads it back). Nothing when the result carries no such list (a test's
+    stand-in service)."""
+    if getattr(result, "nfl_team_refused", None):
+        from src.ingestion.service import nfl_team_refused_line
+        print(nfl_team_refused_line(result.nfl_team_refused), flush=True)
+
+
 def _print_scores_by_team(result) -> None:
     """SCORES BY TEAM (ARCHITECT 2026-11-08, addendum 292 item 3(c), #876): "two new counts on the sync result and its
     printed receipt, each with the match ids LISTED: `orientation_reversed` and `teams_mismatch_refused`". Printed
@@ -615,6 +625,7 @@ def sync_matches_cmd(
             result = service.sync_matches(competition_code, season=season_str)
             console.print(f"  {result}")
             _print_provider_id_collision(result)
+            _print_nfl_team_refused(result)
             _print_skipped_listings(result)
             _print_scores_by_team(result)
         return
@@ -629,6 +640,7 @@ def sync_matches_cmd(
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
     _print_provider_id_collision(result)
+    _print_nfl_team_refused(result)
     _print_skipped_listings(result)
     _print_scores_by_team(result)
     if named is not None:

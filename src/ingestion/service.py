@@ -186,6 +186,12 @@ class SyncResult:
     # whose own-season row was updated while a stored row of no season year carries its id too: counted, not skipped
     # (that row never matched, never touched). Printed by sync-matches only when N > 0.
     provider_id_season_unknown: list = field(default_factory=list)
+    # THE NFL-TEAM REFUSAL (ARCHITECT 2026-11-24, addendum 500 Q9), verbatim: "in the college competition, a listing
+    # either of whose teams holds a membership of the NFL competition is refused at create and at update, counted with
+    # its id, never stored." The listing's provider id of every such listing, in listing order: nothing written (no
+    # row, no key), also counted in `skipped`. Not printed by __str__: the sync-matches command prints
+    # nfl_team_refused_line on its own line when N > 0.
+    nfl_team_refused: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -329,6 +335,15 @@ def season_unknown_line(ids) -> str:
     plain line, printed by sync-matches only when N > 0: "provider_id_season_unknown N: <listing ids>"."""
     ids = [str(i) for i in ids]
     return f"provider_id_season_unknown {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
+
+
+def nfl_team_refused_line(ids) -> str:
+    """Addendum 500 item 3(a), verbatim: "THE NFL-TEAM REFUSAL of Q9, with its count line". The listings of the college
+    competition refused because either of their teams holds a membership of the NFL competition (Q9). One plain line,
+    printed by sync-matches only when N > 0: "nfl_team_refused N: <listing ids>". sp_run.NFL_TEAM_REFUSED_LINE reads
+    it back."""
+    ids = [str(i) for i in ids]
+    return f"nfl_team_refused {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
 
 
 def newest_membership_years(s: Session, sport, team_ids=None) -> dict[int, int]:
@@ -662,6 +677,9 @@ class IngestionService:
                 # claims this season's re-key (a sync without --season lists several)
                 _cache["__listed__"] = {(str(nm.source_id), season_year(nm.season)) for nm in matches}
                 _cache["__placeholder_window__"] = comp.code in PLACEHOLDER_REKEY_COMPETITIONS
+            # addendum 500 Q9: the NFL competition's members, read ONCE per run (sync_matches creates no team and no
+            # membership, so the set is exact for the whole run); empty, with no query, outside the college competition
+            _cache["__nfl_members__"] = self._nfl_members(s, comp)
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
             series_rows = []            # (the row written, that listing entry's own series fields)
@@ -719,6 +737,20 @@ class IngestionService:
 
         if cache is None:
             cache = self._match_cache_for(s, comp, nm.source)
+        # THE NFL-TEAM REFUSAL (ARCHITECT 2026-11-24, addendum 500 Q9), verbatim: "in the college competition, a listing
+        # either of whose teams holds a membership of the NFL competition is refused at create and at update, counted
+        # with its id, never stored." Before every write path below (update by id, both re-keys, create): nothing is
+        # written, cached or claimed for the listing.
+        nfl = cache.get("__nfl_members__")
+        if nfl is None:
+            nfl = cache["__nfl_members__"] = self._nfl_members(s, comp)
+        if home.id in nfl or away.id in nfl:
+            log.warning("sync_matches(%s): %s id %s REFUSED — team(s) %s hold a membership of the NFL competition; "
+                        "nothing written (addendum 500 Q9)", comp.code, nm.source, nm.source_id,
+                        ", ".join(str(t.id) for t in (home, away) if t.id in nfl))
+            result.nfl_team_refused.append(str(nm.source_id))
+            result.skipped += 1
+            return None
         match, refusal = self._match_by_source(s, nm, comp, result, cache)
         if refusal:
             return None
@@ -1046,6 +1078,19 @@ class IngestionService:
             if same or swapped:
                 return decide(same, swapped, " (placeholder window)")
         return None, None
+
+    @staticmethod
+    def _nfl_members(s: Session, comp: Competition) -> frozenset:
+        """Addendum 500 Q9: "in the college competition, a listing either of whose teams holds a membership of the NFL
+        competition is refused". The team ids holding a competition_teams row of the NFL competition (code "NFL", the
+        college competition's sport), in ANY season: Q9 names no season. For any competition but the college one
+        ("NCAA") the set is empty and no query runs. One query; sync_matches reads it once per run."""
+        if comp.code != "NCAA":
+            return frozenset()
+        return frozenset(s.execute(
+            select(CompetitionTeam.team_id)
+            .join(Competition, Competition.id == CompetitionTeam.competition_id)
+            .where(Competition.sport == comp.sport, Competition.code == "NFL")).scalars())
 
     @staticmethod
     def _match_cache_for(s: Session, comp: Competition, source: str) -> dict:

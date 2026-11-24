@@ -252,3 +252,15 @@ def test_the_odds_warning_line_is_cut_at_600_and_the_receipt_keeps_every_id(sand
     assert len(warn) == 1 and len(warn[0]) == 600, [len(x) for x in warn]
     steps = receipts(sandbox)[-1]["odds_by_team"]["steps"]
     assert len(steps[0]["orientation_mismatch_unpriced"]["ids"]) == 300
+
+
+def test_sync_counts_reads_the_nfl_team_refused_line_and_every_such_line_adds():
+    """ARCHITECT 2026-11-24, addendum 500 item 3(a): "THE NFL-TEAM REFUSAL of Q9, with its count line"
+    (service.nfl_team_refused_line, printed by sync-matches only when N > 0)."""
+    got = sp_run.sync_counts(["✓ Matches (NCAA): created=0 updated=4 skipped=1", "nfl_team_refused 1: 61234"])
+    assert got["nfl_team_refused"] == {"n": 1, "ids": ["61234"]}
+    assert got["matches"] == {"created": 0, "updated": 4, "skipped": 1}
+    two = sp_run.sync_counts(["nfl_team_refused 1: 61234", "nfl_team_refused 2: 61300, 61301"])
+    assert two["nfl_team_refused"] == {"n": 3, "ids": ["61234", "61300", "61301"]}
+    assert "nfl_team_refused" not in sp_run.sync_counts(["✓ Matches (NCAA): created=0 updated=4 skipped=0"])
+    assert any(r.match("nfl_team_refused 1: 5") for r in sp_run._SYNC_LINES)

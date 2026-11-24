@@ -1,9 +1,0 @@
-## 2026-11-21 (#1062: 437-venue-by-id-unaskable — the by-id receipt's two classes: an id that is not a provider id, and the provider's refusal of an id (ARCHITECT 2026-11-21, addendum 437 item 2; #1058))
-- **Why:** the receipt's first run (437 item 1) stopped at its first call, on stored venue 0 ("The Id field cannot be 0."). A re-run asks venue 0 first again, so the run could never get past it.
-- **src/ingestion/intl_venue_by_id.py:**
-  - (a) A stored venue id that is not a positive integer is never asked. It is counted and printed as its own class, `stored id is not a provider id`, with its rows and its games by home country (flag now; the cohort fixtures named). It is never "not served".
-  - (b) An answer whose errors block names only the id asked (`ID_ERROR_KEYS`) is that id's answer. It is kept as served, counted as `refused by the provider` with the provider's words, and the run goes on. Any other errors block (a request limit, a token, an access error, a list), a transport failure or an HTTP error still stops the run, with nothing kept for that id. A re-run resumes.
-  - The call (`_ask`) reads the answer as served through the adapter's own throttle, session, 429 retry and status check, without the adapter's raise on an errors block. The adapter is untouched.
-- **cli.py `intl-venue-by-id`:** `--plan` prints the never-asked count; exit 0 when every asked id has its answer.
-- **Law 1 (437 item 2(d)):** `intl_match_venue.venue_id` has one writer, `intl_venues.sync` (src/ingestion/intl_venues.py:124). It stores the saved /fixtures files' `fixture.venue.id` as served (src/ingestion/intl_venues.py:55). A missing id stays NULL, and no code writes 0, so a stored 0 is the provider's own `"id": 0`.
-- **Tests:** tests/test_437_venue_by_id_unaskable.py (7). Two of tests/test_433_venue_by_id_receipt.py's output pins carry the two new counts. Nothing run on either machine.

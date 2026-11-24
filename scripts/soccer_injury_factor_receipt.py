@@ -416,7 +416,11 @@ def guard_summary(xs: list[dict]) -> dict:
                      dp.DEFAULT_RATING_KIND)  # _desk_call's order (the host fence first: addendum 109 item 3)
     seen = [x for x in xs if x.get("desk_on")]
     held = [x for x in seen if x["desk_on"]["pass_kind"] == dp.INJURIES_ONE_SIDED_KIND]
-    changed = [x for x in seen if x["desk_on"]["call"] != x["desk_off"]["call"]]
+    # addendum 503 item 1 Q3: the both-empty rule rides the same switch, so the off run lifts it too; its rows are
+    # counted apart ("a receipt that counts causes must be able to tell them apart"), never as the guard's changes
+    both = [x for x in seen if x["desk_on"]["pass_kind"] == dp.INJURIES_BOTH_EMPTY_KIND]
+    changed = [x for x in seen if x["desk_on"]["call"] != x["desk_off"]["call"]
+               and x["desk_on"]["pass_kind"] != dp.INJURIES_BOTH_EMPTY_KIND]
     sided = [x for x in seen if one_sided(x["counts"])]
     earlier = [x for x in seen if x["desk_on"] == x["desk_off"] and x["desk_on"]["pass_kind"] in earlier_kinds]
 
@@ -432,6 +436,8 @@ def guard_summary(xs: list[dict]) -> dict:
             "one_sided": len(sided), "held": len(held),
             "one_sided_earlier": kinds([x for x in earlier if one_sided(x["counts"])]), "earlier": kinds(earlier),
             "held_off": dict(sorted(Counter(label(x["desk_off"]) for x in held).items())),
+            "both_empty_held": len(both),
+            "both_empty_held_off": dict(sorted(Counter(label(x["desk_off"]) for x in both).items())),
             "changed_call": len(changed),
             "changed_by_reference": dict(sorted(Counter((x.get("desk_ref") or {}).get("from") or "none"
                                                         for x in changed).items())),
@@ -506,6 +512,9 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
     echo(f"  one-sided lists (the guard's condition) {g['one_sided']}: held by the guard {g['held']} · reached by an "
          f"earlier rule first {sum(g['one_sided_earlier'].values())} ({kv(g['one_sided_earlier'])})")
     echo(f"  the guard held (PASS injuries_one_sided) {g['held']} · with it off those read: {kv(g['held_off'])}")
+    echo(f"  both lists empty (PASS injuries_both_empty, addendum 503 item 1 Q3: the same switch, its own kind, never "
+         f"counted as the guard's) {g['both_empty_held']} · with the switch off those read: "
+         f"{kv(g['both_empty_held_off'])}")
     echo(f"  cases where only the guard changed the call: {g['changed_call']}/{g['n']} · their reference read from: "
          f"{kv(g['changed_by_reference'])} · graded by the instrument: {kv(g['changed_graded'])}"
          + (f" · predictions {', '.join(str(i) for i in g['changed_ids'])}" if g["changed_ids"] else ""))

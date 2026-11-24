@@ -2570,3 +2570,62 @@ def test_503_notice_taken_reads_the_channel_only():
     assert mc.notice_taken({"channel": "card"}) and mc.notice_taken({"channel": "operator"})
     assert not mc.notice_taken({"channel": None}) and not mc.notice_taken({"text": "T", "cut_at_bound_s": 57})
     assert not mc.notice_taken(None) and not mc.notice_taken({})
+
+
+def test_503_a_resend_is_queued_for_the_ticks_end_and_sent_bounded(box, monkeypatch):
+    """The review's P1 on the notice rule: a resend never costs a closing its T-35 (#613 P1-2). Given the tick, a miss
+    whose earlier notice no channel took is QUEUED, nothing written; send_resend sends it at the tick's end, cut at
+    NOTIFY_MAX_S, its line marked `resent`."""
+    no_channel(box, monkeypatch)
+    first = mc.record_miss("NFL", at(80), "x")
+    assert first[mc.NOTICE_NOT_TAKEN] is True
+    tick = {}
+    n = len(receipts())
+    assert mc.record_miss("NFL", at(80), "x", tick=tick) == mc.QUEUED and len(receipts()) == n
+    (item,) = tick["resends"]
+    assert (item["kind"], item["start"], item["reason"]) == ("closing_miss", at(80), "x")
+    assert mc.notice_exit(mc.QUEUED) == 0
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): None)       # no closing ahead
+    seen = []
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: seen.append(title) or
+                        {"text": text, "channel": "card"})
+    assert mc.send_resend(item, NOW, NOW, ("NFL",)) == mc.NOTIFIED and seen == ["NFL closing"]
+    r = receipts()[-1]
+    assert r["kind"] == "closing_miss" and r["resent"] is True and mc.NOTICE_NOT_TAKEN not in r
+    assert mc.record_miss("NFL", at(80), "x", tick={}) is None          # taken now: nothing more to send
+
+
+def test_503_a_resend_waits_while_a_closing_is_due_and_the_tick_exits_1(box, monkeypatch):
+    no_channel(box, monkeypatch)
+    mc.record_miss("NFL", at(80), "x")
+    tick = {}
+    mc.record_miss("NFL", at(80), "x", tick=tick)
+    (item,) = tick["resends"]
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): {
+        "family": "NFL", "start": NOW + timedelta(minutes=36), "run_at": NOW + timedelta(minutes=1)})  # next tick's
+    sent = []
+    monkeypatch.setattr(mc, "_bounded_notify", lambda *a, **k: sent.append(a) or {"channel": "card"})
+    n = len(receipts())
+    later = NOW + timedelta(seconds=10)     # 10 s into the tick: a 57 s send would end after the next tick's firing
+    assert mc.send_resend(item, NOW, later, ("NFL",)) == 1 and sent == [] and len(receipts()) == n
+    assert mc.send_resend(item, NOW, NOW, ("NFL",)) == mc.NOTIFIED and len(sent) == 1   # at the tick's start: it fits
+
+
+def test_503_the_ticks_closings_run_before_any_resend(box, monkeypatch):
+    """In watch(), the queued resends go out after the tick's closings and its slate stage."""
+    no_channel(box, monkeypatch)
+    order = []
+    real_run, real_resend = mc.run, mc.send_resend
+    monkeypatch.setattr(mc, "run", lambda *a, **k: order.append("run") or real_run(*a, **k))
+    monkeypatch.setattr(mc, "send_resend", lambda *a, **k: order.append("resend") or real_resend(*a, **k))
+    assert mc.watch(now=NOW + timedelta(minutes=31), families=("SOCCER",)) == 1     # the miss's first send, the run
+    order.clear()
+    mc.watch(now=NOW + timedelta(minutes=32), families=("SOCCER",))
+    assert "resend" in order and "run" in order and order.index("run") < order.index("resend")
+
+
+def test_503_closing_state_counts_one_miss_per_reason(box, monkeypatch):
+    no_channel(box, monkeypatch)
+    for _ in range(3):
+        mc.record_miss("NFL", at(80), "x")
+    assert mc.closing_state("NFL", at(80))["misses"] == 1

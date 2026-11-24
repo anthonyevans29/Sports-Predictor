@@ -6,13 +6,20 @@
   - a failed slate;
   - the HELD page (and the deferral page with it).
 - **A refusal** keeps exit 2 and carries the same key (Q7).
-- **The mark moves to delivery (Q6).** A closing miss, a slate miss and a HELD page count as already sent only where a channel took them. Today the mark is set on any notice sent, so the next tick's silence was the same failure again. Now a miss or page no channel took is sent again on the next tick, and that tick exits 1 again.
+- **The mark moves to delivery (Q6).** A closing miss, a slate miss and a HELD page count as already sent only where a channel took them. Today the mark is set on any notice sent, so the next tick's silence was the same failure again. Now a miss or page no channel took is sent again on a later tick, and that tick exits 1 again.
+- **A resend never costs a closing its T-35** (my adversarial review's P1; #613 P1-2's class).
+  - It is queued for the end of the tick, after its closings and its slate stage.
+  - It is sent there by `send_resend` under the slate pages' 57 s bound, and only where the send ends before the first tick that could start the next closing. Otherwise it waits, and that tick exits 1.
+  - The resent line carries `resent: true`. `closing_state`'s miss count is one per reason.
+- **A send cut at its bound** (HELD page or resend) is not known to be taken (law 4). Its line carries the key, the tick exits 1, and a later tick sends it again.
 - **Unchanged:**
   - a tick with nothing to send;
-  - a slate page cut at its bound (DEV 3's Q6 named it beside the deduplicated miss), which is not taken either, so a later tick sends it again;
   - a run by hand;
   - the notices after a closing's page (the closing file, the push, the bulletin), which are 502 item 3's;
   - the refusals' own once-per-reason rule.
 - **`deploy/hosting/sp_receipts.py`:** such a line's key text ends `NOTICE NOT TAKEN: no channel took it`, and it counts as failing.
 - **Words:** docs/CLI.md, cli.py's closing-watch help, and sp-closing-watch.service's comment (no directive).
-- **Tests:** 10 new tests, closing and slate; every existing closing, slate and hosting test unchanged.
+- **Tests:**
+  - 15 new tests, closing and slate, among them the resend queue and its bound;
+  - the cut-page test now pins exit 1 and the key;
+  - every other existing closing, slate and hosting test unchanged.

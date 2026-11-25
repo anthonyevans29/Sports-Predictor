@@ -598,6 +598,9 @@ def test_the_not_found_causes_count_the_rows_with_no_gap_too(world):
         "the books' fair is not the 1X2 consensus (fair_source 'spread_derived')": 1}
     soccer = summary(out)["families"]["SOCCER"]
     assert soccer["not_found_why_all"] == {"no stored session matches the page": 1}
+    # the printed line, not only the JSON: the console is what the run's reader sees
+    assert any(ln == "    books' session not found, every row in the window (gap or none), by cause: the books' fair "
+               "is not the 1X2 consensus (fair_source 'spread_derived') 1" for ln in out)
 
 
 def test_the_no_stamp_causes_count_the_rows_with_no_gap_too(world, tmp_path):
@@ -608,6 +611,8 @@ def test_the_no_stamp_causes_count_the_rows_with_no_gap_too(world, tmp_path):
     assert fam["home_gap"]["no stamp"]["n"] == 0
     assert fam["no_stamp_why"] == {}
     assert fam["no_stamp_why_all"] == {"the session's rows unstamped (NULL)": 1}
+    assert any(ln == "    no stamp, every row in the window (gap or none), by cause: the session's rows unstamped "
+               "(NULL) 1" for ln in out)
 
 
 def test_every_cause_breakdown_sums_to_its_every_row_count(world):

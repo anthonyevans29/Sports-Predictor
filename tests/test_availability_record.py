@@ -725,18 +725,20 @@ def test_drop_db_drops_the_marker(tmp_path, monkeypatch):
 
 def test_the_lane_is_in_the_roadmap_with_no_competitions_and_no_moved_date():
     """Item 7: a new lane, no existing date moved; no competitions (coverage_map reads a lane's competitions as SHADOW
-    evidence, and this lane prices nothing)."""
+    evidence, and this lane prices nothing). Addendum 492 item 4: the NBA probe's step moves 2026-11-24 to 2026-11-25,
+    its one moved line, and its owner is the architect's (the report phase is his block on the host)."""
     from src import roadmap as rm
     doc = rm.load()
     (ln,) = [x for x in doc["lanes"] if x["lane"] == "availability-record"]
     names = [x["lane"] for x in doc["lanes"]]       # appended after pl-availability; later lanes append after it (#832)
     assert names.index("availability-record") == names.index("pl-availability") + 1
-    assert "competitions" not in ln and ln["moved"] == [] and ln["earliest_live"] is None
+    assert "competitions" not in ln and ln["earliest_live"] is None
+    assert [(m["was"], m["now"]) for m in ln["moved"]] == [("2026-11-24", "2026-11-25")]     # 492 item 4
     assert [(st["owner"], st["due"]) for st in ln["steps"]] == [
         ("code", "2026-11-10"), ("code", "2026-11-12"), ("architect", "2026-11-14"), ("code", "2026-11-17"),
         ("code", "2026-11-20"), ("code", "2026-11-21"),
         ("code", "2026-11-23"),          # the graph's node shape, an added step (ARCHITECT 2026-11-14, 379 item 7)
-        ("code", "2026-11-24"),          # the NBA injury-report probe, an added step (ARCHITECT 2026-11-12, 357 item 4)
+        ("architect", "2026-11-25"),     # the NBA injury-report probe (357 item 4); moved and its owner ruled, 492 item 4
         ("code", "2026-11-25")]
     assert rm.validate(doc) == []
 

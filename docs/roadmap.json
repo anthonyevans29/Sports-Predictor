@@ -329,7 +329,7 @@
       "issue": 105,
       "registry_id": null,
       "competitions": ["NHL"],
-      "state": "to declare",
+      "state": "closed",
       "steps": [
         {
           "what": "candidate nine's two receipts (addendum 157 item 2): (a) GSAx feasibility from the stored shot table and (b) the starter timing probe of the NHL API on three game days, read-only scripts in one PR, the consoles on #105",
@@ -389,11 +389,32 @@
           "what": "the true-starter ceiling test declared with its threshold, or my written no",
           "owner": "architect",
           "due": "2026-11-24",
-          "done": null
+          "done": {
+            "date": "2026-11-24",
+            "receipt": "ARCHITECT 2026-11-24 08:05 ET, addendum 491 (#1092 comment 7132326357; recorded on #105, comment 7141132015): THE TRUE-STARTER CEILING, A PROBE, ONE RUN, declared with its threshold, the gate's own beats_margin against the home-rate baseline (491 item 6), frozen before any figure of it existed. Done by addendum 491 item 11, verbatim: \"the step of 2026-11-24 DONE by this addendum\""
+          }
+        },
+        {
+          "what": "the true-starter ceiling probe's PR, a reviewable head (addendum 491 items 9 and 11)",
+          "owner": "code",
+          "due": "2026-11-30",
+          "done": {
+            "date": "2026-11-24",
+            "receipt": "#1107 merged at d055ba3f by the operator's agent from the architect's block (by 09:47 ET; main 822ff041); read whole and merge-ready by addendum 494 item 1. Done by addendum 495 item 2, verbatim: \"the roadmap's code step of 2026-11-30 (491 item 11) is done today by this merge\""
+          }
+        },
+        {
+          "what": "the one run of the true-starter ceiling probe and its verdict (addendum 491 items 8, 10 and 11)",
+          "owner": "architect",
+          "due": "2026-12-03",
+          "done": {
+            "date": "2026-11-24",
+            "receipt": "the operator ran the architect's block at 14:47Z on main 822ff041, on a fresh copy of the laptop's database, exit 0; the console reached the verdict line once; it is kept on the laptop at logs/nhl_ceiling_probe_2026-11-24_094720.txt. THE VERDICT IS FALSE: beats_margin(leave-one-out log-loss 0.6912, home-rate baseline 0.6966) = FALSE (it needed 0.6866 or less); the goalie term in this form is closed (491 item 6(a)). ARCHITECT 2026-11-24 09:48 ET, addendum 496 items 1, 2(c) and 5 (recorded on #105, comment 7141133086)"
+          }
         }
       ],
       "earliest_live": null,
-      "live_needs": "PASS at the frozen bar on 600 or more regular-season games of 2026-27 (the NHL API's game type 2; the included ids and counts listed in the run's receipt), CONFIRMED, and a Desk policy ruling. The bar is the harness's criterion set as written in src/walters/nhl_backtest.py: the candidate's test log-loss at or under the home-rate baseline's minus 0.010 (LL_MARGIN), the calibration bands, the ratings range; its number is read from the 600-game cohort at the run, never before (0.6866 was the rule's value on the retired 2025 cohort, not the rule). A candidate whose state is not an Elo rating declares its own stability guards with its declaration (addendum 157 item 3).",
+      "live_needs": "CLOSED 2026-11-24 (ARCHITECT 2026-11-24 09:48 ET, addendum 496): the true-starter ceiling, declared by addendum 491 as a probe of one run and not a candidate, ran ONCE on 2026-11-24 and read FALSE: leave-one-out 0.6912 against 0.6866 (beats_margin against the home-rate baseline 0.6966). Addendum 496 item 4, verbatim in part: \"(a) I build no as-of estimate and no projected starter of this quantity as an NHL model input. (b) NHL stays MARKET-ONLY and the model track stays suspended. v7 stays the failed-gate shadow. NHL 2025 stays retired; this was its ninth read and its last. (c) The reopening condition is no longer a goalie or lineup source. A new NHL candidate needs a new idea in another form, declared by its own addendum on 2026-27 as it accrues (600 games or more), at the unchanged gate.\" What the inferred layer's NHL pilot is for is ruled on 2026-12-03 (496 item 4(d)). The bar for such a candidate, unchanged and not touched here: PASS at the frozen bar on 600 or more regular-season games of 2026-27 (the NHL API's game type 2; the included ids and counts listed in the run's receipt), CONFIRMED, and a Desk policy ruling. The bar is the harness's criterion set as written in src/walters/nhl_backtest.py: the candidate's test log-loss at or under the home-rate baseline's minus 0.010 (LL_MARGIN), the calibration bands, the ratings range; its number is read from the 600-game cohort at the run, never before (0.6866 was the rule's value on the retired 2025 cohort, not the rule). A candidate whose state is not an Elo rating declares its own stability guards with its declaration (addendum 157 item 3).",
       "vs_close": "behind. The shadow (v7) reads 0.6747 against the market's 0.6482 over the 64 games graded to 2026-10-13 (my read of the laptop's shadow exports on the mirror). The bar certifies better than the schedule, not better than the market.",
       "moved": [
         {
@@ -950,8 +971,8 @@
         },
         {
           "what": "the NBA injury-report probe (ARCHITECT 2026-11-05, addendum 261 item 1(e), verbatim: \"THE AVAILABILITY RECORD'S NBA FEED (lane availability-record, after the NHL landing feed): the league's OFFICIAL injury report, published on a fixed daily schedule and stamped by the league — the one pregame availability source in any sport we cover that carries the publisher's own time. Its probe (read-only, by 11-24) reads the publication schedule, the document form (a PDF needs a reader dependency; the probe says which) and the fields; the feed PR follows my ruling on the probe. Kind `injury_status` with the league's own status words in attrs, verbatim.\"), in TWO PHASES (ARCHITECT 2026-11-12, addendum 357 item 3(a)): the terms phase by default (the terms page and the host's robots.txt, quoted), the report phase only after the architect's ruling on the terms console, and ON THE HOST ONLY, never the laptop (ARCHITECT 2026-11-13, addendum 368 item 4: the reader host-only; the report console structure only; its rows in a mode-0600 receipt under logs/availability/, never mirrored); scripts/nba_injury_report_probe.py. The step is DONE on the architect's block's consoles on #839 (the terms console; the report console from the host if the terms allow it), not on the merge (addendum 357 item 4)",
-          "owner": "code",
-          "due": "2026-11-24",
+          "owner": "architect",
+          "due": "2026-11-25",
           "done": null
         },
         {
@@ -967,7 +988,16 @@
       "earliest_live": null,
       "live_needs": "Tooling, not a model (addendum 252 item 7: \"the first tooling that unblocks a model lane rather than waits beside one\"): the lane is done when its steps are done. No model goes live from it; the first host reads and the timers' enablement are the architect's blocks.",
       "vs_close": "n/a: no model; the record prices nothing (addendum 252 item 5: no model change, no Desk input)",
-      "moved": []
+      "moved": [
+        {
+          "moved_on": "2026-11-24",
+          "which": "the NBA injury-report probe (ARCHITECT 2026-11-05, addendum 261 item 1(e), verbatim: \"THE AVAILABILITY RECORD'S NBA FEED (lane availability-record, after the NHL landing feed): the league's OFFICIAL injury report, published on a fixed daily schedule and stamped by the league — the one pregame availability source in any sport we cover that carries the publisher's own time. Its probe (read-only, by 11-24) reads the publication schedule, the document form (a PDF needs a reader dependency; the probe says which) and the fields; the feed PR follows my ruling on the probe. Kind `injury_status` with the league's own status words in attrs, verbatim.\"), in TWO PHASES (ARCHITECT 2026-11-12, addendum 357 item 3(a)): the terms phase by default (the terms page and the host's robots.txt, quoted), the report phase only after the architect's ruling on the terms console, and ON THE HOST ONLY, never the laptop (ARCHITECT 2026-11-13, addendum 368 item 4: the reader host-only; the report console structure only; its rows in a mode-0600 receipt under logs/availability/, never mirrored); scripts/nba_injury_report_probe.py. The step is DONE on the architect's block's consoles on #839 (the terms console; the report console from the host if the terms allow it), not on the merge (addendum 357 item 4)",
+          "was": "2026-11-24",
+          "now": "2026-11-25",
+          "why": "the report phase is the architect's block on the host (368 item 4); the host sitting is Wednesday 2026-11-25 (addendum 492 item 4)",
+          "ruling": "ARCHITECT 2026-11-24 08:31 ET, addendum 492 item 4, verbatim: \"4. THE NBA INJURY-REPORT PROBE (lane availability-record, #830; the roadmap's step of 2026-11-24) IS NOT DONE TODAY, AND THE OPEN HALF IS MINE, NOT CODE'S. The script and its terms phase are done (357, 368). What remains is the report phase, which runs on the host only, by my block, with the reader installed there (368 item 4). I had it down as code's step; that was my error. It goes into Wednesday's host sitting, after v1.6.11 is deployed. DEV 1: lane availability-record, that step's date moves 2026-11-24 to 2026-11-25, with its moved line in these words: \"the report phase is the architect's block on the host (368 item 4); the host sitting is Wednesday 2026-11-25 (addendum 492 item 4)\". The owner stays as the file has it unless the file's own rules let you correct it to the architect; say which.\""
+        }
+      ]
     },
     {
       "lane": "soccer-v23",

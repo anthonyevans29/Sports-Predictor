@@ -685,7 +685,9 @@ def test_the_real_files_and_code_derive_the_ruled_statuses(tmp_path, monkeypatch
         assert got[code]["from"] == (
             f"{expansion}; roadmap lane leagues: declared; chain soccer-prematch runs export-soccer-expansion-shadow "
             f"(soccer-expansion-v1), its {code} rows under registry leagues-{code.lower()}-v1"), got[code]["from"]
-    assert got["NHL"]["from"] == NHL_SHADOW
+    # the real file: lane nhl reads closed since addendum 496 item 5 (the fixtures above keep "to declare"); the
+    # NHL status is unchanged
+    assert got["NHL"]["from"] == NHL_SHADOW.replace("roadmap lane nhl: to declare;", "roadmap lane nhl: closed;")
     assert got["NFL"]["from"] == (
         "closing family NFL, but predict-nfl writes nfl_predict.MODEL_VERSION nfl_elo_v1, and registry nfl-elo-v1 reads "
         "it UNCERTIFIED — shadow, confirmation window (addendum 214 item 3); registry nfl-elo-v1: nfl_elo_v1 "

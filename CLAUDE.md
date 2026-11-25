@@ -9,6 +9,15 @@ come from his Claude chat ("the architect"). Your job is disciplined
 execution of those specs. When a spec and this file conflict, stop and
 ask.
 
+## Purpose (the operator, 2026-11-24)
+"my goal is never to commercialize this. The reason why I keep this [in] a
+public repo is so that others can learn but then also potentially
+contribute. This is always going to be open source and I won't be selling
+predictions. This is part of a mission around unlocking capabilities for
+individual people so that anybody with some resources can build their own
+sports prediction service that they can do what they please with, but this
+is the original"
+
 ## Mission (architect, declared 2026-09-26)
 "Generate consistent income from sports predictions — sports as
 commodities, every game an asset class, optimized for prediction markets
@@ -176,7 +185,20 @@ become MORE binding under an income goal, never less."
   layer was never live; the live path's snapshot-fed pitcher layer, on
   through 2026 (#746), is RETIRED before 2027 by 190 item 4 (addendum
   469); the 2027 model is the pitcher-less arm; the as-of finding goes to
-  the 2027 candidate.
+  the 2027 candidate. The operator's Baseball API plan drops to the free
+  tier from 2026-11-25 until the new season (addendum 522 item 1);
+  nothing of 2026 is lost (522 item 3(a)). THE MLB SYNC HOLD ON THE HOST
+  is on, by the architect's OPERATOR block, 15:22Z on 2026-11-25, on
+  v1.6.10 (addendum 531 item 1): one bare line naming MLB in the host's
+  env file (SP_SYNC_HOLD, 522 item 3(b)); the held step, as the daily
+  chain calls it, printed the HELD line alone and left with 0; no timer,
+  unit or chain changed. The host holds MLB from 2026-11-25, lifted only
+  by the architect's block with the plan's renewal before the 2027 season
+  (531 item 1(d), its cite corrected to 522 items 3(b) and 3(d) by 537
+  item 3 Q2); the plan must be back before the first 2027 game the live
+  path prices (522 item 3(d)). The window's MLB sync-odds is outside
+  SP_SKIP_FAMILIES and the sync hold: quiet only while no unfinished MLB
+  game is stored on the host (533 item 4(d)).
 - **Soccer**: soccer_elo_poisson **v22** on the 16,546-match / 24-comp
   pot; PL predictions live; positive-edge cohort (>=+5pp vs market) is
   6/16 — big anti-market edges are ANTI-PREDICTIVE; n=30 pre-committed
@@ -213,6 +235,22 @@ become MORE binding under an income goal, never less."
   a goalie or lineup source: a new NHL candidate needs a new idea in another
   form, declared by its own addendum on 2026-27 (600 games or more) at the
   unchanged gate (496 item 4(c)). Lane nhl (#105) is CLOSED on the roadmap.
+  A scoring-model proposal was granted one feasibility read and nothing
+  more (510 item 4(a); DEV 3's read, #105 comment 7146331897, read whole by
+  515): no candidate is declared and the lane stays closed (508 item 2). NHL
+  2025 stays retired as a test; a candidate's test is FORWARD, 600 or more
+  regular-season games that start after its declaration, at the rule (the
+  home-rate baseline's log-loss minus 0.010 on that cohort, the bands, a
+  stability guard), never at the number 0.6866 (510 items 2(a), 4(b), 4(c)).
+  MoneyPuck's listed files were reopened by the operator (517 item 1; the
+  risk log #1122): fetched by the architect's block only, kept on the laptop
+  in a gitignored folder, raw fields only as inputs, credited by name where
+  something built on them is shown (517 item 2(b)-(e)). The first fetch,
+  four files each asked for once, ran on the laptop at 18:48Z on
+  2026-11-25 by the architect's block; the structure receipt printed no row
+  (538 item 1). "NOTHING IS GRANTED BY THIS READ. No build (517 item 2(g)),
+  no figure of any candidate, NHL 2025 stays retired, and nothing reads the
+  file's 2025-26 or 2026-27 games for a figure." (538 item 6(c), in part).
   Projected starters are the INFERRED LAYER's pilot (NHL starting goalies,
   shadow only; lane inferred-layer, #992; host-only store, never sports.db);
   what the pilot is for is ruled 12-03 (496 item 4(d)). The bar did not move.
@@ -250,7 +288,16 @@ become MORE binding under an income goal, never less."
   settlement is its own status, never a winner (addendum 269). The
   history pot is Kalshi's own settled markets; tennis-data.co.uk is
   closed by access from the US (a geo-block) and the GitHub match
-  archive by its non-commercial licence (addendum 270). The wiring
+  archive by its non-commercial licence (addendum 270). The archive was
+  REOPENED by the operator's decision on 2026-11-24 (addendum 518 item 2,
+  reversing 270 item 3): fetched by the architect's block alone onto the
+  laptop, gitignored, nothing of it in the repo, on the risk log #1122; a
+  tennis candidate may name it as history (518 item 2(e)); tennis-data.co.uk
+  stays closed (access, 270 item 1). Nothing made from the archive sits
+  in sports.db: the map and any rating state are files beside it in the
+  laptop's ignored folder, each with its sha256 (533 item 3 Q2). The
+  one-time read of 2026's settled markets is the architect's OPERATOR
+  block on the laptop, by 2026-11-30 (533 item 3 Q4). The wiring
   merged 11-07 (#868); the kickoff was ruled 11-08 from THE TIMES (the
   served occurrence_datetime, addendum 288 item 1), and the timer stays
   disabled until the kickoff follow-up PR (with the retraction fix), the
@@ -262,7 +309,14 @@ become MORE binding under an income goal, never less."
   falling back to API_FOOTBALL_KEY; addendum 271), no model and no call;
   the NBA wiring (#848, merged 11-07) is loaded and certified on the
   laptop (addendum 282; the host from v1.6.5), NCAA men's follows 12-05
-  and the WNBA in May; the quarters are not kept (addendum 274).
+  and the WNBA in May; the quarters are not kept (addendum 274). The
+  NBA's official injury-report index is CLOSED BY ACCESS (addendum 531
+  item 2(c)): the report phase's one request from the host got HTTP 403
+  on 2026-11-25, as the laptop's reads of 11-06 did; no feed PR follows
+  (531 item 2(d)). No NBA candidate without an as-of availability term,
+  and today the NBA has no source for one (531 item 2(e); 261 item 1(f)):
+  the NBA stays market-only, with no candidate, no declaration and no
+  date (533 item 2(a)).
 - Season strings: soccer clubs "2026/27"; WC "2026"; UNL "2026/27";
   MLB/NFL/NHL/NCAA int-style "2026". Per-comp truth is what the DB
   stores — check, don't assume.
@@ -292,6 +346,12 @@ board, never from chat. The pre-board queue text is history (git log).
   full-season weekly. The O(n^2) match-sync was fixed via a per-sync
   prefetch cache — do not regress it.
 - api_american_football reuses game ids across seasons (11-09, #902): every lookup by provider id is scoped to the season.
+- **College dedupe (ARCHITECT 2026-11-25 11:01 ET, addendum 533 item 1,
+  standing until the twin guard merges):** "STANDING UNTIL IT MERGES: no
+  dedupe-matches --apply, plain or --orphans, on the college competition
+  on either machine. The dry run goes on." The twin guard is DEV 1's own
+  PR after #1119 is on main, a reviewable head by 2026-12-22 12:00 ET
+  (#1108).
 - sync-competitions must run before a new sport's first team/match
   sync (the NHL bootstrap lesson).
 - sync-teams before sync-matches for EVERY new competition-season.
@@ -314,3 +374,7 @@ board, never from chat. The pre-board queue text is history (git log).
 - NHL context: the MoneyPuck public benchmark is 0.648-0.661 log-loss;
   our gate certifies better-than-schedule-naive, not market-competitive
   (bar unchanged).
+- NHL data beyond scores is read from the league's own host under a risk the
+  operator accepted on 2026-11-24 (addendum 516; #1122): its terms page
+  speaks of non-commercial, personal use. Before anything of this project is
+  sold, that risk is read again.

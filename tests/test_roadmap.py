@@ -1055,9 +1055,45 @@ def test_the_real_roadmap_moves_the_nba_probe_step_to_the_host_sitting():
     rule for an owner; the open half is the architect's block on the host)."""
     lane = _lane(_real(), "availability-record")
     st = [s for s in lane["steps"] if s["what"].startswith("the NBA injury-report probe")]
-    assert len(st) == 1 and st[0]["due"] == "2026-11-25" and st[0]["owner"] == "architect" and st[0]["done"] is None
+    assert len(st) == 1 and st[0]["due"] == "2026-11-25" and st[0]["owner"] == "architect"
     (mv,) = lane["moved"]
     assert (mv["moved_on"], mv["which"], mv["was"], mv["now"]) == ("2026-11-24", st[0]["what"], "2026-11-24", "2026-11-25")
     assert mv["why"] == ("the report phase is the architect's block on the host (368 item 4); the host sitting is "
                          "Wednesday 2026-11-25 (addendum 492 item 4)")
     assert mv["ruling"].startswith("ARCHITECT 2026-11-24 08:31 ET, addendum 492 item 4, verbatim: \"4. THE NBA INJURY")
+
+
+def test_the_real_roadmap_marks_the_nba_probe_step_done_and_orders_no_nba_feed():
+    """ARCHITECT 2026-11-25 10:26 ET, addendum 531 item 2(d): "THE ROADMAP STEP OF 2026-11-25 IS DONE TODAY, on that
+    console ... No feed PR follows. DEV 1: the done-mark with the outcome in the step's own words, and the lane's next
+    line saying no NBA feed is ordered." The step is done on its own date, its due and its moved line unchanged.
+    ARCHITECT 2026-11-25 13:42 ET, addendum 537 item 3 Q1: "LANE availability-record IS LIVE, NOT CLOSED. ... Build what
+    the validator needs for live and invent no date". The state reads live, earliest_live stays null (the validator needs
+    no date for live), and live_needs opens with 537 item 3 Q1 whole, then the line it asks for, ending "no NBA feed is
+    ordered (531 item 2)", then 531 item 2(d) in part and 2(e) whole, verbatim. No date moves."""
+    lane = _lane(_real(), "availability-record")
+    (st,) = [s for s in lane["steps"] if s["what"].startswith("the NBA injury-report probe")]
+    assert st["due"] == "2026-11-25" and st["done"]["date"] == "2026-11-25"
+    r = st["done"]["receipt"]
+    assert r.startswith("DONE on the architect's block's consoles on #839 (the step's own words: ")
+    assert "addendum 531 item 2(a) to (d), verbatim in part" in r and "The answer was HTTP 403." in r
+    assert "THE INDEX IS CLOSED BY ACCESS" in r and "No feed PR follows." in r
+    assert rm.next_step(lane) is None and lane["state"] == "live" and lane["earliest_live"] is None
+    ln = lane["live_needs"]
+    assert ln.startswith("ARCHITECT 2026-11-25 13:42 ET, addendum 537 item 3 Q1, verbatim: \"Q1. LANE "
+                         "availability-record IS LIVE, NOT CLOSED. The record runs every day on the host with two feeds, "
+                         "the depth charts and the NHL game pages; a lane whose product is running is not closed. Its "
+                         "line says so and then \"no NBA feed is ordered (531 item 2)\". A third feed is a new step by "
+                         "addendum. Build what the validator needs for live and invent no date: if it needs one, it is "
+                         "the day the first feed first ran on the host, read from the receipts.\" The lane is live: the "
+                         "record runs every day on the host with two feeds, the depth charts and the NHL game pages, and "
+                         "no NBA feed is ordered (531 item 2). Ruled (ARCHITECT 2026-11-25 10:26 ET, addendum 531 item "
+                         "2(d) in part, and 2(e) whole, verbatim): \"No feed PR follows.\"")
+    assert ln.count("no NBA feed is ordered (531 item 2)") == 2      # in the quote, and the line it asks for
+    assert "Until he decides, nothing is built and nothing is read." in ln
+    assert "closed" not in ln.replace("NOT CLOSED", "").replace("is not closed", "")   # 537 Q1: no closed state line
+    assert "waits on the architect" not in ln
+    assert lane["live_needs"].endswith("the lane is done when its steps are done. No model goes live from it; the first "
+                                       "host reads and the timers' enablement are the architect's blocks.")
+    assert len(lane["moved"]) == 1          # 492 item 4's line, kept; 531 moves no date
+    assert rm.validate(_real()) == []

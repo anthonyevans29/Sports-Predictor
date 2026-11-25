@@ -6,6 +6,16 @@ Issue (addendum 276 item 2). This file describes; the rules are in
 
 ## What it is
 
+**Purpose (the operator, 2026-11-24)**
+
+"my goal is never to commercialize this. The reason why I keep this [in] a
+public repo is so that others can learn but then also potentially
+contribute. This is always going to be open source and I won't be selling
+predictions. This is part of a mission around unlocking capabilities for
+individual people so that anybody with some resources can build their own
+sports prediction service that they can do what they please with, but this
+is the original"
+
 - A multi-sport prediction and calibration system (Python, SQLite and
   SQLAlchemy, CLI-driven) that feeds a browser Cockpit (CLAUDE.md, opening).
 - The mission, quoted from CLAUDE.md "Mission" (architect, 2026-09-26):

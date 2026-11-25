@@ -557,7 +557,13 @@ def _confirmation_checked(entries: list[dict], eid: str, scored_ids: list[int], 
             raise RegistryError(f"{eid}: the window run's ids file ({(e.get('run') or {}).get('ids_file')!r}) is "
                                 "missing: a file that is not there is not an empty set, and the scored-set check "
                                 "does not pass on nothing (addendum 540 item 1 Q5(a); law 4)")
-        # (b) "n_games EQUALS the plan's 60. '60 more' is a number, not a floor."
+        # (b) "n_games EQUALS the plan's 60. '60 more' is a number, not a floor." Counted on the list AS GIVEN, before
+        # any set (Codex on #1153): 61 entries naming 60 ids, one twice, are not 60 scored games (a metric computed over
+        # 61 rows would be recorded against 60 ids); each a plain integer, never a bool
+        if (len(scored_ids) != len(ids) or any(isinstance(i, bool) or not isinstance(i, int) for i in scored_ids)):
+            raise RegistryError(f"{eid}: the scored list holds {len(scored_ids)} entries for {len(ids)} distinct ids, "
+                                "or an entry that is not a plain integer: each game is scored once (addendum 540 item 1 "
+                                "Q5(b))")
         if len(ids) != plan["n_games"]:
             raise RegistryError(f"{eid}: confirmation scored {len(ids)} games, not the plan's {plan['n_games']}: "
                                 "the number is exact, not a floor (addendum 540 item 1 Q5(b))")

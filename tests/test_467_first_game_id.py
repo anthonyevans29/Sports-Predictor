@@ -206,3 +206,24 @@ def test_540_q5c_an_entry_without_the_opening_keeps_todays_rule_on_first_game_id
         p, ids = _file(d, opening=False)
         res = _res("2026-12-08T00:00:00Z", first_game_id=fid)
         assert reg.record_confirmation("x-v1", SCORED, res, "r", p, ids)["confirmation"]["outcome"] == "CONFIRMED"
+
+
+@pytest.mark.parametrize("scored", ["dup", "bool"])
+def test_540_q5b_the_count_is_on_the_list_as_given_never_after_a_set(tmp_path, scored):
+    """Codex on #1153: 61 entries naming the 60 ids, one twice, are not 60 scored games, and a metric over them would
+    be recorded against 60 ids; an entry that is a bool is not an id. Refused for an entry holding an opening; the
+    ledger and ids are unchanged."""
+    p, ids = _file(tmp_path)
+    lst = SCORED + [SCORED[0]] if scored == "dup" else SCORED + [True]           # a 61st entry that is a bool
+    before = _state(p, ids)
+    with pytest.raises(reg.RegistryError, match=r"each game is scored once \(addendum 540 item 1 Q5\(b\)\)"):
+        reg.record_confirmation("x-v1", lst, _res(first_game_id=4243), "r", p, ids)
+    assert _state(p, ids) == before
+    e = reg.record_confirmation("x-v1", SCORED, _res(first_game_id=4243), "r", p, ids)          # 60 once each: records
+    assert e["confirmation"]["n_scored"] == 60
+
+
+def test_540_q5b_an_entry_without_the_opening_keeps_todays_set_on_a_repeated_id(tmp_path):
+    p, ids = _file(tmp_path, opening=False)
+    e = reg.record_confirmation("x-v1", SCORED + [SCORED[0]], _res("2026-12-08T00:00:00Z"), "r", p, ids)
+    assert e["confirmation"]["outcome"] == "CONFIRMED" and e["confirmation"]["n_scored"] == 60

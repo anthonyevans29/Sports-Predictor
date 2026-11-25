@@ -1038,3 +1038,19 @@ def test_gap_a_no_slot_game_in_the_openings_second_is_never_reached_again(conf_n
     op = (OPEN_KO, OPEN_ID)
     assert not lw.after_opening(OPEN_KO + timedelta(milliseconds=300), NOSLOT_SUB, op, True)
     assert lw.after_opening(OPEN_KO + timedelta(milliseconds=1300), NOSLOT_SUB, op, True)
+
+
+@pytest.mark.parametrize("cause", ["missing", "", "   ", 5, None])
+def test_codex_a_no_slot_item_without_a_text_cause_refuses_the_basis(conf, cause):
+    """Codex on #1153: the run record's took_no_slot is {match_id, kickoff, cause}; an item whose cause is absent,
+    empty or not text is not a readable account, so the basis refuses (law 4), never trusting the id as accounted."""
+    import copy
+    e = copy.deepcopy(reg.get(EID, reg.LEDGER))
+    item = e["run"]["result"]["took_no_slot"][0]
+    if cause == "missing":
+        item.pop("cause")
+    else:
+        item["cause"] = cause
+    with pytest.raises(lw.WindowRefused, match=r"each cause present text"):
+        lw.confirmation_basis(e)
+    assert lw.confirmation_basis(reg.get(EID, reg.LEDGER))["no_slot"]                 # the stored record still reads

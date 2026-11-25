@@ -476,15 +476,17 @@ def confirmation_basis(e: dict | None) -> dict:
     for x in tns if ok else ():
         mid = x.get("match_id") if isinstance(x, dict) else None
         ko = x.get("kickoff") if isinstance(x, dict) else None
+        cause = x.get("cause") if isinstance(x, dict) else None
         if (isinstance(mid, bool) or not isinstance(mid, int) or not isinstance(ko, str) or not INSTANT_Z.fullmatch(ko)
-                or parse_instant(ko) is None or mid in no_slot or mid in mem):
+                or parse_instant(ko) is None or mid in no_slot or mid in mem
+                or not isinstance(cause, str) or not cause.strip()):     # Codex on #1153: a cause is present text
             ok = False
             break
         no_slot[mid] = parse_instant(ko)
     if not ok:
         raise WindowRefused(f"{eid}: the run record's {TOOK_NO_SLOT} is not a list of {{match_id, kickoff, cause}} "
                             "(each match id an integer named once and no member, each kickoff to the second with the "
-                            "Z): the window's account cannot be read; nothing is read")
+                            "Z, each cause present text): the window's account cannot be read; nothing is read")
     return {"opening": op, "members": list(mem), "no_slot": no_slot}
 
 

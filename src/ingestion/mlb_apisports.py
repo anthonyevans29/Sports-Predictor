@@ -278,13 +278,22 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
            "team_missing_update": [],
            "known_limitation": KNOWN_LIMITATION}
     prov = []
+    dropped: dict[str, list] = {}
     for p in prov_all:
+        if p["utc"] is None:
+            # addendum 497 Q7: a provider game whose date cannot be read is dropped by the window test on every run,
+            # a full-season one included: counted with its provider id (a kickoff outside the window is scope)
+            dropped.setdefault("unreadable date", []).append(p["id"])
         if not in_window(p, date_from, date_to):
             continue
         if is_exhibition(p):
             rec["exhibition_skipped"] += 1
             continue
         prov.append(p)
+    from src.adapters.base import dropped_line
+    line = dropped_line("api_baseball", "games", dropped)
+    if line:
+        print(line, flush=True)
     unm = Counter(p["status_short"] for p in prov if (p["status_short"] or "").upper() not in STATUS_MAP)
     rec["unmapped_status"] = dict(unm)
 

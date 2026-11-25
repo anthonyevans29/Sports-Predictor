@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from src.adapters.base import DataAdapter
+from src.adapters.base import DataAdapter, report_dropped
 from src.adapters.normalized import (
     NormalizedCompetition,
     NormalizedMatch,
@@ -153,6 +153,8 @@ class MLBStatsAPIAdapter(DataAdapter):
         # No auth headers — public API
         self._session.headers.update({"User-Agent": "sports-predictor/0.5 (local app)"})
         self._last_request_ts: float = 0.0
+        #: the last list_matches read's dropped listings: reason -> [gamePk] (addendum 497 Q7: counted, never silent)
+        self.last_dropped: dict[str, list] = {}
 
     # ------------------------------------------------------------------
     # HTTP
@@ -242,13 +244,19 @@ class MLBStatsAPIAdapter(DataAdapter):
         if date_to:
             params["endDate"] = date_to
 
+        self.last_dropped = {}
         data = self._get("schedule", params=params)
         out: list[NormalizedMatch] = []
+        dropped: dict[str, list] = {}
         for date_block in data.get("dates", []):
             for game in date_block.get("games", []):
                 parsed = self._parse_game(game, competition_code)
                 if parsed is not None:
                     out.append(parsed)
+                else:
+                    # addendum 497 Q7: the entry _parse_game dropped, counted with its cause and its gamePk
+                    dropped.setdefault(self._drop_cause(game), []).append(game.get("gamePk"))
+        report_dropped(self, "schedule", dropped)
         return out
 
     def postseason_params(self, season: str, game_types) -> dict:
@@ -540,6 +548,17 @@ class MLBStatsAPIAdapter(DataAdapter):
     # ------------------------------------------------------------------
     # Parsers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _drop_cause(game: dict) -> str:
+        """Why _parse_game returned None for `game` (addendum 497 Q7). _parse_game drops an entry at exactly two
+        points, read in its own order: a home or away team with no id, then a gameDate it cannot read."""
+        teams = game.get("teams") or {}
+        home_team = (teams.get("home") or {}).get("team") or {}
+        away_team = (teams.get("away") or {}).get("team") or {}
+        if not home_team.get("id") or not away_team.get("id"):
+            return "no team id"
+        return "unreadable date"
 
     def _parse_game(self, game: dict, competition_code: str) -> NormalizedMatch | None:
         teams = game.get("teams") or {}

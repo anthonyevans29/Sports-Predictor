@@ -1491,7 +1491,9 @@ def test_out_never_aliases_the_configured_database(tmp_path, monkeypatch):
     for tgt in (db, tmp_path / "elsewhere" / "sports.db-wal"):
         for cmd in ("venue-calls-receipt", "quote-age-report"):
             r = CliRunner().invoke(cli.cli, [cmd, "--exports-dir", str(ex), "--out", str(tgt)])
-            assert r.exit_code == 2 and "configured database" in r.output, r.output
+            # #1146 (addendum 545 item 5): rich wraps the REFUSED line at the console's width, so the words are
+            # read with the output's whitespace folded; a wrap may fall between them
+            assert r.exit_code == 2 and "configured database" in " ".join(r.output.split()), r.output
     assert db.read_bytes() == b"SQLite format 3\x00"
 
 
@@ -1762,4 +1764,6 @@ def test_out_never_writes_through_a_hard_link_to_the_database(tmp_path, monkeypa
     ex = tmp_path / "ex"
     ex.mkdir()
     r = CliRunner().invoke(cli.cli, ["quote-age-report", "--exports-dir", str(ex), "--out", str(link)])
-    assert r.exit_code == 2 and "configured database" in r.output and db.read_bytes() == b"SQLite format 3\x00"
+    # #1146 (addendum 545 item 5): the REFUSED line is read with its whitespace folded (rich wraps it at the width)
+    assert r.exit_code == 2 and "configured database" in " ".join(r.output.split()), r.output
+    assert db.read_bytes() == b"SQLite format 3\x00"

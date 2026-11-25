@@ -42,3 +42,4 @@
   >    a sentinel no path can contain, or the assertion made on the receipt's printed fields and not
   >    on the whole text. The receipt's own rule does not change. It rides a PR of yours when one is
   >    open on tests; no date.
+- **#1146, riding this PR (addendum 545 item 5):** tests/test_venue_quote_age_receipts.py read "configured database" in the command's REFUSED line, which rich wraps at the console's width, so a wrap between the two words failed it in a full run (reproduced alone at COLUMNS=80 and 172 to 180). Both assertions now read the output with its whitespace folded. The command does not change.

@@ -2001,6 +2001,32 @@ def test_504_a_slate_refusal_is_marked_only_when_a_channel_took_it(box, monkeypa
     assert [r["refused"] for r in slates()].count(why) == 1                          # pages nothing: marked as receipted
 
 
+def test_a_slate_settings_refusal_lifts_every_closing_it_reaches_from_the_bound(box, monkeypatch):
+    """Codex on #1131: a refusal of the machine's settings met by the slate stage (here the mirror unset) refuses
+    every closing on the next tick too, so it enters the tick's `no_chain_fams` as "*" and no closing ahead bounds
+    the slate refusal's resend. #442's export path clears by itself and enters nothing."""
+    the_day(box, monkeypatch)
+    no_channel(box, monkeypatch)
+    monkeypatch.delenv("SP_EXPORTS_MIRROR_REMOTE")
+    assert mc.slate_watch("NFL", et(7, 0), et(7, 0), families=("NFL",)) == 2    # notified, no channel took it
+    tick = {}
+    assert mc.slate_watch("NFL", et(7, 1), et(7, 1), families=("NFL",), tick=tick) == 2
+    (item,) = tick["resends"]
+    assert item["kind"] == "slate_refusal" and tick["no_chain_fams"] == {"*"}
+    blocking = {"family": "NFL", "start": et(7, 37), "run_at": et(7, 2)}
+    seen = []
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): seen.append(fams) or blocking)
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "channel": "card"})
+    assert mc.send_resend(item, et(7, 1), et(7, 1), ("NFL", "MLB"), frozenset(),
+                          frozenset(tick["no_chain_fams"])) == 2 and seen == []       # sent: nothing bounds it
+    assert slates()[-1]["resent"] is True
+    base = {"kind": mc.SLATE_KIND, "family": "NFL", "date": D18.isoformat(), "run_id": "r", "trigger": "watch"}
+    other = {}
+    assert mc._slate_refuse("the export path exists", "NFL", D18, base, tick=other) == 2
+    assert mc._slate_refuse("the export path exists", "NFL", D18, base, tick=other) == 2   # queued, not config
+    assert "no_chain_fams" not in other and len(other["resends"]) == 1
+
+
 def test_509_a_try_writes_a_line_only_when_its_outcome_changes(box, monkeypatch):
     """ARCHITECT 2026-11-24, addendum 509 item 3(a): "a resend whose outcome is the same as the last line of that miss,
     refusal or page writes nothing. A line is written when the outcome changes: taken, always; or cut at the bound

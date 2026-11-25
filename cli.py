@@ -6489,6 +6489,31 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch, db
     click.echo(f"  RECORDED: {e['confirmation']['outcome']} · status {e['status']} — commit docs/registry/ in a PR")
 
 
+RUN_START_FORMAT = "YYYY-MM-DDTHH:MM:SS.ffffffZ"
+
+
+def _run_start_option(ctx, param, value):
+    """#1102 PR1, F1: `--run-start`, the slate run's held start, given by the closing watch's slate stage (526 Q1).
+    Exactly ISO Z with microseconds, written verbatim; anything else exits 2 at parse time, before any read. A regex,
+    never datetime.fromisoformat, which refuses the "Z" on the laptop's Python 3.10."""
+    if value is None:
+        return None
+    import re
+    from datetime import datetime as _dt
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z", value):
+        try:
+            _dt.strptime(value[:-1], "%Y-%m-%dT%H:%M:%S.%f")
+            return value
+        except ValueError:
+            pass
+    raise click.BadParameter(f"{value!r} is not an instant written {RUN_START_FORMAT}")
+
+
+_RUN_START_HELP = ("#1102 PR1, F1: the slate run's held start (" + RUN_START_FORMAT + "), written as the file's "
+                   "top-level run_started_at. Only the closing watch's slate stage passes it; with no --run-start "
+                   "there is no key. A value in any other form exits 2.")
+
+
 @cli.command("export-nfl-predictions")
 @click.option("--week", is_flag=True,
               help="Full look-ahead (8 days: the whole NFL week) instead of the 36h current slate.")
@@ -6500,7 +6525,8 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch, db
 @click.option("--out", "out_path", default=None,
               help="File path to write to. Defaults to exports/nfl_predictions_<UTC date>.json. A closing run "
                    "writes its export outside exports/ (addendum 40 item 2).")
-def export_nfl_predictions_cmd(week, days, desk, out_path):
+@click.option("--run-start", "run_start", default=None, callback=_run_start_option, help=_RUN_START_HELP)
+def export_nfl_predictions_cmd(week, days, desk, out_path, run_start):
     """NFL predictions export (LIVE: rehearsal=false; quarantine, venue and Elo fields).
 
     Rows default to the CURRENT SLATE: kickoffs in the next 36 hours, so a
@@ -6518,13 +6544,16 @@ def export_nfl_predictions_cmd(week, days, desk, out_path):
             raise SystemExit(2)
     rc: dict = {}
     if week:
-        path, how = (export_nfl_predictions(days_ahead=8, receipts=rc, desk=desk or None, out_path=out_path),
+        path, how = (export_nfl_predictions(days_ahead=8, receipts=rc, desk=desk or None, out_path=out_path,
+                                            run_started_at=run_start),
                      "--week: full look-ahead")
     elif days:
-        path, how = (export_nfl_predictions(days_ahead=days, receipts=rc, desk=desk or None, out_path=out_path),
+        path, how = (export_nfl_predictions(days_ahead=days, receipts=rc, desk=desk or None, out_path=out_path,
+                                            run_started_at=run_start),
                      f"--days {days}")
     else:
-        path = export_nfl_predictions(hours_ahead=SLATE_WINDOW_H, receipts=rc, desk=desk or None, out_path=out_path)
+        path = export_nfl_predictions(hours_ahead=SLATE_WINDOW_H, receipts=rc, desk=desk or None, out_path=out_path,
+                                      run_started_at=run_start)
         how = "default: current slate; --week / --days N for more"
     if rc.get("elo_drift_games"):
         print(f"⚠ ELO DRIFT: {len(rc['elo_drift_games'])} NFL game(s) finished after the "
@@ -10791,8 +10820,9 @@ def spread_fallback_check_cmd(competition_code, start, end):
 @click.option("--desk", is_flag=True, default=False,
               help="F1 (#151): add the Desk's call per row (desk + desk_meta). Off by default "
                    "until the parity receipt is ruled; SP_DESK_CALLS=1 also enables it.")
+@click.option("--run-start", "run_start", default=None, callback=_run_start_option, help=_RUN_START_HELP)
 def export_predictions_cmd(sport, date_str, days, start_str, end_str, competition_code,
-                           status_filter, output_format, out_path, desk):
+                           status_filter, output_format, out_path, desk, run_start):
     """
     Export a day's (or date range's) predictions, with prediction probabilities,
     factor breakdown, market data with edge math, and recent form. Use to bulk
@@ -10810,6 +10840,10 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
       python cli.py export-predictions --sport mlb --status finished  (for post-mortem)
     """
     _refuse_shadow_league(competition_code, "export-predictions")
+    if run_start is not None and output_format != "json":      # F1 is a top-level key: the CSV has none
+        console.print("[red]✗ --run-start writes the JSON file's top-level run_started_at; a CSV has no top "
+                      "level[/red]")
+        raise SystemExit(2)
     from datetime import datetime, timedelta
     from pathlib import Path
     from src.db.schema import MatchStatus, Sport
@@ -10911,6 +10945,7 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
             statuses=statuses,
             output_format=output_format,
             desk=desk or None,
+            run_started_at=run_start,
         )
     except ValueError as e:
         console.print(f"[red]✗ Export failed: {e}[/red]")

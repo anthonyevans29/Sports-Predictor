@@ -1161,7 +1161,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
      file equals the laptop's last file from that database, number for number." The commands and the PASS
      rule are h2-cutover-runbook.md section 1 step 4: the reference is written for the check on the laptop
      immediately before the pack, with `--start` / `--end` (#422); the host's file goes to a fresh directory;
-     `compare_exports.py --ignore-keys desk,desk_meta,line_move,late_news_flag,exported_at --require-predictions` (#420,
+     `compare_exports.py --ignore-keys desk,desk_meta,line_move,late_news_flag,exported_at,run_started_at --require-predictions` (#420,
      #422; the timestamp mask off; `exported_at` confirmed, addendum 41 item 4); CLEAN with at least one row with a prediction and its probabilities on each side. Not PASS: the
      cutover ends for that day, the host stays paused (timers stopped, flag `laptop`, nothing resumed or
      restored) until the architect has read the check.

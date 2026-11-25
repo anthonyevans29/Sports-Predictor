@@ -31,3 +31,14 @@ def oldest_source_time(rows):
     if not times or any(x is None for x in times):
         return None
     return min(times)
+
+
+def iso_z_seconds(t: datetime | None) -> str | None:
+    """An instant as ISO Z in whole seconds, the closing watch's own format (deploy/hosting/closing.py iso_z: a naive
+    time read as UTC, an aware one converted; the fraction cut, never rounded). None stays None (law 4). #1102 PR1:
+    the export's capture stamps (F2-F4) are written in it."""
+    if t is None:
+        return None
+    if t.tzinfo is not None:
+        t = t.astimezone(timezone.utc)
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")

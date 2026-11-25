@@ -1,0 +1,18 @@
+## 2026-11-25 (#0000: 1102-pr1-capture-fields — THE FIELDS, F1 to F4 (addendum 529 item 3(a), 532 item 2, 534 item 4; DEV 3's one text on #1102, comment 7167846609; gate-class: an export contract))
+- **F1 `run_started_at`, top level** (`src/walters/export.py`, `src/walters/nfl_predict.py`). It is the slate run's held start, ISO Z with microseconds, written verbatim.
+  - It comes from `--run-start`, an option of `export-predictions` and `export-nfl-predictions` only (`cli.py`). Any other form of the value exits 2 at parse time, before any read; it is checked by a regex, not `fromisoformat`, which refuses "Z" on Python 3.10.
+  - With `--format csv` it exits 2: a CSV has no top level.
+  - With no `--run-start` there is no key, and the file is as before.
+- **The slate's export step alone passes it** (`deploy/hosting/closing.py` `slate_steps`, 526 Q1 amending 133 item 3(a) in this one place). In every family it goes before `--out` and after SOCCER's window, with the run's held start (`iso_z_us`). Nothing else is inserted.
+  - The closing's own export (`resolve_steps`), the freshen chains and the MLB closing run pass none. R2 is untouched.
+  - The slate's dry-run plan shows the tick's time.
+  - The slate's receipts and its failure page carry the command as run, run start included.
+- **F2 `market.books_captured_at` and F4 `market.books_source_updated_at`**, on the priced 1X2 block only (where `bookmaker_count` > 0; never the dark spread fallback). They come from `close.book_capture_fields`:
+  - F2 is the oldest capture of the close's last session, every row of it, incomplete books included. That is the closing watch's `price_captures` books reading (C:1176).
+  - F4 is `close.book_stamp` on the same close: the oldest provider stamp over the rows it priced. One unstamped row makes it null; null is unknown, never fresh.
+  - F4 is null on every MLB row, because the provider sends no stamp (#628). Fixture rows keep their own all-rows reading (E:1234), and `_fixture_row` is untouched.
+- **F3 `kalshi_legs_captured_at`**, beside `kalshi_legs` (`venue.kalshi_legs_captured_at`). Per leg it is the capture time of the snapshot `kalshi_legs` reads: the last before kickoff, a mismatched game's legs dropped. It is null with `kalshi_legs`, never {}.
+- **Format and scope.** F2-F4 are ISO Z, whole seconds (`timeutil.iso_z_seconds`, the watch's `iso_z`), and appear in every export-predictions and export-nfl-predictions file. Stamps only: no age is written (532 item 2).
+- **Compares.** The daily compare masks all four (`_at$`). The PL check's `--ignore-keys` gains `run_started_at` alone, and F2-F4 are compared there (526 Q2: docs/specs/h2-cutover-runbook.md, docs/specs/hosting-h1.md, docs/CLI.md). Under version skew, a laptop with this against a host without it reads DIVERGENT on F2-F4 until the host's tag carries it (the runbook says so).
+- **Unchanged:** no probability, no call and no Desk read (desk_policy is untouched); the intl export and its shadow; the fixtures, window and card files. `desk_meta.stale_price_rule` is not written here; it is PR2's.
+- **Tests:** `tests/test_1102_capture_fields.py` (new); `tests/test_slate_run.py` (the slate argv pins, 526 Q1); `tests/test_compare_exports_pl_check.py` (KEYS, the new pin).

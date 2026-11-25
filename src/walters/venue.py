@@ -335,6 +335,16 @@ def kalshi_legs(latest: dict | None) -> dict | None:
             for sel, s in sorted(latest.items())}
 
 
+def kalshi_legs_captured_at(latest: dict | None) -> dict | None:
+    """#1102 PR1, F3: beside `kalshi_legs`, per leg the capture time of the snapshot it reads (each leg's last capture
+    before kickoff; a mismatched game's legs are dropped before this, as for kalshi_legs), ISO Z in whole seconds. The
+    same keys as kalshi_legs and null with it, never {}; a leg whose capture is unknown is null (law 4)."""
+    if not latest:
+        return None
+    from src.timeutil import iso_z_seconds
+    return {sel: iso_z_seconds(getattr(s, "captured_at", None)) for sel, s in sorted(latest.items())}
+
+
 def venue_gap(book_home: float | None, kalshi_home: float | None) -> tuple[float | None, str | None]:
     """(|book_fair - kalshi| in pp, flag). Flag = STALE-BOOK? at >= 8.0pp."""
     if book_home is None or kalshi_home is None:

@@ -259,6 +259,26 @@ def book_stamp(cl, session=None) -> datetime | None:
     return oldest_source_time(attach_source_times(session, rows))
 
 
+def session_captured_at(cl) -> datetime | None:
+    """#1102 PR1, F2: the OLDEST capture of a book close's session, every row of it (`rows`: the last 1X2 session
+    before the cutoff, incomplete books included), as the closing watch's price_captures reads its books (R2). None
+    when there is no close or no row."""
+    return min((o.captured_at for o in (cl or {}).get("rows") or () if o.captured_at is not None), default=None)
+
+
+def book_capture_fields(cl, session=None) -> dict:
+    """#1102 PR1, F2 and F4, for a PRICED book block only (the caller writes them where bookmaker_count > 0):
+    `books_captured_at`, the oldest capture of the close's last session (session_captured_at), and
+    `books_source_updated_at`, the provider's own stamp of the same close (book_stamp: the oldest over the rows it
+    priced; one unstamped makes it null; null is unknown, never fresh). ISO Z, whole seconds. Stamps only: no age is
+    written (532 item 2). {} when the close is not priced."""
+    if not priced(cl):
+        return {}
+    from src.timeutil import iso_z_seconds
+    return {"books_captured_at": iso_z_seconds(session_captured_at(cl)),
+            "books_source_updated_at": iso_z_seconds(book_stamp(cl, session))}
+
+
 def stamp_age_hours(stamp: datetime | None, kickoff: datetime | None) -> float | None:
     """Hours from the book's provider stamp to the stored kickoff (Match.utc_date); None when either is unknown."""
     if stamp is None or kickoff is None:

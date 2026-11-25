@@ -58,6 +58,7 @@ def export_predictions(
     statuses: list[MatchStatus] | None = None,
     output_format: str = "json",
     desk: bool | None = None,
+    run_started_at: str | None = None,
 ) -> str:
     """
     Build a structured export of predictions in a date range.
@@ -69,6 +70,8 @@ def export_predictions(
         competition_code: optional filter (e.g. "PL", "MLB")
         statuses:         optional list of statuses to include (default: any)
         output_format:    "json" or "csv"
+        run_started_at:   #1102 PR1, F1: the slate run's held start, ISO Z with microseconds, written verbatim at the
+                          top level; no key without it (the closing's export passes none, 526 Q1). JSON only.
 
     Returns:
         Serialized string in the requested format.
@@ -83,6 +86,7 @@ def export_predictions(
     if output_format == "json":
         doc = {
             "exported_at": utc_now_naive().isoformat() + "Z",
+            **({"run_started_at": run_started_at} if run_started_at is not None else {}),   # F1 (#1102 PR1)
             "git_sha": _git_sha(),
             "sport": sport.value,
             "start_date": start_date.isoformat(),
@@ -471,7 +475,7 @@ def _build_row(
     # and Kalshi (OddsSnapshot source="kalshi"), so the betting layer can read
     # book/Kalshi disagreement per game instead of a single blended number.
     row["market"] = _summarize_market(pred, odds, kalshi=kalshi, three_way=(sport == Sport.SOCCER),
-                                      before=m.utc_date)
+                                      before=m.utc_date, session=s)
     if kalshi_mismatch:
         from src.walters.kalshi_legs import status_block
         if row["market"] is None:
@@ -495,8 +499,9 @@ def _build_row(
                if _home is not None and ((row["market"] or {}).get("kalshi") or {}).get("normalized")
                else dict(KALSHI_EXEC_NULL))
     # ORDER LINE (ARCHITECT 2026-10-04, additive): each captured leg's ticker + quotes
-    from src.walters.venue import kalshi_legs
+    from src.walters.venue import kalshi_legs, kalshi_legs_captured_at
     row["kalshi_legs"] = kalshi_legs(kalshi)
+    row["kalshi_legs_captured_at"] = kalshi_legs_captured_at(kalshi)    # F3 (#1102 PR1): null with kalshi_legs
 
     # ----- Form (last 5 results per team) — uses preview helper
     if m.home_team:
@@ -685,6 +690,7 @@ def _summarize_market(
     kalshi: dict[str, "OddsSnapshot"] | None = None,
     three_way: bool = False,
     before=None,
+    session=None,
 ) -> dict | None:
     """
     Per-selection summary: best price, de-vigged fair probability, edge vs model.
@@ -709,7 +715,7 @@ def _summarize_market(
     # P0-2 (#207, ARCHITECT-RULE 2026-10-01): the ONE close contract
     # (src/walters/close.py) — complete same-session books only, de-vigged
     # per book then averaged; the export block IS the Desk's reference.
-    from src.walters.close import BINARY, THREE_WAY, close_1x2, priced
+    from src.walters.close import BINARY, THREE_WAY, book_capture_fields, close_1x2, priced
     cl = close_1x2(odds, before, THREE_WAY if three_way else BINARY)
     if not priced(cl):
         out = {"selections": {}, "bookmaker_count": 0}
@@ -748,6 +754,7 @@ def _summarize_market(
         "bookmaker_count": cl["books"],
         "bookmaker_count_quoted": cl["books_quoted"],
         "overround_pct": round((cl["overround"] - 1) * 100, 2),
+        **book_capture_fields(cl, session),     # F2, F4 (#1102 PR1): the priced block only
     }
     if kalshi_block:
         # Book-vs-Kalshi disagreement per side (Kalshi normalized prob minus

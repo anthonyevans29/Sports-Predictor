@@ -13,6 +13,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -48,7 +49,19 @@ SLATE_STEPS = [
     "python cli.py sync-odds-football --match-ids 601,602",
     "python cli.py sync-kalshi-nfl",
     "python cli.py predict-nfl",
-    f"python cli.py export-nfl-predictions --desk --out {NFL_KEPT.format('RUN')}"]
+    f"python cli.py export-nfl-predictions --desk --run-start RS --out {NFL_KEPT.format('RUN')}"]
+# #1102 PR1 (526 Q1, addendum 532 Q1): the slate's export step alone gains --run-start <its held start, ISO Z with
+# microseconds>; the held start is read off the run's own clock, so its fraction is the run's: rs() checks it is the
+# receipt's ran_at to the second and writes it RS
+RUN_START = re.compile(r"--run-start (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.\d{6}Z")
+
+
+def rs(text: str, rec: dict) -> str:
+    m = RUN_START.search(text)
+    assert m and m.group(1) + "Z" == rec["ran_at"], (text, rec.get("ran_at"))
+    return RUN_START.sub("--run-start RS", text)
+
+
 PAGE = f"SLATE NFL 2026-10-18: 2 rows · PLAY 1 · PASS 1 · {NFL_FILE}\n{MACHINE}"
 
 
@@ -110,7 +123,9 @@ def test_the_slate_day_and_the_closings_beside_it_unchanged(box, monkeypatch, sl
             "2026-10-18T11:00:00Z", "2026-10-18T11:00:00Z", "2026-10-18", 1, 0)
         assert (s["file"], s["rows"], s["calls"], s["late_minutes"], s["late"]) == (
             NFL_FILE, 2, {"PLAY": 1, "PASS": 1}, 0, False)
-        assert [x["command"].replace(s["run_id"], "RUN") for x in s["steps"]] == SLATE_STEPS and s["push"]["exit"] == 0
+        assert [rs(x["command"], s) if "--run-start" in x["command"] else x["command"]
+                for x in [{"command": y["command"].replace(s["run_id"], "RUN")} for y in s["steps"]]] == SLATE_STEPS
+        assert s["push"]["exit"] == 0
         assert [x["match_id"] for x in s["covers"]] == [601, 602] and s["page"]["phone"]["accepted"] is True
         f = box.repo / NFL_FILE
         doc = json.loads(f.read_text())
@@ -167,11 +182,13 @@ def test_a_failed_export_pages_run_by_hand_and_three_attempts_then_no_fourth(box
     assert tick(et(7, 3)) == 0                                                   # no fourth
     s = slates()
     assert [(r["attempt"], r["exit"], r["failed"]) for r in s] == [(1, 1, "step 6"), (2, 1, "step 6"), (3, 1, "step 6")]
-    cmd = [f"python cli.py export-nfl-predictions --desk --out {NFL_KEPT.format(r['run_id'])}" for r in s]
-    assert s[0]["step"] == cmd[0] and s[0]["steps"][-1]["tail"] == ["boom"]
+    cmd = [f"python cli.py export-nfl-predictions --desk --run-start RS --out {NFL_KEPT.format(r['run_id'])}"
+           for r in s]
+    assert rs(s[0]["step"], s[0]) == cmd[0] and s[0]["steps"][-1]["tail"] == ["boom"]
     head = [f"SLATE NFL FAILED: {x} — RUN BY HAND: {BLOCK}" for x in cmd]
-    assert box.notes == [f"{head[0]} · attempt 1/3\n{MACHINE}", f"{head[1]} · attempt 2/3\n{MACHINE}",
-                         f"{head[2]} · attempt 3/3 · no further attempt will run today\n{MACHINE}"]
+    assert [rs(n, r) for n, r in zip(box.notes, s)] == [
+        f"{head[0]} · attempt 1/3\n{MACHINE}", f"{head[1]} · attempt 2/3\n{MACHINE}",
+        f"{head[2]} · attempt 3/3 · no further attempt will run today\n{MACHINE}"]
     assert [p["title"] for p in box.pages] == ["NFL slate"] * 3 and {p["priority"] for p in box.pages} == {"high"}
     assert s[0]["failure_notification"]["channel"] == "card+screen"
     assert box.pushes == [] and slate_pages(box) == [] and not (box.repo / NFL_FILE).exists()
@@ -385,8 +402,9 @@ def test_mlb_feed_unreachable_is_one_miss_then_the_slate_runs_when_it_answers(bo
     assert s["exit"] == 0 and s["attempt"] == 1 and len(s["steps"]) == 10
     assert s["steps"][0]["command"] == ("python cli.py sync-matches --competition MLB --season 2026 --date-from "
                                         "2026-10-18 --date-to 2026-10-18 --match-ids 701")
-    assert s["steps"][-1]["command"] == ("python cli.py export-predictions --sport mlb --competition MLB --date "
-                                         f"2026-10-18 --desk --out logs/{s['run_id']}.mlb_MLB_2026-10-18.json")
+    assert rs(s["steps"][-1]["command"], s) == ("python cli.py export-predictions --sport mlb --competition MLB "
+                                                f"--date 2026-10-18 --desk --run-start RS --out logs/{s['run_id']}"
+                                                ".mlb_MLB_2026-10-18.json")
     assert (s["late"], s["late_minutes"]) == (False, 2)       # due 10:35, run 10:37: not past LATE_MIN (137 2(4))
     assert slate_pages(box, "MLB")[0]["body"].splitlines() == [
         "SLATE MLB 2026-10-18: 1 row · PLAY 0 · PASS 1 · exports/mlb_MLB_2026-10-18.json", MACHINE]
@@ -534,7 +552,8 @@ def test_a_passing_attempt_links_the_kept_export_into_exports_then_pushes_then_p
     assert s["slate_file"] == {"file": NFL_FILE, "sha256": sha(f)} and sha(f) == sha(k)
     assert [p["desk"]["call"] for p in json.loads(f.read_text())["predictions"]] == ["PLAY", "PASS"]
     assert sorted(x.name for x in (box.repo / "exports").iterdir()) == [f.name]           # no temporary name left
-    assert s["steps"][-1]["command"] == f"python cli.py export-nfl-predictions --desk --out {k.relative_to(box.repo)}"
+    assert rs(s["steps"][-1]["command"], s) == ("python cli.py export-nfl-predictions --desk --run-start RS --out "
+                                                f"{k.relative_to(box.repo)}")
 
 
 @pytest.mark.parametrize("before", ["absent", "earlier good file"])
@@ -593,8 +612,8 @@ def test_saturdays_soccer_window_file_is_never_replaced_by_a_half_synced_one(box
     kept = box.repo / f"logs/{s['run_id']}.soccer_PL_2026-10-18.json"
     assert s["exit"] == 0 and os.path.samefile(sat, kept) and box.pushes == ["slate"]
     assert s["slate_file"] == {"file": "exports/soccer_PL_2026-10-17_to_2026-10-20.json", "sha256": sha(kept)}
-    assert s["steps"][-1]["command"].endswith(
-        f"--desk --start 2026-10-17 --end 2026-10-20 --out logs/{s['run_id']}.soccer_PL_2026-10-18.json")
+    assert rs(s["steps"][-1]["command"], s).endswith(
+        f"--desk --start 2026-10-17 --end 2026-10-20 --run-start RS --out logs/{s['run_id']}.soccer_PL_2026-10-18.json")
 
 
 def test_a_slate_file_that_cannot_be_linked_is_a_failed_attempt_and_nothing_is_pushed(box, monkeypatch):
@@ -714,7 +733,9 @@ def test_dry_run_prints_the_slate_plan_and_touches_nothing(box, monkeypatch, cap
     assert mc.watch(dry_run=True, now=et(7, 0), families=("NFL",)) == 0
     out = capsys.readouterr().out
     assert "→ would RUN" in out
-    assert f"6. python cli.py export-nfl-predictions --desk --out {NFL_KEPT.format('RUN')}" in out
+    # the plan's run start is the tick's own time (the held start is read when the run starts): #1102 PR1
+    assert ("6. python cli.py export-nfl-predictions --desk --run-start 2026-10-18T11:00:00.000000Z --out "
+            f"{NFL_KEPT.format('RUN')}") in out
     # the run's own order after the steps (addendum 133 item 3(a)): the kept export linked into exports/<slate file>
     # once its checks pass, THEN the push, THEN the page; the plan names the exports/ file, as the closing's names its
     # closing file
@@ -731,7 +752,8 @@ def test_the_dry_run_names_the_soccer_window_file_the_run_links(box, monkeypatch
     the_day(box, monkeypatch, games=DAY + [(801, "PL", 300, "SCHEDULED", "Villa")])      # 12:00 ET: due 09:30 ET
     assert mc.watch(dry_run=True, now=et(9, 30), families=("SOCCER",)) == 0
     out = capsys.readouterr().out
-    assert "--desk --start 2026-10-17 --end 2026-10-20 --out logs/RUN.soccer_PL_2026-10-18.json" in out
+    assert ("--desk --start 2026-10-17 --end 2026-10-20 --run-start 2026-10-18T13:30:00.000000Z --out "
+            "logs/RUN.soccer_PL_2026-10-18.json") in out                    # the plan's: the tick's time (#1102 PR1)
     assert ("    then, once its checks pass: logs/RUN.soccer_PL_2026-10-18.json linked into "
             "exports/soccer_PL_2026-10-17_to_2026-10-20.json · then the mirror push (--label slate) · then the page"
             ) in out
@@ -759,26 +781,31 @@ def test_the_slate_file_is_the_familys_slate_kind_and_soccer_takes_its_prematch_
     assert mc.slate_block("SOCCER", D18) == "block_1018_soccer_slate.txt"
 
 
-def test_the_slate_steps_are_the_closings_own_and_soccer_gains_only_its_window():
+def test_the_slate_steps_are_the_closings_own_plus_the_run_start_and_soccer_its_window():
     """resolve_steps for the day's games, word for word, the export step included: addendum 133 item 3(a), "The
     slate's export step keeps the closing's own `--out logs/<run id>.<slate file name>` exactly as resolve_steps gives
-    it (SOCCER still gains its `--start`/`--end` window; nothing else is inserted)." Every option is the cli's own
-    (law 1: click parses each step)."""
+    it (SOCCER still gains its `--start`/`--end` window; nothing else is inserted)", amended in ONE place by 526 Q1
+    (addendum 532 Q1, #1102 PR1): the export step alone, every family, gains `--run-start <the held start, ISO Z with
+    microseconds>` before its --out and after SOCCER's window, and nothing else. The closing's own steps carry no run
+    start. Every option is the cli's own (law 1: click parses each step, the run start included)."""
     import cli
     games = [{"match_id": 401, "start": et(9, 30)}, {"match_id": 402, "start": et(12, 0)}]
     for fam in mc.FAMILIES:
         got = mc.slate_steps(fam, D18, games, BASE, "RID")
         clo = mc.resolve_steps(fam, et(9, 30), games, BASE, "RID")
         win = ["--start", "2026-10-17", "--end", "2026-10-20"] if fam == "SOCCER" else []
+        start = ["--run-start", "2026-10-18T11:00:00.000000Z"]                      # BASE, six digits always
         i = clo[-1].index("--out")
-        assert got[:-1] == clo[:-1] and got[-1] == clo[-1][:i] + win + clo[-1][i:]        # nothing else inserted
+        assert got[:-1] == clo[:-1] and got[-1] == clo[-1][:i] + win + start + clo[-1][i:]   # nothing else inserted
+        assert not any("--run-start" in s for s in clo)                              # the closing's export: none
         assert got[-1][got[-1].index("--out") + 1] == f"logs/RID.{mc.slate_name(fam, et(9, 30), BASE)}"
         assert not any(a.startswith("exports/") for s in got for a in s)
         for s in got:
             cli.cli.commands[s[0]].make_context(s[0], list(s[1:]))               # an unknown option fails here
     soc = mc.slate_steps("SOCCER", D18, games, BASE, "RID")[-1]
     assert soc == ["export-predictions", "--sport", "soccer", "--competition", "PL", "--status", "scheduled", "--desk",
-                   "--start", "2026-10-17", "--end", "2026-10-20", "--out", "logs/RID.soccer_PL_2026-10-18.json"]
+                   "--start", "2026-10-17", "--end", "2026-10-20", "--run-start", "2026-10-18T11:00:00.000000Z",
+                   "--out", "logs/RID.soccer_PL_2026-10-18.json"]
     # the cli's own default name for that window is the same file (export-predictions, law 1)
     src = inspect.getsource(cli.cli.commands["export-predictions"].callback)
     assert 'stamp = f"{start_str}_to_{end_str}"' in src

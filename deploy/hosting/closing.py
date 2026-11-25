@@ -76,7 +76,8 @@ THE SLATE RUN (ARCHITECT 2026-10-18, addendum 126 item 2(a), #590; the section "
 tick runs a SLATE stage per family for the tick's ET day: due at the day's first kickoff minus 150 minutes, or at the
 first tick after 06:00 ET when that is later; one run per family per day (a success, or three attempts), decided from
 its own receipts (kind "slate"; misses kind "slate_miss"), which no closing reader reads. It runs the closing chain's
-steps as resolve_steps resolves them for the day's games, its export kept under logs/ as a closing's is and linked into
+steps as resolve_steps resolves them for the day's games (its export step gaining only `--run-start`, 526 Q1, and
+SOCCER's window), its export kept under logs/ as a closing's is and linked into
 the family's slate file in exports/ once its checks pass (addendum 133 item 3(a): a failure at a step, a check or
 the link leaves nothing in exports/; a push or a page that fails comes after the link, and the file stands), then
 the mirror push, then one page: "SLATE <FAMILY> <YYYY-MM-DD>: <N> row(s) · PLAY <p> · PASS <q> · exports/<file>". A
@@ -266,6 +267,12 @@ def parse_utc(s: str) -> datetime:
 
 def iso_z(dt: datetime) -> str:
     return utc(dt).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def iso_z_us(dt: datetime) -> str:
+    """#1102 PR1, F1: an instant as ISO Z WITH microseconds, always six digits (isoformat drops a zero fraction), the
+    form export-predictions' and export-nfl-predictions' `--run-start` accepts and writes verbatim."""
+    return utc(dt).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def ny_date(dt: datetime) -> date:
@@ -2683,8 +2690,9 @@ def worse(a: int, b: int) -> int:
 #     family. A refusal and a superseded run are neither (380.4, as for a closing).
 #   - The steps are the closing chain's own, resolved by resolve_steps for the day's games not started (a closing's
 #     covers stand in), word for word: the export step keeps the closing's own `--out logs/<run id>.<slate file
-#     name>` (addendum 133 item 3(a); SOCCER adds the window its prematch chain prices, `--start`/`--end`, and nothing
-#     else). The chain lock is the closing's (acquire_lock): a slate and a closing never run at once.
+#     name>` (addendum 133 item 3(a); SOCCER adds the window its prematch chain prices, `--start`/`--end`; and, by 526
+#     Q1 (addendum 532 Q1, #1102 PR1), every family's export step alone gains `--run-start <held start>` before its
+#     --out, after SOCCER's window, and nothing else). The chain lock is the closing's (acquire_lock): a slate and a closing never run at once.
 #   - After the steps: the kept file written by this run, carrying the Desk's calls, with a row for every game of the
 #     day not started when the steps finished; then the kept file linked into exports/<slate file> the way the closing
 #     writes its closing file (place_file: a hard link, then the rename over the name; `slate_file` {file, sha256};
@@ -2803,14 +2811,19 @@ def slate_steps(fam: str, day: date, covers: list[dict], run_start: datetime, ru
     """Item 2(a): "the family's prematch steps exactly as the closing run resolves them": resolve_steps for the day's
     games (`covers`), word for word. Addendum 133 item 3(a): "The slate's export step keeps the closing's own `--out
     logs/<run id>.<slate file name>` exactly as resolve_steps gives it (SOCCER still gains its `--start`/`--end`
-    window; nothing else is inserted)": SOCCER's export adds the window its prematch chain prices, before its --out."""
+    window; nothing else is inserted)": SOCCER's export adds the window its prematch chain prices, before its --out.
+    Amended in ONE place by 526 Q1 (ARCHITECT 2026-11-25, addendum 532 Q1; #1102 PR1, F1): the export step alone, in
+    every family, gains `--run-start <the run's held start, ISO Z with microseconds>`, before --out and after SOCCER's
+    window, and nothing else is inserted. The closing's export (resolve_steps) passes no run start."""
     first = min(g["start"] for g in covers)
     steps = [list(s) for s in resolve_steps(fam, first, covers, run_start, run_id)]
+    exp = steps[-1]
     if fam == "SOCCER":
-        exp = steps[-1]
         i = exp.index("--out")
         s, e = soccer_window(day)
         exp[i:i] = ["--start", s, "--end", e]
+    i = exp.index("--out")
+    exp[i:i] = ["--run-start", iso_z_us(run_start)]
     return steps
 
 

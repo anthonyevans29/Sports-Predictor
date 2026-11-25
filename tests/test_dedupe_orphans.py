@@ -191,11 +191,13 @@ def test_cli_orphans_dry_run_prints_the_receipt(monkeypatch, world):
     monkeypatch.setattr(aaf, "APIAmericanFootballAdapter", lambda: prov)
     monkeypatch.setenv("SP_ODDS_FOOTBALL_RPM", "600000")
     res = CliRunner().invoke(cli, ["dedupe-matches", "--competition", CODE, "--orphans"])
-    assert res.exit_code == 0, res.output
+    # addendum 497 step (1): the world's "broken" lookup is planned unresolved, so the run exits 1 after printing it all
+    assert res.exit_code == 1, res.output
     out = res.output
     assert "DEDUPE-MATCHES --orphans OR1" in out and "DRY-RUN (nothing written)" in out
     assert "plan: merge" in out and "[unresolved] id" in out and "[refused] id" in out
     assert "state before: rows" in out
+    assert out.splitlines()[-1] == f"dedupe-matches: 1 unresolved (provider read failed): {world[0]['broken']}"
 
 
 def test_two_stale_rows_never_claim_one_live_id_or_one_twin():

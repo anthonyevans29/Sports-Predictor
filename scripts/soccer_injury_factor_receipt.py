@@ -55,8 +55,10 @@ the cases where only the guard changed the call. Measurement only; no rule, thre
   trace, so there the receipt reads the priced snapshot before it where the export had none. The changed cases are
   split by where their reference was read, so a change that rests on a snapshot read shows. This reference is NOT the grading close above (that close is read at kickoff): the edge and cohort lines
   keep the grading close, the Desk reads what it had. The Desk is desk_policy.evaluate, every switch as it stands; the
-  second run differs by the guard's own switch alone (desk_policy.injuries_one_sided_rule_off), so a call that
-  differs is a call the guard alone changed. A prediction with no computed_at is not evaluated, counted.
+  second run differs by the guard's own switch alone (desk_policy.injuries_one_sided_rule_off). Since addendum 503
+  item 1 Q3 that switch also lifts the both-empty rule (its own kind, injuries_both_empty), so a both-empty case
+  differs too: it is counted apart (both_empty_held) and never as the guard's change; every other call that differs
+  is a call the guard alone changed. A prediction with no computed_at is not evaluated, counted.
 - The block also counts the one-sided cases (exactly one list empty, the other with names: the guard's own condition)
   an earlier rule reached first (shadow league, kickoff clock, started, default rating: the Desk checks those before
   the guard, so both runs read the same), by kind; one-sided = held + reached earlier. A changed call is graded by its
@@ -416,7 +418,11 @@ def guard_summary(xs: list[dict]) -> dict:
                      dp.DEFAULT_RATING_KIND)  # _desk_call's order (the host fence first: addendum 109 item 3)
     seen = [x for x in xs if x.get("desk_on")]
     held = [x for x in seen if x["desk_on"]["pass_kind"] == dp.INJURIES_ONE_SIDED_KIND]
-    changed = [x for x in seen if x["desk_on"]["call"] != x["desk_off"]["call"]]
+    # addendum 503 item 1 Q3: the both-empty rule rides the same switch, so the off run lifts it too; its rows are
+    # counted apart ("a receipt that counts causes must be able to tell them apart"), never as the guard's changes
+    both = [x for x in seen if x["desk_on"]["pass_kind"] == dp.INJURIES_BOTH_EMPTY_KIND]
+    changed = [x for x in seen if x["desk_on"]["call"] != x["desk_off"]["call"]
+               and x["desk_on"]["pass_kind"] != dp.INJURIES_BOTH_EMPTY_KIND]
     sided = [x for x in seen if one_sided(x["counts"])]
     earlier = [x for x in seen if x["desk_on"] == x["desk_off"] and x["desk_on"]["pass_kind"] in earlier_kinds]
 
@@ -432,6 +438,8 @@ def guard_summary(xs: list[dict]) -> dict:
             "one_sided": len(sided), "held": len(held),
             "one_sided_earlier": kinds([x for x in earlier if one_sided(x["counts"])]), "earlier": kinds(earlier),
             "held_off": dict(sorted(Counter(label(x["desk_off"]) for x in held).items())),
+            "both_empty_held": len(both),
+            "both_empty_held_off": dict(sorted(Counter(label(x["desk_off"]) for x in both).items())),
             "changed_call": len(changed),
             "changed_by_reference": dict(sorted(Counter((x.get("desk_ref") or {}).get("from") or "none"
                                                         for x in changed).items())),
@@ -506,6 +514,9 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
     echo(f"  one-sided lists (the guard's condition) {g['one_sided']}: held by the guard {g['held']} · reached by an "
          f"earlier rule first {sum(g['one_sided_earlier'].values())} ({kv(g['one_sided_earlier'])})")
     echo(f"  the guard held (PASS injuries_one_sided) {g['held']} · with it off those read: {kv(g['held_off'])}")
+    echo(f"  both lists empty (PASS injuries_both_empty, addendum 503 item 1 Q3: the same switch, its own kind, never "
+         f"counted as the guard's) {g['both_empty_held']} · with the switch off those read: "
+         f"{kv(g['both_empty_held_off'])}")
     echo(f"  cases where only the guard changed the call: {g['changed_call']}/{g['n']} · their reference read from: "
          f"{kv(g['changed_by_reference'])} · graded by the instrument: {kv(g['changed_graded'])}"
          + (f" · predictions {', '.join(str(i) for i in g['changed_ids'])}" if g["changed_ids"] else ""))

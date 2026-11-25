@@ -294,7 +294,8 @@ def test_the_roadmap_lane_names_the_declaration_and_the_step_done():
     # declare` (the vocabulary's word NHL's lane uses) with ONE dated step"
     assert (ln["registry_id"], ln["state"]) == ("ncaa-elo-v2", "to declare")
     nhl = next(x for x in doc["lanes"] if x["lane"] == "nhl")
-    assert "to declare" in roadmap.STATES and nhl["state"] == "to declare"
+    # "to declare" was lane nhl's word when 309 item 3(1) ruled; lane nhl reads closed since addendum 496 item 5
+    assert "to declare" in roadmap.STATES and nhl["state"] == "closed"
     assert ln["steps"][0]["done"]["date"] == "2026-10-16" and "addendum 81" in ln["steps"][0]["done"]["receipt"]
     done = ln["steps"][1]["done"]                     # #553 merged (ARCHITECT 2026-10-16, addendum 96 item 1)
     assert done["date"] == "2026-10-16" and "#553 merged at 81ea7c0" in done["receipt"]

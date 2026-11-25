@@ -1,0 +1,16 @@
+## 2026-11-24 (#1115: 503-injuries-both-empty — both injury lists empty get no Desk call (addendum 502 item 2 Q3; addendum 503 item 1 Q3-Q4, item 2 PR 1; POLICY, money-path))
+- **The Desk (`src/walters/desk_policy.py`).** A soccer row whose two injury counts are both the integer 0 is now PASS, with units 0, no order, no exec block and no value shadow.
+  - Its pass kind is its own, `injuries_both_empty` (503 Q3), and its reason names both teams.
+  - It covers exactly the rows the one-sided rule covers (503 Q4): soccer rows with both counts integers, the slate and the closing alike, whatever emptied the list.
+  - (None, None) and a row without the counts are unchanged.
+  - It rides the one-sided rule's switch: no new threshold, no new switch and no new `desk_meta` key.
+  - The shared reader `_injury_counts` keeps the one-sided rule's coverage exactly as before.
+- **The receipt (`scripts/soccer_injury_factor_receipt.py`).** Its on/off run lifts both rules, so it now counts both-empty rows apart (`both_empty_held`, `both_empty_held_off`) and never as the one-sided guard's changes.
+- **Tests:**
+  - (0, 0) moves from "unchanged" to the new PASS;
+  - the switch lifts it;
+  - (None, None) and a missing side stay as they are;
+  - another sport is never read;
+  - the receipt keeps the two causes apart;
+  - the golden holds with the switch on and off.
+- **docs/CLI.md:** the Desk paragraph.

@@ -189,12 +189,24 @@ DEFAULT_RATING_RULING = "default rating, ARCHITECT 2026-10-10"
 # A ONE-SIDED INJURY LIST GETS NO CALL (ARCHITECT 2026-10-11, addendum 40 item 6, RULED): "A soccer row says, for
 # each side, how many names are listed and when that team's list was last written. Where one side's list is empty
 # and the other's is not, the row gets no Desk call and no value shadow: it is a PASS, and its reason names the
-# team. desk_meta says the rule is on. No probability changes." Read from input_quality.injuries.<side>.count; both
-# empty is not one-sided (the model's number then carries no injury term, as the gated model's does). A row without
-# the counts (an older file, the frozen golden's rows) is unchanged. Built as addendum 36's default_rating is.
+# team. desk_meta says the rule is on. No probability changes." Read from input_quality.injuries.<side>.count. A row
+# without the counts (an older file, the frozen golden's rows) is unchanged. Built as addendum 36's default_rating is.
 INJURIES_ONE_SIDED_RULE = {"on": True}
 INJURIES_ONE_SIDED_KIND = "injuries_one_sided"
 INJURIES_ONE_SIDED_RULING = "one-sided injury list, ARCHITECT 2026-10-11"
+# BOTH INJURY LISTS EMPTY GET NO CALL (ARCHITECT 2026-11-24, addendum 502 item 2 Q3, RULED): "'The empty answer never
+# vouches for itself' reaches a Premier League row: where both sides' injury lists are empty answers at a closing,
+# the row gets no Desk call, as a one-sided row gets none (40 item 6, extended)." Widened and placed by addendum 503
+# item 1 (RULED). Q3: "ITS OWN KIND, THE SAME SWITCH: a both-empty row is not a one-sided row, and a receipt that
+# counts causes must be able to tell them apart. One new name; no new threshold and no new switch. The rule is on
+# wherever the one-sided rule is on." Q4: "WHEREVER THE DESK RUNS, AND FOR EXACTLY THE ROWS THE ONE-SIDED RULE COVERS,
+# no wider and no narrower: slate and closing alike, and a count of 0 whatever emptied the list. A list whose entries
+# were all dropped is not a list that was read. [...] The pair (None, None) stays as it is today: it is the state of a
+# competition with no injury feed, not of a failed read." So: a soccer row whose two counts are both the integer 0 is
+# PASS, its reason naming both teams; the switch is INJURIES_ONE_SIDED_RULE (injuries_one_sided_rule_off turns both
+# off, and desk_meta.injuries_one_sided_rule says both are on); a row without both counts as integers is unchanged.
+INJURIES_BOTH_EMPTY_KIND = "injuries_both_empty"
+INJURIES_BOTH_EMPTY_RULING = "both injury lists empty, ARCHITECT 2026-11-24"
 # AN EMPTY NFL INJURY LIST IS UNREAD (ARCHITECT 2026-10-11, addendum 40 item 4, RULED): "An NFL team with no stored
 # injury row is a list we could not read, not a team with nobody hurt. A flag we could not look up is not a flag that
 # is off (addendum 23, A2). Where either team's list is empty, the Desk sizes an NFL PLAY as it sizes a QB-flagged
@@ -264,6 +276,7 @@ NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no
                  KALSHI_ONLY_SUSPENDED_KIND,        # + Q3 K1 (2026-10-08)
                  DEFAULT_RATING_KIND,               # + addendum 36 item 2 (2026-10-10)
                  INJURIES_ONE_SIDED_KIND,           # + addendum 40 item 6 (2026-10-11)
+                 INJURIES_BOTH_EMPTY_KIND,          # + addendum 502 item 2 Q3, 503 item 1 Q3-Q4 (2026-11-24)
                  KICKOFF_CLOCK_KIND,                # + addendum 72 item 1 (2026-10-15)
                  HOST_FENCE_KIND)                   # + addendum 109 item 3 (2026-10-17)
 # NFL MARKET-ONLY (ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 2, RULED): "nfl_elo_v1's certification was earned
@@ -729,8 +742,8 @@ def started_rule_off():
 
 @contextmanager
 def injuries_one_sided_rule_off():
-    """The Desk without the one-sided injury list rule (addendum 40 item 6) — for comparing a file with and without
-    it."""
+    """The Desk without the one-sided injury list rule (addendum 40 item 6) and, on the same switch, the both-empty
+    rule (addendum 503 item 1 Q3: "THE SAME SWITCH") — for comparing a file with and without them."""
     was = INJURIES_ONE_SIDED_RULE["on"]
     INJURIES_ONE_SIDED_RULE["on"] = False
     try:
@@ -1075,21 +1088,41 @@ def default_rated_teams(r) -> list[str]:
     return [name for side, name in (("home", r["home"]), ("away", r["away"])) if rs.get(side) == "default"]
 
 
-def one_sided_injuries(r) -> tuple[str, str, int] | None:
-    """addendum 40 item 6: (the team whose list is empty, the other team, its count) when exactly one side of a
-    soccer row lists no name and the other lists some; else None (rule off, another sport, no counts, both empty,
-    both listed)."""
+def _injury_counts(r) -> dict | None:
+    """The rows the one-sided rule covers (addendum 40 item 6) and, exactly those, the both-empty rule (addendum 503
+    item 1 Q4: "no wider and no narrower"): {"home": n, "away": n}, both integers, for a soccer row with the switch
+    on; else None (rule off, another sport, no per-side block, a count that is not an integer)."""
     inj = r.get("injSides")
     if not INJURIES_ONE_SIDED_RULE["on"] or r["sport"] != "SOCCER" or not isinstance(inj, dict):
         return None
     n = {s: (inj.get(s) or {}).get("count") if isinstance(inj.get(s), dict) else None for s in ("home", "away")}
     if not all(isinstance(v, int) for v in n.values()):
         return None
+    return n
+
+
+def one_sided_injuries(r) -> tuple[str, str, int] | None:
+    """addendum 40 item 6: (the team whose list is empty, the other team, its count) when exactly one side of a
+    soccer row lists no name and the other lists some; else None (rule off, another sport, no counts, both empty —
+    both_empty_injuries' kind, addendum 503 item 1 Q3 — or both listed)."""
+    n = _injury_counts(r)
+    if n is None:
+        return None
     name = {"home": r["home"], "away": r["away"]}
     for empty, other in (("home", "away"), ("away", "home")):
         if n[empty] == 0 and n[other] > 0:
             return name[empty], name[other], n[other]
     return None
+
+
+def both_empty_injuries(r) -> tuple[str, str] | None:
+    """addendum 502 item 2 Q3, addendum 503 item 1 Q3-Q4: (the home team, the away team) when both sides of a row
+    the one-sided rule covers list no name (both counts the integer 0, whatever emptied the list); else None (the
+    rule off, another sport, no counts, (None, None), a side that lists someone)."""
+    n = _injury_counts(r)
+    if n is None or n["home"] != 0 or n["away"] != 0:
+        return None
+    return r["home"], r["away"]
 
 
 def kalshi_only_suspended(r) -> bool:
@@ -1302,6 +1335,10 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
     if one:
         return _no_call(r, INJURIES_ONE_SIDED_KIND, f"injury list one-sided: {one[0]} lists no name, {one[1]} lists "
                                                     f"{one[2]} → no call ({INJURIES_ONE_SIDED_RULING})")
+    both = both_empty_injuries(r)
+    if both:
+        return _no_call(r, INJURIES_BOTH_EMPTY_KIND, f"injury lists both empty: {both[0]} and {both[1]} list no name "
+                                                     f"→ no call ({INJURIES_BOTH_EMPTY_RULING})")
     if r["sport"] == "INTL":
         if r["comp"] not in INTL["callComps"]:
             return _no_call(r, "no_series", f"{r['comp'] or '?'}: no wired Kalshi series → prediction without a "
@@ -2167,7 +2204,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "mlb_kalshi_only_suspended": KALSHI_ONLY_MLB_SUSPENDED["on"],
                         # addendum 36 item 2 (2026-10-10): a default rating on either side is never a call
                         "default_rating_rule": DEFAULT_RATING_RULE["on"],
-                        # addendum 40 item 6 (2026-10-11): a one-sided soccer injury list is never a call
+                        # addendum 40 item 6 (2026-10-11): a one-sided soccer injury list is never a call; on the
+                        # same switch, two empty lists are never a call either (addendum 503 item 1 Q3)
                         "injuries_one_sided_rule": INJURIES_ONE_SIDED_RULE["on"],
                         # addendum 40 item 4 (2026-10-11): an empty NFL injury list sizes a PLAY as QB-flagged
                         "nfl_injury_list_empty_rule": INJURY_EMPTY_RULE["on"],
@@ -2331,6 +2369,9 @@ def _rescore(doc: dict) -> list[dict]:
                                 # addendum 305: a published PLAY the current Desk passes at exec <= 0 is its own
                                 # transition, never "halved" (0u < the v1.1 units)
                                 "exec non-positive" if c.get("passKind") == EXEC_NON_POSITIVE_KIND else
+                                # addendum 503 item 1 Q3: the both-empty rule rides the one-sided switch, which
+                                # addendum_off holds, so a published PLAY it now passes would read 0u = 0u "unchanged"
+                                "injuries both empty" if c.get("passKind") == INJURIES_BOTH_EMPTY_KIND else
                                 "halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
                                 else "raised")})
     return out

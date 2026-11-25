@@ -142,6 +142,12 @@ become MORE binding under an income goal, never less."
   otherwise; a session's first line is its report line and nothing else. The
   operator holds my copy of every addendum from my own chat, and that copy
   is the record an addendum is checked against if one is ever doubted."
+- **A read reaches the last comment (ARCHITECT 2026-11-24, addendum 504 item 2,
+  standing; added to 463's reading rule beside 490):**
+  "a read of this channel reaches its last comment. It either asks only for
+  comments since the last one it read, by the API's own since parameter, or
+  pages to the end; and it says in its report the id of the newest comment
+  it saw. A read that cannot say that id has not read the channel."
 - **`--db` copies (ARCHITECT 2026-11-01, addendum 198 item 6(ii), standing):**
   "every `--db` on a copy opens it with `immutable=1` beside `mode=ro` (SQLite's
   own read of a file nothing else writes) ... the live file keeps readonly_scope
@@ -196,16 +202,20 @@ become MORE binding under an income goal, never less."
   schedule-only floor is ~0.691). MODEL TRACK SUSPENDED; NHL runs
   MARKET-ONLY via `export-fixtures --competition NHL` (season gate
   2026-09-29, the operator-confirmed opening day). The goalie probe came
-  back NEGATIVE (2026-09-26): the reopening condition is an EXTERNAL
-  goalie/lineup source (lane nhl, #105, is TO DECLARE on the roadmap).
-  SOURCING DECIDED 2026-11-13: "NHL — none bought; we build and measure our
-  own" (addendum 375 item 1(vi)). So the 12-28/12-29/01-20/01-21 steps and
-  earliest_live 2027-01-22 are CLEARED. Next: the ceiling readiness read
-  11-19 (does knowing who ACTUALLY started move an NHL model past its bar at
-  all?), then the true-starter ceiling test declared or a written no 11-24.
+  back NEGATIVE (2026-09-26). SOURCING DECIDED 2026-11-13: "NHL — none
+  bought; we build and measure our own" (addendum 375 item 1(vi)). So the
+  12-28/12-29/01-20/01-21 steps and earliest_live 2027-01-22 are CLEARED.
+  The ceiling readiness read was done 11-13 (does knowing who ACTUALLY
+  started move an NHL model past its bar at all?). The true-starter ceiling
+  test was DECLARED 2026-11-24 (addendum 491), a probe of one run, RUN ONCE
+  11-24 and FALSE (leave-one-out 0.6912 against 0.6866; addendum 496): the
+  goalie term in this form is CLOSED. The reopening condition is no longer
+  a goalie or lineup source: a new NHL candidate needs a new idea in another
+  form, declared by its own addendum on 2026-27 (600 games or more) at the
+  unchanged gate (496 item 4(c)). Lane nhl (#105) is CLOSED on the roadmap.
   Projected starters are the INFERRED LAYER's pilot (NHL starting goalies,
-  shadow only; lane inferred-layer, #992; host-only store, never sports.db).
-  The bar did not move.
+  shadow only; lane inferred-layer, #992; host-only store, never sports.db);
+  what the pilot is for is ruled 12-03 (496 item 4(d)). The bar did not move.
 - **NCAA**: data certified (9,245 games, 743 programs; two 2025 rows overwritten by a reused provider id on
   11-07/08 and restored 11-10 (#902); every provider-id lookup is season-scoped since #906); market-only
   doctrine; Kalshi (KXNCAAFGAME) is the PRIMARY college market source,

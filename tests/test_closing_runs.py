@@ -2480,3 +2480,243 @@ def test_568_a_day_whose_only_mlb_row_is_a_stale_orphan_forms_no_closing_and_no_
     capsys.readouterr()
     assert mc.slate_watch("MLB", NOW, dry_run=True) == 0
     assert capsys.readouterr().out == f"  SLATE MLB {day.isoformat()}: no game that day — nothing to run\n"
+
+
+# ======================= addendum 502 item 2 Q5; addendum 503 item 1 Q5-Q7: a notice no channel took is not a notice ==
+
+def no_channel(box, monkeypatch, ops=None):
+    """Every channel refuses: the screen (not macOS), the card topic (ntfy did not accept), the operator topic."""
+    monkeypatch.setattr(mc, "notify", lambda body, title="Closing": {"posted": False, "skipped": "not macOS"})
+    box.page_ok = False
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: (ops.append(b) if ops is not None else None)
+                        or {"accepted": False, "error": "NTFY_TOPIC unset or invalid"})
+
+
+def test_503_a_failed_run_no_channel_took_exits_1_and_its_receipt_says_so(box, monkeypatch):
+    """502 item 2 Q5: "a run whose failure notice was refused by every channel does not exit as notified; it exits
+    as a failure and its receipt says so." The same run with the operator topic taking it stays NOTIFIED."""
+    import sp_receipts
+    no_channel(box, monkeypatch)
+    box.fail_cmd["sync-matches"] = (1, ["boom"])
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == 1
+    r = runs()[-1]
+    assert r["failure_notification"]["channel"] is None and r[mc.NOTICE_NOT_TAKEN] is True
+    assert sp_receipts.key_line(r).endswith("; NOTICE NOT TAKEN: no channel took it") and sp_receipts.failed(r)
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: {"accepted": True, "http": 200})
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW + timedelta(minutes=1)) == mc.NOTIFIED
+    r = runs()[-1]
+    assert r["failure_notification"]["channel"] == "operator" and mc.NOTICE_NOT_TAKEN not in r
+    assert not sp_receipts.key_line(r).endswith("no channel took it")
+
+
+def test_503_a_run_by_hand_is_unchanged(box, monkeypatch):
+    """A run by hand notifies nothing and keeps exit 1 (addendum 45 P3), whatever the channels."""
+    no_channel(box, monkeypatch)
+    box.fail_cmd["sync-matches"] = (1, ["boom"])
+    assert mc.run("NFL", start=at(35), now=NOW) == 1
+    r = runs()[-1]
+    assert "failure_notification" not in r and mc.NOTICE_NOT_TAKEN not in r
+
+
+def test_503_a_closing_miss_no_channel_took_is_sent_again_until_one_takes_it(box, monkeypatch):
+    """503 item 1 Q5 ("a closing miss") and Q6: "a miss is marked as already notified only when a channel took that
+    notice." Today's mark was set on any notice sent (the second case), so it moves to delivery: a miss no channel
+    took is sent again on the next tick, exit 1 each time; once one is taken, a later tick sends nothing (exit 3)."""
+    ops = []
+    no_channel(box, monkeypatch, ops)
+
+    def soccer_misses():
+        return [r for r in receipts() if r["kind"] == "closing_miss" and r["family"] == "SOCCER"]
+
+    def miss_pages():                 # the same ticks also run the 13:25 closing, whose page fails: not counted here
+        return [b for b in ops if ": MISSED: inside T-5" in b]
+    assert mc.watch(now=NOW + timedelta(minutes=31), families=("SOCCER",)) == 1       # first seen inside T-5
+    (first,) = soccer_misses()
+    assert first["reason"].startswith("inside T-5") and first[mc.NOTICE_NOT_TAKEN] is True and len(miss_pages()) == 1
+    assert mc.watch(now=NOW + timedelta(minutes=32), families=("SOCCER",)) == 1       # sent again, not taken again
+    assert len(soccer_misses()) == 1 and len(miss_pages()) == 2      # 509 item 3: the same outcome, no line
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: ops.append(b) or {"accepted": True, "http": 200})
+    assert mc.watch(now=NOW + timedelta(minutes=33), families=("SOCCER",)) == mc.NOTIFIED   # every notice taken
+    taken = soccer_misses()[-1]
+    assert taken["notified"]["channel"] == "operator" and mc.NOTICE_NOT_TAKEN not in taken and len(miss_pages()) == 3
+    assert mc.watch(now=NOW + timedelta(minutes=34), families=("SOCCER",)) == mc.NOTIFIED   # the miss: nothing sent
+    assert len(soccer_misses()) == 2 and len(miss_pages()) == 3
+
+
+def test_503_record_miss_skips_only_a_miss_a_channel_took(box, monkeypatch):
+    no_channel(box, monkeypatch)
+    a = mc.record_miss("NFL", at(80), "x")
+    assert a["notified"]["channel"] is None and a[mc.NOTICE_NOT_TAKEN] is True and mc.notice_exit(a) == 1
+    b = mc.record_miss("NFL", at(80), "x")
+    assert b is not None and b[mc.NOTICE_NOT_TAKEN] is True                           # sent again
+    box.page_ok = True
+    c_ = mc.record_miss("NFL", at(80), "x")
+    assert c_["notified"]["channel"] == "card" and mc.NOTICE_NOT_TAKEN not in c_ and mc.notice_exit(c_) == mc.NOTIFIED
+    assert mc.record_miss("NFL", at(80), "x") is None and mc.notice_exit(None) == mc.NOTIFIED
+
+
+def test_503_a_refusal_no_channel_took_stays_exit_2_with_the_key(box, monkeypatch):
+    """503 item 1 Q7: "A REFUSAL STAYS EXIT 2, with the same receipt key set when no channel took its notice." """
+    import sp_receipts
+    no_channel(box, monkeypatch)
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "")
+    assert mc.watch(now=NOW, families=("NFL",)) == 2
+    r = runs()[-1]
+    assert "NTFY_CARD_TOPIC" in r["refused"] and r[mc.NOTICE_NOT_TAKEN] is True and r["exit"] == 2
+    assert sp_receipts.key_line(r).endswith("; NOTICE NOT TAKEN: no channel took it")
+
+
+def test_503_notice_taken_reads_the_channel_only():
+    assert mc.notice_taken({"channel": "card"}) and mc.notice_taken({"channel": "operator"})
+    assert not mc.notice_taken({"channel": None}) and not mc.notice_taken({"text": "T", "cut_at_bound_s": 57})
+    assert not mc.notice_taken(None) and not mc.notice_taken({})
+
+
+def test_503_a_resend_is_queued_for_the_ticks_end_and_sent_bounded(box, monkeypatch):
+    """The review's P1 on the notice rule: a resend never costs a closing its T-35 (#613 P1-2). Given the tick, a miss
+    whose earlier notice no channel took is QUEUED, nothing written; send_resend sends it at the tick's end, cut at
+    NOTIFY_MAX_S, its line marked `resent`."""
+    no_channel(box, monkeypatch)
+    first = mc.record_miss("NFL", at(80), "x")
+    assert first[mc.NOTICE_NOT_TAKEN] is True
+    tick = {}
+    n = len(receipts())
+    assert mc.record_miss("NFL", at(80), "x", tick=tick) == mc.QUEUED and len(receipts()) == n
+    (item,) = tick["resends"]
+    assert (item["kind"], item["start"], item["reason"]) == ("closing_miss", at(80), "x")
+    assert mc.notice_exit(mc.QUEUED) == 0
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): None)       # no closing ahead
+    seen = []
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: seen.append(title) or
+                        {"text": text, "channel": "card"})
+    assert mc.send_resend(item, NOW, NOW, ("NFL",)) == mc.NOTIFIED and seen == ["NFL closing"]
+    r = receipts()[-1]
+    assert r["kind"] == "closing_miss" and r["resent"] is True and mc.NOTICE_NOT_TAKEN not in r
+    assert mc.record_miss("NFL", at(80), "x", tick={}) is None          # taken now: nothing more to send
+
+
+def test_503_a_resend_waits_while_a_closing_is_due_and_the_tick_exits_1(box, monkeypatch):
+    no_channel(box, monkeypatch)
+    mc.record_miss("NFL", at(80), "x")
+    tick = {}
+    mc.record_miss("NFL", at(80), "x", tick=tick)
+    (item,) = tick["resends"]
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): {
+        "family": "NFL", "start": NOW + timedelta(minutes=36), "run_at": NOW + timedelta(minutes=1)})  # next tick's
+    sent = []
+    monkeypatch.setattr(mc, "_bounded_notify", lambda *a, **k: sent.append(a) or {"channel": "card"})
+    n = len(receipts())
+    later = NOW + timedelta(seconds=10)     # 10 s into the tick: a 57 s send would end after the next tick's firing
+    assert mc.send_resend(item, NOW, later, ("NFL",)) == 1 and sent == [] and len(receipts()) == n
+    assert mc.send_resend(item, NOW, NOW, ("NFL",)) == mc.NOTIFIED and len(sent) == 1   # at the tick's start: it fits
+
+
+def test_503_the_ticks_closings_run_before_any_resend(box, monkeypatch):
+    """In watch(), the queued resends go out after the tick's closings and its slate stage."""
+    no_channel(box, monkeypatch)
+    order = []
+    real_run, real_resend = mc.run, mc.send_resend
+    monkeypatch.setattr(mc, "run", lambda *a, **k: order.append("run") or real_run(*a, **k))
+    monkeypatch.setattr(mc, "send_resend", lambda *a, **k: order.append("resend") or real_resend(*a, **k))
+    assert mc.watch(now=NOW + timedelta(minutes=31), families=("SOCCER",)) == 1     # the miss's first send, the run
+    order.clear()
+    mc.watch(now=NOW + timedelta(minutes=32), families=("SOCCER",))
+    assert "resend" in order and "run" in order and order.index("run") < order.index("resend")
+
+
+def test_503_closing_state_counts_one_miss_per_reason(box, monkeypatch):
+    """Several lines of one miss (its first send, then a first cut: 509 item 3) are still one miss."""
+    no_channel(box, monkeypatch)
+    mc.record_miss("NFL", at(80), "x")
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "cut_at_bound_s": 57})
+    mc.record_miss("NFL", at(80), "x", bounded=True)
+    assert len([r for r in receipts() if r["kind"] == "closing_miss"]) == 2
+    assert mc.closing_state("NFL", at(80))["misses"] == 1
+
+
+def test_504_a_closing_refusal_is_marked_only_when_a_channel_took_it(box, monkeypatch):
+    """Addendum 504 item 4(b): a refusal no channel took is notified again on a later tick, at the tick's end, exit 2;
+    once a channel took it, the same refusal writes and sends nothing (reading 7)."""
+    ops = []
+    no_channel(box, monkeypatch, ops)
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "")
+    assert mc.watch(now=NOW, families=("NFL",)) == 2 and len(ops) == 1
+    assert runs()[-1][mc.NOTICE_NOT_TAKEN] is True
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: ops.append(b) or {"accepted": True, "http": 200})
+    assert mc.watch(now=NOW + timedelta(minutes=1), families=("NFL",)) == 2 and len(ops) == 2      # sent again
+    assert runs()[-1].get("resent") is True and mc.NOTICE_NOT_TAKEN not in runs()[-1]
+    n = len(receipts())
+    assert mc.watch(now=NOW + timedelta(minutes=2), families=("NFL",)) == 2 and len(ops) == 2      # taken: once
+    assert len(receipts()) == n
+
+
+def test_504_a_refused_closing_does_not_hold_its_own_refusals_resend(box, monkeypatch):
+    """The second review's P1: a refusal is no attempt, so the refused closing stays open with its T-35 past and was
+    the closing_ahead that held its own refusal's resend to T-5 (lost). A closing refusal_checks refused (the
+    machine's settings) starts no chain on the next tick either, so it no longer holds a resend (no_chain); a
+    refusal that clears by itself does not enter no_chain."""
+    no_channel(box, monkeypatch)
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "")
+    assert mc.watch(now=NOW, families=("NFL",)) == 2
+    first = runs()[-1]
+    base = {k: first[k] for k in ("kind", "family", "run_id", "trigger", "queued_at")}
+    other = {}
+    mc._refuse("an export path that exists", "NFL", first["start"], base, "watch", dry_run=False, tick=other)
+    assert not other.get("no_chain")                                     # #442's kind: clears by itself
+    tick = {}
+    assert mc._refuse(first["refused"], "NFL", first["start"], base, "watch", dry_run=False, tick=tick,
+                      config=True) == 2
+    (item,) = tick["resends"]
+    assert (item["kind"], item["start"]) == ("closing_refusal", first["start"]) and tick["no_chain"]
+    sent = []
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: sent.append(text) or
+                        {"text": text, "channel": "card"})
+    late = NOW + timedelta(seconds=20)            # well past the first 3 s of the tick
+    held = mc.closing_ahead(("NFL",), late)
+    assert held is not None and (held["family"], held["start"]) in tick["no_chain"]     # it was its own bound
+    assert mc.send_resend(item, NOW, late, ("NFL",), frozenset(tick["no_chain"])) == 2 and len(sent) == 1
+    assert runs()[-1]["resent"] is True and mc.NOTICE_NOT_TAKEN not in runs()[-1]
+
+
+def test_504_a_resend_cut_at_its_bound_exits_3_no_key_and_is_sent_again(box, monkeypatch):
+    no_channel(box, monkeypatch)
+    mc.record_miss("NFL", at(80), "x")
+    tick = {}
+    mc.record_miss("NFL", at(80), "x", tick=tick)
+    (item,) = tick["resends"]
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): None)
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "cut_at_bound_s": 57})
+    assert mc.send_resend(item, NOW, NOW, ("NFL",)) == mc.NOTIFIED
+    r = receipts()[-1]
+    assert r["resent"] is True and mc.NOTICE_NOT_TAKEN not in r
+    assert mc.record_miss("NFL", at(80), "x", tick={}) == mc.QUEUED      # not taken: sent again on a later tick
+
+
+def test_504_a_refusal_by_hand_is_not_the_watchs_earlier_notice(box, monkeypatch):
+    """A refusal line written by a run by hand carries no notice, so the watch's first notice of the same refusal is
+    a first send, not a resend."""
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "")
+    assert mc.run("NFL", start=at(35), now=NOW) == 2                      # by hand: no notice
+    assert "failure_notification" not in runs()[-1]
+    tick = {}
+    r = runs()[-1]
+    assert mc._refuse(r["refused"], "NFL", r["start"], {"kind": "closing", "family": "NFL", "run_id": "x",
+                      "trigger": "watch", "queued_at": r["queued_at"]}, "watch", dry_run=False, tick=tick) == 2
+    assert not tick.get("resends") and runs()[-1]["failure_notification"]   # sent at once, as a first notice
+
+
+
+def test_509_a_refusal_try_with_the_same_outcome_writes_no_line(box, monkeypatch):
+    """509 item 3(a) for a refusal: tried on every tick its bound allows, exit 2 each time, a line only when the
+    outcome changes."""
+    no_channel(box, monkeypatch)
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "")
+    assert mc.watch(now=NOW, families=("NFL",)) == 2
+    n = len(receipts())
+    first = runs()[-1]
+    base = {k: first[k] for k in ("kind", "family", "run_id", "trigger", "queued_at")}
+    assert mc._refuse(first["refused"], "NFL", first["start"], base, "watch", dry_run=False, bounded=True) == 2
+    assert len(receipts()) == n                                              # untaken again: no line
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "channel": "card"})
+    assert mc._refuse(first["refused"], "NFL", first["start"], base, "watch", dry_run=False, bounded=True) == 2
+    assert len(receipts()) == n + 1 and mc.NOTICE_NOT_TAKEN not in runs()[-1]  # taken: always a line

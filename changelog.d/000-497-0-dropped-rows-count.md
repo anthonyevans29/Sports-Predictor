@@ -27,7 +27,7 @@
   - **sync-odds --competition MLB:** after NO-BOOK-ODDS. Not printed when no odds read was made (no key, or the window read raised).
   - **capture-odds:** before its "odds synced:" line, on the same condition. Its last line stays "✓ Captured".
   - **sync-odds-football / sync-odds-nfl:** after orientation_mismatch_unpriced, guarded by `"not_priced" in r`.
-- **tests/test_dropped_rows_count.py** (40, synthetic payloads, no provider call):
+- **tests/test_dropped_rows_count.py** (41, synthetic payloads, no provider call):
   - each adapter's causes with their ids, the good row kept unchanged, and a clean answer that prints nothing and leaves `last_dropped` {};
   - the basketball line byte-identical to its 3b63269b text;
   - get_game printing nothing new;
@@ -50,7 +50,7 @@
   - mlb_stats_api's line names `/schedule`, its endpoint.
   - The MLB odds labels list provider game ids, and "started" lists stored match ids.
   - A named sync-odds id that no label covers reads "not a candidate". This is unreachable as written.
-  - sync-odds on a competition not in the DB prints `odds_not_read 0` and leaves the named ids unclassified.
+  - sync-odds on a competition not in the DB returns before any read: with `--match-ids` every named id is counted as "competition not in the DB"; without it the line reads `odds_not_read 0` (the existing warning is the signal).
   - On MLB, a run with no key or a failed window read makes no odds read and prints no odds_not_read line. An empty window was read, so its line counts that read's drops.
   - A "no game id" drop has no id to match across reads, so it is counted once per read.
   - The adapters' line also prints in every other `list_matches` caller: dedupe-matches --orphans, in its per-day date search, and resync-diff, for MLB, NHL, NFL and NCAA.

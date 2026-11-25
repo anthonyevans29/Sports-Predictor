@@ -1355,6 +1355,9 @@ class IngestionService:
             comp = self._get_competition(s, competition_code)
             if not comp:
                 log.warning("Competition %s not in DB.", competition_code)
+                if match_ids:
+                    # addendum 502 Q7: a named game is never silent, the competition missing included
+                    result.odds_not_read["competition not in the DB"] = sorted(match_ids)
                 return result
 
             stmt = select(Match).where(Match.competition_id == comp.id)

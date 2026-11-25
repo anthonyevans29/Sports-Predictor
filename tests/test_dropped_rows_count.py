@@ -377,6 +377,13 @@ def test_sync_odds_match_ids_classifies_every_named_id_and_prints_before_the_sum
     assert lines[-3].startswith("orientation_mismatch_unpriced 0") and lines[-4].startswith("orientation_swapped 0")
 
 
+def test_sync_odds_match_ids_on_a_competition_not_in_the_db_counts_every_named_id():
+    res = IngestionService(FakeOdds()).sync_odds("DRC-NONE", match_ids={7, 3})
+    assert res.odds_not_read == {"competition not in the DB": [3, 7]}
+    assert odds_not_read_line(res.odds_not_read) == "odds_not_read 2 (competition not in the DB 2: 3, 7)"
+    assert IngestionService(FakeOdds()).sync_odds("DRC-NONE").odds_not_read == {}
+
+
 def test_sync_odds_prints_a_zero_line_when_every_game_is_read(made, monkeypatch):
     import cli
     cid = _comp(made, "DRC3")

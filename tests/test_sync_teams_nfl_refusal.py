@@ -335,6 +335,9 @@ def test_the_cli_prints_no_line_at_zero(fresh_db, monkeypatch):
 
 
 def test_the_admin_sync_teams_job_carries_the_line(fresh_db, monkeypatch):
+    """The summary's text only, with the admin's router stubbed. The admin's own router sends every non-MLB code
+    to the soccer adapter, which raises on NCAA before sync_teams runs, so this line reaches the admin only once
+    the admin routes the college competition (#1152, for the architect's ruling)."""
     from src.web.routes import admin
     _team("1021", "Pro Twenty-One", memberships=[("NFL", SEASON)])
     _comps()

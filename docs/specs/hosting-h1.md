@@ -1610,6 +1610,33 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       - **Where it runs.** The laptop holds from #925's merge (main, 2026-11-11). The host holds from the tag that carries
         it, v1.6.7 (deployed 2026-11-12), and so on production v1.6.10 (addendum 436 item 1(d)). Before v1.6.7 a host hold
         was the procedure above (timers), as 332 item 3 says.
+      - **THE HOST HOLDS MLB (from 2026-11-25).** Why: the operator's Baseball API plan drops to the free tier from
+        2026-11-25 until the new season (ARCHITECT 2026-11-24 18:27 ET, addendum 522 item 1), and the host's
+        mlb-history chain reads that plan (522 item 2(a)); "NOTHING OF 2026 IS LOST BY THE LAPSE" (522 item 3(a)).
+        Ruled (522 item 3(b), verbatim in part): "THE HOST HOLDS MLB: SP_SYNC_HOLD gains MLB by my OPERATOR block in
+        Wednesday's sitting, after the deploy. sync-teams and sync-matches then print their held line and exit 0 on
+        every chain. No timer changes and THE HELD LIST does not change. I lift it by block when the plan is back."
+        Set (ARCHITECT 2026-11-25 10:26 ET, addendum 531 item 1, verbatim in part, to (c)): "THE MLB SYNC HOLD ON THE HOST (522), by my
+        OPERATOR block, 15:22Z, on v1.6.10. (a) The host's env file held no hold line; it now holds one bare line
+        naming MLB. The file before is kept beside it under a dated name. One line added, no other line changed, mode
+        unchanged. (b) Read back through the code (424 item 2(d)): the file is the one place that names it, MLB is
+        held, no junk token. The held step, as the daily chain calls it, printed the HELD line alone and left with 0.
+        (c) Today's 10:30Z MLB chain had already run clean before the hold, 2 of 2 steps. From tomorrow it prints the
+        HELD line. No timer, unit or chain changed." The block ran on v1.6.10, which carries `SP_SYNC_HOLD` (above),
+        before v1.6.11's deploy (530 item 1(c)). **Its lifting condition: the host holds MLB from 2026-11-25, lifted
+        only by the architect's block with the plan's renewal before the 2027 season** (531 item 1(d), whose words are
+        "hosting-h1 section O and the release record say the host holds MLB from 2026-11-25, lifted only by my block
+        with the plan's renewal before the 2027 season (522 item 4)"; corrected by ARCHITECT 2026-11-25 13:42 ET,
+        addendum 537 item 3 Q2, verbatim in part: "MY ERROR IN 531 item 1(d): the cite is 522 items 3(b) and 3(d), not item
+        4."; the lift as 522 item 3(b) rules it, "I lift it by block when the plan is back", and 522 item 3(d): "The
+        plan must be back before the first 2027 game the live path prices"). The lift is the procedure above
+        ("Lifting a hold"). This entry is 522 item 6's ("section O of the hosting spec takes the hold and its lifting
+        condition in the records PR after my block has run and I say so"), written after 531 item 1 said the block had
+        run.
+        **What the hold does not reach (ARCHITECT 2026-11-25 11:01 ET, addendum 533 item 4(d), verbatim):** "THE
+        WINDOW'S MLB sync-odds, outside SP_SKIP_FAMILIES and the sync hold: quiet only while no unfinished MLB game is
+        stored on the host. No build. It goes into my MLB lane declaration on #97 (by 12-18): the plan's renewal comes
+        before the first stored 2027 game."
   - **The read before the policy (addendum 316 item 3):** "Ubuntu 24.04.5, kernel 6.8.0-147 with 149 waiting, 24
     noble-updates packages, 3w4d uptime, disk 25%."
   - **First receipt (ARCHITECT 2026-11-10 12:20 ET, addendum 320 item 4, verbatim):** "THE HOST (the operator,

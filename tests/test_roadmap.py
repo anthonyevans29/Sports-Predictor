@@ -252,9 +252,9 @@ BROKEN = [
      "lane 'cups': state 'blocked' and no step left to do"),
     ("due dates never go backwards", lambda d: _lane(d, "ncaa")["steps"][4].__setitem__("due", "2026-11-07"),
      "lane 'ncaa' step 5: due 2026-11-07 goes backwards from step 4's 2026-11-08"),
-    # lane nhl's last step is the 11-24 ceiling-test step since addendum 375 item 3(a) (earliest_live cleared)
+    # lane nhl's last step is the 12-03 run-and-verdict step since addendum 491 item 11 (earliest_live cleared)
     ("earliest_live not before the last step's due", lambda d: _lane(d, "nhl").__setitem__("earliest_live", "2026-11-20"),
-     "lane 'nhl': earliest_live 2026-11-20 is before the last step's due date 2026-11-24"),
+     "lane 'nhl': earliest_live 2026-11-20 is before the last step's due date 2026-12-03"),
     ("every moved line has its six parts",
      lambda d: _lane(d, "ncaa")["moved"].append({"moved_on": "2026-10-20", "which": "steps[2].due", "was": "2026-10-20",
                                                  "now": "2026-10-22", "why": "late"}),
@@ -284,9 +284,9 @@ BROKEN = [
     ("a confirming lane has a step left",
      lambda d: [st.__setitem__("done", {"date": "2026-11-12", "receipt": "r"}) for st in _lane(d, "unl")["steps"]],
      "lane 'unl': state 'confirming' and no step left to do"),
-    ("a lane to declare has a step left",      # nhl: leagues is declared since addendum 220
-     lambda d: [st.__setitem__("done", {"date": "2026-10-23", "receipt": "r"}) for st in _lane(d, "nhl")["steps"]],
-     "lane 'nhl': state 'to declare' and no step left to do"),
+    ("a lane to declare has a step left",      # nfl-qb: nhl is closed since addendum 496
+     lambda d: [st.__setitem__("done", {"date": "2026-10-23", "receipt": "r"}) for st in _lane(d, "nfl-qb")["steps"]],
+     "lane 'nfl-qb': state 'to declare' and no step left to do"),
     ("within a lane no two steps share a what (addendum 60 item 3)",
      lambda d: _lane(d, "ncaa")["steps"][3].__setitem__("what", _lane(d, "ncaa")["steps"][1]["what"]),
      "lane 'ncaa' step 4: what"),
@@ -1024,3 +1024,40 @@ def test_the_cutover_milestone_is_done_on_2026_10_26_and_its_date_did_not_move()
     m = ms["Cutover ~Oct 8"]
     assert m["due_on"] == "2026-10-30" and m["done"]["date"] == "2026-10-26"
     assert "addendum 168 item 1" in m["done"]["receipt"] and "13:45:11Z" in m["done"]["receipt"]
+
+
+def test_the_real_roadmap_closes_lane_nhl_on_the_ceiling_verdict():
+    """Addendum 491 item 11: the 11-24 step DONE by 491; appended, the probe's PR head (code) 2026-11-30 and the run
+    and its verdict (architect) 2026-12-03; no earliest_live. Addendum 495 item 2: the 11-30 step done by #1107's merge.
+    Addendum 496 item 5: the run and its verdict done 2026-11-24, FALSE; the state as the file's rules name a lane whose
+    route is closed ("A lane a ruling ends stays in the file, its state closed, with the ruling"). No date moves."""
+    lane = _lane(_real(), "nhl")
+    assert lane["state"] == "closed" and lane["earliest_live"] is None
+    tail = lane["steps"][-3:]
+    assert [st["due"] for st in tail] == ["2026-11-24", "2026-11-30", "2026-12-03"]
+    assert [st["owner"] for st in tail] == ["architect", "code", "architect"]
+    assert all(st["done"]["date"] == "2026-11-24" for st in tail)
+    assert "addendum 491" in tail[0]["done"]["receipt"] and "#1107" in tail[1]["done"]["receipt"]
+    assert "addendum 496" in tail[2]["done"]["receipt"] and "0.6912" in tail[2]["done"]["receipt"]
+    assert lane["live_needs"].startswith("CLOSED 2026-11-24 (ARCHITECT 2026-11-24 09:48 ET, addendum 496)")
+    # the bar's text after the closing is the base's, untouched (addendum 375 item 3(a): "The bar's text in live_needs is
+    # not touched"): it opens "PASS at the frozen bar" and keeps the 600-game rule
+    bar = lane["live_needs"].split("unchanged and not touched here: ", 1)[1]
+    assert bar.startswith("PASS at the frozen bar on 600 or more regular-season games of 2026-27")
+    assert "its number is read from the 600-game cohort at the run, never before" in bar
+    assert rm.next_step(lane) is None
+    assert len(lane["moved"]) == 3     # no date of lane nhl moved for 491 to 496
+
+
+def test_the_real_roadmap_moves_the_nba_probe_step_to_the_host_sitting():
+    """Addendum 492 item 4: lane availability-record, the NBA injury-report probe's date moves 2026-11-24 to
+    2026-11-25, its moved line in the ruled words; the owner corrected to the architect (the file's rules name no
+    rule for an owner; the open half is the architect's block on the host)."""
+    lane = _lane(_real(), "availability-record")
+    st = [s for s in lane["steps"] if s["what"].startswith("the NBA injury-report probe")]
+    assert len(st) == 1 and st[0]["due"] == "2026-11-25" and st[0]["owner"] == "architect" and st[0]["done"] is None
+    (mv,) = lane["moved"]
+    assert (mv["moved_on"], mv["which"], mv["was"], mv["now"]) == ("2026-11-24", st[0]["what"], "2026-11-24", "2026-11-25")
+    assert mv["why"] == ("the report phase is the architect's block on the host (368 item 4); the host sitting is "
+                         "Wednesday 2026-11-25 (addendum 492 item 4)")
+    assert mv["ruling"].startswith("ARCHITECT 2026-11-24 08:31 ET, addendum 492 item 4, verbatim: \"4. THE NBA INJURY")

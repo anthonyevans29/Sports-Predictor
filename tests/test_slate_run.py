@@ -1798,7 +1798,8 @@ def test_with_quick_pages_the_held_page_goes_out_after_the_stage(box, monkeypatc
 def test_a_page_send_is_cut_at_the_bound(box, monkeypatch):
     """#613 P1-2: the channels' timeouts are per socket operation, so notify_failure is no bound (an ntfy answering in
     pieces 15 s apart took it to 60 s). The page's send is cut at NOTIFY_MAX_S of wall clock (_bounded_notify): a send
-    still running then is left to end with the process, and the receipt says it was cut."""
+    still running then is left to end with the process, and the receipt says it was cut. Addendum 504 item 4(b): "The
+    slate page cut at its bound staying exit 3 and being sent again stands": exit 3, no key, still owed."""
     import threading
     import time as wall
     release = threading.Event()
@@ -1814,6 +1815,7 @@ def test_a_page_send_is_cut_at_the_bound(box, monkeypatch):
         release.set()
     (r,) = receipts()
     assert r["held_page"] == {"text": "T", "notified": {"text": "T", "cut_at_bound_s": 0.2}}
+    assert mc.NOTICE_NOT_TAKEN not in r
     monkeypatch.setattr(mc, "notify_failure", lambda text, fam="", title=None: {"channel": "card"})
     assert mc._bounded_notify("T", "NFL") == {"channel": "card"}                # a send inside the bound: its result
 
@@ -1876,3 +1878,163 @@ def test_a_stage_page_is_bounded_by_the_next_closing_a_feed_down_mlb_closing_inc
     held = [x for x in slates() if x.get("held")]
     assert held and held[0]["held"].startswith("closing NFL 13:00 ET") and "held_page" not in held[0]
     assert [m["reason"] for m in misses("MLB")] == ["feed unreachable"]
+
+
+# ======================= addendum 502 item 2 Q5; addendum 503 item 1 Q5-Q7: a notice no channel took is not a notice ==
+
+def no_channel(box, monkeypatch, ops=None):
+    monkeypatch.setattr(mc, "notify", lambda body, title="Closing": {"posted": False, "skipped": "not macOS"})
+    box.page_ok = False
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: (ops.append(b) if ops is not None else None)
+                        or {"accepted": False, "error": "NTFY_TOPIC unset or invalid"})
+
+
+def test_503_a_failed_slate_no_channel_took_exits_1_and_says_so(box, monkeypatch):
+    """503 item 1 Q5: "a failed run" of the slate stage: no channel took its notice, so the tick exits 1, its line
+    carries notice_not_taken; with a channel taking it, NOTIFIED as before."""
+    import sp_receipts
+    the_day(box, monkeypatch)
+    no_channel(box, monkeypatch)
+    box.fail_cmd["export-nfl-predictions"] = (1, ["boom"])
+    assert tick(et(7, 0)) == 1
+    (s,) = slates()
+    assert s["exit"] == 1 and s["failure_notification"]["channel"] is None and s[mc.NOTICE_NOT_TAKEN] is True
+    assert sp_receipts.key_line(s).endswith("; NOTICE NOT TAKEN: no channel took it")
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: {"accepted": True, "http": 200})
+    assert tick(et(7, 1)) == mc.NOTIFIED
+    assert mc.NOTICE_NOT_TAKEN not in slates()[-1] and slates()[-1]["failure_notification"]["channel"] == "operator"
+
+
+def test_503_a_slate_miss_no_channel_took_is_sent_again_until_one_takes_it(box, monkeypatch):
+    """503 item 1 Q5 ("a slate miss") and Q6: the feed-unreachable miss, once a day by reason while it is taken;
+    one no channel took is sent again on the next tick (exit 1), and once taken the watch is silent again (exit 3,
+    nothing sent: as today)."""
+    ops = []
+    the_day(box, monkeypatch)
+    no_channel(box, monkeypatch, ops)
+    box.feed = (False, "URLError")
+    assert tick(et(10, 35), ("MLB",)) == 1 and tick(et(10, 36), ("MLB",)) == 1
+    ms = misses("MLB")
+    assert [m["reason"] for m in ms] == ["feed unreachable"] and all(m[mc.NOTICE_NOT_TAKEN] for m in ms)   # 509 3
+    assert len(ops) == 2
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: ops.append(b) or {"accepted": True, "http": 200})
+    assert tick(et(10, 37), ("MLB",)) == mc.NOTIFIED and len(misses("MLB")) == 2 and len(ops) == 3
+    assert mc.NOTICE_NOT_TAKEN not in misses("MLB")[-1]
+    assert tick(et(10, 38), ("MLB",)) == mc.NOTIFIED and len(misses("MLB")) == 2 and len(ops) == 3   # silent
+
+
+def test_503_a_held_page_no_channel_took_exits_1_and_is_owed_again(box, monkeypatch):
+    """503 item 1 Q5 ("the held page") and Q6: a HELD page no channel took exits 1 with the key, and is still owed;
+    a page cut at its bound stays exit 3 and is sent again (addendum 504 item 4(b)): no key, still owed; one a
+    channel took is not owed."""
+    line = {"kind": "slate", "family": "NFL", "date": "2026-10-18", "held": "x", "exit": 0}
+    p = {"fam": "NFL", "day": D18, "line": line, "seen": False, "ahead": None, "text": "T", "tick_at": BASE}
+    games = [{"start": BASE + timedelta(minutes=10), "status": "SCHEDULED", "match_id": 1}]
+    monkeypatch.setattr(mc, "notify_failure", lambda text, fam="", title=None: {"text": text, "channel": None})
+    assert mc.send_slate_page(p, BASE) == 1
+    (r,) = receipts()
+    assert r[mc.NOTICE_NOT_TAKEN] is True and r["held_page"]["notified"]["channel"] is None
+    assert mc._page_owed("NFL", D18, games, BASE)                                    # not taken: still owed
+    import threading
+    release = threading.Event()
+    monkeypatch.setattr(mc, "NOTIFY_MAX_S", 0.2)
+    monkeypatch.setattr(mc, "notify_failure", lambda text, fam="", title=None: release.wait(10) and {"channel": "card"})
+    try:
+        assert mc.send_slate_page(p, BASE) == mc.NOTIFIED                               # cut: 504 item 4(b)
+    finally:
+        release.set()
+    assert mc.NOTICE_NOT_TAKEN not in receipts()[-1] and "cut_at_bound_s" in receipts()[-1]["held_page"]["notified"]
+    assert mc._page_owed("NFL", D18, games, BASE)                                    # delivery unknown: still owed
+    monkeypatch.setattr(mc, "notify_failure", lambda text, fam="", title=None: {"text": text, "channel": "card"})
+    assert mc.send_slate_page(p, BASE) == mc.NOTIFIED and mc.NOTICE_NOT_TAKEN not in receipts()[-1]
+    assert not mc._page_owed("NFL", D18, games, BASE)                                # taken: no longer owed
+
+
+def test_503_a_slate_refusal_no_channel_took_stays_exit_2_with_the_key(box, monkeypatch):
+    """503 item 1 Q7: "A REFUSAL STAYS EXIT 2, with the same receipt key set when no channel took its notice." """
+    the_day(box, monkeypatch)
+    no_channel(box, monkeypatch)
+    base = {"kind": mc.SLATE_KIND, "family": "NFL", "date": D18.isoformat(), "run_id": "r", "trigger": "watch"}
+    assert mc._slate_refuse("a refusal", "NFL", D18, base) == 2
+    (s,) = slates()
+    assert s["exit"] == 2 and s[mc.NOTICE_NOT_TAKEN] is True
+
+
+def test_503_a_slate_miss_resend_is_queued_for_the_ticks_end(box, monkeypatch):
+    """The every-game-started miss repeats each tick until a channel takes it; its resend is queued (QUEUED), never
+    sent in the stage, so it never costs a closing its T-35."""
+    the_day(box, monkeypatch)
+    no_channel(box, monkeypatch)
+    first = mc.record_slate_miss("NFL", D18, mc.SLATE_ALL_STARTED)
+    assert first[mc.NOTICE_NOT_TAKEN] is True
+    tick = {}
+    assert mc.record_slate_miss("NFL", D18, mc.SLATE_ALL_STARTED, tick=tick) == mc.QUEUED
+    (item,) = tick["resends"]
+    assert (item["kind"], item["reason"]) == (mc.SLATE_MISS_KIND, mc.SLATE_ALL_STARTED)
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): None)
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "channel": None})
+    n = len(misses())
+    assert mc.send_resend(item, BASE, BASE, ("NFL",)) == 1                  # not taken again: exit 1 ...
+    assert len(misses()) == n                                                # ... and, the same outcome, no line
+
+
+def test_504_a_slate_refusal_is_marked_only_when_a_channel_took_it(box, monkeypatch):
+    """ARCHITECT 2026-11-24, addendum 504 item 4(b): "THE REFUSALS' ONCE-PER-REASON MARK FOLLOWS THE SAME RULE: it is
+    set when a channel took the notice, not when one was sent." A refusal no channel took is notified again (queued
+    for the tick's end when the tick is given), exit 2 each time; once taken, nothing more. The family refusal, which
+    pages nothing, stays marked when receipted."""
+    the_day(box, monkeypatch)
+    no_channel(box, monkeypatch)
+    base = {"kind": mc.SLATE_KIND, "family": "NFL", "date": D18.isoformat(), "run_id": "r", "trigger": "watch"}
+    assert mc._slate_refuse("a refusal", "NFL", D18, base) == 2 and len(slates()) == 1
+    tick = {}
+    assert mc._slate_refuse("a refusal", "NFL", D18, base, tick=tick) == 2 and len(slates()) == 1    # queued
+    (item,) = tick["resends"]
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): None)
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "channel": "card"})
+    assert mc.send_resend(item, BASE, BASE, ("NFL",)) == 2
+    assert slates()[-1]["resent"] is True and mc.NOTICE_NOT_TAKEN not in slates()[-1]
+    assert mc._slate_refuse("a refusal", "NFL", D18, base, tick={}) == 2 and len(slates()) == 2      # taken: once
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "NFL")
+    why = mc._family_refusal("NFL")
+    assert mc._slate_refuse(why, "NFL", D18, base) == 2 and mc._slate_refuse(why, "NFL", D18, base, tick={}) == 2
+    assert [r["refused"] for r in slates()].count(why) == 1                          # pages nothing: marked as receipted
+
+
+def test_509_a_try_writes_a_line_only_when_its_outcome_changes(box, monkeypatch):
+    """ARCHITECT 2026-11-24, addendum 509 item 3(a): "a resend whose outcome is the same as the last line of that miss,
+    refusal or page writes nothing. A line is written when the outcome changes: taken, always; or cut at the bound
+    where the last line was not a cut." (c): the tick's exit does not change."""
+    the_day(box, monkeypatch)
+    outcomes = iter([{"channel": None}, {"channel": None}, {"cut_at_bound_s": 57}, {"cut_at_bound_s": 57},
+                     {"channel": None}, {"channel": "card"}])
+    monkeypatch.setattr(mc, "notify_failure", lambda text, fam="", title=None: {"text": text, **next(outcomes)})
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, **next(outcomes)})
+    exits, lines = [], []
+    for _ in range(6):
+        r = mc.record_slate_miss("NFL", D18, "x", bounded=True)
+        exits.append(mc.notice_exit(r))
+        lines.append(len(misses()))
+    assert exits == [1, 1, mc.NOTIFIED, mc.NOTIFIED, 1, mc.NOTIFIED]
+    assert lines == [1, 1, 2, 2, 2, 3]       # the first send, the first cut, the take; untaken after a cut: none
+    assert mc.record_slate_miss("NFL", D18, "x") is None                     # taken: nothing more
+
+
+def test_509_a_page_try_of_the_same_text_writes_no_page_line_and_a_new_text_does(box, monkeypatch):
+    """509 item 3(b): the HELD page under the same rule. A page of the same text, untaken again, writes no page line
+    (a hold not yet receipted is still written, plain); a page naming another closing is a first send and is
+    written."""
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): None)
+    monkeypatch.setattr(mc, "notify_failure", lambda text, fam="", title=None: {"text": text, "channel": None})
+
+    def page(text, held, seen):
+        line = {"kind": "slate", "family": "NFL", "date": "2026-10-18", "held": held, "exit": 0}
+        return mc.send_slate_page({"fam": "NFL", "day": D18, "line": line, "seen": seen, "ahead": None, "text": text,
+                                   "tick_at": BASE}, BASE)
+    assert page("HELD for A", "A", False) == 1
+    assert page("HELD for A", "A", True) == 1                               # the same text, untaken: no line
+    assert page("HELD for A", "A2", False) == 1                             # its hold not yet receipted: plain
+    assert page("HELD for B", "B", False) == 1                              # a new text: a first send, written
+    rs = receipts()
+    assert [(r["held"], (r.get("held_page") or {}).get("text"), r.get(mc.NOTICE_NOT_TAKEN)) for r in rs] == [
+        ("A", "HELD for A", True), ("A2", None, None), ("B", "HELD for B", True)]

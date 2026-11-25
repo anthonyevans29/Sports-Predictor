@@ -2720,3 +2720,27 @@ def test_509_a_refusal_try_with_the_same_outcome_writes_no_line(box, monkeypatch
     monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "channel": "card"})
     assert mc._refuse(first["refused"], "NFL", first["start"], base, "watch", dry_run=False, bounded=True) == 2
     assert len(receipts()) == n + 1 and mc.NOTICE_NOT_TAKEN not in runs()[-1]  # taken: always a line
+
+
+def test_a_settings_refusal_lifts_every_closing_it_reaches_from_the_bound(box, monkeypatch):
+    """Codex on #1117: a refusal of the machine's settings refuses every start it reaches, not the refused one only.
+    The card topic unset reaches every family ("*"), so no closing of any family bounds the resend; a family's own
+    refusal (SP_SKIP_FAMILIES) reaches that family only, and another family's closing still bounds it."""
+    no_channel(box, monkeypatch)
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "")
+    tick = {}
+    mc.watch(now=NOW, families=("NFL",))
+    first = runs()[-1]
+    base = {k: first[k] for k in ("kind", "family", "run_id", "trigger", "queued_at")}
+    mc._refuse(first["refused"], "NFL", first["start"], base, "watch", dry_run=False, tick=tick, config=True)
+    assert tick["no_chain_fams"] == {"*"}
+    (item,) = tick["resends"]
+    blocking = {"family": "SOCCER", "start": NOW + timedelta(minutes=36), "run_at": NOW + timedelta(minutes=1)}
+    seen = []
+    monkeypatch.setattr(mc, "closing_ahead", lambda fams, now, skip=frozenset(): seen.append(fams) or blocking)
+    monkeypatch.setattr(mc, "_bounded_notify", lambda text, fam, title=None: {"text": text, "channel": "card"})
+    late = NOW + timedelta(seconds=10)
+    assert mc.send_resend(item, NOW, late, ("NFL", "SOCCER"), frozenset(tick["no_chain"]),
+                          frozenset(tick["no_chain_fams"])) == 2 and seen == []          # sent: nothing bounds it
+    assert mc.send_resend(item, NOW, late, ("NFL", "SOCCER"), frozenset(), frozenset({"NFL"})) == 2
+    assert seen == [("SOCCER",)]                                             # a family refusal: the others still bound

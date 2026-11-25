@@ -2429,6 +2429,9 @@ class IngestionService:
                     stored = _mlb_store_odds(s, m, rows)
                     if stored is None:
                         _none(m, "started", gid)
+                        # addendum 502 Q7: a game that started while its own read was in flight stored no odds;
+                        # counted as the bulk branch counts it (#1128 review, Codex P2)
+                        result.odds_not_read.setdefault("started", []).append(m.id)
                         continue
                     if not stored[1]:
                         _none(m, "incomplete", gid)

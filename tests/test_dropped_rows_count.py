@@ -525,6 +525,22 @@ def test_sync_odds_mlb_does_not_list_a_game_the_retry_priced(made, monkeypatch):
     assert res.odds_not_read == {"started": [started]}
 
 
+def test_sync_odds_mlb_counts_a_rollover_game_that_started_during_its_read(made, monkeypatch):
+    """#1128 review (Codex P2): a rollover game whose per-game read returned rows but which crossed first pitch before
+    its store wrote nothing; it is counted as "started" by stored match id, as the bulk branch counts its own."""
+    from src.adapters import api_baseball
+    from src.ingestion import service as svc
+    started, rollover, window, listing, per_game = _mlb_rollover_setup(made)
+    fake = FakeBaseballPerGame(window, {}, listing, {}, per_game_rows=per_game)
+    monkeypatch.setattr(api_baseball.APIBaseballClient, "from_env", classmethod(lambda cls: fake))
+    real = svc._mlb_store_odds
+    monkeypatch.setattr(svc, "_mlb_store_odds", lambda s, m, rows: None if m.id == rollover else real(s, m, rows))
+    res = IngestionService(NS(source_name="mlb_stats_api")).sync_odds_mlb(season=2026)
+    assert res.updated == 0
+    assert res.odds_not_read == {"started": [started, rollover]}
+    assert [n["answer"] for n in res.no_book_odds if n["match_id"] == rollover] == ["started"]
+
+
 @pytest.mark.parametrize("how", ["no_key", "window_failed"])
 def test_sync_odds_mlb_prints_no_count_when_no_odds_read_was_made(monkeypatch, how):
     """Law 4: with no key, or a window read that raised, no odds read was made, so no odds_not_read line is printed

@@ -19,7 +19,7 @@
   - **sync_odds:** `SyncResult.odds_not_read` (reason -> [stored match ids]) is a new field, not printed by `__str__`. It counts:
     - "no provider id": in league mode every upcoming match without one, dropped before the limit; with --match-ids the named ones only;
     - with --match-ids, each named id that is not a candidate, classified by one read of its row: "not stored", "other competition", "other season" (only with --season), "not scheduled" or "kickoff passed".
-  - **sync_odds_mlb:** fills the same field with the client's drops over the window read and every per-game read, by provider game id. A game is listed once over the run: the rollover's per-game read is a retry of the same game, and a game some read returned rows for is taken off at the end. It also counts the games at or after first pitch as "started", by stored match id.
+  - **sync_odds_mlb:** fills the same field with the client's drops over the window read and every per-game read, by provider game id. A game is listed once over the run: the rollover's per-game read is a retry of the same game, and a game some read returned rows for is taken off at the end. It also counts the games at or after first pitch as "started", by stored match id: in the window's own pass and in the rollover's per-game pass (a game that started while its read was in flight; review round 1, Codex P2).
   - **sync_odds_nfl:** returns a new `not_priced` key (reason -> [stored match ids]) with "named, not in the window", "no provider id", "fetch error", "still rate limited" and "no rows". Every progress line and every other key is unchanged.
   - **New line helpers:** `odds_not_read_line(d)` prints `odds_not_read N` or `odds_not_read N (reason n: ids · ...)`. `football_not_priced_line(d)` prints the same shape.
 - **cli.py:** each line prints plainly, zero included, before the summary, which stays the last line.
@@ -27,7 +27,7 @@
   - **sync-odds --competition MLB:** after NO-BOOK-ODDS. Not printed when no odds read was made (no key, or the window read raised).
   - **capture-odds:** before its "odds synced:" line, on the same condition. Its last line stays "✓ Captured".
   - **sync-odds-football / sync-odds-nfl:** after orientation_mismatch_unpriced, guarded by `"not_priced" in r`.
-- **tests/test_dropped_rows_count.py** (41, synthetic payloads, no provider call):
+- **tests/test_dropped_rows_count.py** (42, synthetic payloads, no provider call):
   - each adapter's causes with their ids, the good row kept unchanged, and a clean answer that prints nothing and leaves `last_dropped` {};
   - the basketball line byte-identical to its 3b63269b text;
   - get_game printing nothing new;

@@ -258,9 +258,22 @@ def test_sync_counts_reads_the_nfl_team_refused_line_and_every_such_line_adds():
     """ARCHITECT 2026-11-24, addendum 500 item 3(a): "THE NFL-TEAM REFUSAL of Q9, with its count line"
     (service.nfl_team_refused_line, printed by sync-matches only when N > 0)."""
     got = sp_run.sync_counts(["✓ Matches (NCAA): created=0 updated=4 skipped=1", "nfl_team_refused 1: 61234"])
-    assert got["nfl_team_refused"] == {"n": 1, "ids": ["61234"]}
+    assert got["nfl_team_refused"] == {"n": 1, "ids": ["61234"], "matches": [None]}
     assert got["matches"] == {"created": 0, "updated": 4, "skipped": 1}
     two = sp_run.sync_counts(["nfl_team_refused 1: 61234", "nfl_team_refused 2: 61300, 61301"])
-    assert two["nfl_team_refused"] == {"n": 3, "ids": ["61234", "61300", "61301"]}
+    assert two["nfl_team_refused"] == {"n": 3, "ids": ["61234", "61300", "61301"], "matches": [None, None, None]}
+
+
+def test_sync_counts_keeps_the_listing_ids_and_puts_the_stored_match_ids_beside_them():
+    """ARCHITECT 2026-11-25, addendum 527 item 1 (3), verbatim: "YES, add it: the listing's id, and the stored match id
+    beside it where a row carries it." `ids` stay the listing ids; `matches` is beside them, None where none printed."""
+    from src.ingestion.service import nfl_team_refused_line
+
+    line = nfl_team_refused_line(["61234", "61300", "61301"], [66178, None, 7])
+    assert line == "nfl_team_refused 3: 61234 (match 66178), 61300, 61301 (match 7)"
+    got = sp_run.sync_counts([line, "nfl_team_refused 1: 61400 (match 9)"])
+    assert got["nfl_team_refused"] == {"n": 4, "ids": ["61234", "61300", "61301", "61400"],
+                                       "matches": ["66178", None, "7", "9"]}
+    assert any(r.match(line) for r in sp_run._SYNC_LINES)
     assert "nfl_team_refused" not in sp_run.sync_counts(["✓ Matches (NCAA): created=0 updated=4 skipped=0"])
     assert any(r.match("nfl_team_refused 1: 5") for r in sp_run._SYNC_LINES)

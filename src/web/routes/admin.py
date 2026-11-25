@@ -107,6 +107,10 @@ def _job_sync_matches(
             both.provider_id_collision += r.provider_id_collision
             both.provider_id_season_unknown += r.provider_id_season_unknown
             both.nfl_team_refused += r.nfl_team_refused
+            # beside each listing id (527 item 1 (3)): padded to this season's count, so a short list never shifts
+            # the next season's match ids onto the wrong listing ids
+            n = len(r.nfl_team_refused)
+            both.nfl_team_refused_match += (list(r.nfl_team_refused_match) + [None] * n)[:n]
             if job:
                 job.append_log(
                     f"  created={r.created} updated={r.updated} skipped={r.skipped}"
@@ -131,7 +135,7 @@ def _collisions(r) -> str:
     if r.provider_id_season_unknown:
         out += f" · {season_unknown_line(r.provider_id_season_unknown)}"
     if r.nfl_team_refused:                      # addendum 500 Q9 and 3(a): the NFL-team refusal's count line
-        out += f" · {nfl_team_refused_line(r.nfl_team_refused)}"
+        out += f" · {nfl_team_refused_line(r.nfl_team_refused, r.nfl_team_refused_match)}"
     return out
 
 

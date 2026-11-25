@@ -3,7 +3,9 @@ of whose teams holds a membership of the NFL competition is refused at create an
 stored." Item 3(a): "THE NFL-TEAM REFUSAL of Q9, with its count line".
 
 The finding is addendum 493 item 2(d) (match 66178, an NCAA row holding two NFL teams); 500 item 1(c) reads it as the
-provider's error. This file pins the rule only: no stored row is deleted or rewritten here.
+provider's error. This file pins the rule only: no stored row is deleted or rewritten here. Addendum 527 item 1 rules
+the ten choices of #1123's body: (1 and 10) "WRITE THE KEY, FOR mismatch ONLY"; (3) the stored match id beside the
+listing id on the line; (7) "THE PLACEHOLDER TEAM IS EXEMPT".
 
 Throwaway DB only (tests/conftest.py); the provider is a fake adapter, no network. The "NCAA" and "NFL" competitions
 are the shared session DB's (get-or-created, never created outright). Season "2093" and kickoffs in 2093, so no test
@@ -169,11 +171,12 @@ def test_a_stored_row_holding_two_nfl_members_is_not_updated_by_the_same_pair():
     assert _raw(mid) == before                                               # every column, external_ids included
     assert (r.updated, r.skipped) == (0, 1)
     assert r.nfl_team_refused == [sid] and r.teams_mismatch_refused == []
-    assert r.nfl_team_refused_rows == [mid]
+    assert r.nfl_team_refused_rows == [mid] and r.nfl_team_refused_match == [mid]
 
 
 def test_a_stored_row_listed_with_its_nfl_pair_reversed_writes_nothing():
-    """The reverse of the stored pair is not a mismatch: the listing is refused, so no update and no key."""
+    """The reverse of the stored pair is not a mismatch: the listing is refused, so no update and no key (527 item 1:
+    "A refused listing naming the stored pair or its reverse leaves the key as it is")."""
     (a, ap), (b, bp) = _teams(2, nfl_member=True)
     sid = _gid()
     mid = _stored(sid, a, b, home_score=20, away_score=17, full_time_result=Result.HOME)
@@ -185,24 +188,32 @@ def test_a_stored_row_listed_with_its_nfl_pair_reversed_writes_nothing():
     assert r.nfl_team_refused_rows == [mid]
 
 
-def test_a_stored_row_holding_two_nfl_members_listed_with_two_other_nfl_teams_writes_nothing():
-    """493 item 2(d): "listed today under the same id with two other NFL teams". No provider_orientation key either
-    (whether 297 C(ii)'s key is written here waits on the architect, #1123 item 1); the row is named for STRICT."""
+def test_a_stored_row_listed_with_two_other_nfl_teams_takes_the_mismatch_key_and_nothing_of_the_listing():
+    """493 item 2(d): "listed today under the same id with two other NFL teams". Addendum 527 item 1 (1 and 10),
+    verbatim: "a refused listing found by id against a stored row whose pair differs writes that row's mismatch key and
+    lists it as a mismatch refusal, as main does, and stores nothing of the listing." Every other column byte for byte;
+    `skipped` counts the listing once."""
     (a, ap), (b, bp), (c, cp), (d, dp) = _teams(4, nfl_member=True)
     sid = _gid()
     mid = _stored(sid, a, b, home_score=20, away_score=17, full_time_result=Result.HOME)
     before = _raw(mid)
-    r = _sync("NCAA", [_nm("NCAA", sid, cp, dp, home_score=10, away_score=13, full_time_result=Result.AWAY)])
-    assert _raw(mid) == before
+    r = _sync("NCAA", [_nm("NCAA", sid, cp, dp, when=KICK + timedelta(hours=3), home_score=10, away_score=13,
+                           full_time_result=Result.AWAY)])
+    after = _raw(mid)
+    assert json.loads(after.pop("external_ids")) == {AF: sid, "provider_orientation": "mismatch"}
+    before.pop("external_ids")
+    assert after == before                                                   # no score, status, kickoff or team
     assert (r.created, r.updated, r.skipped) == (0, 0, 1)
-    assert r.nfl_team_refused == [sid] and r.teams_mismatch_refused == []
-    assert r.nfl_team_refused_rows == [mid]
+    assert r.nfl_team_refused == [sid] and r.teams_mismatch_refused == [mid]
+    assert r.nfl_team_refused_rows == [mid] and r.nfl_team_refused_match == [mid]
+    assert r.orientation_reversed == []
     assert _rows_with("NCAA", sid) == [mid]                                  # the listing stored nowhere
 
 
 def test_a_row_created_earlier_in_the_same_run_is_named_by_its_id_never_none():
     """One listing names the same id twice: a college pair (row R created, unflushed under autoflush=False), then two
-    NFL members. The refusal's flush gives R its id, so the receipts name R, never None (the #884 class)."""
+    NFL members. The refusal's flush gives R its id, so the receipts name R, never None (the #884 class). R's pair is
+    neither the refused listing's nor its reverse: R takes the mismatch key (527 item 1, 1 and 10)."""
     (h, hp), (a, ap) = _teams(2, nfl_member=False)
     (c, cp), (d, dp) = _teams(2, nfl_member=True)
     sid = _gid()
@@ -210,8 +221,9 @@ def test_a_row_created_earlier_in_the_same_run_is_named_by_its_id_never_none():
                        _nm("NCAA", sid, cp, dp, status=MatchStatus.SCHEDULED)])
     (mid,) = _rows_with("NCAA", sid)
     assert (r.created, r.skipped) == (1, 1) and r.nfl_team_refused == [sid]
-    assert r.nfl_team_refused_rows == [mid] and r.teams_mismatch_refused == []
-    assert json.loads(_raw(mid)["external_ids"]) == {AF: sid}
+    assert r.nfl_team_refused_rows == [mid] and r.teams_mismatch_refused == [mid]
+    assert r.nfl_team_refused_match == [mid] and None not in r.teams_mismatch_refused
+    assert json.loads(_raw(mid)["external_ids"]) == {AF: sid, "provider_orientation": "mismatch"}
 
 
 def test_a_stored_row_of_another_season_carrying_the_id_is_untouched():
@@ -227,6 +239,7 @@ def test_a_stored_row_of_another_season_carrying_the_id_is_untouched():
     assert _rows_with("NCAA", sid) == [mid]
     assert (r.created, r.updated, r.skipped) == (0, 0, 1)
     assert r.nfl_team_refused == [sid] and r.teams_mismatch_refused == [] and r.nfl_team_refused_rows == []
+    assert r.nfl_team_refused_match == [None]
     assert r.provider_id_collision == []
 
 
@@ -243,6 +256,7 @@ def test_the_12h_rekey_is_refused_for_an_nfl_member_pair():
     assert _rows_with("NCAA", new_sid) == []
     assert (r.rekeyed, r.rekey_refused, r.created) == (0, 0, 0)
     assert r.nfl_team_refused == [new_sid]
+    assert r.nfl_team_refused_match == [None] and r.teams_mismatch_refused == []       # a re-key target is not reached
 
 
 def test_the_placeholder_rekey_is_refused_for_an_nfl_member_pair():
@@ -257,6 +271,7 @@ def test_the_placeholder_rekey_is_refused_for_an_nfl_member_pair():
     assert _rows_with("NCAA", new_sid) == []
     assert (r.rekeyed, r.rekey_refused, r.created) == (0, 0, 0)
     assert r.nfl_team_refused == [new_sid]
+    assert r.nfl_team_refused_match == [None] and r.teams_mismatch_refused == []       # a re-key target is not reached
 
 
 # ---------------------------------------------------------------------------- unchanged
@@ -319,8 +334,14 @@ def test_the_default_is_empty():
 
 
 def test_the_line_text():
+    """527 item 1 (3), verbatim: "YES, add it: the listing's id, and the stored match id beside it where a row carries
+    it." N counts the listings."""
     assert svc.nfl_team_refused_line([]) == "nfl_team_refused 0"
     assert svc.nfl_team_refused_line(["1", "2"]) == "nfl_team_refused 2: 1, 2"
+    assert svc.nfl_team_refused_line(["1", "2"], [None, None]) == "nfl_team_refused 2: 1, 2"
+    assert svc.nfl_team_refused_line(["61234", "61300", "61301"], [66178, None, 7]) == \
+        "nfl_team_refused 3: 61234 (match 66178), 61300, 61301 (match 7)"
+    assert svc.nfl_team_refused_line(["1", "2"], [5]) == "nfl_team_refused 2: 1 (match 5), 2"     # a short list
 
 
 def _cli(monkeypatch, listing):
@@ -397,9 +418,10 @@ def test_the_admin_seasons_job_adds_the_count_over_every_season(monkeypatch):
 
 
 def test_strict_reports_a_row_refused_by_q9_as_refused_never_as_absent(monkeypatch):
-    """#1123 review (Codex P2): --match-ids naming stored college rows whose listings Q9 refused. The 66178 shape (a
-    pair that is neither the stored one nor its reverse) and the same pair are both on Q9's own REFUSED line; a row
-    the listing does not carry is the only one "not in the provider's answer". Exit 1."""
+    """#1123 review (Codex P2): --match-ids naming stored college rows whose listings Q9 refused. The same pair is on
+    Q9's own REFUSED line; the 66178 shape (a pair that is neither the stored one nor its reverse) takes the mismatch
+    key and is listed as a mismatch refusal, as main does (527 item 1, 1 and 10), so it is on main's REFUSED line; a
+    row the listing does not carry is the only one "not in the provider's answer". Exit 1."""
     import cli
 
     (a, ap), (b, bp), (c, cp), (d, dp) = _teams(4, nfl_member=True)
@@ -417,10 +439,13 @@ def test_strict_reports_a_row_refused_by_q9_as_refused_never_as_absent(monkeypat
     lines = res.output.splitlines()
     assert any(x.startswith("✗ STRICT: 1 of 3 named game(s) not in the provider's answer") and x.endswith(f"match {gone}")
                for x in lines), res.output
-    assert not any("provider_orientation mismatch written" in x for x in lines), res.output
-    assert (f"✗ STRICT: 2 of 3 named game(s) REFUSED (a listed team holds a membership of the NFL competition, "
-            f"addendum 500 Q9; nothing written): match {mis}, match {same}") in lines, res.output
-    assert f"nfl_team_refused 2: {mis_sid}, {same_sid}" in lines, res.output
+    assert any(x.startswith("✗ STRICT: 1 of 3 named game(s) REFUSED (the listing's teams are neither the stored pair")
+               and "provider_orientation mismatch written" in x and x.endswith(f"match {mis}") for x in lines), res.output
+    assert (f"✗ STRICT: 1 of 3 named game(s) REFUSED (a listed team holds a membership of the NFL competition, "
+            f"addendum 500 Q9; nothing written): match {same}") in lines, res.output
+    assert f"nfl_team_refused 2: {mis_sid} (match {mis}), {same_sid} (match {same})" in lines, res.output
+    assert json.loads(_raw(mis)["external_ids"]) == {AF: mis_sid, "provider_orientation": "mismatch"}
+    assert json.loads(_raw(same)["external_ids"]) == {AF: same_sid}
 
 
 def test_strict_split_reads_the_q9_rows():
@@ -431,3 +456,175 @@ def test_strict_split_reads_the_q9_rows():
     assert (refused, missing) == ([1], [2, 3])
     assert cli._strict_nfl_split(r, missing) == ([2], [3])
     assert cli._strict_nfl_split(SimpleNamespace(), [3]) == ([], [3])       # a stand-in result: unchanged
+
+
+# ---------------------------------------------------------------------------- 527 item 1 (1 and 10): the key
+
+
+def test_a_college_row_listed_with_an_nfl_member_takes_the_mismatch_key_once_counted():
+    """527 item 1 (1 and 10): a stored college pair listed by id with an NFL member on one side is a pair that differs:
+    the mismatch key is written, the row listed on teams_mismatch_refused, `skipped` 1 (the refusal's count, not a
+    second), and nothing of the listing written."""
+    (h, hp), (a, ap) = _teams(2, nfl_member=False)
+    (n, np_), = _teams(1, nfl_member=True)
+    sid = _gid()
+    mid = _stored(sid, h, a, status=MatchStatus.SCHEDULED)
+    before = _raw(mid)
+    r = _sync("NCAA", [_nm("NCAA", sid, np_, ap, when=KICK + timedelta(hours=1), home_score=3, away_score=0,
+                           full_time_result=Result.HOME)])
+    after = _raw(mid)
+    assert json.loads(after.pop("external_ids")) == {AF: sid, "provider_orientation": "mismatch"}
+    before.pop("external_ids")
+    assert after == before
+    assert (r.created, r.updated, r.skipped) == (0, 0, 1)
+    assert r.teams_mismatch_refused == [mid] and r.nfl_team_refused == [sid] and r.nfl_team_refused_match == [mid]
+
+
+def test_a_row_already_keyed_mismatch_is_not_rewritten_and_still_listed():
+    """with_orientation_key returns None when the row already says so (main's rule): the row byte for byte, listed on
+    teams_mismatch_refused as main lists it."""
+    (a, ap), (b, bp), (c, cp), (d, dp) = _teams(4, nfl_member=True)
+    sid = _gid()
+    init_db()
+    with session_scope() as s:
+        c_ = _comp(s, "NCAA")
+        m = Match(sport=Sport.NFL, competition_id=c_.id, season=SEASON, utc_date=KICK, status=MatchStatus.FINISHED,
+                  status_raw="FT", home_team_id=a, away_team_id=b,
+                  external_ids={AF: sid, "provider_orientation": "mismatch"})
+        s.add(m)
+        s.flush()
+        mid = m.id
+    before = _raw(mid)
+    r = _sync("NCAA", [_nm("NCAA", sid, cp, dp)])
+    assert _raw(mid) == before
+    assert r.teams_mismatch_refused == [mid] and r.skipped == 1
+
+
+def test_a_refused_same_pair_leaves_a_stored_reversed_key_as_it_is():
+    """527 item 1, verbatim: "A refused listing naming the stored pair or its reverse leaves the key as it is, as you
+    built". On main the same pair would remove a stale `reversed` key; a refused listing does not."""
+    (a, ap), (b, bp) = _teams(2, nfl_member=True)
+    for listed in ((ap, bp), (bp, ap)):
+        sid = _gid()
+        init_db()
+        with session_scope() as s:
+            c_ = _comp(s, "NCAA")
+            m = Match(sport=Sport.NFL, competition_id=c_.id, season=SEASON, utc_date=KICK, status=MatchStatus.FINISHED,
+                      status_raw="FT", home_team_id=a, away_team_id=b,
+                      external_ids={AF: sid, "provider_orientation": "reversed"})
+            s.add(m)
+            s.flush()
+            mid = m.id
+        before = _raw(mid)
+        r = _sync("NCAA", [_nm("NCAA", sid, *listed)])
+        assert _raw(mid) == before, listed
+        assert r.teams_mismatch_refused == [] and r.orientation_reversed == [] and r.nfl_team_refused_match == [mid]
+
+
+def test_the_cli_line_names_the_stored_match_beside_the_listing_id(monkeypatch):
+    """527 item 1 (3): "the listing's id, and the stored match id beside it where a row carries it"."""
+    (a, ap), (b, bp) = _teams(2, nfl_member=True)
+    (col, col_pid), = _teams(1, nfl_member=False)
+    stored_sid, new_sid = _gid(), _gid()
+    mid = _stored(stored_sid, a, b)
+    out = _cli(monkeypatch, [_nm("NCAA", stored_sid, ap, bp),
+                             _nm("NCAA", new_sid, col_pid, ap, when=KICK + timedelta(days=7),
+                                 status=MatchStatus.SCHEDULED)])
+    assert f"nfl_team_refused 2: {stored_sid} (match {mid}), {new_sid}" in out.splitlines(), out
+
+
+def test_the_admin_job_line_names_the_stored_match_and_the_seasons_job_keeps_each_beside_its_listing(monkeypatch):
+    from src.web.routes import admin
+
+    (a, ap), (b, bp) = _teams(2, nfl_member=True)
+    sid = _gid()
+    mid = _stored(sid, a, b)
+    monkeypatch.setattr(admin, "_adapter_for_competition", lambda c: Listing([_nm("NCAA", sid, ap, bp)]))
+    out = admin._job_sync_matches(competition_code="NCAA", season=SEASON, seasons=0)
+    assert f" · nfl_team_refused 1: {sid} (match {mid})" in out, out
+
+    class Uneven:
+        """Season one returns no match list at all (a stand-in), season two one stored row: the pairing holds."""
+        calls = []
+
+        def __init__(self, *a, **k):
+            pass
+
+        def sync_matches(self, code, season=None, **k):
+            Uneven.calls.append(season)
+            if len(Uneven.calls) == 1:
+                return SyncResult(skipped=1, nfl_team_refused=["first"])
+            return SyncResult(skipped=1, nfl_team_refused=["second"], nfl_team_refused_match=[42])
+
+    monkeypatch.setattr(admin, "IngestionService", Uneven)
+    monkeypatch.setattr(admin, "_adapter_for_competition", lambda c: Listing())
+    out = admin._job_sync_matches(competition_code="NCAA", season=None, seasons=2)
+    assert " · nfl_team_refused 2: " in out, out
+    line = out.split(" · nfl_team_refused 2: ")[1]
+    first, second = line.split(", ")[:2]
+    assert "(match" not in first and second.endswith("(match 42)"), out
+
+
+# ---------------------------------------------------------------------------- 527 item 1 (7): the placeholder
+
+
+def _placeholder_in_the_nfl():
+    """THE PLACEHOLDER TEAM (addendum 500 item 1(a) and Q2: the provider's team id 345, placeholder.PLACEHOLDER_TEAM_ID),
+    got or created as #1119's tests get it, holding a 2093 membership of the NFL competition and of the college one:
+    527 item 1 (7), verbatim: "Pin it with a test in which the placeholder holds an NFL membership." (our id, 345)."""
+    from src.ingestion.placeholder import PLACEHOLDER_TEAM_ID
+
+    init_db()
+    with session_scope() as s:
+        team = next((t for t in s.execute(select(Team).where(Team.sport == Sport.NFL)).scalars()
+                     if (t.external_ids or {}).get(AF) == PLACEHOLDER_TEAM_ID), None)
+        if team is None:
+            team = Team(sport=Sport.NFL, name="NTR placeholder by id", external_ids={AF: PLACEHOLDER_TEAM_ID})
+            s.add(team)
+            s.flush()
+        for comp in (_comp(s, "NFL"), _comp(s, "NCAA")):
+            if s.get(CompetitionTeam, {"competition_id": comp.id, "team_id": team.id, "season": SEASON}) is None:
+                s.add(CompetitionTeam(competition_id=comp.id, team_id=team.id, season=SEASON))
+        s.flush()
+        assert team.id in IngestionService._nfl_members(s, _comp(s, "NCAA"))       # it does hold one
+        return team.id, PLACEHOLDER_TEAM_ID
+
+
+def test_the_placeholder_holding_an_nfl_membership_does_not_refuse_a_college_listing():
+    """527 item 1 (7), verbatim: "THE PLACEHOLDER TEAM IS EXEMPT: the refusal never reads the placeholder team's own
+    memberships." (a) placeholder v a college team, either side, and placeholder v placeholder: not refused; created
+    as main creates it, and updated as main updates it."""
+    ph, ph_pid = _placeholder_in_the_nfl()
+    (col, col_pid), = _teams(1, nfl_member=False)
+    for i, (h, a) in enumerate(((ph_pid, col_pid), (col_pid, ph_pid), (ph_pid, ph_pid))):
+        sid = _gid()
+        when = KICK + timedelta(days=30 + 7 * i)
+        r = _sync("NCAA", [_nm("NCAA", sid, h, a, when=when, status=MatchStatus.SCHEDULED)])
+        assert (r.created, r.skipped) == (1, 0) and r.nfl_team_refused == [], (h, a)
+        (mid,) = _rows_with("NCAA", sid)
+        r2 = _sync("NCAA", [_nm("NCAA", sid, h, a, when=when, home_score=14, away_score=7,
+                                full_time_result=Result.HOME)])
+        assert (r2.created, r2.updated, r2.skipped) == (0, 1, 0) and r2.nfl_team_refused == [], (h, a)
+        assert _raw(mid)["home_score"] == 14
+
+
+def test_the_placeholder_beside_an_nfl_member_is_refused_for_the_real_team_and_the_log_names_it_alone(caplog):
+    """527 item 1 (7), verbatim: "A listing is refused for a real team's NFL membership and for nothing else." (b) the
+    placeholder (an NFL member itself) v a real NFL member: refused, nothing stored; (c) the warning names the real
+    team only, never the placeholder."""
+    import logging
+
+    ph, ph_pid = _placeholder_in_the_nfl()
+    (n, n_pid), = _teams(1, nfl_member=True)
+    sid = _gid()
+    with caplog.at_level(logging.WARNING, logger=svc.log.name):
+        r = _sync("NCAA", [_nm("NCAA", sid, ph_pid, n_pid, when=KICK + timedelta(days=60),
+                               status=MatchStatus.SCHEDULED)])
+    assert _rows_with("NCAA", sid) == []
+    assert (r.created, r.skipped) == (0, 1) and r.nfl_team_refused == [sid]
+    refused = [rec.getMessage() for rec in caplog.records if "membership of the NFL competition" in rec.getMessage()]
+    assert len(refused) == 1, refused
+    import re
+
+    named = re.search(r"team\(s\) (.*?) hold a membership", refused[0]).group(1).split(", ")
+    assert named == [str(n)] and str(ph) not in named, refused

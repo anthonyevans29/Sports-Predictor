@@ -309,9 +309,12 @@ ODDS_BY_TEAM_KEYS = ("orientation_swapped", "orientation_mismatch_unpriced")
 #   "HELD <CODE> (SP_SYNC_HOLD)"
 HELD_LINE = re.compile(r"^HELD (?P<code>\S+) \(SP_SYNC_HOLD\)$")
 # THE NFL-TEAM REFUSAL (ARCHITECT 2026-11-24, addendum 500 item 3(a)), verbatim: "THE NFL-TEAM REFUSAL of Q9, with its
-# count line". The line sync-matches prints only when N > 0, after the summary line:
-#   sync-matches         "nfl_team_refused N: <listing ids>"                          (service.nfl_team_refused_line)
+# count line". The line sync-matches prints only when N > 0, after the summary line; addendum 527 item 1 (3), verbatim:
+# "YES, add it: the listing's id, and the stored match id beside it where a row carries it.":
+#   sync-matches         "nfl_team_refused N: <listing id> (match <stored id>), <listing id>, ..."
+#                                                                                     (service.nfl_team_refused_line)
 NFL_TEAM_REFUSED_LINE = re.compile(r"^nfl_team_refused (?P<n>\d+)(?:: (?P<ids>.*))?$")
+_NFL_REFUSED_ITEM = re.compile(r"^(?P<sid>.*?)(?: \(match (?P<mid>[^)]*)\))?$")
 _SYNC_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE, SCORES_BY_TEAM_LINE,
                ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE, HELD_LINE, NFL_TEAM_REFUSED_LINE)
 
@@ -330,8 +333,10 @@ def sync_counts(lines: list[str]) -> dict:
     4). `odds_by_team` (addendum 297 C(iii)): {orientation_swapped: {n, ids}, orientation_mismatch_unpriced: {n, ids}},
     each key present only when the step printed its line, and every such line of the step ADDS, as the scores-by-team
     line does. `held` (addendum 332 item 3, #921): the codes the step printed a HELD line for, in order, each once.
-    `nfl_team_refused` (addendum 500 item 3(a)): {n, ids}, present only when the step printed the line; every such line
-    of the step ADDS, as the scores-by-team line does (a --seasons run prints one per season)."""
+    `nfl_team_refused` (addendum 500 item 3(a)): {n, ids, matches}, present only when the step printed the line; every
+    such line of the step ADDS, as the scores-by-team line does (a --seasons run prints one per season). `ids` are the
+    listing ids; `matches` (addendum 527 item 1 (3)) is beside them, same index: the stored match id printed beside a
+    listing id, None where the line printed none."""
     out: dict = {}
     for s in lines:
         s = s.rstrip()
@@ -370,9 +375,12 @@ def sync_counts(lines: list[str]) -> dict:
             continue
         m = NFL_TEAM_REFUSED_LINE.match(s)
         if m:
-            ntr = out.setdefault("nfl_team_refused", {"n": 0, "ids": []})
+            ntr = out.setdefault("nfl_team_refused", {"n": 0, "ids": [], "matches": []})
             ntr["n"] += int(m.group("n"))
-            ntr["ids"] += _ids(m.group("ids"))
+            for item in _ids(m.group("ids")):
+                one = _NFL_REFUSED_ITEM.match(item)
+                ntr["ids"].append(one.group("sid"))
+                ntr["matches"].append(one.group("mid"))
             continue
         for key, rx in zip(ODDS_BY_TEAM_KEYS, (ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE)):
             m = rx.match(s)

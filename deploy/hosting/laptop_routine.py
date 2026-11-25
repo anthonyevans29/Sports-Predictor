@@ -219,7 +219,7 @@ WEEKLY_BEFORE = "8"                       # 451 item 3(e): the pass runs BEFORE 
 #   "orientation_reversed N: <ids> · teams_mismatch_refused M: <ids>"     service.scores_by_team_line (and the
 #                                                                          tennis re-read's "CODE re-read: ..." line)
 #   "... id N NOT created — ..."                            service.sync_matches' re-key refusal (a log warning)
-#   "nfl_team_refused N: <listing ids>"                     service.nfl_team_refused_line (addendum 500 3(a))
+#   "nfl_team_refused N: <listing id> (match <id>), ..."    service.nfl_team_refused_line (addendum 500 3(a), 527 1)
 #   "HELD CODE (SP_SYNC_HOLD)"                              sync_hold.held_line
 #   "names kept: N (a historical-season listing)"           service.names_kept_line
 #   "✗ ..."                                                 the tennis refusal and the STRICT lines (cli.py)

@@ -532,12 +532,14 @@ def _print_provider_id_collision(result) -> None:
 
 def _print_nfl_team_refused(result) -> None:
     """THE NFL-TEAM REFUSAL (ARCHITECT 2026-11-24, addendum 500 Q9 and item 3(a): "THE NFL-TEAM REFUSAL of Q9, with
-    its count line"): "nfl_team_refused N: <listing ids>", printed plainly on its own line (never rich-wrapped) only
-    when N > 0 (sp_run.NFL_TEAM_REFUSED_LINE reads it back). Nothing when the result carries no such list (a test's
-    stand-in service)."""
+    its count line"): "nfl_team_refused N: <listing id> (match <stored id>), <listing id>, ...", the stored match id
+    beside a listing id where a row of its season carries it (addendum 527 item 1 (3)), printed plainly on its own line
+    (never rich-wrapped) only when N > 0 (sp_run.NFL_TEAM_REFUSED_LINE reads it back). Nothing when the result carries
+    no such list (a test's stand-in service)."""
     if getattr(result, "nfl_team_refused", None):
         from src.ingestion.service import nfl_team_refused_line
-        print(nfl_team_refused_line(result.nfl_team_refused), flush=True)
+        print(nfl_team_refused_line(result.nfl_team_refused, getattr(result, "nfl_team_refused_match", None)),
+              flush=True)
 
 
 def _print_scores_by_team(result) -> None:

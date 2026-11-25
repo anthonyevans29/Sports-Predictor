@@ -23,7 +23,7 @@ from typing import Any
 
 import requests
 
-from src.adapters.base import DataAdapter
+from src.adapters.base import DataAdapter, report_dropped
 from src.adapters.normalized import (
     NormalizedCompetition,
     NormalizedMatch,
@@ -70,6 +70,8 @@ class APIHockeyAdapter(DataAdapter):
                or os.getenv("API_FOOTBALL_KEY") or "")
         self._headers = {"x-apisports-key": key}
         self._requests_remaining: int | None = None
+        #: the last list_teams / list_matches read's dropped listings: reason -> [provider ids] (addendum 497 Q7)
+        self.last_dropped: dict[str, list] = {}
 
     # ------------------------------------------------------------------
     # HTTP
@@ -114,19 +116,26 @@ class APIHockeyAdapter(DataAdapter):
                    season: str | None = None) -> list[NormalizedTeam]:
         params = {"league": NHL_LEAGUE_ID,
                   "season": int(season) if season else utc_now_naive().year}
+        self.last_dropped = {}
         data = self._get("teams", params=params)
         out: list[NormalizedTeam] = []
+        dropped: dict[str, list] = {}
         for item in data.get("response") or []:
             # response items are either flat team dicts or {"team": {...}}
             t = item.get("team") if isinstance(item.get("team"), dict) else item
             tid, name = t.get("id"), t.get("name")
-            if tid is None or not name:
+            if tid is None:
+                dropped.setdefault("no team id", []).append(None)        # addendum 497 Q7: counted
+                continue
+            if not name:
+                dropped.setdefault("no team name", []).append(tid)
                 continue
             out.append(NormalizedTeam(
                 sport=Sport.NHL, name=name, source=self.source_name,
                 source_id=str(tid), short_name=t.get("code"),
                 tla=t.get("code"), area="USA",
             ))
+        report_dropped(self, "teams", dropped)
         return out
 
     # ------------------------------------------------------------------
@@ -143,8 +152,10 @@ class APIHockeyAdapter(DataAdapter):
             params["season"] = int(str(season).split("/")[0])
         if date_from and date_from == date_to:
             params["date"] = date_from
+        self.last_dropped = {}
         data = self._get("games", params=params)
         out: list[NormalizedMatch] = []
+        dropped: dict[str, list] = {}          # addendum 497 Q7: reason -> [provider game ids], counted, never silent
         for g in data.get("response") or []:
             game = g.get("game") or g
             teams = g.get("teams") or {}
@@ -158,6 +169,7 @@ class APIHockeyAdapter(DataAdapter):
             else:
                 raw = dt_block if isinstance(dt_block, str) else dt_block.get("date")
                 if not raw:
+                    dropped.setdefault("no kickoff date", []).append(gid)
                     continue
                 utc = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                 utc = utc.astimezone(timezone.utc).replace(tzinfo=None) if utc.tzinfo else utc
@@ -169,7 +181,11 @@ class APIHockeyAdapter(DataAdapter):
             short = raw_short or "NS"
             home = (teams.get("home") or {})
             away = (teams.get("away") or {})
-            if gid is None or home.get("id") is None or away.get("id") is None:
+            if gid is None:
+                dropped.setdefault("no game id", []).append(None)
+                continue
+            if home.get("id") is None or away.get("id") is None:
+                dropped.setdefault("no team id", []).append(gid)
                 continue
             week_raw = game.get("week")
             matchday = None
@@ -208,6 +224,7 @@ class APIHockeyAdapter(DataAdapter):
                 home_score=hs.get("total") if isinstance(hs, dict) else hs,
                 away_score=as_.get("total") if isinstance(as_, dict) else as_,
             ))
+        report_dropped(self, "games", dropped)
         return out
 
     def get_match_stats(self, match_source_id: str) -> list[NormalizedMatchStats]:

@@ -191,6 +191,14 @@ class SyncResult:
     # listed team(s), in listing order. Not printed by __str__: sync-matches prints placeholder_filled_line on its own
     # line when N > 0.
     placeholder_filled: list = field(default_factory=list)
+    # COUNT FIRST (ARCHITECT 2026-11-24, addendum 497 Q7; addendum 502 Q7, verbatim: "sync-odds' uncounted drops and
+    # sync-odds-football's skips get a printed count first, with 497's step (0); no exit changes with it."): reason ->
+    # [ids] for every game an odds sync did not read. sync_odds: stored match ids ("no provider id"; with match_ids,
+    # each named id that is no candidate: "not stored", "other competition", "other season", "not scheduled",
+    # "kickoff passed"). sync_odds_mlb: the client's whole-game drops, by provider game id ("no game id", "unreadable
+    # date", "no team name"), and "started", by stored match id. Not printed by __str__: the sync-odds command prints
+    # odds_not_read_line on its own line, before its summary.
+    odds_not_read: dict = field(default_factory=dict)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -233,6 +241,31 @@ def odds_mismatch_line(ids) -> str:
     count of 0 prints no ids). sp_run.ODDS_MISMATCH_LINE reads it back (C(iii))."""
     ids = [str(i) for i in ids]
     return f"orientation_mismatch_unpriced {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
+
+
+def _reasons_line(name: str, reasons: dict) -> str:
+    """"<name> N" when nothing is in `reasons`, else "<name> N (reason n: ids · reason n: ids)"; an id of None is
+    counted, not listed."""
+    reasons = {k: list(v) for k, v in (reasons or {}).items() if v}
+    n = sum(len(v) for v in reasons.values())
+    if not n:
+        return f"{name} 0"
+    def part(why, ids):
+        shown = [str(i) for i in ids if i is not None]
+        return f"{why} {len(ids)}" + (f": {', '.join(shown)}" if shown else "")
+    return f"{name} {n} (" + " · ".join(part(k, v) for k, v in reasons.items()) + ")"
+
+
+def odds_not_read_line(d) -> str:
+    """Addendum 497 Q7 / 502 Q7: the games an odds sync did not read, by cause, on one plain line, always printed by
+    sync-odds (zero included) before its summary: "odds_not_read N" or "odds_not_read N (reason n: ids · ...)"."""
+    return _reasons_line("odds_not_read", d)
+
+
+def football_not_priced_line(d) -> str:
+    """Addendum 502 Q7: sync-odds-football's skips, by cause, on one plain line, always printed (zero included) before
+    its summary: "football_not_priced N" or "football_not_priced N (reason n: ids · ...)"."""
+    return _reasons_line("football_not_priced", d)
 
 
 def names_kept_line(n: int) -> str:
@@ -1414,6 +1447,9 @@ class IngestionService:
             comp = self._get_competition(s, competition_code)
             if not comp:
                 log.warning("Competition %s not in DB.", competition_code)
+                if match_ids:
+                    # addendum 502 Q7: a named game is never silent, the competition missing included
+                    result.odds_not_read["competition not in the DB"] = sorted(match_ids)
                 return result
 
             stmt = select(Match).where(Match.competition_id == comp.id)
@@ -1431,14 +1467,36 @@ class IngestionService:
             # 20) cut a named list, silently.
             stmt = stmt.order_by(Match.utc_date, Match.id)
             candidates: list[Match] = []
+            seen: set[int] = set()
             for match in s.execute(stmt).scalars():
+                seen.add(match.id)
                 source_id = (match.external_ids or {}).get(self.source)
                 if not source_id:
+                    # addendum 502 Q7: counted (league mode: every such match, dropped before the limit; with
+                    # match_ids: the named ones only)
+                    if match_ids is None or match.id in match_ids:
+                        result.odds_not_read.setdefault("no provider id", []).append(match.id)
                     continue
                 candidates.append(match)
 
             if match_ids is not None:
                 candidates = [m for m in candidates if m.id in match_ids]
+                # addendum 502 Q7: a named id the filter above left out, classified by one read of its stored row
+                for mid in sorted(set(match_ids) - seen):
+                    row = s.get(Match, mid)
+                    if row is None:
+                        why = "not stored"
+                    elif row.competition_id != comp.id:
+                        why = "other competition"
+                    elif season and row.season != season:
+                        why = "other season"
+                    elif upcoming_only and row.status != MatchStatus.SCHEDULED:
+                        why = "not scheduled"
+                    elif upcoming_only and (row.utc_date is None or row.utc_date < utc_now_naive()):
+                        why = "kickoff passed"
+                    else:
+                        why = "not a candidate"          # unreachable by the filter above; never silent if it is
+                    result.odds_not_read.setdefault(why, []).append(mid)
             elif limit:
                 candidates = candidates[:limit]
 
@@ -2261,6 +2319,33 @@ class IngestionService:
         result = SyncResult()
         unmatched_events: list[str] = []
 
+        # addendum 502 Q7: the whole games the client's odds reads dropped, by provider game id, once per game over
+        # the run (the rollover's per-game read is a retry of the same game, never a second count), and a game some
+        # read did return rows for is taken off at the end (it was read)
+        client_reasons: set[str] = set()
+        listed_gids: set = set()
+        read_gids: set = set()
+
+        def _not_read(read=()):
+            read_gids.update(read)          # the provider game ids this read returned rows for
+            for why, gids in (getattr(client, "last_dropped", None) or {}).items():
+                client_reasons.add(why)
+                bucket = result.odds_not_read.setdefault(why, [])
+                for gid in gids:
+                    if gid is not None:
+                        if gid in listed_gids:
+                            continue
+                        listed_gids.add(gid)
+                    bucket.append(gid)      # a None id cannot be matched across reads: counted per read
+
+        def _not_read_final():
+            for why in client_reasons:
+                kept = [g for g in result.odds_not_read.get(why, []) if g is None or g not in read_gids]
+                if kept:
+                    result.odds_not_read[why] = kept
+                else:
+                    result.odds_not_read.pop(why, None)
+
         def _none(m, answer, game_id=None):
             result.no_book_odds.append({"match_id": m.id, "game": f"{m.away_team.name} @ {m.home_team.name}",
                                         "game_id": game_id, "answer": answer})
@@ -2270,6 +2355,7 @@ class IngestionService:
         except APIBaseballError as e:
             _log(f"✗ odds fetch: {e}")
             return SyncResult(skipped=1, no_book_odds_run="window_failed")
+        _not_read(ow.api_baseball_game_id for ow in odds_rows or ())
 
         if not odds_rows:
             _log(f"  · no odds returned for season {season} (window may be empty right now)")
@@ -2305,6 +2391,7 @@ class IngestionService:
                 stored = _mlb_store_odds(s, match, rows)
                 if stored is None:
                     post_first_pitch += 1
+                    result.odds_not_read.setdefault("started", []).append(match.id)     # addendum 502 Q7
                     continue
                 if not stored[1]:            # stored, but no complete book: the fallback never asks it again
                     _none(match, "incomplete", game_id)
@@ -2424,6 +2511,7 @@ class IngestionService:
                         _log(f"    ✗ per-game odds {gid}: {e}")
                         _none(m, "failed", gid)
                         continue
+                    _not_read([gid] if rows else ())
                     if not rows:
                         _log(f"    · provider has no odds yet for "
                              f"{m.away_team.name} @ {m.home_team.name} "
@@ -2433,6 +2521,9 @@ class IngestionService:
                     stored = _mlb_store_odds(s, m, rows)
                     if stored is None:
                         _none(m, "started", gid)
+                        # addendum 502 Q7: a game that started while its own read was in flight stored no odds;
+                        # counted as the bulk branch counts it (#1128 review, Codex P2)
+                        result.odds_not_read.setdefault("started", []).append(m.id)
                         continue
                     if not stored[1]:
                         _none(m, "incomplete", gid)
@@ -2441,6 +2532,7 @@ class IngestionService:
                     result.updated += 1
                 _log(f"  rollover fallback: filled {filled}/{len(missing)}")
 
+        _not_read_final()
         _log(f"sync_odds_mlb: created={result.created} "
              f"games={result.updated} skipped={result.skipped}")
         return result
@@ -2810,6 +2902,8 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
     ad = APIAmericanFootballAdapter()
     swapped: list[int] = []         # addendum 295 item 5(b): the ids priced into the stored orientation
     mismatch_unpriced: list[int] = []   # addendum 297 C(ii): the ids refused (key "mismatch"), never fetched
+    # addendum 502 Q7: reason -> [stored match ids] of every game the run left unpriced, counted (no exit change)
+    not_priced: dict[str, list] = {}
     created = games = snapshots = 0
     deferred_total = recovered = 0
     games_by_comp: dict[str, int] = {}
@@ -2822,7 +2916,11 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
             Match.utc_date <= now + timedelta(days=8),
         ).order_by(Match.utc_date)).scalars())
         if match_ids is not None:      # closing runs (addendum 21 item 3, C3): the covered games only
+            window_ids = {m.id for m in upcoming}
             upcoming = [m for m in upcoming if m.id in match_ids]
+            outside = sorted(set(match_ids) - window_ids)
+            if outside:                # addendum 502 Q7: a named id the 8-day SCHEDULED window does not hold
+                not_priced["named, not in the window"] = outside
         # DELINEATION (ARCHITECT 2026-10-07): the window is NFL + NCAA (college
         # rides Sport.NFL); the line names each competition it covers, from the data
         def comp_of(m):
@@ -2848,6 +2946,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
                 gid = (m.external_ids or {}).get("api_american_football")
                 if not gid:
                     report(f"    · {comp_of(m)}: no provider id for {m.away_team.name} @ {m.home_team.name}")
+                    not_priced.setdefault("no provider id", []).append(m.id)
                     continue
                 try:
                     fetched.append((m, paced(gid), rnd, utc_now_naive()))   # stamped at FETCH time
@@ -2856,6 +2955,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
                     wait = max(wait, e.retry_after)
                 except Exception as e:  # provider hiccup: skip, don't wipe
                     report(f"    ✗ {comp_of(m)} odds fetch {gid}: {e}")
+                    not_priced.setdefault("fetch error", []).append(m.id)
             if not deferred:
                 break
             deferred_total += len(deferred) if rnd == 0 else 0
@@ -2864,6 +2964,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
             if rnd >= ODDS_RETRY_ROUNDS:
                 report(f"    ✗ still rate limited after {rnd} retry round(s): {len(deferred)} game(s) unpriced "
                        f"({by_comp(deferred)})")
+                not_priced.setdefault("still rate limited", []).extend(m.id for m in deferred)
                 break
             rnd += 1
             report(f"    ↻ {len(deferred)} game(s) rate limited ({by_comp(deferred)}) — retrying after {wait:.0f}s "
@@ -2877,6 +2978,7 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
         for m, rows, _, fetched_at in fetched:
             if not rows:
                 report(f"    · {comp_of(m)}: no odds yet for {m.away_team.name} @ {m.home_team.name}")
+                not_priced.setdefault("no rows", []).append(m.id)
                 continue
             s.query(Odds).filter(Odds.match_id == m.id,
                                  Odds.source == ad.source_name).delete()
@@ -2940,4 +3042,6 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
             # addendum 295 item 5(b): every row priced with HOME and AWAY swapped into the stored orientation
             "orientation_swapped": swapped,
             # addendum 297 C(ii): every row refused because its key reads "mismatch" (not fetched, not priced)
-            "orientation_mismatch_unpriced": mismatch_unpriced}
+            "orientation_mismatch_unpriced": mismatch_unpriced,
+            # addendum 502 Q7: every game left unpriced, by cause (football_not_priced_line)
+            "not_priced": not_priced}

@@ -80,6 +80,9 @@ class APIBaseballClient:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self._last_remaining: int | None = None
+        #: the last read's dropped rows, reason -> [provider ids] (addendum 497 Q7): list_teams' teams (printed), and
+        #: each list_odds_window / list_odds_for_game read's whole games (sync_odds_mlb carries them to odds_not_read)
+        self.last_dropped: dict[str, list] = {}
 
     @classmethod
     def from_env(cls) -> "APIBaseballClient | None":
@@ -163,19 +166,28 @@ class APIBaseballClient:
 
         Returns: list of {"id": int, "name": str, "code": str|None}
         """
+        from src.adapters.base import report_dropped
+
         params = {"league": MLB_LEAGUE_ID, "season": season}
+        self.last_dropped = {}
         data = self._get("teams", params=params)
         out = []
+        dropped: dict[str, list] = {}          # addendum 497 Q7: reason -> [provider team ids], counted, never silent
         for item in data.get("response") or []:
             tid = item.get("id")
             name = item.get("name")
-            if tid is None or not name:
+            if tid is None:
+                dropped.setdefault("no team id", []).append(None)
+                continue
+            if not name:
+                dropped.setdefault("no team name", []).append(tid)
                 continue
             out.append({
                 "id": int(tid),
                 "name": name,
                 "code": item.get("code"),
             })
+        report_dropped(self, "teams", dropped, source="api_baseball")
         return out
 
     # ------------------------------------------------------------------
@@ -205,11 +217,13 @@ class APIBaseballClient:
         seen: set[tuple] = set()
 
         params = {"league": MLB_LEAGUE_ID, "season": season}
+        self.last_dropped = {}
         data = self._get("odds", params=params)
         response = data.get("response") or []
+        dropped: dict[str, list] = {}          # addendum 497 Q7: the whole games _parse_game_odds drops
 
         for game_block in response:
-            for row in self._parse_game_odds(game_block):
+            for row in self._parse_game_odds(game_block, dropped=dropped):
                 key = (
                     row.api_baseball_game_id, row.bookmaker,
                     row.market, row.selection, row.line,
@@ -219,6 +233,7 @@ class APIBaseballClient:
                 seen.add(key)
                 rows.append(row)
 
+        self.last_dropped = dropped
         return rows
 
     def list_games_on_date(self, season: int, date_str: str) -> list[dict]:
@@ -242,11 +257,13 @@ class APIBaseballClient:
         """
         rows: list[OddsRow] = []
         seen: set[tuple] = set()
+        self.last_dropped = {}
         data = self._get("odds", params={
             "league": MLB_LEAGUE_ID, "season": season, "game": game_id,
         })
+        dropped: dict[str, list] = {}          # addendum 497 Q7: the whole games _parse_game_odds drops
         for game_block in data.get("response") or []:
-            for row in self._parse_game_odds(game_block):
+            for row in self._parse_game_odds(game_block, dropped=dropped):
                 key = (
                     row.api_baseball_game_id, row.bookmaker,
                     row.market, row.selection, row.line,
@@ -255,13 +272,20 @@ class APIBaseballClient:
                     continue
                 seen.add(key)
                 rows.append(row)
+        self.last_dropped = dropped
         return rows
 
-    def _parse_game_odds(self, game_block: dict):
-        """Parse one game's odds block into OddsRows. Yields zero or more."""
+    def _parse_game_odds(self, game_block: dict, dropped: dict[str, list] | None = None):
+        """Parse one game's odds block into OddsRows. Yields zero or more. `dropped` (addendum 497 Q7), when given,
+        receives reason -> [provider game ids] for a whole game not read; the rows yielded are the same either way."""
+        def drop(why, gid):
+            if dropped is not None:
+                dropped.setdefault(why, []).append(gid)
+
         game = game_block.get("game") or {}
         game_id = game.get("id")
         if game_id is None:
+            drop("no game id", None)
             return
         # commence_time
         game_dt_raw = (game.get("date") or "")
@@ -272,12 +296,14 @@ class APIBaseballClient:
             if commence_time.tzinfo is not None:
                 commence_time = commence_time.astimezone(tz=None).replace(tzinfo=None)
         except (ValueError, AttributeError):
+            drop("unreadable date", game_id)
             return
 
         teams = game.get("teams") or {}
         home_team = (teams.get("home") or {}).get("name") or ""
         away_team = (teams.get("away") or {}).get("name") or ""
         if not home_team or not away_team:
+            drop("no team name", game_id)
             return
 
         for bm in game_block.get("bookmakers", []):

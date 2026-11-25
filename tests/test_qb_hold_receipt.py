@@ -188,6 +188,23 @@ def _run(capsys, *args):
     return rc, capsys.readouterr().out.splitlines()
 
 
+def _printed(out, tmp_path, fixed=("RULING",)):
+    """The receipt's printed text with the run's own paths taken out (#1142, addendum 541 item 3). The SOURCES line,
+    the WHAT WAS DONE FROM line and the JSON's paths print this run's --db, --exports and --ledger by design, and a
+    temporary folder's name can hold a sentinel figure (--basetemp=.../pytest-137 holds FILL_FIGURES' "137"): each
+    spelling of the run's folder is replaced by <tmp> before a figure is looked for, the way #1139 takes the printed
+    sha256 out. Every other character of every line is still read, the SOURCES, WHAT WAS DONE FROM and JSON lines
+    included; only the script's fixed text (`fixed`: the verbatim RULING quotations, and KEYS where named) is left out,
+    as before."""
+    text = "\n".join(ln for ln in out if not ln.startswith(fixed))
+    spelt = {str(tmp_path), str(tmp_path.resolve())}
+    spelt |= {json.dumps(x)[1:-1] for x in spelt}                    # the JSON line's spelling of the same folder
+    assert any(x in text for x in spelt), "the run's paths are printed by design; the scrub must find them"
+    for x in sorted(spelt, key=len, reverse=True):
+        text = text.replace(x, "<tmp>")
+    return text
+
+
 def _line(out, game):
     hit = [ln for ln in out if f" · {game} [match " in ln]
     assert len(hit) == 1, (game, out)
@@ -354,7 +371,7 @@ def test_play_and_would_be_are_never_pooled_but_in_the_count_toward_thirty(world
     assert not pooled, pooled
 
 
-def test_no_quantity_price_fee_or_pnl_of_the_ledger_and_no_unit_is_ever_printed(world, capsys):
+def test_no_quantity_price_fee_or_pnl_of_the_ledger_and_no_unit_is_ever_printed(world, capsys, tmp_path):
     """209 item 3 ("no figure of the unit, no fill size") and 223 item 5(a) ("It prints NO quantity, price, fee or P&L
     for any row"): the fills carry distinctive figures (quantity, entry, exit, fee, stake, P&L) and an id that is the
     CSV row; the PLAY rows an order of contracts with a unit label; the would-be row a record exec cost (the ask plus
@@ -362,12 +379,12 @@ def test_no_quantity_price_fee_or_pnl_of_the_ledger_and_no_unit_is_ever_printed(
     printed. The page's named price and the close stay (44 item 9)."""
     rc, out = _run(capsys, "--db", world["copy"], "--exports", world["ex"], "--ledger", world["ledger"])
     assert rc == 0
-    text = "\n".join(out)
+    text = _printed(out, tmp_path, fixed=())         # every line, the run's paths out (#1142): a folder may hold "$"
     assert "$" not in text
     assert not re.search(r"\b\d+(\.\d+)?\s?u\b", text), re.search(r"\b\d+(\.\d+)?\s?u\b", text)
     for word in ("contracts", "× ", "qty", "pnl", "SP_UNIT_USD", "BUY YES", "BUY NO", "exec cost"):
         assert word not in text, word
-    body = "\n".join(ln for ln in out if not ln.startswith(("RULING", "SOURCES", "WHAT WAS DONE FROM")))  # tmp paths
+    body = _printed(out, tmp_path)                                         # the run's paths out, #1142
     for fig in FILL_FIGURES:
         assert fig not in body, fig
     for key in ("qty", "entry", "exit", "staked", "fees", "open_fee", "close_fee", "pnl_pre", "pnl_net", "id",
@@ -774,7 +791,7 @@ def test_an_unscored_row_of_each_cause_carries_what_was_done_and_the_ledger_coun
     for k in ("play", "would_be"):                         # the LEDGER denominators are the kind's count toward thirty
         assert sum(j["what_was_done"][k].values()) == j["counted"][k]
     assert j["play_record"] == {"win": 0, "loss": 1, "push": 0, "void": 0, "open": 0}     # the W-L-P is unchanged
-    body = "\n".join(ln for ln in out if not ln.startswith(("RULING", "SOURCES", "WHAT WAS DONE FROM")))
+    body = _printed(out, tmp_path)                                         # the run's paths out, #1142
     for fig in FILL_FIGURES + ("f-mia", "f-gb", "f-bal", "f-nyg"):
         assert fig not in body, fig
     for key in ("qty", "entry", "exit", "staked", "fees", "pnl_net", "id"):
@@ -838,7 +855,7 @@ def test_split_fills_on_one_game_print_as_their_own_entries_and_one_id_prints_on
     kc = _line(out, "Kansas City Chiefs @ Las Vegas Raiders")
     assert kc.endswith(f"what was done: fills: {held}; {held}"), kc
     assert [ln for ln in out if ln.startswith("LEDGER:")][0].startswith("LEDGER: NFL game fills entries read 2 · ")
-    body = "\n".join(ln for ln in out if not ln.startswith(("RULING", "SOURCES", "WHAT WAS DONE FROM")))
+    body = _printed(out, tmp_path)                                         # the run's paths out, #1142
     for fig in FILL_FIGURES + ("641", "0.5517", "353.64", "2.71", "284.22", "f-lv-1", "f-lv-2"):
         assert fig not in body, fig
     led.write_text(json.dumps({**LEDGER, "fills": [a, dict(a)]}))                     # the same entry twice
@@ -1233,7 +1250,7 @@ def test_the_receipt_reads_a_cockpit_export_and_prints_no_figure(capsys, tmp_pat
     assert j["ambiguous_fills"] == 0 and "unmatched_nfl_fills" not in j and "not_game_market_fills" not in j
     assert j["what_was_done"] == {"play": {"fills": 1, "not_established": 0},
                                   "would_be": {"fills": 0, "not_established": 0}}
-    body = "\n".join(x for x in out if not x.startswith(("RULING", "SOURCES", "WHAT WAS DONE FROM")))
+    body = _printed(out, tmp_path)                                         # the run's paths out, #1142
     for fig in CSV_FIGURES + ("sub-s1", "\u241f", "category", "non-sport"):
         assert fig not in body, fig
     for key in IMPORT_KEYS[3:12] + ("id", "kind", "backed", "sideCode", "start"):    # ("teams": an unscored cause)
@@ -1544,7 +1561,7 @@ def test_a_record_fill_prints_under_its_own_label_never_merged_into_fills(capsys
         j = json.loads(out[-1][len("QB-HOLD-RECEIPT "):])
         assert j["what_was_done"]["play"] == {"fills": len(fills), "not_established": 1 - len(fills)}
         assert (f"PLAY rows (scored + unscored) with fills on the game {len(fills)} of 1") in "\n".join(out)
-        body = "\n".join(x for x in out if not x.startswith(("RULING", "SOURCES", "WHAT WAS DONE FROM", "KEYS")))
+        body = _printed(out, tmp_path, fixed=("RULING", "KEYS"))           # the run's paths out, #1142
         for fig in (FILL_PRICE, "0.53", "17:41", '"h1"') + RULING_FIGURES:
             assert fig not in body, fig
         tail = ln.split(" · what was done: ", 1)[1]                    # the order type's value is never printed

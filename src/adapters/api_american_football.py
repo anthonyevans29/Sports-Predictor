@@ -39,7 +39,7 @@ from typing import Any
 
 import requests
 
-from src.adapters.base import DataAdapter
+from src.adapters.base import DataAdapter, report_dropped
 from src.adapters.normalized import (
     NormalizedCompetition,
     NormalizedMatch,
@@ -150,6 +150,8 @@ class APIAmericanFootballAdapter(DataAdapter):
                or os.getenv("API_FOOTBALL_KEY") or "")
         self._headers = {"x-apisports-key": key}
         self._requests_remaining: int | None = None
+        #: the last list_teams / list_matches read's dropped listings: reason -> [provider ids] (addendum 497 Q7)
+        self.last_dropped: dict[str, list] = {}
 
     # ------------------------------------------------------------------
     # HTTP
@@ -211,24 +213,32 @@ class APIAmericanFootballAdapter(DataAdapter):
                    season: str | None = None) -> list[NormalizedTeam]:
         params = {"league": _league_for(competition_code),
                   "season": int(season) if season else utc_now_naive().year}
+        self.last_dropped = {}
         data = self._get("teams", params=params)
         out: list[NormalizedTeam] = []
+        dropped: dict[str, list] = {}          # addendum 497 Q7: reason -> [provider team ids], counted, never silent
         for item in data.get("response") or []:
             # response items are either flat team dicts or {"team": {...}}
             t = item.get("team") if isinstance(item.get("team"), dict) else item
             # #358 / addendum 44 item 3: the provider sends some names HTML-escaped ("Hawai&#x27;i")
             tid, name = t.get("id"), html.unescape(t.get("name") or "")
-            if tid is None or not name:
+            if tid is None:
+                dropped.setdefault("no team id", []).append(None)
+                continue
+            if not name:
+                dropped.setdefault("no team name", []).append(tid)
                 continue
             why = _non_competitive(team_names=(name,))
             if why:
                 print(f"  excluded non-competitive team: id={tid} {name!r} ({why})", flush=True)
+                dropped.setdefault("non-competitive", []).append(tid)     # its own line above, and the total
                 continue
             out.append(NormalizedTeam(
                 sport=Sport.NFL, name=name, source=self.source_name,
                 source_id=str(tid), short_name=t.get("code"),
                 tla=t.get("code"), area="USA",
             ))
+        report_dropped(self, "teams", dropped)
         return out
 
     # ------------------------------------------------------------------
@@ -264,8 +274,15 @@ class APIAmericanFootballAdapter(DataAdapter):
             params["season"] = int(str(season).split("/")[0])
         if date_from and date_from == date_to:
             params["date"] = date_from
+        self.last_dropped = {}
         data = self._get("games", params=params)
-        return self._parse_games(data, competition_code, str(params.get("season", "")))
+        # addendum 497 Q7: the listings _parse_games drops are counted on list_matches reads alone. get_game's one-id
+        # read (refresh-by-id) passes no dict and prints nothing new; every list_matches caller prints the line,
+        # dedupe-matches --orphans (its per-day date search) and resync-diff among them
+        dropped: dict[str, list] = {}
+        out = self._parse_games(data, competition_code, str(params.get("season", "")), dropped=dropped)
+        report_dropped(self, "games", dropped)
+        return out
 
     def get_game(self, source_id: str, competition_code: str = "NCAA") -> tuple[bool, NormalizedMatch | None]:
         """(exists, match) for ONE provider game id (GET /games?id=). exists=False
@@ -279,8 +296,15 @@ class APIAmericanFootballAdapter(DataAdapter):
         got = self._parse_games(data, competition_code, served_season(data))
         return True, (got[0] if got else None)
 
-    def _parse_games(self, data: dict, competition_code: str, season: str) -> list[NormalizedMatch]:
+    def _parse_games(self, data: dict, competition_code: str, season: str,
+                     dropped: dict[str, list] | None = None) -> list[NormalizedMatch]:
+        """`dropped` (addendum 497 Q7), when given, receives reason -> [provider game ids] for every listing not
+        parsed; what is parsed and kept is the same with or without it."""
         out: list[NormalizedMatch] = []
+
+        def drop(why, gid):
+            if dropped is not None:
+                dropped.setdefault(why, []).append(gid)
         for g in data.get("response") or []:
             game = g.get("game") or g
             teams = g.get("teams") or {}
@@ -294,6 +318,7 @@ class APIAmericanFootballAdapter(DataAdapter):
             else:
                 raw = dt_block if isinstance(dt_block, str) else dt_block.get("date")
                 if not raw:
+                    drop("no kickoff date", gid)
                     continue
                 utc = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                 utc = utc.astimezone(timezone.utc).replace(tzinfo=None) if utc.tzinfo else utc
@@ -307,7 +332,11 @@ class APIAmericanFootballAdapter(DataAdapter):
             short = raw_short or "NS"
             home = (teams.get("home") or {})
             away = (teams.get("away") or {})
-            if gid is None or home.get("id") is None or away.get("id") is None:
+            if gid is None:
+                drop("no game id", None)
+                continue
+            if home.get("id") is None or away.get("id") is None:
+                drop("no team id", gid)
                 continue
             week_raw = game.get("week")
             why = _non_competitive(week_raw, game.get("stage"),
@@ -317,6 +346,7 @@ class APIAmericanFootballAdapter(DataAdapter):
                 print(f"  excluded non-competitive game: id={gid} {utc:%Y-%m-%d} "
                       f"{home.get('name')!r} v {away.get('name')!r} "
                       f"(week={week_raw!r}, stage={game.get('stage')!r}; {why})", flush=True)
+                drop("non-competitive", gid)          # its own line above, and the total
                 continue
             matchday = None
             if week_raw is not None:

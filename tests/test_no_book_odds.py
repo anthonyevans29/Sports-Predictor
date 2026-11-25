@@ -195,7 +195,9 @@ def test_sync_odds_prints_the_line_inside_the_step_tail_and_the_summary_stays_la
     out = CliRunner().invoke(cli.cli, SYNC_ARGV)
     assert out.exit_code == 0, out.output
     lines = [x for x in out.output.splitlines() if x.strip()]
-    assert lines[-1].startswith("✓ MLB odds: ") and lines[-2].startswith("NO-BOOK-ODDS (MLB): ")
+    assert lines[-1].startswith("✓ MLB odds: ") and lines[-3].startswith("NO-BOOK-ODDS (MLB): ")
+    # addendum 502 Q7 (497 step (0)): the odds_not_read count sits between NO-BOOK-ODDS and the summary
+    assert lines[-2].startswith("odds_not_read ")
     tail = lines[-mc.sp_run.TAIL:]
     assert mc.no_book_odds(SYNC_ARGV, tail)[ids["listed"]] == LISTED
     import sp_receipts

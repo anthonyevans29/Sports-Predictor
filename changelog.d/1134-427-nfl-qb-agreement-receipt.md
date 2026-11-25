@@ -1,4 +1,4 @@
-## 2026-11-25 (#0000: 427-nfl-qb-agreement-receipt — the quarterback agreement receipt, read-only (lane nfl-qb, the 12-15 step; 415 item 4(a); 465 items 3 Q6 and 5; DEV 4, Lane D, by 529 item 4; ruled by 530 items 4 to 6; Refs #427))
+## 2026-11-25 (#1134: 427-nfl-qb-agreement-receipt — the quarterback agreement receipt, read-only (lane nfl-qb, the 12-15 step; 415 item 4(a); 465 items 3 Q6 and 5; DEV 4, Lane D, by 529 item 4; ruled by 530 items 4 to 6; Refs #427))
 - **scripts/nfl_qb_agreement_receipt.py --db COPY --payloads DIR**, new. Counts only, no network, nothing written.
 - **The two sides:**
   - **The chart:** the depth chart's first quarterback, read through record.as_of: kind depth_rank, pos_abb QB, rank "1". It is read at T-24h and at T-0, on our clock for 2026 and on the source's clock for 2025, which is labelled so.

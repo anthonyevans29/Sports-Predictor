@@ -127,11 +127,11 @@ def test_the_counts_q0_to_q6(tmp_path):
     assert "preseason by the shadow's rule: date 1 · stage 1" in text
     # Q1: the six, found and set apart
     assert "FOUND as 445 item 3(b) finds them: 4 clubs with no game before 2027-02-01, 6 games between them" in text
-    assert "status SCHEDULED 6; status_raw NS 6" in text
+    assert "status SCHEDULED 6; status_raw 'NS' 6" in text
     # Q2: month by status, league games only (no preseason, no six)
     assert line(text, "2026-10:").startswith("  2026-10: FINISHED 7 · SCHEDULED 3 · played 6 · to come 3 · "
                                              "FINISHED without both scores 1")
-    assert "FINISHED: AOT 1 · FT 6" in line(text, "2026-10:")
+    assert "FINISHED: 'AOT' 1 · 'FT' 6" in line(text, "2026-10:")
     assert line(text, "2026-11:").startswith("  2026-11: POSTPONED 1 · SCHEDULED 4 · played 0 · to come 4")
     assert "2027-02" not in text.split("Q2")[1].split("Q3")[0]
     assert "total: FINISHED 7 · POSTPONED 1 · SCHEDULED 7 · played 6 · to come 7" in text
@@ -145,7 +145,7 @@ def test_the_counts_q0_to_q6(tmp_path):
     assert "2026-10: events 6 · games 2 (type 2 2) · games with no match_id 1" in text
     assert "2026-11: events 3 · games 1 (type 2 1) · games with no match_id 1" in text
     # Q5: to come after each date, by stored stage, unverified
-    assert "after 2026-10-27: 7 to come · by stage (none) 4 · Regular Season 3" in text
+    assert "after 2026-10-27: 7 to come · by stage (none) 4 · 'Regular Season' 3" in text
     assert "after 2026-11-26: 2 to come · by stage (none) 2" in text
     assert "a game to come is unverified until played" in text
     # Q6: the 2023-24 shot games
@@ -319,7 +319,7 @@ def test_a_stored_value_its_type_cannot_read_refuses_never_a_traceback(tmp_path,
     db = _copy(tmp_path)
     _sql(db, stmt)
     code, text = run(["--db", str(db)])
-    assert code == 2 and "REFUSED" in text and "could not be read as the schema types it" in text
+    assert code == 2 and "REFUSED" in text and "the schema's types cannot read" in text
     assert "Q0" not in text and "SUSPENDED" not in text and "garbage" not in text
 
 
@@ -332,11 +332,11 @@ def test_no_bytecode_is_written(tmp_path):
     res = subprocess.run([sys.executable, "-X", "pycache_prefix={}".format(cache), str(SCRIPT), "--db", str(db)],
                          capture_output=True, text=True, cwd=str(tmp_path), timeout=120)
     assert res.returncode == 0, res.stdout + res.stderr
-    # the interpreter caches its own startup imports before the script's first line runs; nothing of the repo's own
-    # modules (src/, config.py, the script's imports) may be cached
-    repo = str(ROOT).lstrip("/")
-    assert [p for p in cache.rglob("*.pyc") if repo in str(p)] == []
-    assert any(cache.rglob("*.pyc")), "the redirect must be live for the test to mean anything"
+    # the interpreter caches its own startup imports (a venv inside the checkout among them) before the script's first
+    # line runs; nothing of the repo's own code (src/, scripts/, config.py) may be cached
+    own = cache.joinpath(*ROOT.parts[1:])
+    mine = [p for d in ("src", "scripts") for p in (own / d).rglob("*.pyc")] + list(own.glob("config*.pyc"))
+    assert mine == []
 
 
 def test_stored_strings_cannot_forge_a_line(tmp_path):
@@ -376,3 +376,30 @@ def test_links_that_are_not_one_to_one_are_counted(tmp_path):
     assert code == 0
     assert "games of type 2: 5 · linked to a played cohort game 4" in text
     assert "played games linked to more than one goalie-table game 1" in text
+
+
+# ---- the second pre-PR pass, pinned ---------------------------------------------------------------------------------
+
+
+def test_a_quoted_stored_string_cannot_read_as_a_count(tmp_path):
+    db = _copy(tmp_path)
+    _sql(db, "UPDATE matches SET stage = 'X 9 · Regular Season' WHERE stage = 'Regular Season' AND status = 'SCHEDULED'")
+    code, text = run(["--db", str(db), "--after", "2026-10-01"])
+    assert code == 0 and "by stage (none) 4 · 'X 9 · Regular Season' 3" in text
+
+
+def test_a_database_error_names_its_class_only(tmp_path):
+    db = _copy(tmp_path)
+    _sql(db, "UPDATE matches SET stage = CAST(X'5365637265745374616765FF' AS TEXT) WHERE stage = 'Regular Season'")
+    code, text = run(["--db", str(db)])
+    assert code == 2 and "SecretStage" not in text and "the copy could not be read (OperationalError)" in text
+
+
+def test_a_missing_zone_refuses_before_any_read(tmp_path, monkeypatch):
+    db = _copy(tmp_path)
+
+    def no_zone():
+        raise KeyError("America/New_York")
+    monkeypatch.setattr(ncc, "_et", no_zone)
+    code, text = run(["--db", str(db)])
+    assert code == 2 and "zone cannot be loaded (KeyError)" in text and "--db" not in text.split("\n", 1)[1]

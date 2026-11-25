@@ -179,14 +179,15 @@ def on_copy(copy: Path, read):
             except OSError as err:
                 raise CohortRefused("--db {}: the copy could not be re-read after the read ({!r}); nothing "
                                     "reported".format(copy, err)) from None
-    except DBAPIError as err:
-        raise CohortRefused("--db {}: the copy could not be read ({!r}); nothing reported".format(copy, err.orig))
+    except DBAPIError as err:     # by its class alone: a driver message can quote stored text
+        raise CohortRefused("--db {}: the copy could not be read ({}); nothing reported".format(
+            copy, type(err.orig).__name__))
     except CohortRefused:
         raise
-    except Exception as err:     # a stored value the schema's types cannot read (an unknown status word, an
-        # unparseable start): refused by its class alone, never a traceback that could carry a stored value
-        raise CohortRefused("--db {}: a stored value could not be read as the schema types it ({}); nothing "
-                            "reported".format(copy, type(err).__name__))
+    except Exception as err:     # by its class alone, never a traceback that could carry a stored value
+        raise CohortRefused("--db {}: the read failed ({}), as it does on a stored value the schema's types cannot "
+                            "read (an unknown status word, an unparseable start); nothing reported".format(
+                                copy, type(err).__name__))
     if sides_after:
         raise CohortRefused("--db {} changed during the read: {} appeared beside it; nothing reported".format(
             copy, ", ".join(sides_after)))
@@ -379,8 +380,12 @@ def _esc(k) -> str:
     return "".join(ch if ch.isprintable() else ch.encode("unicode_escape").decode("ascii") for ch in str(k))
 
 
-def _counts(d: dict) -> str:
-    return " · ".join("{} {}".format(_esc(k), v) for k, v in sorted(d.items(), key=lambda kv: str(kv[0]))) or "none"
+def _counts(d: dict, stored: bool = False) -> str:
+    """'key n · key n'. stored=True: the keys are stored strings (a stage, a status_raw), printed quoted, so none can
+    read as a count of its own."""
+    def key(k):
+        return _esc(repr(k)) if stored and k not in ("(none)",) else _esc(k)
+    return " · ".join("{} {}".format(key(k), v) for k, v in sorted(d.items(), key=lambda kv: str(kv[0]))) or "none"
 
 
 def render(c: dict, out: Callable[[str], None]) -> None:
@@ -401,13 +406,13 @@ def render(c: dict, out: Callable[[str], None]) -> None:
             "{}Z; status {}; status_raw {}; counted apart and kept out of Q2, Q3 and Q5 (Q4 counts the shot table by its own "
             "start)".format(
                 q1["clubs"], INTL_NO_GAME_BEFORE.date(), q1["games"], INTL_KICKOFF.isoformat(), _counts(q1["status"]),
-                _counts(q1["raw"])))
+                _counts(q1["raw"], stored=True)))
     else:
         out("  NOT FOUND as 445 item 3(b) finds them: {}. Nothing is counted for them and nothing is set apart: Q2, "
             "Q3 and Q5 include every non-preseason game of the cohort".format("; ".join(q1["differs"])))
     out("Q2 MONTH BY STATUS (league games; played and to come; status_raw beside):")
     for m, b in c["q2"].items():
-        raw = " | ".join("{}: {}".format(_esc(st), _counts(r)) for st, r in sorted(b["raw"].items()))
+        raw = " | ".join("{}: {}".format(_esc(st), _counts(r, stored=True)) for st, r in sorted(b["raw"].items()))
         out("  {}: {} · played {} · to come {}{} · status_raw [{}]".format(
             m, _counts(b["status"]), b["played"], b["to_come"],
             " · FINISHED without both scores {}".format(b["finished_no_score"]) if b["finished_no_score"] else "",
@@ -436,7 +441,7 @@ def render(c: dict, out: Callable[[str], None]) -> None:
     if not c["q5"]:
         out("  no --after date given")
     for r in c["q5"]:
-        out("  after {}: {} to come · by stage {}".format(r["after"], r["to_come"], _counts(r["by_stage"])))
+        out("  after {}: {} to come · by stage {}".format(r["after"], r["to_come"], _counts(r["by_stage"], stored=True)))
     q6 = c["q6"]
     out("Q6 THE {} SHOT GAMES: games {} ({}) · events {} · games with no match_id {}".format(
         HISTORY_SEASON, q6["games"], _counts(q6["games_by_type"]), q6["events"], q6["games_no_match_id"]))
@@ -468,6 +473,11 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list | None = None, out: Callable[[str], None] = print) -> int:
     args = _parser().parse_args(argv)
     out("THE NHL COHORT COUNT (read-only; counts only; no row, no model, no figure; nothing written)")
+    try:
+        _et()                                       # the zone first: a machine without it refuses before any read
+    except Exception as err:
+        out("REFUSED: the America/New_York zone cannot be loaded ({}); nothing read".format(type(err).__name__))
+        return 2
     try:
         copy = check_copy(args.db)
         sha, counts = on_copy(copy, lambda s: read_counts(s, args.after))

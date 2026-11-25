@@ -187,6 +187,7 @@ def test_the_2026_reads(tmp_path):
     assert t0["agree"] == 4 and t0["differ"] == 3 and t0["no_pair"] == 1 and t0["no_row"] == 4
     assert t0["differ_by_place"] == {"second": 1, "third or lower": 1, "not on the chart": 1}
     assert t0["chart_cause"] == {"QB1 ambiguous": 1}
+    assert t0["no_pair_by"] == {"neither name found on the other side": 1}
     assert t0["starter_cause"] == {"no starter payload": 2, "tied for the most attempts": 1}
     t24 = s26["reads"][0]
     assert t24["chart_cause"]["no T-24h row on our clock (kickoff less than 24 h after the first load)"] == 2
@@ -226,7 +227,8 @@ def test_names_that_normalise_alike_are_never_chosen(tmp_path):
         [_passing(100, [(1, "Josh Allen", 31), (99, "Josh  Allen", 2)]), _passing(101, [(3, "Mac Jones", 30)])]))
     code, text = run(["--db", str(db), "--payloads", str(pay)])
     t0 = tail(text)["seasons"][0]["reads"][1]
-    assert t0["starter_cause"]["two passers' names normalise to one"] == 1
+    assert t0["no_pair_by"]["two players of the team normalise to one name"] == 1     # NO PAIR, never chosen (530 Q4)
+    assert t0["agree"] == 3 and "two passers' names normalise to one" not in t0["starter_cause"]
 
 
 def test_the_normalisation():
@@ -352,3 +354,142 @@ def test_python_310_floor_no_fstrings():
         if tokenize.tok_name[tok.type] == "STRING":
             prefix = tok.string[: len(tok.string) - len(tok.string.lstrip("rRbBuUfF"))]
             assert "f" not in prefix.lower(), tok
+
+
+# ---- the pre-PR review's findings, pinned ---------------------------------------------------------------------------
+
+
+def _extra_load(db, fetched, rows, season=2026):
+    st = Store(db)
+    st.load(season, fetched, fetched - timedelta(hours=2), rows)
+    st.close()
+
+
+def _team_id(db, idx):
+    con = sqlite3.connect(str(db))
+    tid = con.execute("SELECT id FROM teams ORDER BY id LIMIT 1 OFFSET ?", (idx,)).fetchone()[0]
+    con.close()
+    return tid
+
+
+def test_an_overlong_payloads_path_is_refused(tmp_path):
+    db, pay = _world(tmp_path)
+    code, text = run(["--db", str(db), "--payloads", str(pay / ("x" * 300))])
+    assert code == 2 and "REFUSED" in text
+
+
+def test_chart_twins_and_starter_twins_are_no_pair(tmp_path):
+    db, pay = _world(tmp_path)
+    t1 = _team_id(db, 1)
+    # team 1 at 11-10: QB1 Tom Brady; "Mac Jones" at rank 2 and "Mac Jones Jr." at rank 3 (two players, one name)
+    _extra_load(db, datetime(2026, 11, 10, 14), [(t1, "T1", "e2", "Tom Brady", "OFF", "QB", "1"),
+                                                (t1, "T1", "e3", "Mac Jones", "OFF", "QB", "2"),
+                                                (t1, "T1", "e33", "Mac Jones Jr.", "OFF", "QB", "3")])
+    code, text = run(["--db", str(db), "--payloads", str(pay)])
+    t0 = tail(text)["seasons"][0]["reads"][1]
+    # G1's side T1 (starter Mac Jones) now rests on a shared name: NO PAIR, never a DIFFER at a chosen rank
+    assert t0["no_pair_by"]["two players of the team normalise to one name"] == 1
+    assert t0["differ_by_place"].get("second", 0) == 0
+
+
+def test_one_player_at_rank_one_under_two_names_is_ambiguous_on_every_seed(tmp_path):
+    import subprocess
+    db, pay = _world(tmp_path)
+    t0id = _team_id(db, 0)
+    st = Store(db)
+    st.load(2026, datetime(2026, 11, 9, 14, 21), datetime(2026, 11, 9, 12, 1), [
+        (t0id, "T0", "e1", "Cam Ward", "OFF", "QB", "1"), (t0id, "T0", "e1", "Cam Ward", "SPEC", "QB", "1"),
+        (t0id, "T0", "e2", "Two", "OFF", "QB", "2"), (t0id, "T0", "e3", "Three", "OFF", "QB", "3")])
+    st.load(2026, datetime(2026, 11, 10, 14), datetime(2026, 11, 10, 12), [
+        (t0id, "T0", "e1", "Cameron Ward", "OFF", "QB", "1")])
+    st.close()
+    outs = set()
+    for seed in ("0", "1", "4", "5"):
+        res = subprocess.run([sys.executable, str(SCRIPT), "--db", str(db), "--payloads", str(pay)],
+                             capture_output=True, text=True, timeout=180, env={**__import__("os").environ,
+                                                                                "PYTHONHASHSEED": seed})
+        assert res.returncode == 0, res.stdout + res.stderr
+        outs.add(res.stdout.splitlines()[-1])
+    assert len(outs) == 1                                          # the same copy gives the same counts on every run
+    assert "first at another slot" not in next(iter(outs))
+
+
+def test_an_unmapped_team_is_named_as_such_and_counted(tmp_path):
+    db, pay = _world(tmp_path)
+    st = Store(db)
+    st.load(2026, datetime(2026, 11, 10, 14), datetime(2026, 11, 10, 12), [(None, "LA", "e40", "X Y", "OFF", "QB", "1")])
+    st.close()
+    code, text = run(["--db", str(db), "--payloads", str(pay)])
+    assert code == 0 and tail(text)["unmapped_qb_rows"] == 1
+    assert "maps to no team of ours (never read for a side): 1" in text
+
+
+@pytest.mark.parametrize("payload", ['[{"team": {"id": 100}, "groups": [{"name": "Passing", "players": [{"player": '
+                                     '{"id": 1, "name": "Josh Allen"}, "statistics": [{"name": "attempts", "value": '
+                                     'Infinity}]}]}]}]', "[" * 100000 + "]" * 100000])
+def test_a_malformed_payload_is_a_cause_never_a_refusal(tmp_path, payload):
+    db, pay = _world(tmp_path)
+    (pay / "2026" / "players_9001.json").write_text(payload, encoding="utf-8")
+    code, text = run(["--db", str(db), "--payloads", str(pay)])
+    assert code == 0, text
+    t0 = tail(text)["seasons"][0]["reads"][1]
+    assert set(t0["starter_cause"]) & {"no attempts read", "the starter payload cannot be read"}
+
+
+def test_a_non_ascii_digit_rank_is_unread_never_a_refusal(tmp_path):
+    db, pay = _world(tmp_path)
+    t1 = _team_id(db, 1)
+    _extra_load(db, datetime(2026, 11, 9, 14, 30), [(t1, "T1", "e2", "Tom Brady", "OFF", "QB", "1"),
+                                                    (t1, "T1", "e3", "Mac Jones", "OFF", "QB", "\u00b2"),
+                                                    (t1, "T1", "e9", "Bailey Zappe", "OFF", "QB", "3")])
+    code, text = run(["--db", str(db), "--payloads", str(pay)])
+    assert code == 0, text
+
+
+def test_a_payload_linked_into_data_is_never_opened(tmp_path):
+    import os
+    db, pay = _world(tmp_path)
+    data = tmp_path / "data"
+    data.mkdir()
+    src = pay / "2026" / "players_9001.json"
+    tgt = data / "players_9001.json"
+    tgt.write_bytes(src.read_bytes())
+    src.unlink()
+    try:
+        os.symlink(tgt, src)
+    except (OSError, NotImplementedError):
+        pytest.skip("no symlinks here")
+    code, text = run(["--db", str(db), "--payloads", str(pay)])
+    assert code == 0
+    t0 = tail(text)["seasons"][0]["reads"][1]
+    assert t0["starter_cause"]["the starter payload lies outside the payload folder"] == 2
+
+
+def test_no_env_file_is_read_and_no_provider_client_is_built(tmp_path):
+    import subprocess
+    db, pay = _world(tmp_path)
+    cwd = tmp_path / "envcwd"
+    cwd.mkdir()
+    (cwd / ".env").write_text("API_AMERICAN_FOOTBALL_RPM=abc\nZQX_SYNTH_KEY=not-a-key\n", encoding="utf-8")
+    code = ("import runpy, sys, os; sys.argv=['x','--db',%r,'--payloads',%r]\n"
+            "try:\n    runpy.run_path(%r, run_name='__main__')\nexcept SystemExit as e:\n    rc=e.code\n"
+            "print('ENV', 'ZQX_SYNTH_KEY' in os.environ, 'requests' in sys.modules, rc)") % (
+                str(db), str(pay), str(SCRIPT))
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(cwd), timeout=180)
+    last = res.stdout.strip().splitlines()[-1]
+    assert last.startswith("ENV False") and last.endswith(" 0"), res.stdout + res.stderr
+
+
+def test_passing_lines_and_attempts_are_the_probes_own():
+    spec2 = importlib.util.spec_from_file_location("nfl_qb_probe_pin", ROOT / "scripts" / "nfl_qb_probe.py")
+    probe = importlib.util.module_from_spec(spec2)
+    spec2.loader.exec_module(probe)
+    blocks = [_passing(1, [(1, "A", 30), (2, "B", 3)]), {"groups": "x"}, {"groups": [{"name": " PASSING "}]},
+              {"groups": [{"name": "Rushing", "players": [{"player": {"id": 1}}]}]},
+              {"groups": [{"name": "passing", "players": [{"player": "x", "statistics": [{"name": "Att", "value": "7"}]},
+                                                           "bad", {"statistics": "x"}]}]}]
+    for b in blocks:
+        assert qr.passing_lines(b) == probe.passing_lines(b)
+    for stats in ([("comp att", "20/31")], [("attempts", "12")], [("att", None)], [("c/att", "x/y")],
+                  [("yards", 200)], [("passing attempts", 4)], [("comp/att", "3")]):
+        assert qr.attempts(stats) == probe.attempts(stats)

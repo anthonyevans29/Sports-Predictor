@@ -27,7 +27,9 @@ THE NAMES IT READS (law 1; each from the code, never copied as a guess):
   file's observations (endpoint "file:...") are counted and printed, never the window's start.
 - THE STARTER, post hoc (530 Q1; 465 Q6): from the payloads scripts/nfl_qb_coverage.py keeps under --payloads DIR,
   <DIR>/<season>/players_<provider game id>.json, read exactly as that script reads them (its cache file names; the
-  probe's passing_lines and attempts). The provider game is the match's external_ids["api_american_football"], looked
+  probe's passing_lines and attempts, copied verbatim because the probe's top level reads a .env and builds the
+  provider's adapter, and pinned to the probe's own by a test). A payload file whose real path leaves the folder, or
+  lies under a data/ directory, is never opened: a cause of its own. The provider game is the match's external_ids["api_american_football"], looked
   up within its season only (#906); the side's block is the one whose team.id is the team's
   external_ids["api_american_football"]. The starter is the passer with the most attempts; no readable attempts, or a
   tie for the most, names none (the coverage script's rule). A game with no kept payload is "no starter payload",
@@ -176,7 +178,11 @@ def check_payloads(d) -> Path:
     if why:
         raise ReceiptRefused("--payloads " + why + "; nothing read")
     p = Path(str(d)).expanduser()
-    if not p.is_dir():
+    try:
+        ok = p.is_dir()
+    except OSError as e:                         # a name too long, a folder that cannot be read: never a traceback
+        raise ReceiptRefused("--payloads {}: cannot be checked ({}); nothing read".format(d, type(e).__name__))
+    if not ok:
         raise ReceiptRefused("--payloads {}: not a folder; nothing read".format(d))
     return p
 
@@ -208,7 +214,7 @@ def on_copy(copy: Path, read):
     except ReceiptRefused:
         raise
     except Exception as err:      # by its class alone: never a traceback that could carry a stored value or a name
-        raise ReceiptRefused("--db {}: the read failed ({}); nothing reported".format(copy, type(err).__name__))
+        raise ReceiptRefused("the read failed ({}); nothing reported".format(type(err).__name__))
     if sides_after:
         raise ReceiptRefused("--db {} changed during the read: {} appeared beside it; nothing reported".format(
             copy, ", ".join(sides_after)))
@@ -221,54 +227,87 @@ def on_copy(copy: Path, read):
 # --------------------------------------------------------------------------
 # The starter side (the kept payloads)
 # --------------------------------------------------------------------------
+# passing_lines and attempts are scripts/nfl_qb_probe.py's own, verbatim: the probe is not imported, because its top
+# level reads a .env from the working directory and builds the provider's adapter (a receipt reads no key and makes no
+# call). tests/test_nfl_qb_agreement_receipt.py pins both to the probe's functions on the same inputs (law 1).
+PASSING = "passing"                 # nfl_qb_probe.PASSING: the group name, compared lowercased and stripped
 
 
-def _probe():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("nfl_qb_probe_for_427", ROOT / "scripts" / "nfl_qb_probe.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+def _list(v):
+    """A list as sent, else [] (nfl_qb_probe._list)."""
+    return v if isinstance(v, list) else []
 
 
-def starter_side(payloads: Path, season: str, gid, team_pid, probe) -> tuple:
-    """(cause, starter's normalised name, {normalised passer names}) for one side; cause None when a starter is named.
-    Read as scripts/nfl_qb_coverage.py keeps and reads them; never fetched."""
+def passing_lines(team_block):
+    """[(player, [(stat name, value)])] of the team's passing group, verbatim (nfl_qb_probe.passing_lines)."""
+    out = []
+    for grp in _list(team_block.get("groups")):
+        if not isinstance(grp, dict) or str(grp.get("name") or "").strip().lower() != PASSING:
+            continue
+        for p in _list(grp.get("players")):
+            if not isinstance(p, dict):
+                continue
+            stats = [(s.get("name"), s.get("value")) for s in _list(p.get("statistics")) if isinstance(s, dict)]
+            out.append((p.get("player") if isinstance(p.get("player"), dict) else {}, stats))
+    return out
+
+
+def attempts(stats):
+    """Passing attempts from the stat lines (nfl_qb_probe.attempts), None when no stat gives them; also None where the
+    value is not a finite number the probe's int() could read (an Infinity reads as no attempts, never a refusal)."""
+    for name, value in stats:
+        n = str(name or "").strip().lower()
+        try:
+            if n in ("comp att", "comp/att", "c/att") and "/" in str(value):
+                return int(str(value).split("/")[1])
+            if n in ("attempts", "att", "passing attempts"):
+                return int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return None
+
+
+def starter_side(payloads: Path, season: str, gid, team_pid) -> tuple:
+    """(cause, the starter's normalised name, {normalised passer names}, {names two passers share}) for one side; cause
+    None when a starter is named. Read as scripts/nfl_qb_coverage.py keeps and reads them; never fetched."""
     if gid is None:
-        return "the match carries no provider game id", None, set()
+        return "the match carries no provider game id", None, set(), set()
     f = payloads / season / "players_{}.json".format(gid)
-    if not f.is_file():
-        return "no starter payload", None, set()
     try:
-        teams = json.loads(f.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return "the starter payload cannot be read", None, set()
+        if not f.is_file():
+            return "no starter payload", None, set(), set()
+        rp = f.resolve()
+        if _named_data(rp) is not None or payloads.resolve() not in rp.parents:
+            return "the starter payload lies outside the payload folder", None, set(), set()
+        teams = json.loads(rp.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError, RuntimeError):
+        return "the starter payload cannot be read", None, set(), set()
     if not isinstance(teams, list):
-        return "the starter payload cannot be read", None, set()
+        return "the starter payload cannot be read", None, set(), set()
     if team_pid is None:
-        return "the team carries no provider id", None, set()
+        return "the team carries no provider id", None, set(), set()
     block = [tb for tb in teams if isinstance(tb, dict) and isinstance(tb.get("team"), dict)
              and str(tb["team"].get("id")) == str(team_pid)]
     if len(block) != 1:
-        return ("no block for the side in the payload" if not block else "two blocks for the side"), None, set()
-    lines = probe.passing_lines(block[0])
+        return ("no block for the side in the payload" if not block else "two blocks for the side"), None, set(), set()
+    lines = passing_lines(block[0])
     if not lines:
-        return "no passing line for the side", None, set()
+        return "no passing line for the side", None, set(), set()
     names = [norm(p.get("name")) if isinstance(p, dict) else None for p, _st in lines]
-    read = [(probe.attempts(st), i) for i, (_p, st) in enumerate(lines) if probe.attempts(st) is not None]
+    named = Counter(n for n in names if n)
+    passers, dups = set(named), {n for n, k in named.items() if k > 1}
+    att = [attempts(st) for _p, st in lines]
+    read = [(a, i) for i, a in enumerate(att) if a is not None]
     if not read:
-        return "no attempts read", None, set(n for n in names if n)
+        return "no attempts read", None, passers, dups
     most = max(a for a, _i in read)
     leaders = [i for a, i in read if a == most]
     if len(leaders) != 1:
-        return "tied for the most attempts", None, set(n for n in names if n)
+        return "tied for the most attempts", None, passers, dups
     top = leaders[0]
     if names[top] is None:
-        return "the starter has no name", None, set(n for n in names if n)
-    # two passers of one team in one game whose names normalise to one string: never chosen (530 Q4)
-    if sum(1 for n in names if n == names[top]) > 1:
-        return "two passers' names normalise to one", None, set(n for n in names if n)
-    return None, names[top], set(n for n in names if n)
+        return "the starter has no name", None, passers, dups
+    return None, names[top], passers, dups
 
 
 # --------------------------------------------------------------------------
@@ -277,8 +316,8 @@ def starter_side(payloads: Path, season: str, gid, team_pid, probe) -> tuple:
 
 
 def chart_side(s, instant: datetime, clock: str, team_id: int) -> tuple:
-    """(cause, QB1's normalised name, {normalised name: lowest rank}) for one team at one instant, through
-    record.as_of (the one read path); cause None when one QB1 is named."""
+    """(cause, QB1's normalised name, {normalised name: lowest rank}, {names two chart players share}) for one team at
+    one instant, through record.as_of (the one read path); cause None when one QB1 is named."""
     from src.availability import record as rec
     from src.db.schema import Sport
     facts = rec.as_of(s, Sport.NFL, instant, clock=clock, team=str(team_id), kind=KIND)
@@ -292,25 +331,26 @@ def chart_side(s, instant: datetime, clock: str, team_id: int) -> tuple:
             continue
         qbs.append((rec.player_key(r), norm(r.player_name), str(at.get("pos_rank"))))
     if not qbs:
-        return "no quarterback in force", None, {}
+        return "no quarterback in force under the team's id", None, {}, set()
     ranks: dict = {}
-    for _k, n, rk in qbs:
+    keys_of = defaultdict(set)
+    for k, n, rk in qbs:
         if n is None:
             continue
-        r = int(rk) if rk.isdigit() else None
+        keys_of[n].add(k)
+        r = int(rk) if rk.isascii() and rk.isdigit() else None
         if r is not None and (n not in ranks or r < ranks[n]):
             ranks[n] = r
+    dups = {n for n, ks in keys_of.items() if len(ks) > 1}
     firsts = {(k, n) for k, n, rk in qbs if rk == FIRST}
     if not firsts:
-        return "no first quarterback in force", None, ranks
-    if len({k for k, _n in firsts}) > 1:
-        return "QB1 ambiguous", None, ranks
+        return "no first quarterback in force", None, ranks, dups
+    if len({k for k, _n in firsts}) > 1 or len({n for _k, n in firsts}) > 1:
+        return "QB1 ambiguous", None, ranks, dups      # two players at rank 1, or one under two names: never chosen
     n1 = next(iter(firsts))[1]
     if n1 is None:
-        return "the first quarterback has no name", None, ranks
-    if len({k for k, n, _rk in qbs if n == n1}) > 1:
-        return "two chart names normalise to one", None, ranks
-    return None, n1, ranks
+        return "the first quarterback has no name", None, ranks, dups
+    return None, n1, ranks, dups
 
 
 # --------------------------------------------------------------------------
@@ -335,16 +375,29 @@ def first_2026_load(s) -> tuple:
     return first, int(files or 0)
 
 
+def unmapped_qb_rows(s) -> int:
+    """The source's quarterback assertions whose team is unmapped (team_id NULL): never read for a side, counted."""
+    from sqlalchemy import select
+
+    from src.db.schema import AvailabilityAssertion as A
+    from src.db.schema import AvailabilityObservation as O
+    n = 0
+    for (attrs,) in s.execute(select(A.attrs).join(O, A.observation_id == O.id).where(
+            O.source == SOURCE, A.kind == KIND, A.team_id.is_(None))):
+        if isinstance(attrs, dict) and str(attrs.get("pos_abb")) == QB:
+            n += 1
+    return n
+
+
 def read_counts(s, payloads: Path) -> dict:
     from sqlalchemy import select
 
     from src.db.schema import Match, MatchStatus, Team
     from src.walters import nfl_backtest as nb
-    probe = _probe()
     first26, file_obs = first_2026_load(s)
     team_pid = {tid: (ext or {}).get(PROVIDER) for tid, ext in s.execute(select(Team.id, Team.external_ids))}
     out = {"first_2026_load": first26.isoformat() + "Z" if first26 else None, "file_observations": file_obs,
-           "seasons": []}
+           "unmapped_qb_rows": unmapped_qb_rows(s), "seasons": []}
     for season, clock in SEASONS:
         q = nb.nfl_scoped(select(Match.id, Match.utc_date, Match.status, Match.stage, Match.home_team_id,
                                  Match.away_team_id, Match.external_ids).where(Match.season == season))
@@ -366,12 +419,12 @@ def read_counts(s, payloads: Path) -> dict:
                 instant = kick - back
                 for tid in (home, away):
                     c["sides"] += 1
-                    if season == "2026" and clock == "recorded" and first26 is not None and instant < first26:
-                        ccause, q1, ranks = "no T-24h row on our clock (kickoff less than 24 h after the first load)", \
-                            None, {}
+                    if season == "2026" and first26 is not None and instant < first26:
+                        ccause, q1, ranks, cdups = ("no T-24h row on our clock (kickoff less than 24 h after the "
+                                                    "first load)"), None, {}, set()
                     else:
-                        ccause, q1, ranks = chart_side(s, instant, clock, tid)
-                    scause, st, passers = starter_side(payloads, season, gid, team_pid.get(tid), probe)
+                        ccause, q1, ranks, cdups = chart_side(s, instant, clock, tid)
+                    scause, st, passers, sdups = starter_side(payloads, season, gid, team_pid.get(tid))
                     if ccause or scause:
                         c["no_row"] += 1
                         if ccause:
@@ -379,13 +432,18 @@ def read_counts(s, payloads: Path) -> dict:
                         if scause:
                             c["starter_cause"][scause] += 1
                         continue
-                    if q1 == st:
+                    if q1 in cdups or q1 in sdups or st in cdups or st in sdups:
+                        # two players of one team in one game whose names normalise to one string: NO PAIR, never
+                        # chosen (530 Q4), on either side
+                        c["no_pair"] += 1
+                        c["no_pair_by"]["two players of the team normalise to one name"] += 1
+                    elif q1 == st:
                         c["agree"] += 1
                     elif q1 in passers or st in ranks:
                         c["differ"] += 1
                         rk = ranks.get(st)
                         c["differ_by_place"]["not on the chart" if rk is None else "second" if rk == 2
-                                             else "third or lower" if rk >= 3 else "first at another slot"] += 1
+                                             else "third or lower"] += 1
                     else:
                         c["no_pair"] += 1
                         c["no_pair_by"]["neither name found on the other side"] += 1
@@ -412,6 +470,8 @@ def render(c: dict, out: Callable[[str], None]) -> None:
         "digits and spaces, one trailing Jr/Sr/II/III/IV dropped); counts only, no name, no id, no threshold")
     out("THE 2026 WINDOW: the first observation of the 2026 depth chart on our clock: {} (hand-carried file "
         "observations, never the window's start: {})".format(c["first_2026_load"] or "NONE STORED", c["file_observations"]))
+    out("THE CHART'S UNMAPPED TEAMS: quarterback rows whose team text maps to no team of ours (never read for a side): "
+        "{}".format(c["unmapped_qb_rows"]))
     for sea in c["seasons"]:
         lab = "our clock" if sea["clock"] == "recorded" else "THE SOURCE'S CLOCK (nflverse's own load times)"
         out("SEASON {} ({}): games {} by status {}; before the window {}; finished in the window {}".format(
@@ -422,6 +482,7 @@ def render(c: dict, out: Callable[[str], None]) -> None:
             out("    pair classes: {}; paired by name within the team: {}".format(
                 NO_COMMON_ID, r["agree"] + r["differ"]))
             out("    differ, by the starter's place on the chart: {}".format(_counts(r["differ_by_place"])))
+            out("    no pair, why: {}".format(_counts(r["no_pair_by"])))
             out("    no row, the chart side: {}".format(_counts(r["chart_cause"])))
             out("    no row, the starter side: {} (a side missing both is counted under each)".format(
                 _counts(r["starter_cause"])))

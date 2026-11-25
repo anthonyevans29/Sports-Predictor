@@ -9,4 +9,4 @@
   - "Paired by id" reads 0: the two sources carry no common id.
   - Never chosen: QB1 ambiguous, and two names that normalise to one.
 - **The no-row causes** are counted per side, the chart's and the starter's apart: no starter payload, tied attempts, no QB1 in force, and the rest.
-- **tests/test_nfl_qb_agreement_receipt.py (20):** synthetic copies and payloads only. They pass on Python 3.10 and 3.13. Nothing was run on a real copy.
+- **tests/test_nfl_qb_agreement_receipt.py (30):** synthetic copies and payloads only. They pin each finding of the independent review made before the PR, and pin the copied passing_lines and attempts to the probe's own. They pass on Python 3.10 and 3.13. Nothing was run on a real copy.

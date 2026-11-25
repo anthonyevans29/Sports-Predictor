@@ -407,7 +407,8 @@ def test_bounds(world):
 
 def test_no_amount_unit_order_or_bookmaker_reaches_the_console(world):
     code, out = run(world)
-    joined = "\n".join(out)
+    # the copy's path is printed by design and pytest numbers its folders (pytest-NNNN): it is taken out first
+    joined = "\n".join(out).replace(str(world["tmp"]), "<tmp>")
     for s in SENTINELS:
         assert s not in joined, s
 

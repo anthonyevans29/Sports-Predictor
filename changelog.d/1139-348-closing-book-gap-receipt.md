@@ -8,3 +8,4 @@
 - **Never read:** desk units, order, exec, ladder_exec, value_shadow, the holds, desk_meta, the row's Kalshi quotes, costs and fees, kalshi_legs, and any bookmaker name or price. Only desk.call, pick, reference and market_ref are read.
 - **tests/test_closing_book_gap_receipt.py (26):** synthetic copies and pages only; sentinel amounts that must never print; a desk block that refuses any other key. They pass on Python 3.10 and 3.13. Nothing was run on a real copy.
 - **scripts/README.md:** indexes this receipt and the quarterback agreement receipt (#1134) as TOOLs; counts recounted.
+- **tests/test_nfl_qb_agreement_receipt.py (#1134's):** test_no_name_and_no_id_is_printed failed at random on CI. The copy's sha256, printed by design, can hold the sentinel "e12" or "9001" by chance (smoke-py310 on this PR: "e12" inside 8e8e1272...). The digests are now taken out before the ids are looked for. No change to the receipt.

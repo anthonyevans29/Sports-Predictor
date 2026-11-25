@@ -1,4 +1,4 @@
-**2026-11-25 — The closing book-gap receipt, built (477 item 4(b); 532 item 4; 534 item 3; DEV 4, Lane D; Refs #348; #0000).**
+**2026-11-25 — The closing book-gap receipt, built (477 item 4(b); 532 item 4; 534 item 3; DEV 4, Lane D; Refs #348; #1139).**
 - **Ruling (532 item 4, in part):** "per closing row, the absolute gap between the books' fair price and Kalshi's on the same page, by the stamp-age bucket of the books' session; and for each staked row the bucket of its reference."
 - **Ruling (534 item 3, in part):** "The stamp from the copy, as #1077 reads it, is the right source until F4 is on main, and it stays the source after."
 - **What landed:** `scripts/closing_book_gap_receipt.py --exports DIR --db COPY`, read-only, for SOCCER and NFL.

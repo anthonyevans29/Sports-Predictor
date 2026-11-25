@@ -6,4 +6,5 @@
   - PLAY and, apart, LADDER: the pick's gap and its reference's bucket.
   - The 534 answers as written: "reference not the books" and "stamp after the export" counted apart; a row after the first stamped row with no stamp in "no stamp" with its gap.
   - It never reads an order, a unit, a contract count or an amount, and judges nothing.
+  - NFL's books' session is taken by capture time, its 4-place agreement with the page counted (540 item 2, amending 539 item 2 on the pooled de-vig the pre-PR review found); SOCCER stays matched by value.
 - **Next:** the review rounds, then the merge. The run is the architect's OPERATOR block on the host, after the tag that carries it. The head is due 2026-12-22 12:00 ET. Nothing was run on a real copy.

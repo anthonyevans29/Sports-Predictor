@@ -311,9 +311,8 @@ def test_nfl_by_bucket_and_causes(world):
     code, out = run(world)
     fam = summary(out)["families"]["NFL"]
     hg = fam["home_gap"]
-    assert hg["12-24 h"]["n"] == 2                                  # 200, and 206 by its earlier session
-    assert abs(hg["12-24 h"]["min"] - 5.0) < 1e-9 and abs(hg["12-24 h"]["max"] - 8.48) < 1e-9
-    assert hg["2-3 h"]["n"] == 1
+    assert hg["12-24 h"]["n"] == 1 and abs(hg["12-24 h"]["median"] - 5.0) < 1e-9
+    assert hg["2-3 h"]["n"] == 2                 # 201, and 206 by capture time (540 item 2(a))
     assert hg["6-12 h"]["n"] == 1
     assert fam["no_gap"] == {"Kalshi not priced on both legs (kalshi_prob null)": 1,
                              "Kalshi's legs mismatched (no price)": 1,
@@ -516,16 +515,26 @@ def test_the_nfl_premise_the_two_de_vigs_differ_at_4_places():
     assert tuple(round(v, 4) for v in PAGE206) != tuple(round(v, 4) for v in POOLED206)
 
 
-def test_nfl_is_matched_at_4_places_and_the_latest_session_is_counted(world):
-    """539 item 2: the four-place check on NFL as on SOCCER. 206's own fetch (pooled) differs from the page, so the
-    match is the earlier equal session; the latest-session count and the line_move cross-check both say so."""
+def test_nfl_takes_the_session_by_capture_time_and_counts_the_4_place_agreement(world):
+    """540 item 2(a): NFL's session is the latest complete one at or before the export. 206's own fetch (pooled)
+    differs from the page at 4 places; the EARLIER session that equals the page is never taken. The agreement is
+    counted, and the line_move cross-check agrees with the session taken."""
     code, out = run(world)
     fam = summary(out)["families"]["NFL"]
-    assert fam["latest_session"] == {rc.VALIDATED: 5, rc.UNVALIDATED: 1}
+    assert fam["session_match"] == {rc.VALIDATED: 5, rc.UNVALIDATED: 1}
     b = block(out, 206)
-    assert "page matches an earlier session (captured 2026-11-22 16:50:00Z)" in b
-    assert "bucket 12-24 h" in b and rc.UNVALIDATED in b and "line_move book to_at differ" in b
-    assert fam["line_move"] == {"absent": 4, "differ": 2}
+    assert "captured 2026-11-22 17:50:00Z" in b and "by capture time" in b
+    assert "bucket 2-3 h" in b and rc.UNVALIDATED in b and "line_move book to_at agree" in b
+    assert fam["line_move"] == {"absent": 4, "agree": 1, "differ": 1}
+    assert rc.NFL_STAMP in out                    # 540 item 2(d): the NFL lines say what their stamp is
+
+
+def test_soccer_stays_matched_by_value(world):
+    """540 item 2(c): 107's only session differs from the page, so SOCCER finds none (a line of its own)."""
+    code, out = run(world)
+    b = block(out, 107)
+    assert "not found: no stored session matches the page" in b
+    assert summary(out)["families"]["SOCCER"]["session_match"] == {rc.VALIDATED: 9, rc.UNVALIDATED: 1}
 
 
 def _raw_page(folder, name, doc):

@@ -18,7 +18,12 @@ probability, three legs or two, a row missing a leg has no gap, counted; Q3 a st
 books is "reference not the books", counted apart, no bucket; Q4 "stamp after the export", a cause of its own,
 counted apart; Q5 rows before the family's first stamped row out, counted once, and a row AFTER it with no stamp in
 the "no stamp" bucket with its gap. 539 item 2: "A row whose books' session is not found on the copy is a line of
-its own, counted by cause, beside the eight buckets, and is not folded into 'no stamp'." And: "The stamp from the copy, as #1077 reads it, is the right source until F4 is
+its own, counted by cause, beside the eight buckets, and is not folded into 'no stamp'." 540 item 2 amends 539's last
+sentence: "(a) NFL's SESSION IS TAKEN BY CAPTURE TIME: the latest complete session at or before the page's export ...
+The four-place agreement is COUNTED beside it, agree and differ, and decides nothing ... (c) SOCCER stays as built, by
+value: its snapshot is written from the close's own fair. (d) The NFL lines say what their stamp is: the oldest over
+every row of the fetch, one-sided books among them, a lower bound on the stamp of the rows the page priced." And: "The
+stamp from the copy, as #1077 reads it, is the right source until F4 is
 on main, and it stays the source after: the receipt reads the season, and old files will never carry F4."
 
 WHAT IT READS (law 1: every key below was read from the code at origin/main c53a6a60):
@@ -63,18 +68,20 @@ WHAT IT READS (law 1: every key below was read from the code at origin/main c53a
   oldest_source_time over the 1X2 rows used).
 - THE MATCH: pl_closing_book_age_receipt.find_match (the page's id where the copy agrees on teams by name and
   kickoff, else the one stored match with both names and the kickoff, else not found with the cause).
-- THE BOOKS' SESSION: one captured_at; complete when every leg of the family is present, numeric and single-valued;
-  the PRICED session is the latest complete session at or before exported_at whose legs rounded to 4 places equal the
-  page's fair, else the latest earlier one that does (labelled), else "no stored session matches the page" (law 4:
-  never forced): the four-place agreement check, on NFL as on SOCCER (539 item 2). SOCCER's snapshot is written from
-  close_1x2's own fair (service.py:1559-1566), so the page's fair equals it. NFL's snapshot de-vig is POOLED over every
-  1X2 offer (MarketSnapshot.average_implied over the summed implied, service.py:3019-3036, value.py:71-79), the page's
-  is close_1x2's, de-vigged per complete book and then averaged (close.py:105-121, nfl_predict.py:268-275): on a fetch
-  of several books at different overrounds the two differ at 4 places. So beside the match, counted and deciding
-  nothing, the receipt says whether the LATEST complete session at or before the export equals the page at 4 places.
-  The page's own line_move.venues.book.to_at (inside T-3h only) is a cross-check, counted, never the decider. Its STAMP
-  is source_updated_at, the oldest over its rows, unknown when the column is absent or any row is NULL
-  (oldest_source_time's rule, #1077's read; F4 is not read, 534 item 3).
+- THE BOOKS' SESSION: one captured_at; complete when every leg of the family is present, numeric and single-valued.
+  SOCCER, BY VALUE (540 item 2(c)): the latest complete session at or before exported_at whose legs rounded to 4
+  places equal the page's fair, else the latest earlier one that does (labelled), else "no stored session matches the
+  page" (law 4: never forced); its snapshot is written from close_1x2's own fair (service.py:1559-1566), so the page's
+  fair equals it. NFL, BY CAPTURE TIME (540 item 2(a)): the latest complete session at or before exported_at. NFL's
+  snapshot de-vig is POOLED over every 1X2 offer (MarketSnapshot.average_implied over the summed implied,
+  service.py:3019-3036, value.py:71-79), the page's is close_1x2's, de-vigged per complete book and then averaged
+  (close.py:105-121, nfl_predict.py:268-275), so the two can part at the fourth place on one fetch; a match by value
+  could give a row an earlier session's stamp and bucket. On both, the latest session's four-place agreement with the
+  page is COUNTED, agree and differ, and decides nothing. The page's own line_move.venues.book.to_at (inside T-3h only)
+  is a cross-check, counted, never the decider. Its STAMP is source_updated_at, the oldest over its rows, unknown when
+  the column is absent or any row is NULL (oldest_source_time's rule, #1077's read; F4 is not read, 534 item 3). On
+  NFL that is the oldest over every 1X2 row of the fetch, one-sided books among them (service.py:3029-3030): a lower
+  bound on the stamp of the rows the page priced (540 item 2(d)), and the NFL lines say so.
 
 THE MEASURES:
 - THE STAMP AGE: exported_at minus the session's stamp, in hours: "from the provider's stamp to our closing capture,
@@ -123,17 +130,20 @@ MARKET = "1X2"
 DP = 4                                       # export.py:742 and nfl_predict.py:273: fair_prob rounded to 4 places
 SOCCER_COMPETITION, SOCCER_SEASON = "PL", "2026/27"
 FAMILIES = {
-    # The books' session is matched at 4 places on both (539 item 2). SOCCER's snapshot is written from close_1x2's
-    # own fair (service.py:1559-1566), the page's fair (export.py:739-745), so they are equal. NFL's snapshot de-vig is
-    # POOLED over every 1X2 offer (MarketSnapshot.average_implied over the summed implied, service.py:3019-3036,
-    # value.py:71-79), the page's is close_1x2's, de-vigged per complete book and averaged (close.py:105-121,
-    # nfl_predict.py:268-275): on a fetch of several books at different overrounds they can differ at 4 places, which
-    # the receipt counts (VALIDATED / UNVALIDATED of the latest session) and never decides on
+    # match: how the books' session is taken (540 item 2, amending 539 item 2's last sentence). SOCCER "validated", by
+    # value: its snapshot is written from close_1x2's own fair (service.py:1559-1566), the page's fair (export.py:739-
+    # 745). NFL "capture", BY CAPTURE TIME: its snapshot's de-vig is POOLED over every 1X2 offer
+    # (MarketSnapshot.average_implied over the summed implied, service.py:3019-3036, value.py:71-79), the page's is
+    # close_1x2's, de-vigged per complete book and averaged (close.py:105-121, nfl_predict.py:268-275); the two can part
+    # at the fourth place on one fetch, and a match by value could give a row an earlier session's stamp and bucket
     "SOCCER": {"source": "api_football", "legs": ("HOME", "DRAW", "AWAY"), "match": "validated"},
-    "NFL": {"source": "api_american_football", "legs": ("HOME", "AWAY"), "match": "validated"},
+    "NFL": {"source": "api_american_football", "legs": ("HOME", "AWAY"), "match": "capture"},
 }
-VALIDATED = "the latest session equals the page at 4 places"
-UNVALIDATED = "the latest session differs from the page at 4 places"
+VALIDATED = "agrees with the page at 4 places"
+UNVALIDATED = "differs from the page at 4 places"
+NFL_STAMP = ("THE NFL STAMP (540 item 2(d)): the oldest source_updated_at over every 1X2 row of the fetch, one-sided "
+             "books among them (service.py:3029-3030, oldest_source_time over the rows used): a LOWER BOUND on the stamp "
+             "of the rows the page priced (close.book_stamp reads the complete books only)")
 STAKED = (("PLAY", "PLAY (the staked line)"), ("LADDER", "LADDER (a line of its own)"))
 DESK_READS = ("call", "pick", "reference", "market_ref")
 NEVER_READ = ("desk.units", "desk.shadow_units", "desk.order", "desk.exec", "desk.ladder_exec", "desk.value_shadow",
@@ -161,13 +171,15 @@ STAMP_TEXT = ("the newest that any quote in the answer can be; a quote may be ol
               "NULL = unknown, never fresh")    # schema.py (addendum 32 items 3-4), as pl_closing_book_age_receipt
 
 DEFINITIONS = (
-    "THE BOOKS' SESSION: the latest complete 1X2 snapshot session (one captured_at = one fetch; api_football for "
-    "SOCCER, api_american_football for NFL) at or before the page's exported_at whose legs rounded to 4 places equal "
-    "the page's fair, on NFL as on SOCCER (539 item 2); else the latest earlier one that does (labelled); else 'no "
-    "stored session matches the page' (counted, never forced). Beside it, counted, deciding nothing: whether the latest "
-    "session equals the page at 4 places (NFL's snapshot de-vig is pooled over every offer, the page's averaged per "
-    "complete book). Its stamp: source_updated_at, the oldest over its rows, unknown if any row is (\"" + STAMP_TEXT +
-    "\"). A row with no session found is a line of its own, never 'no stamp' (539 item 2).",
+    "THE BOOKS' SESSION: a 1X2 snapshot session (one captured_at = one fetch; api_football for SOCCER, "
+    "api_american_football for NFL). SOCCER, by value: the latest complete one at or before the page's exported_at "
+    "whose legs rounded to 4 places equal the page's fair; else the latest earlier one that does (labelled); else 'no "
+    "stored session matches the page' (counted, never forced). NFL, by capture time (540 item 2(a)): the latest "
+    "complete one at or before exported_at (its snapshot de-vig is pooled over every offer, the page's averaged per "
+    "complete book). On both, the latest session's four-place agreement with the page is counted and decides nothing. "
+    "Its stamp: source_updated_at, the oldest over its rows, unknown if any row is (\"" + STAMP_TEXT + "\"); on NFL "
+    "over every 1X2 row of the fetch, one-sided books among them: a lower bound (540 item 2(d)). A row with no session "
+    "found is a line of its own, never 'no stamp' (539 item 2).",
     "THE STAMP AGE: exported_at minus the session's stamp, in hours, from the provider's stamp to our closing capture: "
     "a LOWER bound (532 item 3). Buckets half-open: under 1 h · 1-2 · 2-3 · 3-6 · 6-12 · 12-24 · 24 h or more · no "
     "stamp (532 item 4 #5); a negative age is 'stamp after the export', counted apart, no bucket (534 Q4).",
@@ -497,16 +509,19 @@ def measure(page: dict, r: dict, s, has_stamp: bool) -> dict:
         if not upto:
             x["session_why"] = NO_SESSION
         else:
-            # 539 item 2: the four-place agreement check, on NFL as on SOCCER. Beside it, counted and deciding
-            # nothing: whether the LATEST complete session at or before the export equals the page at 4 places
-            # (NFL's snapshot de-vig is pooled over every offer, the page's averaged per complete book)
+            # beside the session, counted and deciding nothing: whether the latest complete session at or before the
+            # export equals the page at 4 places (540 item 2(a): agree and differ, counted)
             x["match"] = VALIDATED if upto[-1]["fair4"] == want else UNVALIDATED
-            idx = next((i for i in range(len(upto) - 1, -1, -1) if upto[i]["fair4"] == want), None)
-            if idx is None:
-                x["session_why"] = NO_MATCH
-            else:
-                x["label"] = "the latest complete session" if idx == len(upto) - 1 else \
-                    f"{EARLIER} (captured {upto[idx]['at']:%Y-%m-%d %H:%M:%S}Z)"
+            if FAMILIES[fam]["match"] == "capture":       # NFL, 540 item 2(a): the latest complete session
+                idx = len(upto) - 1
+                x["label"] = "the latest complete session at or before the export, by capture time (540 item 2(a))"
+            else:                                         # SOCCER, by value (540 item 2(c))
+                idx = next((i for i in range(len(upto) - 1, -1, -1) if upto[i]["fair4"] == want), None)
+                if idx is None:
+                    x["session_why"] = NO_MATCH
+                else:
+                    x["label"] = "the latest complete session" if idx == len(upto) - 1 else \
+                        f"{EARLIER} (captured {upto[idx]['at']:%Y-%m-%d %H:%M:%S}Z)"
         if idx is not None:
             p = upto[idx]
             x["session"] = p["at"]
@@ -623,9 +638,16 @@ def family_report(fam: str, rows: list, L: list) -> dict:
              f"more than one counted page {out['games_on_more_than_one_page']} (each row counted: one closing row "
              "each)")
     m = Counter(x["match"] for x in inside if x["match"] is not None)
-    out["latest_session"] = dict(m)
-    L.append("THE LATEST COMPLETE SESSION AT OR BEFORE THE EXPORT against the page's fair (counted beside the "
-             "four-place match, deciding nothing): " + (" · ".join(f"{k} {v}" for k, v in sorted(m.items())) or "none"))
+    out["session_match"] = dict(m)
+    if FAMILIES[fam]["match"] == "capture":
+        L.append("THE BOOKS' SESSION, taken by capture time (540 item 2(a)): the latest complete session at or before "
+                 "the export, against the page's fair (counted, deciding nothing): "
+                 + (" · ".join(f"{k} {v}" for k, v in sorted(m.items())) or "none"))
+        L.append(NFL_STAMP)
+    else:
+        L.append("THE BOOKS' SESSION, matched by value at 4 places (540 item 2(c)); beside it, the latest complete "
+                 "session at or before the export against the page's fair (counted, deciding nothing): "
+                 + (" · ".join(f"{k} {v}" for k, v in sorted(m.items())) or "none"))
     lm = Counter(x["line_move"] for x in inside if x["session"] is not None)
     out["line_move"] = dict(lm)
     L.append("LINE_MOVE CROSS-CHECK (the page's line_move.venues.book.to_at, inside T-3h only, against the session "
@@ -644,7 +666,7 @@ def family_report(fam: str, rows: list, L: list) -> dict:
     nf = [x for x in gapped if x["bucket"] is None]
     nf_why = Counter(x["session_why"] for x in nf)
     by_b[NOT_FOUND_SESSION] = {**dist([x["gap"] for x in nf]), "why": dict(nf_why)}
-    L.append(f"    {NOT_FOUND_SESSION} (a line of its own, beside the buckets; 539 item 2): "
+    L.append(f"    {NOT_FOUND_SESSION} (a line of its own, beside the buckets; 539 item 2, 540 item 2(e)): "
              f"{_dist_text(by_b[NOT_FOUND_SESSION])}"
              + (" · " + "; ".join(f"{w} {v}" for w, v in sorted(nf_why.items())) if nf_why else ""))
     ns_why = Counter(x["stamp_why"] for x in gapped if x["bucket"] == NO_STAMP)

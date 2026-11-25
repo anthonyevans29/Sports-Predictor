@@ -186,6 +186,25 @@ class SyncResult:
     # whose own-season row was updated while a stored row of no season year carries its id too: counted, not skipped
     # (that row never matched, never touched). Printed by sync-matches only when N > 0.
     provider_id_season_unknown: list = field(default_factory=list)
+    # THE NFL-TEAM REFUSAL (ARCHITECT 2026-11-24, addendum 500 Q9), verbatim: "in the college competition, a listing
+    # either of whose teams holds a membership of the NFL competition is refused at create and at update, counted with
+    # its id, never stored." The listing's provider id of every such listing, in listing order: nothing of the listing
+    # is written (no score, status, kickoff, team, cache entry or re-key claim), also counted in `skipped` once. Not
+    # printed by __str__: the sync-matches command prints nfl_team_refused_line on its own line when N > 0. Addendum 527
+    # item 1 (1 and 10), verbatim: "WRITE THE KEY, FOR mismatch ONLY": a stored row of the listing's season carrying its
+    # id whose pair the listing names neither way takes 297 C(ii)'s mismatch key and is listed on
+    # teams_mismatch_refused (_nfl_refused_row); the same pair or its reverse leaves the key as it is.
+    nfl_team_refused: list = field(default_factory=list)
+    # Addendum 527 item 1 (3), verbatim: "YES, add it: the listing's id, and the stored match id beside it where a row
+    # carries it." Beside each entry of nfl_team_refused (same index, same length): the stored match id of the row of
+    # the listing's season carrying its id (_same_season_row), or None where no such row exists. Read by
+    # nfl_team_refused_line, which prints " (match <id>)" beside the listing id.
+    nfl_team_refused_match: list = field(default_factory=list)
+    # The stored match id of the row of the listing's season carrying a refused listing's id (the upsert's own lookup,
+    # _same_season_row), whatever its pair (#1123 review, Codex P2): read by sync-matches --match-ids STRICT only, so
+    # such a named row is reported as refused, never as absent from the provider's answer. A row the re-keys would have
+    # claimed (by its id history or its natural key) is not looked up and not named here. Not a count; not printed.
+    nfl_team_refused_rows: list = field(default_factory=list)
     # COUNT FIRST (ARCHITECT 2026-11-24, addendum 497 Q7; addendum 502 Q7, verbatim: "sync-odds' uncounted drops and
     # sync-odds-football's skips get a printed count first, with 497's step (0); no exit changes with it."): reason ->
     # [ids] for every game an odds sync did not read. sync_odds: stored match ids ("no provider id"; with match_ids,
@@ -362,6 +381,20 @@ def season_unknown_line(ids) -> str:
     plain line, printed by sync-matches only when N > 0: "provider_id_season_unknown N: <listing ids>"."""
     ids = [str(i) for i in ids]
     return f"provider_id_season_unknown {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
+
+
+def nfl_team_refused_line(ids, matches=None) -> str:
+    """Addendum 500 item 3(a), verbatim: "THE NFL-TEAM REFUSAL of Q9, with its count line". The listings of the college
+    competition refused because either of their teams holds a membership of the NFL competition (Q9). One plain line,
+    printed by sync-matches only when N > 0: "nfl_team_refused N: <listing id> (match <stored id>), <listing id>, ...".
+    Addendum 527 item 1 (3), verbatim: "YES, add it: the listing's id, and the stored match id beside it where a row
+    carries it." `matches` is SyncResult.nfl_team_refused_match, beside `ids` (same index; None, or a shorter list, where
+    no stored row carries the listing's id). N counts the listings. sp_run.NFL_TEAM_REFUSED_LINE reads it back."""
+    ids = [str(i) for i in ids]
+    matches = list(matches or [])
+    parts = [sid + (f" (match {matches[i]})" if i < len(matches) and matches[i] is not None else "")
+             for i, sid in enumerate(ids)]
+    return f"nfl_team_refused {len(ids)}" + (f": {', '.join(parts)}" if parts else "")
 
 
 def newest_membership_years(s: Session, sport, team_ids=None) -> dict[int, int]:
@@ -695,6 +728,9 @@ class IngestionService:
                 # claims this season's re-key (a sync without --season lists several)
                 _cache["__listed__"] = {(str(nm.source_id), season_year(nm.season)) for nm in matches}
                 _cache["__placeholder_window__"] = comp.code in PLACEHOLDER_REKEY_COMPETITIONS
+            # addendum 500 Q9: the NFL competition's members, read ONCE per run (sync_matches creates no team and no
+            # membership, so the set is exact for the whole run); empty, with no query, outside the college competition
+            _cache["__nfl_members__"] = self._nfl_members(s, comp)
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
             series_rows = []            # (the row written, that listing entry's own series fields)
@@ -752,6 +788,29 @@ class IngestionService:
 
         if cache is None:
             cache = self._match_cache_for(s, comp, nm.source)
+        # THE NFL-TEAM REFUSAL (ARCHITECT 2026-11-24, addendum 500 Q9), verbatim: "in the college competition, a listing
+        # either of whose teams holds a membership of the NFL competition is refused at create and at update, counted
+        # with its id, never stored." Before every write path below (update by id, both re-keys, create): nothing of
+        # the listing is written, cached or claimed (_nfl_refused_row reads only the same-season row, and writes 297
+        # C(ii)'s mismatch key on it alone, addendum 527 item 1 (1 and 10)). Addendum 527 item 1 (7), verbatim: "THE
+        # PLACEHOLDER TEAM IS EXEMPT: the refusal never reads the placeholder team's own memberships. A listing is
+        # refused for a real team's NFL membership and for nothing else." The placeholder is identified as #1119's
+        # fill identifies it: the team's own provider id of the listing's source, through is_placeholder_team.
+        from src.ingestion.placeholder import is_placeholder_team
+
+        nfl = cache.get("__nfl_members__")
+        if nfl is None:
+            nfl = cache["__nfl_members__"] = self._nfl_members(s, comp)
+        members = [t for t in (home, away)
+                   if not is_placeholder_team((t.external_ids or {}).get(nm.source)) and t.id in nfl]
+        if members:
+            log.warning("sync_matches(%s): %s id %s REFUSED — team(s) %s hold a membership of the NFL competition; "
+                        "nothing of the listing written (addendum 500 Q9)", comp.code, nm.source, nm.source_id,
+                        ", ".join(str(t.id) for t in members))
+            result.nfl_team_refused.append(str(nm.source_id))
+            result.skipped += 1
+            self._nfl_refused_row(s, nm, home.id, away.id, comp, result, cache)
+            return None
         match, refusal = self._match_by_source(s, nm, comp, result, cache)
         if refusal:
             return None
@@ -882,6 +941,41 @@ class IngestionService:
         log.warning("sync_matches(%s): %s id %s REFUSED for match %s — the listing names a team not in the DB, so "
                     "neither the stored pair nor its reverse; provider_orientation reads mismatch, scores, kickoff and "
                     "status unwritten", comp.code, nm.source, nm.source_id, match.id)
+        result.teams_mismatch_refused.append(match.id)
+
+    def _nfl_refused_row(self, s: Session, nm: NormalizedMatch, home_id: int, away_id: int, comp: Competition,
+                         result: SyncResult, cache: dict) -> None:
+        """A listing refused by addendum 500 Q9, read against the stored row of the listing's own season carrying its
+        provider id (the upsert's own lookup, _same_season_row, addendum 310 item 3(a)): a row of another season
+        carrying the id is another game and never read here, and no row the re-keys would claim (by its id history or
+        its natural key) is reached. With no such row: None beside the listing id on result.nfl_team_refused_match.
+        With one: its id beside the listing id (addendum 527 item 1 (3), verbatim: "YES, add it: the listing's id, and
+        the stored match id beside it where a row carries it.") and on result.nfl_team_refused_rows (--match-ids STRICT,
+        #1123 review, Codex P2). Addendum 527 item 1 (1 and 10), verbatim: "WRITE THE KEY, FOR mismatch ONLY. Q9's
+        "never stored" is about the listing. 297 C(ii)'s key is a fact about OUR row: its id no longer serves its
+        pair." A row whose pair the listing names neither way takes the mismatch key (score_orientation.
+        with_orientation_key, the one write main's MISMATCH path makes) and is listed on result.teams_mismatch_refused,
+        as main does; nothing of the listing is written and `skipped` is not counted again (the caller counted the
+        refusal once). "A refused listing naming the stored pair or its reverse leaves the key as it is", as built."""
+        from src.ingestion.score_orientation import MISMATCH, orientation, with_orientation_key
+
+        match = self._same_season_row(nm, cache)
+        if match is None:
+            result.nfl_team_refused_match.append(None)
+            return
+        if match.id is None:
+            s.flush()              # a row created earlier in this run (autoflush=False): the receipt names its id
+        result.nfl_team_refused_match.append(match.id)
+        result.nfl_team_refused_rows.append(match.id)
+        if orientation((match.home_team_id, match.away_team_id), (home_id, away_id)) != MISMATCH:
+            return                 # the stored pair or its reverse: the key as it is (527 item 1, 1 and 10)
+        ext = with_orientation_key(match.external_ids, MISMATCH)
+        if ext is not None:
+            match.external_ids = ext
+        log.warning("sync_matches(%s): %s id %s REFUSED for match %s — the listing's teams %s/%s are neither the stored "
+                    "pair %s/%s nor its reverse; provider_orientation mismatch written, nothing of the listing written "
+                    "(addendum 500 Q9, addendum 527 item 1)", comp.code, nm.source, nm.source_id, match.id, home_id,
+                    away_id, match.home_team_id, match.away_team_id)
         result.teams_mismatch_refused.append(match.id)
 
     @staticmethod
@@ -1079,6 +1173,19 @@ class IngestionService:
             if same or swapped:
                 return decide(same, swapped, " (placeholder window)")
         return None, None
+
+    @staticmethod
+    def _nfl_members(s: Session, comp: Competition) -> frozenset:
+        """Addendum 500 Q9: "in the college competition, a listing either of whose teams holds a membership of the NFL
+        competition is refused". The team ids holding a competition_teams row of the NFL competition (code "NFL", the
+        college competition's sport), in ANY season: Q9 names no season. For any competition but the college one
+        ("NCAA") the set is empty and no query runs. One query; sync_matches reads it once per run."""
+        if comp.code != "NCAA":
+            return frozenset()
+        return frozenset(s.execute(
+            select(CompetitionTeam.team_id)
+            .join(Competition, Competition.id == CompetitionTeam.competition_id)
+            .where(Competition.sport == comp.sport, Competition.code == "NFL")).scalars())
 
     @staticmethod
     def _match_cache_for(s: Session, comp: Competition, source: str) -> dict:

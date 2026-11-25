@@ -134,8 +134,8 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))            # src.walters.desk_policy and, for --weekly, src.db (after the hosting pack)
 
 import sp_common as c  # noqa: E402
-from sp_run import (FALLBACK_TEAMS_LINE, HELD_LINE, MATCHES_LINE, SCORES_BY_TEAM_LINE,  # noqa: E402
-                    SKIPPED_LISTINGS_LINE, TEAMS_LINE, date_vars, sync_counts)
+from sp_run import (FALLBACK_TEAMS_LINE, HELD_LINE, MATCHES_LINE, NFL_TEAM_REFUSED_LINE,  # noqa: E402
+                    SCORES_BY_TEAM_LINE, SKIPPED_LISTINGS_LINE, TEAMS_LINE, date_vars, sync_counts)
 
 UNIT = "laptop-routine"                   # the receipts' unit: never a host chain's name (chains.CHAINS has no such key)
 RUN_KIND = "laptop_routine"               # the run's receipt kind: never "chain"
@@ -219,6 +219,7 @@ WEEKLY_BEFORE = "8"                       # 451 item 3(e): the pass runs BEFORE 
 #   "orientation_reversed N: <ids> · teams_mismatch_refused M: <ids>"     service.scores_by_team_line (and the
 #                                                                          tennis re-read's "CODE re-read: ..." line)
 #   "... id N NOT created — ..."                            service.sync_matches' re-key refusal (a log warning)
+#   "nfl_team_refused N: <listing id> (match <id>), ..."    service.nfl_team_refused_line (addendum 500 3(a), 527 1)
 #   "HELD CODE (SP_SYNC_HOLD)"                              sync_hold.held_line
 #   "names kept: N (a historical-season listing)"           service.names_kept_line
 #   "✗ ..."                                                 the tennis refusal and the STRICT lines (cli.py)
@@ -232,7 +233,8 @@ SYNC_ECHO = re.compile(r"^\s*[✓✗]|orientation_|teams_mismatch_refused|provid
                        r"|skipped \d+ listing|NOT created|names kept:|(?i:refus)|^\s*\S+ listing:|^\s*series .*matched"
                        r"|^\s*counts: |^\s*not in our DB")
 SYNC_STEPS = ("nhl-goalie-sync",)          # item 3(b)'s "a sync": every "sync-" command, and these
-_COUNT_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE, SCORES_BY_TEAM_LINE, HELD_LINE)
+_COUNT_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE, SCORES_BY_TEAM_LINE, HELD_LINE,
+                NFL_TEAM_REFUSED_LINE)
 
 _popen = subprocess.Popen                 # tests replace these two; nothing else in the module runs a process
 _sleep = time.sleep

@@ -25,8 +25,8 @@ from sqlalchemy import select
 from src.adapters.registry import get_adapter
 from src.db.database import session_scope
 from src.db.schema import Competition, Sport
-from src.ingestion.service import (IngestionService, SyncResult, provider_id_collision_line, scores_by_team_line,
-                                   season_unknown_line)
+from src.ingestion.service import (IngestionService, SyncResult, nfl_team_refused_line, provider_id_collision_line,
+                                   scores_by_team_line, season_unknown_line)
 from src.web.guards import require_localhost
 from src.web.jobs import Job, runner
 from src.timeutil import utc_now_naive
@@ -106,6 +106,11 @@ def _job_sync_matches(
             both.teams_mismatch_refused += r.teams_mismatch_refused
             both.provider_id_collision += r.provider_id_collision
             both.provider_id_season_unknown += r.provider_id_season_unknown
+            both.nfl_team_refused += r.nfl_team_refused
+            # beside each listing id (527 item 1 (3)): padded to this season's count, so a short list never shifts
+            # the next season's match ids onto the wrong listing ids
+            n = len(r.nfl_team_refused)
+            both.nfl_team_refused_match += (list(r.nfl_team_refused_match) + [None] * n)[:n]
             if job:
                 job.append_log(
                     f"  created={r.created} updated={r.updated} skipped={r.skipped}"
@@ -129,6 +134,8 @@ def _collisions(r) -> str:
     out = f" · {provider_id_collision_line(r.provider_id_collision)}" if r.provider_id_collision else ""
     if r.provider_id_season_unknown:
         out += f" · {season_unknown_line(r.provider_id_season_unknown)}"
+    if r.nfl_team_refused:                      # addendum 500 Q9 and 3(a): the NFL-team refusal's count line
+        out += f" · {nfl_team_refused_line(r.nfl_team_refused, r.nfl_team_refused_match)}"
     return out
 
 

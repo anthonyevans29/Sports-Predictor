@@ -75,6 +75,7 @@ import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import IO, Callable
 
@@ -402,7 +403,7 @@ class ColumnStats:
                     self.all_yyyymmdd = False
         if self.can_float:
             if _FLOAT.fullmatch(s):
-                self._track("float", float(s), s)
+                self._track("float", Decimal(s), s)     # exact: 1e309 and 2e309 stay apart, as do 2**53 and 2**53+1
             else:
                 self.can_float = False
         if self.can_date:
@@ -567,6 +568,8 @@ def print_csv(r: CsvResult, out: Callable[[str], None], vocab_max: int, part: st
         if r.error is None:
             out("  rows 0 · columns 0 (the file holds no record, not even a header; blank records {})".format(
                 r.blank))
+        else:                                       # the error came before any header: what was counted still prints
+            out("  {}rows 0 · columns 0 · blank records {} (no header was reached)".format(part, r.blank))
         return
     n = len(r.header)
     out("  {}rows {} · columns {} · blank records {} · ragged rows {}".format(part, r.rows, n, r.blank, r.ragged))

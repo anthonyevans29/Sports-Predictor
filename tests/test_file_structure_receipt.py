@@ -693,3 +693,26 @@ def test_a_collect_failure_still_ends_with_the_summary(tmp_path, monkeypatch):
     monkeypatch.setattr(fsr, "collect", boom)
     code, text = run([str(tmp_path)])
     assert code == 1 and text.splitlines()[-1].startswith("SUMMARY:") and "simulated" not in text
+
+
+# ---- the PR's first review round (Codex), pinned --------------------------------------------------------------------
+
+
+def test_an_error_before_the_header_still_prints_the_blank_count(tmp_path):
+    p = tmp_path / "pre.csv"
+    p.write_bytes(b"\n" * 300000 + b"\xff\n")              # past the decoder's first chunk, before any header
+    code, text = run([str(p)])
+    assert code == 1
+    assert "ERROR: not read whole" in text
+    assert "PARTIAL (up to the error) rows 0 · columns 0 · blank records" in text
+    line = [ln for ln in text.splitlines() if "blank records" in ln][0]
+    assert int(line.split("blank records ")[1].split(" ")[0]) > 0
+
+
+def test_float_extrema_are_exact(tmp_path):
+    p = tmp_path / "f.csv"
+    p.write_text("a,b\n1e309,9007199254740992.0\n2e309,9007199254740993.0\n0.5,1.5\n", encoding="utf-8")
+    code, text = run([str(p)])
+    assert code == 0
+    assert "kind float" in col_line(text, "a") and "min 0.5 · max 2e309" in col_line(text, "a")
+    assert "min 1.5 · max 9007199254740993.0" in col_line(text, "b")

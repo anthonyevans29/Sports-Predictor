@@ -1,0 +1,12 @@
+## 2026-11-25 (#0000: 427-nfl-qb-agreement-receipt — the quarterback agreement receipt, read-only (lane nfl-qb, the 12-15 step; 415 item 4(a); 465 items 3 Q6 and 5; DEV 4, Lane D, by 529 item 4; ruled by 530 items 4 to 6; Refs #427))
+- **scripts/nfl_qb_agreement_receipt.py --db COPY --payloads DIR**, new. Counts only, no network, nothing written.
+- **The two sides:**
+  - **The chart:** the depth chart's first quarterback, read through record.as_of: kind depth_rank, pos_abb QB, rank "1". It is read at T-24h and at T-0, on our clock for 2026 and on the source's clock for 2025, which is labelled so.
+  - **The starter:** the game's starter post hoc, the most pass attempts in the payload scripts/nfl_qb_coverage.py keeps (a tie names none). The provider game id is looked up within its season.
+- **The 2026 window:** it opens at the first observation of the 2026 depth chart, printed. A game less than 24 h after it has no T-24h row, a cause of its own.
+- **The pairing**, by name within one game and one team, with one normalisation on both sides: NFKD with marks dropped, casefold, only letters, digits and spaces kept, whitespace collapsed, one trailing Jr, Sr, II, III or IV dropped.
+  - AGREE, DIFFER and NO PAIR are as 530 item 5 defines them. DIFFER is also counted by the starter's place on the chart.
+  - "Paired by id" reads 0: the two sources carry no common id.
+  - Never chosen: QB1 ambiguous, and two names that normalise to one.
+- **The no-row causes** are counted per side, the chart's and the starter's apart: no starter payload, tied attempts, no QB1 in force, and the rest.
+- **tests/test_nfl_qb_agreement_receipt.py (20):** synthetic copies and payloads only. They pass on Python 3.10 and 3.13. Nothing was run on a real copy.

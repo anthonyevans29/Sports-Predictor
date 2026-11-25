@@ -23,7 +23,7 @@ WHAT IT READS (law 1: every name read from the code at origin/main 66b4e86c):
   value.py:71-79), a one-sided book and both of one book's bets ("Home/Away", "Moneyline": api_american_football.py:
   396-397) among them, so a fetch that prices one side alone is written as that leg alone at exactly 1.0. Kalshi rows
   share the table (source "kalshi") and are never a session here.
-- THE MATCHES: Sport.NFL (stored by member name, schema.py:175), told apart by Competition.code "NFL" and "NCAA"
+- THE MATCHES: Sport.NFL (Match.sport, schema.py:178, stored by member name, schema.py:57-59), told apart by Competition.code "NFL" and "NCAA"
   (nfl_backtest.nfl_scoped; ncaa_cfbd.py:18); any other code under Sport.NFL is counted apart (545 P6). A preseason game
   (nfl_backtest.is_preseason on the stage) is counted apart and printed. Every status is read: sessions are written only
   while a game is SCHEDULED (service.py:3018-3024).
@@ -43,10 +43,13 @@ THE MEASURES (545 item 3, P1 to P9):
 - (b) A match's FIRST session is its first with captured_at strictly before kickoff (the closes' rule, P8;
   nfl_predict._book_anchor reads <=).
 - (c) A match's LAST session is its last strictly before kickoff. It is compared only where the match's 1X2 odds rows
-  exist and every one carries that session's captured_at; else one named cause, counted (P1): no 1X2 odds stored; no
-  session before kickoff; the odds stamped at a session at or after kickoff; the odds stamped at another time (a later
-  fetch with no 1X2 rows wiped them without a session, or the general path wrote them). On those rows: (i) the pooled
-  value is re-derived as the writer does and checked against the stored devig_prob (agree to 1e-9, else counted apart);
+  exist and every one carries that session's captured_at; else one named cause, counted (P1), in this order: no 1X2
+  odds stored (never written, or wiped by a later fetch that returned no 1X2 rows: the writer wipes every market of the
+  match, service.py:3090-3091); a 1X2 odds row's captured_at unreadable; the odds stamped at a session at or after
+  kickoff (545 P1's third cause, before the next); no session before kickoff; the odds stamped at a fetch that wrote no
+  session, or at mixed stamps (the general path's unpriced close, or a pooled sum not above 0). On those rows: (i) the pooled
+  value is re-derived as the writer does, over every stored 1X2 offer with a price, and checked against the stored
+  devig_prob (agree to 1e-9, else counted apart from the causes, on the compared and the unpriced alike);
   (ii) the close's own fair is close.close_1x2(rows, kickoff, BINARY), as nfl_predict computes the page's
   (nfl_predict.py:265-275), with no stale-book switch. The stored pooled HOME leg (else AWAY) against the fair's same
   leg: AGREE when equal at 4 places; else |difference| in pp, bucketed (P2). "Written where no complete book stood" is
@@ -56,13 +59,15 @@ THE MEASURES (545 item 3, P1 to P9):
   read) and the Kalshi venue's alarm, each counted. Of the book-flagged matches, those with a one-sided session at
   either end of the book venue (from_at, to_at: the non-Kalshi 1X2 rows at that stamp). An AWAY-only session is skipped
   by line_move._series and is never an end, so the matches whose last pre-kickoff book stamp is AWAY-only (the hidden
-  end) are counted apart. Only matches that kicked off before the copy's newest stored snapshot are in (b), (c) and (d);
-  the rest are counted apart (their record is not yet whole on this copy).
+  end) are counted apart. Only matches that kicked off before the copy's newest parsed snapshot stamp are in (c) and
+  (d); the rest are counted apart (their record is not yet whole on this copy). (b) reads every match: a first
+  session, once stored, never changes.
 - (e) Months are America/New_York calendar months (P5): a session's by its captured_at, a match's by its kickoff.
 - THE SECOND WRITER (P7): IngestionService.sync_odds (a manual sync-odds --competition NFL|NCAA) writes the same source
   string with close_1x2's own fair (service.py:1610-1663); no column tells it from the pooled writer, so its sessions,
   if any, are counted in, and the console says so.
-- n_books is not read (it counts offers on this writer, service.py:3121; P9).
+- n_books is never used or printed (it counts offers on this writer, service.py:3121; P9); the ORM's load of the
+  snapshot rows for line_move carries it with the row.
 
 No provider call, no network, nothing written (immutable=1; no bytecode). No book name, no price, no amount.
 
@@ -108,15 +113,27 @@ READS = {"competitions": {"id", "code"},
 DIFF_BUCKETS = ((0.0, 0.1, "under 0.1 pp"), (0.1, 0.5, "0.1-0.5 pp"), (0.5, 1.0, "0.5-1 pp"), (1.0, 2.0, "1-2 pp"),
                 (2.0, 5.0, "2-5 pp"), (5.0, None, "5 pp or more"))
 SESSION_KINDS = ("complete", "HOME-only", "AWAY-only", "other legs", "two values for one leg")
-C_NO_ODDS = "no 1X2 odds stored"
+C_NO_ODDS = "no 1X2 odds stored (never written, or wiped by a later fetch that returned no 1X2 rows)"
+C_ODDS_UNREADABLE = "a 1X2 odds row's captured_at unreadable"
 C_NO_PRE = "no session before kickoff"
 C_POST = "the odds stamped at a session at or after kickoff"
-C_OTHER = "the odds stamped at another time (wiped by a later fetch with no 1X2 rows, or the general path)"
+C_OTHER = ("the odds stamped at a fetch that wrote no session, or at mixed stamps (the general path's unpriced "
+           "close, or a pooled sum not above 0)")
 C_UNPRICED = "written where no complete book stood (close_1x2 unpriced)"
 C_NOT_REDERIVED = "the stored devig_prob does not re-derive from the stored offers"
+HIDDEN = "the hidden end (the last pre-kickoff book stamp holds no HOME leg, so line_move skips it)"
 SECOND_WRITER = ("THE SECOND WRITER (545 P7): IngestionService.sync_odds, a manual sync-odds --competition NFL|NCAA, "
                  "writes the same source with close_1x2's own fair (service.py:1610-1663); no column tells its sessions "
                  "from the pooled writer's, so any it wrote are counted in here, unlabelled")
+
+
+def _reads(t: str) -> set:
+    """The columns this read needs of table t: READS, and for odds_snapshots every column the ORM's select of
+    OddsSnapshot loads for line_move (schema.py's mapped columns)."""
+    if t != "odds_snapshots":
+        return READS[t]
+    from src.db.schema import OddsSnapshot
+    return READS[t] | {c.name for c in OddsSnapshot.__table__.columns}
 
 
 class ReceiptRefused(RuntimeError):
@@ -164,7 +181,7 @@ def check_copy(db) -> Path:
                 except sqlite3.Error as e:
                     raise mp.GateRefused("--db {}: the copy cannot be read for table {} ({})".format(db, t, e))
                 got = {r[1] for r in con.execute("PRAGMA table_info({})".format(t))}
-                miss = READS[t] - got
+                miss = _reads(t) - got
                 if miss:
                     raise mp.GateRefused("--db {}: columns {} not in {} (law 1)".format(
                         db, ", ".join(sorted(miss)), t))
@@ -276,33 +293,45 @@ def read_counts(s) -> dict:
             outside += 1
             continue
         matches[mid]["sessions"][t][sel].append(val)
-    for (at,) in s.execute(text("SELECT MAX(captured_at) FROM odds_snapshots")):
-        newest = redated.as_utc(at)
+    unreadable_any = 0
+    for (at,) in s.execute(text("SELECT DISTINCT captured_at FROM odds_snapshots")):
+        t = redated.as_utc(at)
+        if t is None:
+            unreadable_any += 1
+        elif newest is None or t > newest:
+            newest = t
     offers = defaultdict(list)
+    odds_unreadable = 0
     for oid, mid, bk, sel, px, line, at in s.execute(text(
             "SELECT id, match_id, bookmaker, selection, price_decimal, line, captured_at FROM odds WHERE "
             "source = :src AND market = :mk ORDER BY id"), {"src": SOURCE, "mk": MARKET}):
         if mid in matches:
             offers[mid].append(SimpleNamespace(id=oid, match_id=mid, bookmaker=bk, selection=sel, market=MARKET,
                                                price_decimal=px, line=line, captured_at=redated.as_utc(at)))
+            if redated.as_utc(at) is None:
+                odds_unreadable += 1
     fams = {f: new_family() for f in FAMILIES}
-    apart = {"other_codes": Counter(), "preseason": Counter(), "no_kickoff": 0}
+    apart = {"other_codes": Counter(), "preseason": Counter(), "by_month": defaultdict(Counter)}
     for m in sorted(matches.values(), key=lambda x: x["id"]):
         if not m["sessions"]:
             continue
         code = m["code"]
         if code not in FAMILIES:
             apart["other_codes"][str(code)] += 1
+            apart["by_month"][_month(m["kickoff"])]["other code " + str(code)] += 1
             continue
         if is_preseason(m["stage"]):
             apart["preseason"][code] += 1
+            apart["by_month"][_month(m["kickoff"])]["preseason " + code] += 1
             continue
         measure_match(s, m, offers.get(m["id"], []), newest, fams[code])
     for f in fams.values():
         finish_family(f)
     return {"families": fams, "apart": {"other_codes": dict(apart["other_codes"]),
-                                        "preseason": dict(apart["preseason"])},
+                                        "preseason": dict(apart["preseason"]),
+                                        "by_month": {mo: dict(c) for mo, c in sorted(apart["by_month"].items())}},
             "snapshot_rows_unreadable_stamp": unreadable_snap, "snapshot_rows_outside_sport_nfl": outside,
+            "snapshot_stamps_unreadable_any_source": unreadable_any, "odds_rows_unreadable_stamp": odds_unreadable,
             "copy_newest_snapshot": newest.strftime("%Y-%m-%dT%H:%M:%SZ") if newest else None}
 
 
@@ -310,10 +339,10 @@ def new_family() -> dict:
     return {"first_session": None, "statuses": Counter(),
             "a": {"all": 0, **{k: 0 for k in SESSION_KINDS}, "leg_exactly_1": 0, "leg_exactly_0": 0,
                   "at_kickoff": 0, "after_kickoff": 0, "by_month": defaultdict(Counter)},
-            "matches": 0, "not_kicked_off_on_copy": 0, "no_kickoff": 0,
+            "matches": 0, "not_kicked_off_on_copy": 0, "no_kickoff": 0, "by_month": defaultdict(Counter),
             "b": {"with_a_first_session": 0, "first": Counter(), "by_month": defaultdict(Counter)},
             "c": {"cause": Counter(), "compared": 0, "agree": 0, "differ": Counter(), "differ_pp": [],
-                  "by_month": defaultdict(Counter)},
+                  "not_rederived": Counter(), "by_month": defaultdict(Counter)},
             "d": {"evaluated": 0, "bell": Counter(), "ever": Counter(), "book_flag_end": Counter(),
                   "hidden_end": 0, "hidden_end_book_flagged": 0, "by_month": defaultdict(Counter)}}
 
@@ -346,21 +375,27 @@ def measure_match(s, m: dict, rows: list, newest, f: dict) -> None:
             mo["leg_exactly_0"] += 1
         if ko is not None and t == ko:
             a["at_kickoff"] += 1
+            mo["at_kickoff"] += 1
         elif ko is not None and t > ko:
             a["after_kickoff"] += 1
+            mo["after_kickoff"] += 1
+    kmo = _month(ko)
+    f["by_month"][kmo]["matches"] += 1
     if ko is None:
         f["no_kickoff"] += 1
+        f["by_month"][kmo]["no kickoff"] += 1
         return
-    if newest is None or ko > newest:
-        f["not_kicked_off_on_copy"] += 1
-        return
-    kmo = _month(ko)
     pre = [t for t in stamps if t < ko]
-    # (b) the first session strictly before kickoff
+    # (b) the first session strictly before kickoff: fixed once stored (sessions are appended, never earlier), so
+    # every match is read here, kicked off or not on this copy
     if pre:
         f["b"]["with_a_first_session"] += 1
         f["b"]["first"][kinds[pre[0]]] += 1
         f["b"]["by_month"][kmo][kinds[pre[0]]] += 1
+    if newest is None or ko > newest:
+        f["not_kicked_off_on_copy"] += 1
+        f["by_month"][kmo]["not kicked off on this copy"] += 1
+        return
     # (c) the last session strictly before kickoff, against the offers that remain
     cause, res = compare_last(sessions, pre, rows, ko)
     c = f["c"]
@@ -373,11 +408,14 @@ def measure_match(s, m: dict, rows: list, newest, f: dict) -> None:
             c["agree"] += 1
             c["by_month"][kmo]["agree"] += 1
         else:
-            c["differ"][diff_bucket(res["pp"])] += 1
+            b = diff_bucket(res["pp"])
+            c["differ"][b] += 1
             c["differ_pp"].append(res["pp"])
-            c["by_month"][kmo]["differ"] += 1
-        if not res["rederived"]:
-            c["cause"][C_NOT_REDERIVED] += 1
+            c["by_month"][kmo]["differ " + b] += 1
+    if res is not None and res.get("rederived") is False:      # apart from the causes (545 P2), compared or unpriced
+        where = "compared" if cause is None else "unpriced"
+        c["not_rederived"][where] += 1
+        c["by_month"][kmo]["not re-derived (" + where + ")"] += 1
     # (d) the line move, at the bell and ever inside the window
     line_moves(s, m, ko, f["d"], kmo)
 
@@ -388,23 +426,27 @@ def compare_last(sessions: dict, pre: list, rows: list, ko: datetime):
     from src.walters.value import MarketSnapshot
     if not rows:
         return C_NO_ODDS, None
+    stamps = {r.captured_at for r in rows}
+    if None in stamps:
+        return C_ODDS_UNREADABLE, None
+    only = next(iter(stamps)) if len(stamps) == 1 else None
+    if only is not None and only >= ko and only in sessions:
+        return C_POST, None                                 # 545 P1's third cause, before "no session before kickoff"
     if not pre:
         return C_NO_PRE, None
     last = pre[-1]
-    stamps = {r.captured_at for r in rows}
     if stamps != {last}:
-        if len(stamps) == 1 and next(iter(stamps)) is not None and next(iter(stamps)) >= ko \
-                and next(iter(stamps)) in sessions:
-            return C_POST, None
         return C_OTHER, None
     legs = sessions[last]
     if any(len(set(v)) > 1 for v in legs.values()):
         return "the last session holds two values for one leg", None
     stored = {k: _num(v[0]) for k, v in legs.items()}
-    # (i) the pooled value as the writer forms it (service.py:3112-3128), over every stored 1X2 offer
+    # (i) the pooled value as the writer forms it (service.py:3112-3128): every stored 1X2 offer with a price,
+    # unfiltered as the writer pools them (a price of 0 cannot be stored: 1/0 raises in the writer's own pass)
     by_sel = defaultdict(list)
     for r in rows:
-        if _num(r.price_decimal) is not None and r.price_decimal > 0:
+        if isinstance(r.price_decimal, (int, float)) and not isinstance(r.price_decimal, bool) \
+                and r.price_decimal != 0:
             by_sel[r.selection].append((r.bookmaker, r.price_decimal))
     implied = MarketSnapshot(market=MARKET, by_selection=dict(by_sel)).average_implied() if by_sel else {}
     over = sum(implied.values())
@@ -414,7 +456,7 @@ def compare_last(sessions: dict, pre: list, rows: list, ko: datetime):
     # (ii) the close's own fair, as the page computes it (nfl_predict.py:265-275)
     cl = close_1x2(rows, ko, BINARY)
     if not priced(cl):
-        return C_UNPRICED, None
+        return C_UNPRICED, {"rederived": rederived}
     leg = "HOME" if stored.get("HOME") is not None else "AWAY"
     if stored.get(leg) is None:
         return "the last session holds no number", None
@@ -439,6 +481,7 @@ def line_moves(s, m: dict, ko: datetime, d: dict, kmo: str) -> None:
     snaps = attach_source_times(s, s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m["id"])).scalars())
     snaps, _ = guard_snaps(snaps, s)
     d["evaluated"] += 1
+    d["by_month"][kmo]["evaluated"] += 1
     bell = lmv.line_move(snaps, ko, ko - BELL)
     marks = flags(bell)
     for k in marks:
@@ -449,10 +492,11 @@ def line_moves(s, m: dict, ko: datetime, d: dict, kmo: str) -> None:
     hidden = bool(book_stamps) and "HOME" not in {x.selection for x in _book_rows_at(snaps, book_stamps[-1])}
     if hidden:
         d["hidden_end"] += 1
-        d["by_month"][kmo]["hidden AWAY-only end"] += 1
+        d["by_month"][kmo]["hidden end"] += 1
     if "book" in marks:
         if hidden:
             d["hidden_end_book_flagged"] += 1
+            d["by_month"][kmo]["hidden end, book-flagged"] += 1
         bk = bell["venues"]["book"]
         ends = []
         for side in ("from_at", "to_at"):
@@ -460,7 +504,9 @@ def line_moves(s, m: dict, ko: datetime, d: dict, kmo: str) -> None:
             sels = {x.selection for x in _book_rows_at(snaps, t)}
             if sels != {"HOME", "AWAY"}:
                 ends.append(side)
-        d["book_flag_end"]["one-sided at " + (" and ".join(ends) if ends else "neither end")] += 1
+        end = "one-sided at " + (" and ".join(ends) if ends else "neither end")
+        d["book_flag_end"][end] += 1
+        d["by_month"][kmo]["book-flagged, " + end] += 1
     start = ko - timedelta(hours=lmv.LINE_MOVE_WINDOW_H)
     ever = set()
     for t, upto in ever_inputs(snaps, start, ko):
@@ -505,8 +551,8 @@ def finish_family(f: dict) -> None:
     xs = f["c"].pop("differ_pp")
     f["c"]["differ_pp_dist"] = ({"n": len(xs), "min": min(xs), "median": pct(xs, 0.5), "max": max(xs)} if xs
                                 else {"n": 0})
-    for key in ("statuses",):
-        f[key] = dict(f[key])
+    f["statuses"] = dict(f["statuses"])
+    f["by_month"] = {mo: dict(c) for mo, c in sorted(f["by_month"].items())}
     for part in ("a", "b", "c", "d"):
         for k, v in list(f[part].items()):
             if isinstance(v, defaultdict):
@@ -523,13 +569,18 @@ def _kv(d: dict) -> str:
 
 def render(c: dict, out) -> None:
     out("RULES: sessions = odds_snapshots, source {}, market {}, one captured_at one session; families by "
-        "Competition.code (NFL, NCAA) under Sport.NFL; months in {} (545 P5); (b) to (d) on matches kicked off "
-        "before the copy's newest snapshot ({})".format(SOURCE, MARKET, TZ, c["copy_newest_snapshot"]))
+        "Competition.code (NFL, NCAA) under Sport.NFL; months in {} (545 P5), sessions by captured_at, matches by "
+        "kickoff; (c) and (d) on matches kicked off before the copy's newest parsed snapshot stamp ({}), the rest "
+        "counted apart".format(SOURCE, MARKET, TZ, c["copy_newest_snapshot"]))
     out(SECOND_WRITER)
     out("APART: other competition codes under Sport.NFL {} · preseason (nfl_backtest.is_preseason) {} · snapshot rows "
-        "with an unreadable captured_at {} · rows of the source on matches outside Sport.NFL {}".format(
-            _kv(c["apart"]["other_codes"]), _kv(c["apart"]["preseason"]), c["snapshot_rows_unreadable_stamp"],
-            c["snapshot_rows_outside_sport_nfl"]))
+        "of the source with an unreadable captured_at {} · snapshot stamps of any source unreadable {} (never the "
+        "copy's newest) · 1X2 odds rows with an unreadable captured_at {} · rows of the source on matches outside "
+        "Sport.NFL {}".format(_kv(c["apart"]["other_codes"]), _kv(c["apart"]["preseason"]),
+                              c["snapshot_rows_unreadable_stamp"], c["snapshot_stamps_unreadable_any_source"],
+                              c["odds_rows_unreadable_stamp"], c["snapshot_rows_outside_sport_nfl"]))
+    for mo, cnt in c["apart"]["by_month"].items():
+        out("    apart, {} (by kickoff): {}".format(mo, _kv(cnt)))
     for name in FAMILIES:
         f = c["families"][name]
         a, b, cc, d = f["a"], f["b"], f["c"], f["d"]
@@ -551,20 +602,22 @@ def render(c: dict, out) -> None:
                 " · ".join("{} {}".format(n, cc["differ"].get(n, 0)) for _lo, _hi, n in DIFF_BUCKETS),
                 " · the differences: min {:.4f} · median {:.4f} · max {:.4f} pp".format(dd["min"], dd["median"],
                                                                                        dd["max"]) if dd["n"] else ""))
-        out("    not compared, by cause: " + _kv({k: v for k, v in cc["cause"].items() if k != C_NOT_REDERIVED})
-            + " · beside the compared: {} {}".format(C_NOT_REDERIVED, cc["cause"].get(C_NOT_REDERIVED, 0)))
+        out("    not compared, by cause: " + _kv(cc["cause"]))
+        out("    apart from both (545 P2): {}, of the compared {} · of the unpriced {}".format(
+            C_NOT_REDERIVED, cc["not_rederived"].get("compared", 0), cc["not_rederived"].get("unpriced", 0)))
         out("(d) LINE MOVE (line_move.line_move): matches {} · AT THE BELL (kickoff less 1 microsecond): {} · EVER "
             "FLAGGED (at each stored stamp in [kickoff - 3 h, kickoff)): {}".format(
                 d["evaluated"], _kv(d["bell"]), _kv(d["ever"])))
-        out("    of the book-flagged at the bell, by a one-sided session at an end of the book venue: {} · the hidden "
-            "AWAY-only end (the last pre-kickoff book stamp holds no HOME, so line_move skips it): {} (of them "
-            "book-flagged {})".format(_kv(d["book_flag_end"]), d["hidden_end"], d["hidden_end_book_flagged"]))
+        out("    of the book-flagged at the bell, by a one-sided session at an end of the book venue: {} · {}: {} "
+            "(of them book-flagged {})".format(_kv(d["book_flag_end"]), HIDDEN, d["hidden_end"],
+                                              d["hidden_end_book_flagged"]))
         out("(e) BY MONTH ({}):".format(TZ))
-        months = sorted(set(a["by_month"]) | set(b["by_month"]) | set(cc["by_month"]) | set(d["by_month"]))
+        months = sorted(set(a["by_month"]) | set(b["by_month"]) | set(cc["by_month"]) | set(d["by_month"])
+                        | set(f["by_month"]))
         for mo in months:
-            out("    {} · (a) {} · (b) {} · (c) {} · (d) {}".format(
-                mo, _kv(a["by_month"].get(mo, {})), _kv(b["by_month"].get(mo, {})), _kv(cc["by_month"].get(mo, {})),
-                _kv(d["by_month"].get(mo, {}))))
+            out("    {} · matches {} · (a) {} · (b) {} · (c) {} · (d) {}".format(
+                mo, _kv(f["by_month"].get(mo, {})), _kv(a["by_month"].get(mo, {})), _kv(b["by_month"].get(mo, {})),
+                _kv(cc["by_month"].get(mo, {})), _kv(d["by_month"].get(mo, {}))))
 
 
 def main(argv: list | None = None, out: Callable[[str], None] = print) -> int:

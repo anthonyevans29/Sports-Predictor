@@ -95,7 +95,7 @@ def games():
     }
 
 
-def build_db(path: Path) -> None:
+def build_db(path: Path, gs=None) -> None:
     from src.db.schema import Base, Competition, Match, MatchStatus, Odds, OddsSnapshot, Sport, Team
     eng = create_engine("sqlite:///{}".format(path))
     Base.metadata.create_all(eng)
@@ -105,7 +105,7 @@ def build_db(path: Path) -> None:
         soccer = Competition(sport=Sport.SOCCER, code="PL", name="PL", area="England", type="LEAGUE")
         s.add_all(list(comps.values()) + [soccer])
         s.flush()
-        for mid, (code, stage, ko, sessions, odds, kal) in games().items():
+        for mid, (code, stage, ko, sessions, odds, kal) in (gs or games()).items():
             h, a = Team(sport=Sport.NFL, name="H{}".format(mid)), Team(sport=Sport.NFL, name="A{}".format(mid))
             s.add_all([h, a])
             s.flush()
@@ -200,8 +200,9 @@ def test_a_sessions_by_their_own_legs(world):
 def test_b_the_first_session_by_its_side(world):
     code, out = run(world["db"])
     b = tail(out)["families"]["NFL"]["b"]
-    assert b["first"] == {"HOME-only": 1, "AWAY-only": 1, "complete": 6}
-    assert b["with_a_first_session"] == 8
+    # game 8 kicks off after the copy's newest snapshot, but its first session is fixed once stored: it is read
+    assert b["first"] == {"HOME-only": 1, "AWAY-only": 1, "complete": 7}
+    assert b["with_a_first_session"] == 9
 
 
 # ---- (c) ----------------------------------------------------------------------------------------------------------
@@ -217,7 +218,7 @@ def test_c_the_last_session_against_the_close(world):
 
 def test_c_the_stored_value_re_derives_from_the_stored_offers(world):
     code, out = run(world["db"])
-    assert rc.C_NOT_REDERIVED not in tail(out)["families"]["NFL"]["c"]["cause"]
+    assert tail(out)["families"]["NFL"]["c"]["not_rederived"] == {}
 
 
 def test_c_a_session_that_does_not_re_derive_is_counted(tmp_path):
@@ -229,7 +230,9 @@ def test_c_a_session_that_does_not_re_derive_is_counted(tmp_path):
     con.commit()
     con.close()
     code, out = run(db)
-    assert tail(out)["families"]["NFL"]["c"]["cause"][rc.C_NOT_REDERIVED] == 1
+    c = tail(out)["families"]["NFL"]["c"]
+    assert c["not_rederived"] == {"compared": 1}
+    assert rc.C_NOT_REDERIVED not in c["cause"]                # apart from the causes, never one of them
 
 
 # ---- (d) ----------------------------------------------------------------------------------------------------------
@@ -362,3 +365,104 @@ def test_ever_flagged_trims_rows_after_each_stamp_with_the_same_result(world):
             assert pairs
             for t, upto in pairs:
                 assert line_move(upto, ko, t) == line_move(snaps, ko, t), (mid, t)
+
+
+# ---- the pre-PR review's findings, pinned ----------------------------------------------------------------------
+
+def test_an_unreadable_stamp_never_sets_the_copys_newest(tmp_path):
+    """MAX over the text would pick 'unknown' (it sorts above every date) and empty (c) and (d) silently."""
+    db = tmp_path / "c.db"
+    build_db(db)
+    con = sqlite3.connect(str(db))
+    # on a match outside the families, so no read of this receipt loads the row itself (a malformed row inside a
+    # family's line move refuses the whole receipt, by its class alone, exit 2: never a silent count)
+    con.execute("UPDATE odds_snapshots SET captured_at = 'unknown' WHERE match_id = 99")
+    con.commit()
+    con.close()
+    code, out = run(db)
+    t = tail(out)
+    assert t["copy_newest_snapshot"] == "2026-12-02T12:00:00Z"
+    assert t["snapshot_stamps_unreadable_any_source"] == 1
+    assert t["families"]["NFL"]["c"]["compared"] == 2
+    assert t["families"]["NFL"]["d"]["evaluated"] == 8
+
+
+def _small(tmp_path, gs):
+    db = tmp_path / "s.db"
+    g = dict(gs)
+    g[2] = games()[2]                                   # carries the copy's newest stamp (a Kalshi row)
+    build_db(db, g)
+    code, out = run(db)
+    assert code == 0
+    return tail(out)["families"]["NFL"]
+
+
+def test_the_ruled_third_cause_comes_before_no_session_before_kickoff(tmp_path):
+    f = _small(tmp_path, {11: ("NFL", "REGULAR", KO, [(D + "18:30:00", {"HOME": 0.5, "AWAY": 0.5})],
+                               (D + "18:30:00", {"Y": (1.9, 1.9)}), [])})
+    assert f["c"]["cause"] == {rc.C_POST: 1}
+
+
+def test_a_later_fetch_with_no_1x2_rows_leaves_no_1x2_odds(tmp_path):
+    """The writer wipes every market of the match (service.py:3090-3091): a SPREADS-only later fetch leaves no 1X2."""
+    db = tmp_path / "w.db"
+    g = {12: ("NFL", "REGULAR", KO, [(D + "17:00:00", {"HOME": 0.5, "AWAY": 0.5})], None, []), 2: games()[2]}
+    build_db(db, g)
+    con = sqlite3.connect(str(db))
+    con.execute("INSERT INTO odds (match_id, bookmaker, market, selection, price_decimal, line, captured_at, source, "
+                "is_opening, is_closing) VALUES (12, 'Z', 'SPREADS', 'HOME', 1.9, -3.5, '2026-11-22 17:40:00.000000', "
+                "'api_american_football', 0, 0)")
+    con.commit()
+    con.close()
+    code, out = run(db)
+    assert tail(out)["families"]["NFL"]["c"]["cause"] == {rc.C_NO_ODDS: 1}
+
+
+def test_an_unpriced_last_session_is_re_derived_too(tmp_path):
+    db = tmp_path / "u.db"
+    build_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute("UPDATE odds_snapshots SET devig_prob = 0.999 WHERE match_id = 4 AND captured_at LIKE "
+                "'2026-11-22 17:50%'")
+    con.commit()
+    con.close()
+    code, out = run(db)
+    c = tail(out)["families"]["NFL"]["c"]
+    assert c["not_rederived"] == {"unpriced": 1}
+    assert c["cause"][rc.C_UNPRICED] == 2
+
+
+def test_an_unreadable_odds_stamp_is_its_own_cause(tmp_path):
+    db = tmp_path / "o.db"
+    build_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute("UPDATE odds SET captured_at = 'unknown' WHERE match_id = 6 AND market = '1X2'")
+    con.commit()
+    con.close()
+    code, out = run(db)
+    t = tail(out)
+    assert t["families"]["NFL"]["c"]["cause"][rc.C_ODDS_UNREADABLE] == 1
+    assert t["odds_rows_unreadable_stamp"] == 2
+
+
+def test_e_every_count_has_its_month(world):
+    code, out = run(world["db"])
+    f = tail(out)["families"]["NFL"]
+    nov = "2026-11"
+    assert f["a"]["by_month"][nov]["at_kickoff"] == 1 and f["a"]["by_month"][nov]["after_kickoff"] == 1
+    assert f["c"]["by_month"][nov]["differ under 0.1 pp"] == 1
+    assert f["d"]["by_month"][nov]["book-flagged, one-sided at from_at"] == 1
+    assert f["d"]["by_month"][nov]["hidden end, book-flagged"] == 1
+    assert f["by_month"]["2026-12"]["not kicked off on this copy"] == 1
+    assert tail(out)["apart"]["by_month"][nov] == {"other code UFL": 1, "preseason NFL": 1}
+
+
+def test_a_column_the_orm_read_loads_is_checked(tmp_path):
+    db = tmp_path / "y.db"
+    build_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute("ALTER TABLE odds_snapshots DROP COLUMN yes_bid")
+    con.commit()
+    con.close()
+    code, out = run(db)
+    assert code == 2 and "yes_bid not in odds_snapshots (law 1)" in out[-1]

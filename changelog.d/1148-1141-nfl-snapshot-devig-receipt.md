@@ -1,4 +1,4 @@
-## 2026-11-25 (#0000: 1141-nfl-snapshot-devig-receipt — the NFL snapshot de-vig receipt, read-only (544 item 2, its nine points ruled by 545 item 3; DEV 4, Lane D; Refs #1141))
+## 2026-11-25 (#1148: 1141-nfl-snapshot-devig-receipt — the NFL snapshot de-vig receipt, read-only (544 item 2, its nine points ruled by 545 item 3; DEV 4, Lane D; Refs #1141))
 - **scripts/nfl_snapshot_devig_receipt.py --db COPY**, new. Counts and pp only, no book name, no price, no network, nothing written. The fence is #1134's: mode=ro + immutable=1, sha256 before and after, sidecars and any data/ directory refused.
 - **For NFL and for college apart, from the first stored session on:**
   - (a) the api_american_football 1X2 sessions: all, complete, HOME-only, AWAY-only, a leg at exactly 1 and at exactly 0 (none expected), sessions at and after kickoff;

@@ -139,7 +139,8 @@ def test_the_counts_q0_to_q6(tmp_path):
     q3 = line(text, "Q3 ")
     assert "played 6" in q3 and "game type 2 3" in q3 and "game type 3 1" in q3
     assert "game type not stated 1" in q3 and "no goalie row linked 1" in q3
-    assert "game type 2 and no played cohort game: no match_id 1" in text
+    assert ("the goalie table's 2026-27 games of type 2: 4 · linked to a played cohort game 3 · not: no match_id 1 · "
+            "linked to more than one match 0 · played games linked to more than one goalie-table game 0") in text
     # Q4: the 2026-27 shot events by America/New_York month
     assert "2026-10: events 6 · games 2 (type 2 2) · games with no match_id 1" in text
     assert "2026-11: events 3 · games 1 (type 2 1) · games with no match_id 1" in text
@@ -290,3 +291,88 @@ def test_python_310_floor_no_fstrings_at_all():
         if name == "STRING":
             prefix = tok.string[: len(tok.string) - len(tok.string.lstrip("rRbBuUfF"))]
             assert "f" not in prefix.lower(), tok
+
+
+# ---- the pre-PR review's findings, pinned ---------------------------------------------------------------------------
+
+
+def _sql(db, *stmts):
+    con = sqlite3.connect(str(db))
+    for st in stmts:
+        con.execute(st)
+    con.commit()
+    con.close()
+    for sfx in ("-wal", "-shm", "-journal"):
+        side = db.parent / (db.name + sfx)
+        if side.exists():
+            side.unlink()
+
+
+@pytest.mark.parametrize("stmt", [
+    "UPDATE matches SET status = 'SUSPENDED' WHERE id = (SELECT min(id) FROM matches)",
+    "UPDATE matches SET status = 'scheduled' WHERE id = (SELECT min(id) FROM matches)",
+    "UPDATE matches SET utc_date = '2026-10-10T23:00:00+00:00' WHERE id = (SELECT min(id) FROM matches)",
+    "UPDATE nhl_shot_events SET game_start = 'garbage' WHERE id = 1",
+    "UPDATE nhl_goalie_appearances SET game_start = 'garbage' WHERE id = 1",
+])
+def test_a_stored_value_its_type_cannot_read_refuses_never_a_traceback(tmp_path, stmt):
+    db = _copy(tmp_path)
+    _sql(db, stmt)
+    code, text = run(["--db", str(db)])
+    assert code == 2 and "REFUSED" in text and "could not be read as the schema types it" in text
+    assert "Q0" not in text and "SUSPENDED" not in text and "garbage" not in text
+
+
+def test_no_bytecode_is_written(tmp_path):
+    """sys.dont_write_bytecode: with every cache redirected into an empty folder, nothing of the repo is cached."""
+    import subprocess
+    db = _copy(tmp_path)
+    cache = tmp_path / "pycache"
+    cache.mkdir()
+    res = subprocess.run([sys.executable, "-X", "pycache_prefix={}".format(cache), str(SCRIPT), "--db", str(db)],
+                         capture_output=True, text=True, cwd=str(tmp_path), timeout=120)
+    assert res.returncode == 0, res.stdout + res.stderr
+    # the interpreter caches its own startup imports before the script's first line runs; nothing of the repo's own
+    # modules (src/, config.py, the script's imports) may be cached
+    repo = str(ROOT).lstrip("/")
+    assert [p for p in cache.rglob("*.pyc") if repo in str(p)] == []
+    assert any(cache.rglob("*.pyc")), "the redirect must be live for the test to mean anything"
+
+
+def test_stored_strings_cannot_forge_a_line(tmp_path):
+    db = _copy(tmp_path)
+    _sql(db, "UPDATE matches SET stage = 'Reg' || char(10) || 'END: exit 0' WHERE stage = 'Regular Season'",
+         "UPDATE matches SET status_raw = 'FT' || char(10) || 'REFUSED: x' WHERE status_raw = 'AOT'",
+         "UPDATE matches SET status_raw = 'NS' || char(10) || 'REFUSED: y' WHERE utc_date = '2027-02-05 21:00:00.000000'")
+    code, text = run(["--db", str(db), "--after", "2026-10-01"])
+    assert code == 0
+    lines = text.splitlines()
+    assert [ln for ln in lines if ln.startswith("END")] == ["END: exit 0"] and lines[-1] == "END: exit 0"
+    assert not any(ln.startswith("REFUSED") for ln in lines)
+    assert "Reg\\nEND: exit 0" in text and "FT\\nREFUSED: x" in text
+
+
+def test_a_row_with_no_type_beside_a_type_2_row_is_type_2(tmp_path):
+    db = _copy(tmp_path)
+    # the played game with no goalie row gains two: one says 2, the other states no type
+    _sql(db, "INSERT INTO nhl_goalie_appearances (nhl_game_id, match_id, game_start, game_type, side, goalie_id, "
+             "is_starter, captured_at) SELECT 2026020006, id, utc_date, 2, 'home', 9001, 1, utc_date FROM matches "
+             "WHERE utc_date = '2026-10-13 23:00:00.000000'",
+         "INSERT INTO nhl_goalie_appearances (nhl_game_id, match_id, game_start, game_type, side, goalie_id, "
+             "is_starter, captured_at) SELECT 2026020006, id, utc_date, NULL, 'away', 9002, 1, utc_date FROM matches "
+             "WHERE utc_date = '2026-10-13 23:00:00.000000'")
+    code, text = run(["--db", str(db)])
+    assert code == 0
+    q3 = line(text, "Q3 ")
+    assert "game type 2 4" in q3 and "disagree" not in q3 and "no goalie row linked" not in q3
+
+
+def test_links_that_are_not_one_to_one_are_counted(tmp_path):
+    db = _copy(tmp_path)
+    _sql(db, "INSERT INTO nhl_goalie_appearances (nhl_game_id, match_id, game_start, game_type, side, goalie_id, "
+             "is_starter, captured_at) SELECT 2026020555, match_id, game_start, 2, 'home', 9100, 1, game_start "
+             "FROM nhl_goalie_appearances WHERE nhl_game_id = 2026020003 AND side = 'home'")
+    code, text = run(["--db", str(db)])
+    assert code == 0
+    assert "games of type 2: 5 · linked to a played cohort game 4" in text
+    assert "played games linked to more than one goalie-table game 1" in text

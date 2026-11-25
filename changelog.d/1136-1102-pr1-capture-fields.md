@@ -1,4 +1,4 @@
-## 2026-11-25 (#0000: 1102-pr1-capture-fields — THE FIELDS, F1 to F4 (addendum 529 item 3(a), 532 item 2, 534 item 4; DEV 3's one text on #1102, comment 7167846609; gate-class: an export contract))
+## 2026-11-25 (#1136: 1102-pr1-capture-fields — THE FIELDS, F1 to F4 (addendum 529 item 3(a), 532 item 2, 534 item 4; DEV 3's one text on #1102, comment 7167846609; gate-class: an export contract))
 - **F1 `run_started_at`, top level** (`src/walters/export.py`, `src/walters/nfl_predict.py`). It is the slate run's held start, ISO Z with microseconds, written verbatim.
   - It comes from `--run-start`, an option of `export-predictions` and `export-nfl-predictions` only (`cli.py`). The slate passes it: the watch's slate stage, or the architect's by-hand slate block (519 2(c)). Any other form of the value exits 2 at parse time, before any read; it is checked by an ASCII-only regex, not `fromisoformat`, which refuses "Z" on Python 3.10.
   - With `--format csv` it exits 2: a CSV has no top level.

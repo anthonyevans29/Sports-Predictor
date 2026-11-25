@@ -1,4 +1,4 @@
-## 2026-11-25 (#0000: 523-nhl-cohort-count — the NHL cohort count, read-only tooling (DEV 4, Lane D; ARCHITECT 2026-11-24 19:21 ET, addendum 523 item 2; item (f) of DEV 3's read on #105, comment 7146331897; Refs #105))
+## 2026-11-25 (#1126: 523-nhl-cohort-count — the NHL cohort count, read-only tooling (DEV 4, Lane D; ARCHITECT 2026-11-24 19:21 ET, addendum 523 item 2; item (f) of DEV 3's read on #105, comment 7146331897; Refs #105))
 - **scripts/nhl_cohort_count.py**, new: `--db COPY` (required) and `--after YYYY-MM-DD` (repeatable). It prints DEV 3's Q0 to Q6 for the NHL 2026-27 season as counts only:
   - Q0: stage by status, the stage as stored, with the shadow's preseason rule beside it.
   - Q1: the six international games, found as 445 item 3(b) finds them or said NOT FOUND, and then counted for nothing.

@@ -1,0 +1,5 @@
+**2026-11-25 — The NBA injury-report probe's one-document read, built (553 item 3; DEV 4, Lane D; Refs #839; #1151).**
+- **Ruling (553 item 3, in part):** "DEV 4 BUILDS THE ONE THING THE PROBE LACKS: the report phase reading ONE document by a URL given to it, with no index read. scripts/nba_injury_report_probe.py and its tests, nothing else"
+- **What landed:** `--document-url` under `--report`: one GET, the probe's own client name, no redirect followed, no index read; the same form and fields as the newest report, structure only; refused before any fetch together with `--index-url`, without `--report` and without `--terms-ruling`; the URL and any Location in the receipt only; the no-URL-default rule pinned.
+- **Open:** DEV 4's points A-E on #839 (the URL off the console, a 403 FAILED, the file name receipt-only, no URL check, the two doc lines) are built as defaults and await the architect.
+- **Next:** the review rounds, then the merge. The run is the architect's OPERATOR ONLY block on the host, after the tag that carries it (553 item 3). The NBA stays market-only (553 item 5).

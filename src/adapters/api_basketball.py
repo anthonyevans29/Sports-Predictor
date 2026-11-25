@@ -47,7 +47,7 @@ from typing import Any
 
 import requests
 
-from src.adapters.base import DataAdapter
+from src.adapters.base import DataAdapter, report_dropped
 from src.adapters.normalized import (
     NormalizedCompetition,
     NormalizedMatch,
@@ -379,12 +379,7 @@ class APIBasketballAdapter(DataAdapter):
 
     def _report_dropped(self, what: str, dropped: dict[str, list]) -> None:
         """Law 4: a listing the adapter cannot place is counted on a printed line, never silent."""
-        self.last_dropped = dropped
-        if dropped:
-            parts = " · ".join(f"{why} {len(ids)}" for why, ids in dropped.items())
-            ids = [str(i) for v in dropped.values() for i in v if i is not None]
-            print(f"api_basketball /{what}: {sum(len(v) for v in dropped.values())} listing(s) not read ({parts})"
-                  + (f": {', '.join(ids)}" if ids else ""), flush=True)
+        report_dropped(self, what, dropped)          # the shared line (base.dropped_line), byte for byte as before
 
     def get_match_stats(self, match_source_id: str) -> list[NormalizedMatchStats]:
         return []

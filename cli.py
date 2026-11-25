@@ -1333,6 +1333,11 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
         service = IngestionService(adapter)
         result = service.sync_odds_mlb(season=season_int, days_ahead=days_ahead)
         _print_no_book_odds(result)          # before the summary, which stays the step receipt's key line
+        if hasattr(result, "odds_not_read") and not _odds_read_not_made(result):
+            # addendum 502 Q7: the games the run did not read, by cause, plainly, zero included; still before the
+            # summary (the step receipt's key line). No line when no odds read was made (law 4: no 0 it did not count)
+            from src.ingestion.service import odds_not_read_line
+            print(odds_not_read_line(result.odds_not_read), flush=True)
         console.print(f"[green]✓ MLB odds: {result}[/green]")
         return
 
@@ -1350,6 +1355,11 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
         # zero included; still before the summary (the step receipt's key line)
         from src.ingestion.service import odds_mismatch_line
         print(odds_mismatch_line(result.orientation_mismatch_unpriced), flush=True)
+    if hasattr(result, "odds_not_read"):
+        # addendum 502 Q7: the games the run did not read, by cause, plainly, zero included; after the mismatch line,
+        # still before the summary (the step receipt's key line)
+        from src.ingestion.service import odds_not_read_line
+        print(odds_not_read_line(result.odds_not_read), flush=True)
     console.print(f"[green]✓ Odds ({competition_code}): {result}[/green]")
 
 
@@ -1457,6 +1467,13 @@ def _print_no_book_odds(result) -> None:
             + (f" (game {g['game_id']})" if g.get("game_id") is not None else "") for g in games), flush=True)
     elif run:
         print(f"{NO_BOOK_ODDS_MARK} (MLB): run [{NO_BOOK_ODDS_RUN_WHY.get(run, run)}]", flush=True)
+
+
+def _odds_read_not_made(result) -> bool:
+    # addendum 502 Q7 with law 4: the MLB odds sync made no odds read (no key, or the window read raised), so its
+    # odds_not_read line is not printed: a 0 there would be a count nobody made. An empty window ("window_empty") was
+    # read, and its line counts what that read dropped.
+    return getattr(result, "no_book_odds_run", None) in ("no_key", "window_failed")
 
 
 def _print_empty_answers(competition_code: str, result, positions: bool = True) -> None:
@@ -4324,6 +4341,11 @@ def capture_odds_cmd(sport: str, competition: str, season: str):
     svc = IngestionService(_adapter_for_competition(competition))
     try:
         res = svc.sync_odds_mlb(season=int(season))
+        if hasattr(res, "odds_not_read") and not _odds_read_not_made(res):
+            # addendum 502 Q7: the games the sync did not read, by cause, plainly, zero included, before its line (the
+            # command's last line stays its "✓ Captured" summary). No line when no odds read was made (law 4)
+            from src.ingestion.service import odds_not_read_line
+            print(odds_not_read_line(res.odds_not_read), flush=True)
         console.print(f"[dim]odds synced: {res}[/dim]")
     except Exception as e:
         console.print(f"[yellow]odds sync warning: {e} — snapshotting whatever is in DB[/yellow]")
@@ -6877,6 +6899,11 @@ def sync_odds_football_cmd(match_ids=None):
         # zero included; still before the summary (the step receipt's key line)
         from src.ingestion.service import odds_mismatch_line
         print(odds_mismatch_line(r["orientation_mismatch_unpriced"]), flush=True)
+    if "not_priced" in r:
+        # addendum 502 Q7: the games the run left unpriced, by cause, plainly, zero included; after the mismatch line,
+        # still before the summary (the step receipt's key line)
+        from src.ingestion.service import football_not_priced_line
+        print(football_not_priced_line(r["not_priced"]), flush=True)
     console.print(f"[green]✓ Football odds: created={r['created']} "
                   f"across {r['games']} games"
                   + (" (" + " · ".join(f"{c} {by_comp.get(c, 0)}" + (f"/{window[c]}" if c in window else "")

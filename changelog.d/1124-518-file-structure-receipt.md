@@ -26,5 +26,5 @@
   - a file not read whole;
   - no CSV found.
 - **Named as SKIPPED:** subfolders (without `--recursive`), symlinked folders, macOS metadata (`._*`, `__MACOSX/`), other files and other zip members.
-- **tests/test_file_structure_receipt.py (67):** synthetic files under tmp_path only. They pin every finding of two independent review passes made before the PR. They pass on Python 3.10 and 3.13. Nothing was run on a real file.
+- **tests/test_file_structure_receipt.py (69):** synthetic files under tmp_path only. They pin every finding of two independent review passes made before the PR. They pass on Python 3.10 and 3.13. Nothing was run on a real file.
 - **scripts/README.md:** the receipt is indexed as a TOOL (119 indexed, TOOL 67).

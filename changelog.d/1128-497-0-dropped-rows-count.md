@@ -1,0 +1,58 @@
+## 2026-11-25 (#1128: 497-0-dropped-rows-count — the rows the adapters drop before counting, the games sync-odds does not read and the games sync-odds-football leaves unpriced, each counted with its causes on a printed line (ARCHITECT 2026-11-24, addendum 497 Q7 and item 2 step (0); addendum 502 Q7; MONEY-PATH; #1102))
+- **src/adapters/base.py:** two shared module-level helpers.
+  - `dropped_line(source, what, dropped)` returns `<source> /<what>: N listing(s) not read (reason n · reason n): id, id`, or None when nothing was dropped. A None id is counted but not listed.
+  - `report_dropped(owner, what, dropped, source=None)` sets `owner.last_dropped` and prints the line, plainly, when there is one.
+- **src/adapters/api_basketball.py:** `_report_dropped` calls `report_dropped`. Its printed line is byte for byte as before.
+- **src/adapters/mlb_stats_api.py:** `list_matches` counts each entry `_parse_game` drops, keyed by gamePk: "no team id" and "unreadable date". A new `_drop_cause(game)` reads the two checks in `_parse_game`'s own order. `_parse_game`'s signature, return and output are unchanged. The line reads `mlb_stats_api /schedule: ...`. `last_dropped` starts in `__init__` and is reset on each read.
+- **src/adapters/api_hockey.py:**
+  - `list_matches` counts "no kickoff date", "no game id" and "no team id", split from the one old test.
+  - `list_teams` counts "no team id" and "no team name".
+- **src/adapters/api_american_football.py:**
+  - `_parse_games` takes an optional `dropped` dict and records "no kickoff date", "no game id", "no team id" and "non-competitive". The per-row exhibition line is printed exactly as before.
+  - Only `list_matches` passes the dict and prints the line. `get_game` (refresh-by-id) passes none and prints nothing new.
+  - `list_teams` counts "no team id", "no team name" and "non-competitive", whose per-row line is kept.
+- **src/adapters/api_baseball.py:**
+  - `list_teams` counts "no team id" and "no team name" and prints `api_baseball /teams: ...`.
+  - `_parse_game_odds` takes an optional `dropped` dict. `list_odds_window` and `list_odds_for_game` keep each read's whole-game drops on `last_dropped`: "no game id", "unreadable date" and "no team name". The client prints nothing for these; sync_odds_mlb carries them.
+- **src/ingestion/mlb_apisports.py:** `sync_matches`, the host's MLB fallback, prints `api_baseball /games: N listing(s) not read (unreadable date n): ids` for provider games whose date cannot be read. A kickoff outside the window is scope and is not counted. The receipt is unchanged.
+- **src/ingestion/service.py:**
+  - **sync_odds:** `SyncResult.odds_not_read` (reason -> [stored match ids]) is a new field, not printed by `__str__`. It counts:
+    - "no provider id": in league mode every upcoming match without one, dropped before the limit; with --match-ids the named ones only;
+    - with --match-ids, each named id that is not a candidate, classified by one read of its row: "not stored", "other competition", "other season" (only with --season), "not scheduled" or "kickoff passed".
+  - **sync_odds_mlb:** fills the same field with the client's drops over the window read and every per-game read, by provider game id. A game is listed once over the run: the rollover's per-game read is a retry of the same game, and a game some read returned rows for is taken off at the end. It also counts the games at or after first pitch as "started", by stored match id: in the window's own pass and in the rollover's per-game pass (a game that started while its read was in flight; review round 1, Codex P2).
+  - **sync_odds_nfl:** returns a new `not_priced` key (reason -> [stored match ids]) with "named, not in the window", "no provider id", "fetch error", "still rate limited" and "no rows". Every progress line and every other key is unchanged.
+  - **New line helpers:** `odds_not_read_line(d)` prints `odds_not_read N` or `odds_not_read N (reason n: ids · ...)`. `football_not_priced_line(d)` prints the same shape.
+- **cli.py:** each line prints plainly, zero included, before the summary, which stays the last line.
+  - **sync-odds, non-MLB:** after the mismatch line, guarded by hasattr.
+  - **sync-odds --competition MLB:** after NO-BOOK-ODDS. Not printed when no odds read was made (no key, or the window read raised).
+  - **capture-odds:** before its "odds synced:" line, on the same condition. Its last line stays "✓ Captured".
+  - **sync-odds-football / sync-odds-nfl:** after orientation_mismatch_unpriced, guarded by `"not_priced" in r`.
+- **tests/test_dropped_rows_count.py** (42, synthetic payloads, no provider call):
+  - each adapter's causes with their ids, the good row kept unchanged, and a clean answer that prints nothing and leaves `last_dropped` {};
+  - the basketball line byte-identical to its 3b63269b text;
+  - get_game printing nothing new;
+  - the fallback's unreadable date;
+  - sync-odds in league mode and every --match-ids cause, through CliRunner, with exit 0 and the summary last;
+  - MLB's client drops and started, and capture-odds;
+  - a game the window read and its per-game read both drop, listed once, and a game the per-game read priced, not listed;
+  - no line on MLB's no-key and failed-window runs;
+  - sync-odds-football's five causes and a stub without the key;
+  - every new line format matching none of sp_run's count lines, `_EXC_LINE`, `_TRANSIENT`, `laptop_routine.SYNC_ECHO` or closing's NO-BOOK-ODDS shape, and starting with neither ✓ nor ✗.
+- **tests/test_no_book_odds.py:** the MLB wiring test reads NO-BOOK-ODDS on the third line from the end and `odds_not_read` on the second, with the summary still last and NO-BOOK-ODDS still inside the five-line tail.
+- **Not changed:**
+  - no exit code;
+  - deploy/hosting/sp_run.py, chains.py, closing.py, laptop_routine.py and the admin route;
+  - no stop rule or go_on;
+  - no stored row or value;
+  - no prediction output;
+  - SyncResult's `__str__`, so the admin job's line is unchanged.
+- **Readings:**
+  - mlb_stats_api's line names `/schedule`, its endpoint.
+  - The MLB odds labels list provider game ids, and "started" lists stored match ids.
+  - A named sync-odds id that no label covers reads "not a candidate". This is unreachable as written.
+  - sync-odds on a competition not in the DB returns before any read: with `--match-ids` every named id is counted as "competition not in the DB"; without it the line reads `odds_not_read 0` (the existing warning is the signal).
+  - On MLB, a run with no key or a failed window read makes no odds read and prints no odds_not_read line. An empty window was read, so its line counts that read's drops.
+  - A "no game id" drop has no id to match across reads, so it is counted once per read.
+  - The adapters' line also prints in every other `list_matches` caller: dedupe-matches --orphans, in its per-day date search, and resync-diff, for MLB, NHL, NFL and NCAA.
+  - On the MLB step, NO-BOOK-ODDS moves to the third line from the end, still inside the five-line tail.
+  - These stay out: the --limit cut, the per-price parser drops, kalshi_tennis's duplicate ticker and its window filter, the fallback's non-club and ambiguous team counts on sync-matches, and api_football, which aborts and never drops.

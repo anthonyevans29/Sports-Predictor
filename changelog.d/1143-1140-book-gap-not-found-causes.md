@@ -1,0 +1,5 @@
+## 2026-11-25 (#1143: 1140-book-gap-not-found-causes — the book-gap receipt counts the causes of its two unknowns over every row (#1140; 543 item 2(d); DEV 4, Lane D))
+- **scripts/closing_book_gap_receipt.py:** the causes of "books' session not found" and of "no stamp" were counted over the rows with a gap only, while the every-row line counted every row. A row with no gap (no Kalshi price, or a fair not the 1X2 consensus) fell out of the causes.
+- **The fix:** two lines more per family, the causes of each unknown over every row in the window, a gap or none, each summing to its count on the every-row line (JSON `not_found_why_all`, `no_stamp_why_all`). The gap distributions and their existing cause lines stay the rows with a gap, now labelled so.
+- **The "no stamp" line had the same fault** as the one #1140 names, and is fixed the same way.
+- **tests/test_closing_book_gap_receipt.py (30):** three new tests, each failing on main's script first: a not-found row with no gap (NFL game 203), a no-stamp row with no gap, and every breakdown summing to its every-row count. They pass on Python 3.10 and 3.13. No gap, bucket or staked line changes.

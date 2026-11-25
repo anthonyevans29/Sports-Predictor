@@ -94,7 +94,9 @@ THE MEASURES:
   |fair HOME - Kalshi HOME| x 100, in pp, set in the bucket of the books' session. A row whose books' session is not
   found on the copy is a line of its own, "books' session not found", counted by cause beside the eight buckets, and
   is not folded into "no stamp", which holds a session found without the source's stamp (539 item 2: "two different
-  unknowns"). A row with no gap is counted by cause.
+  unknowns"). A row with no gap is counted by cause. The causes of the two unknowns, "books' session not found" and
+  "no stamp", are also counted over EVERY row in the window, a gap or none, each summing to its count on the every-row
+  line (#1140, scheduled by 543 item 2(d)); the gap distributions stay the rows with a gap.
 - THE STAKED ROWS (item 3, 534 Q1, Q3): desk.call PLAY in the staked line, LADDER in a line of its own: the pick's
   gap |fair pick - Kalshi pick| (NFL's AWAY is 1 - kalshi_prob: the pair is normalised), and the bucket of its
   reference: the books' session's where desk.reference is "books"; "reference not the books" where it is not
@@ -668,14 +670,25 @@ def family_report(fam: str, rows: list, L: list) -> dict:
     by_b[NOT_FOUND_SESSION] = {**dist([x["gap"] for x in nf]), "why": dict(nf_why)}
     L.append(f"    {NOT_FOUND_SESSION} (a line of its own, beside the buckets; 539 item 2, 540 item 2(e)): "
              f"{_dist_text(by_b[NOT_FOUND_SESSION])}"
-             + (" · " + "; ".join(f"{w} {v}" for w, v in sorted(nf_why.items())) if nf_why else ""))
+             + (" · of these rows with a gap, by cause: " + "; ".join(f"{w} {v}" for w, v in sorted(nf_why.items()))
+                if nf_why else ""))
     ns_why = Counter(x["stamp_why"] for x in gapped if x["bucket"] == NO_STAMP)
-    L.append(f"    {NO_STAMP}, by cause: " + ("; ".join(f"{w} {v}" for w, v in sorted(ns_why.items())) or "none"))
+    L.append(f"    {NO_STAMP}, the rows with a gap, by cause: "
+             + ("; ".join(f"{w} {v}" for w, v in sorted(ns_why.items())) or "none"))
     L.append("    rows with no gap, by cause: " + ("; ".join(f"{w} {v}" for w, v in sorted(nogap.items())) or "none"))
     all_b = Counter(x["bucket"] if x["bucket"] is not None else NOT_FOUND_SESSION for x in inside)
     L.append("    every row in the window, by bucket (gap or none): " + " · ".join(
         f"{name} {all_b.get(name, 0)}" for name in names + [AFTER, NOT_FOUND_SESSION]))
-    out.update(home_gap=by_b, no_gap=dict(nogap), no_stamp_why=dict(ns_why), by_bucket_all=dict(all_b))
+    # #1140 (543 item 2(d)): the causes of the two unknowns over EVERY row in the window, a gap or none, so each sums
+    # to its count on the line above; the gap distributions above stay the rows with a gap
+    nf_all = Counter(x["session_why"] for x in inside if x["bucket"] is None)
+    ns_all = Counter(x["stamp_why"] for x in inside if x["bucket"] == NO_STAMP)
+    L.append(f"    {NOT_FOUND_SESSION}, every row in the window (gap or none), by cause: "
+             + ("; ".join(f"{w} {v}" for w, v in sorted(nf_all.items())) or "none"))
+    L.append(f"    {NO_STAMP}, every row in the window (gap or none), by cause: "
+             + ("; ".join(f"{w} {v}" for w, v in sorted(ns_all.items())) or "none"))
+    out.update(home_gap=by_b, no_gap=dict(nogap), no_stamp_why=dict(ns_why), by_bucket_all=dict(all_b),
+               not_found_why_all=dict(nf_all), no_stamp_why_all=dict(ns_all))
     staked = {}
     for call, title in STAKED:
         xs = [x for x in inside if (x["desk"] or {}).get("call") == call]

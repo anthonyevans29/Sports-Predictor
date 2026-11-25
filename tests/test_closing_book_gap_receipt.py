@@ -585,3 +585,39 @@ def test_a_family_with_no_stamped_row_counts_its_rows_once(tmp_path):
     rc.main(["--exports", str(ex), "--db", str(db)], echo=out.append)
     fam = summary(out)["families"]["NFL"]
     assert fam["before_first"] == 0 and fam["out_no_stamped_row"] == fam["rows"] == 7
+
+
+# ---- #1140 (543 item 2(d)): the causes of the two unknowns over every row in the window -----------------------
+
+def test_the_not_found_causes_count_the_rows_with_no_gap_too(world):
+    """NFL game 203 (a spread-derived fair: no gap, no session) was counted in the every-row line but in no cause."""
+    code, out = run(world)
+    nfl = summary(out)["families"]["NFL"]
+    assert nfl["home_gap"]["books' session not found"]["n"] == 0          # the gap distribution: rows with a gap
+    assert nfl["not_found_why_all"] == {
+        "the books' fair is not the 1X2 consensus (fair_source 'spread_derived')": 1}
+    soccer = summary(out)["families"]["SOCCER"]
+    assert soccer["not_found_why_all"] == {"no stored session matches the page": 1}
+    # the printed line, not only the JSON: the console is what the run's reader sees
+    assert any(ln == "    books' session not found, every row in the window (gap or none), by cause: the books' fair "
+               "is not the 1X2 consensus (fair_source 'spread_derived') 1" for ln in out)
+
+
+def test_the_no_stamp_causes_count_the_rows_with_no_gap_too(world, tmp_path):
+    ex = tmp_path / "ex1140"
+    closing(ex, SD + "15:00:00", S_EXP, [srow(100), srow(103, normalized=False)])   # 103: unstamped, no gap
+    code, out = run(world, ex=ex)
+    fam = summary(out)["families"]["SOCCER"]
+    assert fam["home_gap"]["no stamp"]["n"] == 0
+    assert fam["no_stamp_why"] == {}
+    assert fam["no_stamp_why_all"] == {"the session's rows unstamped (NULL)": 1}
+    assert any(ln == "    no stamp, every row in the window (gap or none), by cause: the session's rows unstamped "
+               "(NULL) 1" for ln in out)
+
+
+def test_every_cause_breakdown_sums_to_its_every_row_count(world):
+    code, out = run(world)
+    for name, fam in summary(out)["families"].items():
+        allb = fam["by_bucket_all"]
+        assert sum(fam["not_found_why_all"].values()) == allb.get("books' session not found", 0), name
+        assert sum(fam["no_stamp_why_all"].values()) == allb.get("no stamp", 0), name

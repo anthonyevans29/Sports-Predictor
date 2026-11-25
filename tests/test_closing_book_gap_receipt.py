@@ -43,6 +43,33 @@ F2 = (0.600012, 0.399988)                  # page fair 0.6000 / 0.4000
 
 SENTINELS = ("777.77", "4242", "31337", "9999", "SecretBook", "88.88", "6161")
 
+# THE NFL PREMISE (the pre-PR review's P1): three books at different overrounds in one fetch. The page's fair is
+# close_1x2's (de-vigged per complete book, then averaged; nfl_predict.py:268-275), the snapshot's is
+# sync_odds_nfl's (the mean implied per selection over every offer, over their sum; service.py:3019-3036).
+BOOKS = {"A": (1.50, 2.60), "B": (1.55, 2.40), "C": (1.45, 2.85)}
+
+
+def _nfl_page_fair():
+    from types import SimpleNamespace as NS
+
+    from src.walters.close import BINARY, close_1x2
+    t = datetime.fromisoformat("2026-11-22T17:50:00")
+    rows = [NS(market="1X2", selection=sel, bookmaker=bk, price_decimal=px[i], captured_at=t, line=None)
+            for bk, px in BOOKS.items() for i, sel in enumerate(("HOME", "AWAY"))]
+    f = close_1x2(rows, None, BINARY)["fair"]
+    return (f["HOME"], f["AWAY"])
+
+
+def _nfl_pooled():
+    from src.walters.value import MarketSnapshot
+    by = {sel: [(bk, px[i]) for bk, px in BOOKS.items()] for i, sel in enumerate(("HOME", "AWAY"))}
+    imp = MarketSnapshot(market="1X2", by_selection=by).average_implied()
+    over = sum(imp.values())
+    return (imp["HOME"] / over, imp["AWAY"] / over)
+
+
+PAGE206, POOLED206 = _nfl_page_fair(), _nfl_pooled()
+
 # id: (family, home, away, kickoff, [(captured_at, values, stamp)])
 GAMES = {
     90: ("SOCCER", "Leeds", "Burnley", "2026-11-14T15:00:00", [("2026-11-14T14:20:00", F3, None)]),
@@ -64,6 +91,8 @@ GAMES = {
     203: ("NFL", "Giants", "Eagles", ND + "18:00:00", [(ND + "17:50:00", F2, ND + "15:00:00")]),
     204: ("NFL", "Rams", "Seahawks", ND + "18:00:00", [(ND + "17:50:00", F2, ND + "09:00:00")]),
     205: ("NFL", "Chiefs", "Raiders", ND + "18:00:00", [(ND + "17:50:00", F2, ND + "15:00:00")]),
+    206: ("NFL", "Broncos", "Chargers", ND + "18:00:00",
+          [(ND + "16:50:00", PAGE206, ND + "05:00:00"), (ND + "17:50:00", POOLED206, ND + "15:00:00")]),
 }
 
 
@@ -139,14 +168,15 @@ def srow(mid, fair=F3, kalshi=K3, normalized=True, status=None, dk=None, comp="P
     return r
 
 
-def nrow(mid, fair=F2, kalshi_prob=0.55, source="1X2", mismatched=False, dk=None):
+def nrow(mid, fair=F2, kalshi_prob=0.55, source="1X2", mismatched=False, dk=None, to_at=None):
     _f, h, a, ko, _s = GAMES[mid]
     r = {"match_id": mid, "utc_date": ko, "week": 12, "stage": "REGULAR", "home_team": h, "away_team": a,
          "market": {"bookmaker_count": 5, "fair_prob": {k: round(v, 4) for k, v in zip(S2, fair)},
                     "fair_source": source},
          "kalshi_prob": kalshi_prob, "kalshi_captured_at": ND + "17:54:00", "venue_gap_pp": 99.9,
          "kalshi_bid": 6161, "away_bid": 6161, "exec_cost_maker_away": 31337,
-         "input_quality": {"book_odds": 5, **({"kalshi": "mismatched"} if mismatched else {})}}
+         "input_quality": {"book_odds": 5, **({"kalshi": "mismatched"} if mismatched else {})},
+         "line_move": None if to_at is None else {"flag": None, "venues": {"book": {"to_at": to_at}}}}
     if dk is not None:
         r["desk"] = dk
     return r
@@ -183,8 +213,11 @@ def nfl_page():
             nrow(201, dk=desk("PLAY", "AWAY", "kalshi_only", 0.45)),      # 2-3 h; reference not the books
             nrow(202, kalshi_prob=None, dk=desk("PASS")),                 # no Kalshi pair
             nrow(203, source="spread_derived", dk=desk("PASS")),          # fair not the 1X2 consensus
-            nrow(204, dk=desk("PLAY", "AWAY", "books", 0.4)),             # 6-12 h, staked on the books
-            nrow(205, mismatched=True, kalshi_prob=None, dk=desk("PASS"))]
+            nrow(204, dk=desk("PLAY", "AWAY", "books", 0.4), to_at=ND + "17:40:00"),   # 6-12 h; line_move differs
+            nrow(205, mismatched=True, kalshi_prob=None, dk=desk("PASS")),
+            # the pooled snapshot of the page's own fetch, unequal at 4 places; an EARLIER session that equals the
+            # page is never taken (by capture time, NFL); line_move's to_at agrees
+            nrow(206, fair=PAGE206, dk=desk("PASS"), to_at=ND + "17:50:00")]
 
 
 def write_exports(ex: Path):
@@ -256,13 +289,13 @@ def test_soccer_home_gap_by_bucket(world):
     assert hg["2-3 h"]["n"] == 1
     assert hg["12-24 h"]["n"] == 1
     assert hg["24 h or more"]["n"] == 1
-    assert hg["no stamp"]["n"] == 1
+    assert hg["no stamp"]["n"] == 2              # 534 Q5: the unstamped session and the session not found
     assert hg["stamp after the export"]["n"] == 1
-    assert hg["books' session not found"]["n"] == 1
-    assert hg["books' session not found"]["why"] == {"no stored session matches the page": 1}
+    assert "books' session not found" not in hg
     assert fam["no_gap"] == {"Kalshi not priced on every leg (not normalised)": 1,
                              "Kalshi's legs mismatched (no price)": 1}
-    assert fam["no_stamp_why"] == {"the session's rows unstamped (NULL)": 1}
+    assert fam["no_stamp_why"] == {"the session's rows unstamped (NULL)": 1,
+                                   "books' session not found: no stored session matches the page": 1}
     assert "HOME gap 4.77 pp" in block(out, 100)
     assert "bucket under 1 h" in block(out, 100)
 
@@ -279,7 +312,7 @@ def test_nfl_by_bucket_and_causes(world):
     fam = summary(out)["families"]["NFL"]
     hg = fam["home_gap"]
     assert hg["12-24 h"]["n"] == 1 and abs(hg["12-24 h"]["median"] - 5.0) < 1e-9
-    assert hg["2-3 h"]["n"] == 1
+    assert hg["2-3 h"]["n"] == 2                 # 201 and 206
     assert hg["6-12 h"]["n"] == 1
     assert fam["no_gap"] == {"Kalshi not priced on both legs (kalshi_prob null)": 1,
                              "Kalshi's legs mismatched (no price)": 1,
@@ -294,9 +327,8 @@ def test_play_in_the_staked_line_ladder_apart(world):
     assert st["PLAY"]["rows"] == 4 and st["LADDER"]["rows"] == 1
     play = st["PLAY"]["by_reference"]
     assert play["under 1 h"]["rows"] == 1
-    assert play["no stamp"]["rows"] == 1
+    assert play["no stamp"]["rows"] == 2         # 103 unstamped, 107 no session found
     assert play["12-24 h"]["rows"] == 1
-    assert play["books' session not found (no stored session matches the page)"]["rows"] == 1
     assert st["PLAY"]["market_ref"] == {"agree": 3, "differ": 1}
     assert st["LADDER"]["by_reference"]["3-6 h"]["rows"] == 1
     assert abs(st["LADDER"]["by_reference"]["3-6 h"]["median"] - 2.15) < 1e-9     # |0.2715 - 0.25|
@@ -473,3 +505,69 @@ def test_it_makes_no_network_call(world, monkeypatch):
     monkeypatch.setattr(socket, "create_connection", refuse)
     code, _out = run(world)
     assert code == 0
+
+
+# ---- the pre-PR review's findings, pinned ----------------------------------------------------------------------
+
+def test_the_nfl_premise_the_two_de_vigs_differ_at_4_places():
+    assert tuple(round(v, 4) for v in PAGE206) != tuple(round(v, 4) for v in POOLED206)
+
+
+def test_nfl_takes_the_session_by_capture_time_and_counts_the_4_place_match(world):
+    code, out = run(world)
+    fam = summary(out)["families"]["NFL"]
+    assert fam["session_match"] == {rc.VALIDATED: 5, rc.UNVALIDATED: 1}
+    b = block(out, 206)
+    assert "captured 2026-11-22 17:50:00Z" in b              # the page's own fetch, never the earlier equal one
+    assert "bucket 2-3 h" in b and rc.UNVALIDATED in b
+    assert fam["line_move"] == {"absent": 4, "agree": 1, "differ": 1}
+
+
+def _raw_page(folder, name, doc):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_text(json.dumps(doc))
+
+
+def test_a_tie_below_the_latest_page_does_not_void_the_start(world, tmp_path):
+    ex = tmp_path / "ex2"
+    closing(ex / "2026-11-19", SD + "15:00:00", SD + "14:00:00.000000Z", [srow(100)], run_id="run-a")
+    closing(ex / "2026-11-20", SD + "15:00:00", SD + "14:00:00.000000Z", [srow(100)], run_id="run-b")
+    closing(ex, SD + "15:00:00", S_EXP, [srow(100)], run_id="run-c")
+    code, out = run(world, ex=ex)
+    sm = summary(out)
+    assert sm["pages"]["SOCCER"]["counted"] == 1
+    assert sm["families"]["SOCCER"]["rows"] == 1
+
+
+def test_a_copy_of_a_page_with_no_run_start_is_never_counted_twice(world, tmp_path):
+    ex = tmp_path / "ex3"
+    doc = {"exported_at": S_EXP, "git_sha": "x", "predictions": [srow(100)],
+           "closing": {"family": "SOCCER", "run_id": "run-x"}}
+    _raw_page(ex, "closing_SOCCER_2026-13-40T2500Z.json", doc)
+    _raw_page(ex / "2026-11-22", "closing_SOCCER_2026-13-40T2500Z.json", doc)
+    code, out = run(world, ex=ex)
+    sm = summary(out)
+    assert sm["pages"]["SOCCER"] == {"read": 2, "counted": 1, "copies": 1}
+    assert sm["families"]["SOCCER"]["rows"] == 1
+
+
+def test_a_page_with_no_exported_at_is_placed_by_its_run_start(world, tmp_path):
+    ex = tmp_path / "ex4"
+    closing(ex, SD + "15:00:00", S_EXP, [srow(100)])
+    closing(ex, "2026-11-14T15:00:00", None, [srow(90)])          # before the first stamped row: out
+    closing(ex, "2026-11-28T15:00:00", None, [srow(101)])         # after it: in, its cause counted
+    code, out = run(world, ex=ex)
+    fam = summary(out)["families"]["SOCCER"]
+    assert fam["before_first"] == 1 and fam["in_window"] == 2 and fam["unplaced"] == 0
+    assert fam["no_stamp_why"] == {"books' session not found: the page has no readable exported_at": 1}
+
+
+def test_a_family_with_no_stamped_row_counts_its_rows_once(tmp_path):
+    db = tmp_path / "nostamp.db"
+    build_db(db, stamp=False)
+    ex = tmp_path / "exports"
+    write_exports(ex)
+    out = []
+    rc.main(["--exports", str(ex), "--db", str(db)], echo=out.append)
+    fam = summary(out)["families"]["NFL"]
+    assert fam["before_first"] == 0 and fam["out_no_stamped_row"] == fam["rows"] == 7

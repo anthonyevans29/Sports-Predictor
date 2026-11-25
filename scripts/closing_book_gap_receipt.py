@@ -17,7 +17,8 @@ first stamped row in the record, which the receipt prints; (8) files only; (10) 
 probability, three legs or two, a row missing a leg has no gap, counted; Q3 a staked row whose reference is not the
 books is "reference not the books", counted apart, no bucket; Q4 "stamp after the export", a cause of its own,
 counted apart; Q5 rows before the family's first stamped row out, counted once, and a row AFTER it with no stamp in
-the "no stamp" bucket with its gap. And: "The stamp from the copy, as #1077 reads it, is the right source until F4 is
+the "no stamp" bucket with its gap. 539 item 2: "A row whose books' session is not found on the copy is a line of
+its own, counted by cause, beside the eight buckets, and is not folded into 'no stamp'." And: "The stamp from the copy, as #1077 reads it, is the right source until F4 is
 on main, and it stays the source after: the receipt reads the season, and old files will never carry F4."
 
 WHAT IT READS (law 1: every key below was read from the code at origin/main c53a6a60):
@@ -62,17 +63,16 @@ WHAT IT READS (law 1: every key below was read from the code at origin/main c53a
   oldest_source_time over the 1X2 rows used).
 - THE MATCH: pl_closing_book_age_receipt.find_match (the page's id where the copy agrees on teams by name and
   kickoff, else the one stored match with both names and the kickoff, else not found with the cause).
-- THE BOOKS' SESSION: one captured_at; complete when every leg of the family is present, numeric and single-valued.
-  SOCCER: the latest complete session at or before exported_at whose legs rounded to 4 places equal the page's fair,
-  else the latest earlier one that does (labelled), else "no stored session matches the page" (law 4: never forced);
-  the snapshot is written from close_1x2's own fair (service.py:1559-1566), so the page's fair equals it. NFL: the
-  latest complete session at or before exported_at, BY CAPTURE TIME, and whether it equals the page at 4 places is
-  counted, never required: the NFL snapshot's de-vig is POOLED over every 1X2 offer (MarketSnapshot.average_implied
-  over the summed implied, service.py:3019-3036, value.py:71-79), the page's is close_1x2's, de-vigged per complete
-  book and then averaged (close.py:105-121, nfl_predict.py:268-275), and the two differ at 4 places on a fetch of
-  several books at different overrounds. The odds table the page priced from is replaced at every sync, with its
-  snapshot written at the same captured_at, so the latest session at or before the export is that fetch's. The
-  page's own line_move.venues.book.to_at (inside T-3h only) is a cross-check, counted, never the decider. Its STAMP
+- THE BOOKS' SESSION: one captured_at; complete when every leg of the family is present, numeric and single-valued;
+  the PRICED session is the latest complete session at or before exported_at whose legs rounded to 4 places equal the
+  page's fair, else the latest earlier one that does (labelled), else "no stored session matches the page" (law 4:
+  never forced): the four-place agreement check, on NFL as on SOCCER (539 item 2). SOCCER's snapshot is written from
+  close_1x2's own fair (service.py:1559-1566), so the page's fair equals it. NFL's snapshot de-vig is POOLED over every
+  1X2 offer (MarketSnapshot.average_implied over the summed implied, service.py:3019-3036, value.py:71-79), the page's
+  is close_1x2's, de-vigged per complete book and then averaged (close.py:105-121, nfl_predict.py:268-275): on a fetch
+  of several books at different overrounds the two differ at 4 places. So beside the match, counted and deciding
+  nothing, the receipt says whether the LATEST complete session at or before the export equals the page at 4 places.
+  The page's own line_move.venues.book.to_at (inside T-3h only) is a cross-check, counted, never the decider. Its STAMP
   is source_updated_at, the oldest over its rows, unknown when the column is absent or any row is NULL
   (oldest_source_time's rule, #1077's read; F4 is not read, 534 item 3).
 
@@ -85,8 +85,9 @@ THE MEASURES:
   whose exported_at is unreadable cannot be placed and is counted under its own cause.
 - THE HOME GAP (item 3): on every row in the window with the books' HOME and Kalshi's HOME both priced:
   |fair HOME - Kalshi HOME| x 100, in pp, set in the bucket of the books' session. A row whose books' session is not
-  found has no stamp: it is in the "no stamp" bucket with its gap, its cause ("books' session not found: ...")
-  counted beside the unstamped sessions' (534 Q5). A row with no gap is counted by cause.
+  found on the copy is a line of its own, "books' session not found", counted by cause beside the eight buckets, and
+  is not folded into "no stamp", which holds a session found without the source's stamp (539 item 2: "two different
+  unknowns"). A row with no gap is counted by cause.
 - THE STAKED ROWS (item 3, 534 Q1, Q3): desk.call PLAY in the staked line, LADDER in a line of its own: the pick's
   gap |fair pick - Kalshi pick| (NFL's AWAY is 1 - kalshi_prob: the pair is normalised), and the bucket of its
   reference: the books' session's where desk.reference is "books"; "reference not the books" where it is not
@@ -122,18 +123,17 @@ MARKET = "1X2"
 DP = 4                                       # export.py:742 and nfl_predict.py:273: fair_prob rounded to 4 places
 SOCCER_COMPETITION, SOCCER_SEASON = "PL", "2026/27"
 FAMILIES = {
-    # match: how the books' session is taken. SOCCER "validated": its snapshot is written from close_1x2's own fair
-    # (service.py:1559-1566), the page's fair (export.py:739-745), so the page equals it to 4 places. NFL "capture":
-    # its snapshot's de-vig is POOLED over every 1X2 offer (MarketSnapshot.average_implied / over, service.py:3019-
-    # 3036, value.py:71-79), the page's is close_1x2's, de-vigged per complete book and averaged (close.py:105-121,
-    # nfl_predict.py:268-275); the two differ at 4 places on a fetch of several books, so the session is the latest
-    # complete one at or before the export by capture time, and whether it equals the page at 4 places is counted
+    # The books' session is matched at 4 places on both (539 item 2). SOCCER's snapshot is written from close_1x2's
+    # own fair (service.py:1559-1566), the page's fair (export.py:739-745), so they are equal. NFL's snapshot de-vig is
+    # POOLED over every 1X2 offer (MarketSnapshot.average_implied over the summed implied, service.py:3019-3036,
+    # value.py:71-79), the page's is close_1x2's, de-vigged per complete book and averaged (close.py:105-121,
+    # nfl_predict.py:268-275): on a fetch of several books at different overrounds they can differ at 4 places, which
+    # the receipt counts (VALIDATED / UNVALIDATED of the latest session) and never decides on
     "SOCCER": {"source": "api_football", "legs": ("HOME", "DRAW", "AWAY"), "match": "validated"},
-    "NFL": {"source": "api_american_football", "legs": ("HOME", "AWAY"), "match": "capture"},
+    "NFL": {"source": "api_american_football", "legs": ("HOME", "AWAY"), "match": "validated"},
 }
-VALIDATED = "equal to the page at 4 places"
-UNVALIDATED = ("not equal to the page at 4 places (the NFL snapshot's de-vig is pooled over every offer, the "
-               "page's averaged per complete book)")
+VALIDATED = "the latest session equals the page at 4 places"
+UNVALIDATED = "the latest session differs from the page at 4 places"
 STAKED = (("PLAY", "PLAY (the staked line)"), ("LADDER", "LADDER (a line of its own)"))
 DESK_READS = ("call", "pick", "reference", "market_ref")
 NEVER_READ = ("desk.units", "desk.shadow_units", "desk.order", "desk.exec", "desk.ladder_exec", "desk.value_shadow",
@@ -161,13 +161,13 @@ STAMP_TEXT = ("the newest that any quote in the answer can be; a quote may be ol
               "NULL = unknown, never fresh")    # schema.py (addendum 32 items 3-4), as pl_closing_book_age_receipt
 
 DEFINITIONS = (
-    "THE BOOKS' SESSION: a 1X2 snapshot session (one captured_at = one fetch; api_football for SOCCER, "
-    "api_american_football for NFL). SOCCER: the latest complete one at or before the page's exported_at whose legs "
-    "rounded to 4 places equal the page's fair; else the latest earlier one that does (labelled); else 'no stored "
-    "session matches the page' (counted, never forced). NFL: the latest complete one at or before exported_at by "
-    "capture time, its 4-place agreement with the page counted (the NFL snapshot's de-vig is pooled over every offer, "
-    "the page's averaged per complete book). Its stamp: source_updated_at, the oldest over its rows, unknown if any "
-    "row is (\"" + STAMP_TEXT + "\"). A row with no session found is in 'no stamp', its cause beside it.",
+    "THE BOOKS' SESSION: the latest complete 1X2 snapshot session (one captured_at = one fetch; api_football for "
+    "SOCCER, api_american_football for NFL) at or before the page's exported_at whose legs rounded to 4 places equal "
+    "the page's fair, on NFL as on SOCCER (539 item 2); else the latest earlier one that does (labelled); else 'no "
+    "stored session matches the page' (counted, never forced). Beside it, counted, deciding nothing: whether the latest "
+    "session equals the page at 4 places (NFL's snapshot de-vig is pooled over every offer, the page's averaged per "
+    "complete book). Its stamp: source_updated_at, the oldest over its rows, unknown if any row is (\"" + STAMP_TEXT +
+    "\"). A row with no session found is a line of its own, never 'no stamp' (539 item 2).",
     "THE STAMP AGE: exported_at minus the session's stamp, in hours, from the provider's stamp to our closing capture: "
     "a LOWER bound (532 item 3). Buckets half-open: under 1 h · 1-2 · 2-3 · 3-6 · 6-12 · 12-24 · 24 h or more · no "
     "stamp (532 item 4 #5); a negative age is 'stamp after the export', counted apart, no bucket (534 Q4).",
@@ -496,18 +496,17 @@ def measure(page: dict, r: dict, s, has_stamp: bool) -> dict:
         idx = None
         if not upto:
             x["session_why"] = NO_SESSION
-        elif FAMILIES[fam]["match"] == "validated":
+        else:
+            # 539 item 2: the four-place agreement check, on NFL as on SOCCER. Beside it, counted and deciding
+            # nothing: whether the LATEST complete session at or before the export equals the page at 4 places
+            # (NFL's snapshot de-vig is pooled over every offer, the page's averaged per complete book)
+            x["match"] = VALIDATED if upto[-1]["fair4"] == want else UNVALIDATED
             idx = next((i for i in range(len(upto) - 1, -1, -1) if upto[i]["fair4"] == want), None)
             if idx is None:
                 x["session_why"] = NO_MATCH
             else:
                 x["label"] = "the latest complete session" if idx == len(upto) - 1 else \
                     f"{EARLIER} (captured {upto[idx]['at']:%Y-%m-%d %H:%M:%S}Z)"
-                x["match"] = "equal to the page at 4 places"
-        else:
-            idx = len(upto) - 1
-            x["match"] = VALIDATED if upto[idx]["fair4"] == want else UNVALIDATED
-            x["label"] = "the latest complete session at or before the export, by capture time"
         if idx is not None:
             p = upto[idx]
             x["session"] = p["at"]
@@ -516,9 +515,6 @@ def measure(page: dict, r: dict, s, has_stamp: bool) -> dict:
                 x["age_h"] = (exp - p["stamp"]).total_seconds() / 3600
             x["bucket"] = bucket(x["age_h"])
             x["line_move"] = line_move_check(r, p["at"])
-    if x["bucket"] is None:     # 534 Q5: a row with no stamp is in the "no stamp" bucket, its cause beside it
-        x["bucket"] = NO_STAMP
-        x["stamp_why"] = f"{NOT_FOUND_SESSION}: {x['session_why']}"
     return x
 
 
@@ -547,6 +543,8 @@ def pick_line(x: dict) -> dict:
     ref = d.get("reference")
     if ref != "books":
         out["ref"] = NOT_BOOKS if ref is not None else NOT_BOOKS + " (desk.reference null)"
+    elif x["bucket"] is None:
+        out["ref"] = f"{NOT_FOUND_SESSION} ({x['session_why']})"
     else:
         out["ref"] = x["bucket"]
     mr = _num(d.get("market_ref"))
@@ -624,11 +622,10 @@ def family_report(fam: str, rows: list, L: list) -> dict:
              f"{len(inside)} (of which neither exported_at nor run start could place {unplaced}, kept) · games on "
              f"more than one counted page {out['games_on_more_than_one_page']} (each row counted: one closing row "
              "each)")
-    if FAMILIES[fam]["match"] == "capture":
-        m = Counter(x["match"] for x in inside if x["match"] is not None)
-        out["session_match"] = dict(m)
-        L.append("THE BOOKS' SESSION, taken by capture time (the latest complete session at or before the export): "
-                 + (" · ".join(f"{k} {v}" for k, v in sorted(m.items())) or "none"))
+    m = Counter(x["match"] for x in inside if x["match"] is not None)
+    out["latest_session"] = dict(m)
+    L.append("THE LATEST COMPLETE SESSION AT OR BEFORE THE EXPORT against the page's fair (counted beside the "
+             "four-place match, deciding nothing): " + (" · ".join(f"{k} {v}" for k, v in sorted(m.items())) or "none"))
     lm = Counter(x["line_move"] for x in inside if x["session"] is not None)
     out["line_move"] = dict(lm)
     L.append("LINE_MOVE CROSS-CHECK (the page's line_move.venues.book.to_at, inside T-3h only, against the session "
@@ -644,12 +641,18 @@ def family_report(fam: str, rows: list, L: list) -> dict:
         L.append(f"    {name}: {_dist_text(by_b[name])}")
     by_b[AFTER] = dist([x["gap"] for x in gapped if x["bucket"] == AFTER])
     L.append(f"    {AFTER} (counted apart, no bucket): {_dist_text(by_b[AFTER])}")
+    nf = [x for x in gapped if x["bucket"] is None]
+    nf_why = Counter(x["session_why"] for x in nf)
+    by_b[NOT_FOUND_SESSION] = {**dist([x["gap"] for x in nf]), "why": dict(nf_why)}
+    L.append(f"    {NOT_FOUND_SESSION} (a line of its own, beside the buckets; 539 item 2): "
+             f"{_dist_text(by_b[NOT_FOUND_SESSION])}"
+             + (" · " + "; ".join(f"{w} {v}" for w, v in sorted(nf_why.items())) if nf_why else ""))
     ns_why = Counter(x["stamp_why"] for x in gapped if x["bucket"] == NO_STAMP)
     L.append(f"    {NO_STAMP}, by cause: " + ("; ".join(f"{w} {v}" for w, v in sorted(ns_why.items())) or "none"))
     L.append("    rows with no gap, by cause: " + ("; ".join(f"{w} {v}" for w, v in sorted(nogap.items())) or "none"))
-    all_b = Counter(x["bucket"] for x in inside)
+    all_b = Counter(x["bucket"] if x["bucket"] is not None else NOT_FOUND_SESSION for x in inside)
     L.append("    every row in the window, by bucket (gap or none): " + " · ".join(
-        f"{name} {all_b.get(name, 0)}" for name in names + [AFTER]))
+        f"{name} {all_b.get(name, 0)}" for name in names + [AFTER, NOT_FOUND_SESSION]))
     out.update(home_gap=by_b, no_gap=dict(nogap), no_stamp_why=dict(ns_why), by_bucket_all=dict(all_b))
     staked = {}
     for call, title in STAKED:
@@ -724,8 +727,8 @@ def report(pop: dict, s, has_stamp: bool, hdr: dict) -> tuple[list[str], dict]:
                                               + f" · bucket {x['bucket']}"
                                               + (f" · {x['match']}" if x["match"] else "")
                                               + f" · line_move book to_at {x['line_move']}"
-                                              if x["session"] else
-                                              f"not found: {x['session_why']} · bucket {x['bucket']}")
+                                              if x["session"] else f"not found: {x['session_why']}"
+                                              + (f" · {x['match']}" if x["match"] else ""))
                      + (f" · snapshot rows with an unreadable captured_at {x['unreadable']}" if x["unreadable"]
                         else ""))
             L.append("    HOME gap " + (f"{x['gap']:.2f} pp" if x["gap"] is not None else f"none ({x['gap_why']})")

@@ -289,13 +289,13 @@ def test_soccer_home_gap_by_bucket(world):
     assert hg["2-3 h"]["n"] == 1
     assert hg["12-24 h"]["n"] == 1
     assert hg["24 h or more"]["n"] == 1
-    assert hg["no stamp"]["n"] == 2              # 534 Q5: the unstamped session and the session not found
+    assert hg["no stamp"]["n"] == 1
     assert hg["stamp after the export"]["n"] == 1
-    assert "books' session not found" not in hg
+    assert hg["books' session not found"]["n"] == 1     # 539 item 2: a line of its own, never "no stamp"
+    assert hg["books' session not found"]["why"] == {"no stored session matches the page": 1}
     assert fam["no_gap"] == {"Kalshi not priced on every leg (not normalised)": 1,
                              "Kalshi's legs mismatched (no price)": 1}
-    assert fam["no_stamp_why"] == {"the session's rows unstamped (NULL)": 1,
-                                   "books' session not found: no stored session matches the page": 1}
+    assert fam["no_stamp_why"] == {"the session's rows unstamped (NULL)": 1}
     assert "HOME gap 4.77 pp" in block(out, 100)
     assert "bucket under 1 h" in block(out, 100)
 
@@ -311,8 +311,9 @@ def test_nfl_by_bucket_and_causes(world):
     code, out = run(world)
     fam = summary(out)["families"]["NFL"]
     hg = fam["home_gap"]
-    assert hg["12-24 h"]["n"] == 1 and abs(hg["12-24 h"]["median"] - 5.0) < 1e-9
-    assert hg["2-3 h"]["n"] == 2                 # 201 and 206
+    assert hg["12-24 h"]["n"] == 2                                  # 200, and 206 by its earlier session
+    assert abs(hg["12-24 h"]["min"] - 5.0) < 1e-9 and abs(hg["12-24 h"]["max"] - 8.48) < 1e-9
+    assert hg["2-3 h"]["n"] == 1
     assert hg["6-12 h"]["n"] == 1
     assert fam["no_gap"] == {"Kalshi not priced on both legs (kalshi_prob null)": 1,
                              "Kalshi's legs mismatched (no price)": 1,
@@ -327,8 +328,9 @@ def test_play_in_the_staked_line_ladder_apart(world):
     assert st["PLAY"]["rows"] == 4 and st["LADDER"]["rows"] == 1
     play = st["PLAY"]["by_reference"]
     assert play["under 1 h"]["rows"] == 1
-    assert play["no stamp"]["rows"] == 2         # 103 unstamped, 107 no session found
+    assert play["no stamp"]["rows"] == 1
     assert play["12-24 h"]["rows"] == 1
+    assert play["books' session not found (no stored session matches the page)"]["rows"] == 1
     assert st["PLAY"]["market_ref"] == {"agree": 3, "differ": 1}
     assert st["LADDER"]["by_reference"]["3-6 h"]["rows"] == 1
     assert abs(st["LADDER"]["by_reference"]["3-6 h"]["median"] - 2.15) < 1e-9     # |0.2715 - 0.25|
@@ -513,14 +515,16 @@ def test_the_nfl_premise_the_two_de_vigs_differ_at_4_places():
     assert tuple(round(v, 4) for v in PAGE206) != tuple(round(v, 4) for v in POOLED206)
 
 
-def test_nfl_takes_the_session_by_capture_time_and_counts_the_4_place_match(world):
+def test_nfl_is_matched_at_4_places_and_the_latest_session_is_counted(world):
+    """539 item 2: the four-place check on NFL as on SOCCER. 206's own fetch (pooled) differs from the page, so the
+    match is the earlier equal session; the latest-session count and the line_move cross-check both say so."""
     code, out = run(world)
     fam = summary(out)["families"]["NFL"]
-    assert fam["session_match"] == {rc.VALIDATED: 5, rc.UNVALIDATED: 1}
+    assert fam["latest_session"] == {rc.VALIDATED: 5, rc.UNVALIDATED: 1}
     b = block(out, 206)
-    assert "captured 2026-11-22 17:50:00Z" in b              # the page's own fetch, never the earlier equal one
-    assert "bucket 2-3 h" in b and rc.UNVALIDATED in b
-    assert fam["line_move"] == {"absent": 4, "agree": 1, "differ": 1}
+    assert "page matches an earlier session (captured 2026-11-22 16:50:00Z)" in b
+    assert "bucket 12-24 h" in b and rc.UNVALIDATED in b and "line_move book to_at differ" in b
+    assert fam["line_move"] == {"absent": 4, "differ": 2}
 
 
 def _raw_page(folder, name, doc):
@@ -559,7 +563,7 @@ def test_a_page_with_no_exported_at_is_placed_by_its_run_start(world, tmp_path):
     code, out = run(world, ex=ex)
     fam = summary(out)["families"]["SOCCER"]
     assert fam["before_first"] == 1 and fam["in_window"] == 2 and fam["unplaced"] == 0
-    assert fam["no_stamp_why"] == {"books' session not found: the page has no readable exported_at": 1}
+    assert fam["home_gap"]["books' session not found"]["why"] == {"the page has no readable exported_at": 1}
 
 
 def test_a_family_with_no_stamped_row_counts_its_rows_once(tmp_path):

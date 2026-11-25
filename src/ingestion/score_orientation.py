@@ -48,20 +48,24 @@ def orientation(stored: tuple, listed: tuple) -> str:
 # words of (b) and no wider: position by position, every side that differs is the stored placeholder, the other side is
 # equal, each filled team is stored, is not the placeholder and is not the row's other team. A flip stays refused (292
 # item 3(d)); another game stays refused (3(a))." The verdict only: the caller (src/ingestion/service.py
-# `_fill_placeholder`) holds the kickoff window and the pair collision (Q5), and writes.
+# `_fill_placeholder`) holds the scope (the college competition, 527 item 2 answer 2), the kickoff window and the pair
+# collision (Q5; its swap too, 527 item 2 answer 3), and writes.
 def placeholder_fill(stored: tuple, listed: tuple, placeholder) -> bool:
     """True when the listing's (home, away) fills the stored row's placeholder side(s) and nothing else: every side
     present (a filled team is stored), the pair a MISMATCH (SAME and REVERSED keep their own paths), every side that
-    differs is the stored placeholder, no listed side is the placeholder, and the listed pair is two teams (a filled
-    team is not the row's other team). (P,B)->(B,X) is a flip and (P,B)->(X,Y) another game: both False. (P,P)->(X,P),
-    a half-fill that leaves the row holding the placeholder, is not among (b)'s filled shapes ((P,P) to (X,Y); (P,B) to
-    (X,B)): False, refused as today until ruled (law 4; Q1 "no wider")."""
+    differs is the stored placeholder, and the listed pair is two teams (a filled team is not the row's other team).
+    (P,B)->(B,X) is a flip and (P,B)->(X,Y) another game: both False. A HALF-FILL IS A FILL (ARCHITECT 2026-11-25,
+    addendum 527 item 2 answer 1, verbatim: "A HALF-FILL IS A FILL: RULE IT IN. (P,P) listed as (X,P) meets Q1's words
+    side by side, and a bracket names its teams one at a time. The row then reads as the provider's does."):
+    (P,P)->(X,P) and (P,P)->(P,X) are True, the kept side the placeholder still, as the provider lists it: the old
+    guard refusing any listed side that is the placeholder is removed. (A differing side is never listed as the
+    placeholder: it differs from the stored placeholder.)"""
     if placeholder is None or None in tuple(stored) + tuple(listed):
         return False
     if orientation(stored, listed) != MISMATCH:
         return False
     differs = [i for i in (0, 1) if stored[i] != listed[i]]
-    if any(stored[i] != placeholder for i in differs) or placeholder in tuple(listed):
+    if any(stored[i] != placeholder for i in differs):
         return False
     return listed[0] != listed[1]
 

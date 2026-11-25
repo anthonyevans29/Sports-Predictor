@@ -873,16 +873,21 @@ class IngestionService:
         team is stored, is not the placeholder and is not the row's other team" (score_orientation.placeholder_fill).
         The placeholder is the stored side whose provider id is placeholder.PLACEHOLDER_TEAM_ID (Q2: "never matched by
         name"): the provider that id is of is api_american_football (item 1(a)), the one REKEY_SOURCES source, so the
-        fill runs where the run built its pair index (the re-key's own condition), in no competition list (Q1: "in your
-        words of (b) and no wider"; (b) names no competition). Q5, verbatim:
+        fill runs where the run built its pair index (the re-key's own condition), and only in the college competition
+        (the college set the re-key already holds, PLACEHOLDER_REKEY_COMPETITIONS, {"NCAA"}; ARCHITECT 2026-11-25,
+        addendum 527 item 2 answer 2, verbatim: "THE COLLEGE COMPETITION ONLY, for now: the narrower one line."): a row
+        of another competition of the source is refused as today. Q5, verbatim:
         "NO NEW CONSTANT: the kickoff window is the placeholder's own (PLACEHOLDER_RESOLVE_H ...); the
         pair-collision window is the dry run's 48 (TWIN_H)": a served kickoff more than PLACEHOLDER_RESOLVE_H from the
-        stored one, or a live row of the season holding the filled pair within TWIN_H of the served kickoff, writes
+        stored one, or a live row of the season holding the filled pair OR ITS REVERSE within TWIN_H of the served
+        kickoff (527 item 2 answer 3, verbatim: "REFUSE ON THE SWAPPED PAIR TOO, as the re-key does."), writes
         nothing here. Writes only the differing side(s) and re-indexes the run's pair index; the fill is listed on
         result.placeholder_filled. Q3, verbatim: "THE SAME PASS: after the fill the pair reads SAME and the unchanged
         SAME path writes what it writes today": the caller's _scores_by_team then reads SAME. Anything that does not
         fill returns with the row untouched, and the caller's unchanged MISMATCH path refuses it."""
         if nm.source not in REKEY_SOURCES or "__pairs__" not in cache:
+            return
+        if comp.code not in PLACEHOLDER_REKEY_COMPETITIONS:     # 527 item 2 answer 2: the college competition only
             return
         from datetime import timedelta
 
@@ -909,26 +914,29 @@ class IngestionService:
                         match.utc_date)
             return
         pairs = cache["__pairs__"]
-        held = [m for m in pairs.get((season_year(match.season), home_id, away_id), [])
+        season = season_year(match.season)
+        # 527 item 2 answer 3: the filled pair and its swap, as the re-key reads both (`same` and `swapped`)
+        held = [m for m in pairs.get((season, home_id, away_id), []) + pairs.get((season, away_id, home_id), [])
                 if m is not match and m.status not in (MatchStatus.CANCELLED, MatchStatus.STALE_ORPHAN)
                 and m.utc_date is not None and abs(m.utc_date - nm.utc_date) <= timedelta(hours=TWIN_H)]
         if held:
             if any(m.id is None for m in held) or match.id is None:
                 object_session(match).flush()      # the #884 pattern: a row created in this run lists its id
             log.warning("sync_matches(%s): %s id %s NOT filled for match %s — stored row(s) %s hold the filled pair "
-                        "%s/%s within TWIN_H (%dh) (addendum 500 Q5); refused as a mismatch", comp.code, nm.source,
-                        nm.source_id, match.id, [m.id for m in held], home_id, away_id, TWIN_H)
+                        "%s/%s or its reverse within TWIN_H (%dh) (addendum 500 Q5; 527 item 2 answer 3); refused as a "
+                        "mismatch", comp.code, nm.source, nm.source_id, match.id, [m.id for m in held], home_id,
+                        away_id, TWIN_H)
             return
         if match.id is None:
             object_session(match).flush()          # the #884 pattern: the receipt never lists None
-        old_key = (season_year(match.season), old_h, old_a)
+        old_key = (season, old_h, old_a)
         if old_key in pairs:
             pairs[old_key][:] = [m for m in pairs[old_key] if m is not match]
         if old_h != home_id:
             match.home_team_id = home_id
         if old_a != away_id:
             match.away_team_id = away_id
-        pairs.setdefault((season_year(match.season), home_id, away_id), []).append(match)
+        pairs.setdefault((season, home_id, away_id), []).append(match)
         result.placeholder_filled.append(match.id)
         log.warning("sync_matches(%s): %s id %s FILLED match %s — the stored placeholder team %s (provider id %s) "
                     "takes the listed %s/%s (the stored pair %s/%s), the other side equal; written as the same pair "

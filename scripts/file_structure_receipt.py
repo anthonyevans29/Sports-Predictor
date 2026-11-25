@@ -75,7 +75,6 @@ import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
 from pathlib import Path
 from typing import IO, Callable
 
@@ -92,7 +91,7 @@ CHUNK = 1 << 20
 _INT = re.compile(r"[+-]?\d+", re.ASCII)
 _FLOAT = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?", re.ASCII)
 _DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})", re.ASCII)
-_DATETIME = re.compile(r"(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?"
+_DATETIME = re.compile(r"(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?"
                        r"(Z|[+-]\d{2}:\d{2})?", re.ASCII)
 _BOOLS = frozenset({"true", "false"})
 
@@ -289,13 +288,47 @@ def collect(raws: list[str], recursive: bool) -> Collected:
 # --------------------------------------------------------------------------
 
 
-def _parse_datetime(s: str):
+def _num_key(s: str) -> tuple:
+    """An exact order key for a token _FLOAT admits, with no limit on the exponent (#1125: decimal.Decimal refuses an
+    exponent past its implementation's bound, so 1e99999999999999999999 read as an error). The value is
+    sign x 0.d1d2... x 10^E: zero is (1,); a positive (2, E, digits); a negative (0, -E, its digits each as 9 - d,
+    closed by ':', which sorts after every digit, so a longer magnitude sorts first)."""
+    t = s.strip()
+    neg = t.startswith("-")
+    t = t.lstrip("+-")
+    mant, _, exp = t.partition("e") if "e" in t else t.partition("E")
+    whole, _, frac = mant.partition(".")
+    digits = (whole + frac).lstrip("0")
+    if not digits.rstrip("0"):
+        return (1,)
+    lead = len((whole + frac)) - len(digits)               # zeros stripped from the front
+    e = int(exp or "0") + len(whole) - lead                # 0.d1d2... x 10^e
+    digits = digits.rstrip("0")
+    if not neg:
+        return (2, e, digits)
+    return (0, -e, "".join(str(9 - int(ch)) for ch in digits) + ":")
+
+
+def _datetime_parts(s: str):
+    """(datetime to the microsecond, the fraction's digits past the sixth, trailing zeros stripped), or None. Any
+    number of fractional digits is ISO 8601 (nanosecond exports among them); the pair orders exactly (#1125)."""
     m = _DATETIME.fullmatch(s)
     if not m:
         return None
-    y, mo, d, hh, mm, ss, frac, tz = m.groups()
+    frac = m.group(7) or ""
+    dt = _datetime_of(m, frac[:6])
+    return None if dt is None else (dt, frac[6:].rstrip("0"))
+
+
+def _parse_datetime(s: str):
+    parts = _datetime_parts(s)
+    return None if parts is None else parts[0]
+
+
+def _datetime_of(m, frac6: str):
+    y, mo, d, hh, mm, ss, _frac, tz = m.groups()
     try:
-        micro = int((frac or "0").ljust(6, "0"))
+        micro = int((frac6 or "0").ljust(6, "0"))
         tzinfo = None
         if tz == "Z":
             tzinfo = timezone.utc
@@ -403,7 +436,7 @@ class ColumnStats:
                     self.all_yyyymmdd = False
         if self.can_float:
             if _FLOAT.fullmatch(s):
-                self._track("float", Decimal(s), s)     # exact: 1e309 and 2e309 stay apart, as do 2**53 and 2**53+1
+                self._track("float", _num_key(s), s)    # exact: 1e309 and 2e309 stay apart, as do 2**53 and 2**53+1
             else:
                 self.can_float = False
         if self.can_date:
@@ -413,16 +446,17 @@ class ColumnStats:
             else:
                 self._track("date", d, s)
         if self.can_datetime:
-            dt = _parse_datetime(s)
-            if dt is None:
+            parts = _datetime_parts(s)
+            if parts is None:
                 self.can_datetime = False
             else:
+                dt = parts[0]
                 aware = dt.tzinfo is not None
                 self.tz_seen.add(aware)
                 if len(self.tz_seen) > 1:
                     self.can_datetime = False       # aware and naive mixed: no order between them; text
                 else:
-                    self._track("datetime", dt, s)
+                    self._track("datetime", parts, s)
 
     @property
     def kind(self) -> str:

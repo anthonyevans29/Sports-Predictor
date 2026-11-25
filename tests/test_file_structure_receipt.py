@@ -716,3 +716,36 @@ def test_float_extrema_are_exact(tmp_path):
     assert code == 0
     assert "kind float" in col_line(text, "a") and "min 0.5 · max 2e309" in col_line(text, "a")
     assert "min 1.5 · max 9007199254740993.0" in col_line(text, "b")
+
+
+# ---- #1125: the review-round-2 findings of #1124, pinned ------------------------------------------------------------
+
+
+def test_an_exponent_past_decimals_limit_is_data(tmp_path):
+    p = tmp_path / "big.csv"
+    p.write_text("a\n1e99999999999999999999\n2\n-1e99999999999999999999\n", encoding="utf-8")
+    code, text = run([str(p)])
+    assert code == 0 and "ERROR" not in text
+    assert "kind float" in col_line(text, "a")
+    assert "min -1e99999999999999999999 · max 1e99999999999999999999" in col_line(text, "a")
+
+
+def test_timestamps_past_microseconds_are_iso_and_order_exactly(tmp_path):
+    p = tmp_path / "ns.csv"
+    p.write_text("t\n2024-01-01T10:00:00.123456789Z\n2024-01-01T10:00:00.123456788Z\n2024-01-01T10:00:00.5Z\n",
+                 encoding="utf-8")
+    code, text = run([str(p)])
+    assert code == 0
+    t = col_line(text, "t")
+    assert "kind datetime (with a zone)" in t
+    assert "min 2024-01-01T10:00:00.123456788Z · max 2024-01-01T10:00:00.5Z" in t
+
+
+def test_the_number_key_orders_like_decimal():
+    from decimal import Decimal
+    toks = ["0", "-0", "5", "5.", ".5", "-.5", "-3.25", "-3.2", "-30", "1e-5", "0.00001", "123.456e2", "-0.001",
+            "+7", "1e309", "2e309", "9007199254740992.0", "9007199254740993.0"]
+    for a in toks:
+        for b in toks:
+            assert (fsr._num_key(a) < fsr._num_key(b)) == (Decimal(a) < Decimal(b)), (a, b)
+            assert (fsr._num_key(a) == fsr._num_key(b)) == (Decimal(a) == Decimal(b)), (a, b)

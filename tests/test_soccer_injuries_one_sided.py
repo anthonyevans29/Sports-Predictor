@@ -54,13 +54,65 @@ def test_the_9226_row_8_and_0_is_a_pass_naming_the_team():
     assert "injuries_one_sided" in dp.NO_CALL_KINDS
 
 
-@pytest.mark.parametrize("h,a", [(6, 2), (0, 0), (None, None)])
-def test_two_lists_both_empty_or_no_counts_are_unchanged(h, a):
+@pytest.mark.parametrize("h,a", [(6, 2), (None, None)])
+def test_two_listed_or_no_counts_are_unchanged(h, a):
     (on,), _ = desk(row_9226(h, a))
     with dp.injuries_one_sided_rule_off():
         (off,), _ = desk(row_9226(h, a))
     (bare,), _ = desk(row_9226(None, None))
-    assert on == off == bare and on["pass_kind"] != "injuries_one_sided"
+    assert on == off == bare and on["pass_kind"] not in ("injuries_one_sided", "injuries_both_empty")
+
+
+# ------------------------------------------------- both lists empty (addendum 502 item 2 Q3; 503 item 1 Q3-Q4) --
+
+def test_both_lists_empty_is_a_pass_of_its_own_kind_naming_both_teams():
+    """503 item 1 Q3: "ITS OWN KIND, THE SAME SWITCH"; 502 item 2 Q3: "the row gets no Desk call, as a one-sided row
+    gets none". The bare row (no counts) is a call, so the PASS is the rule's alone."""
+    (bare,), _ = desk(row_9226(None, None))
+    assert bare["call"] != "PASS"
+    (d,), doc = desk(row_9226(0, 0))
+    assert (d["call"], d["units"], d["pass_kind"]) == ("PASS", 0, "injuries_both_empty")
+    assert d["reason"] == ("injury lists both empty: Coventry City and Newcastle United list no name → no call "
+                           "(both injury lists empty, ARCHITECT 2026-11-24)")
+    assert d["order"] is None and d["value_shadow"] is None and d["exec"] is None
+    assert doc["desk_meta"]["injuries_one_sided_rule"] is True
+    assert dp.INJURIES_BOTH_EMPTY_KIND == "injuries_both_empty" and dp.INJURIES_BOTH_EMPTY_KIND in dp.NO_CALL_KINDS
+    assert dp.INJURIES_BOTH_EMPTY_KIND != dp.INJURIES_ONE_SIDED_KIND
+
+
+def test_both_empty_rides_the_one_sided_switch_and_no_other():
+    """503 item 1 Q3: "no new threshold and no new switch. The rule is on wherever the one-sided rule is on." """
+    (none,), _ = desk(row_9226(None, None))
+    with dp.injuries_one_sided_rule_off():
+        (off,), doc = desk(row_9226(0, 0))
+    assert off == none and doc["desk_meta"]["injuries_one_sided_rule"] is False
+    assert not [k for k in doc["desk_meta"] if "both_empty" in k]                       # no new desk_meta switch
+
+
+@pytest.mark.parametrize("h,a", [(None, None), (0, None)])
+def test_no_counts_or_one_count_missing_is_not_both_empty(h, a):
+    """503 item 1 Q4: "The pair (None, None) stays as it is today"; a side without an integer count is not a read
+    list either way (the one-sided rule reads such a row as it does today: nothing)."""
+    r = row_9226(None, None)
+    if h is not None:
+        r["input_quality"] = {"injuries": {"home": {"count": h, "synced_at": None}, "away": {"count": a}}}
+    (on,), _ = desk(r)
+    (bare,), _ = desk(row_9226(None, None))
+    assert on == bare and on["pass_kind"] not in ("injuries_one_sided", "injuries_both_empty")
+
+
+def test_both_empty_reads_exactly_the_rows_one_sided_reads():
+    """503 item 1 Q4: "FOR EXACTLY THE ROWS THE ONE-SIDED RULE COVERS, no wider and no narrower": another sport is
+    never read, and the shared reader is the one-sided rule's own."""
+    r = row_9226(0, 0)
+    on = dp.annotate({"sport": "mlb", "predictions": [dict(r, competition="MLB")]}, now=NOW)["predictions"][0]["desk"]
+    with dp.injuries_one_sided_rule_off():
+        off = dp.annotate({"sport": "mlb", "predictions": [dict(r, competition="MLB")]},
+                          now=NOW)["predictions"][0]["desk"]
+    assert on == off and on["pass_kind"] != "injuries_both_empty"
+    rows = dp.normalize({"sport": "soccer", "predictions": [row_9226(0, 0), row_9226(0, 3), row_9226(None, None)]})
+    assert [dp.both_empty_injuries(x) for x in rows] == [("Coventry City", "Newcastle United"), None, None]
+    assert [dp.one_sided_injuries(x) for x in rows] == [None, ("Coventry City", "Newcastle United", 3), None]
 
 
 def test_the_empty_home_side_is_named_too_and_the_switch_off_restores_the_call():
@@ -146,7 +198,7 @@ def test_the_export_says_each_sides_count_and_when_its_list_was_written(world):
     assert one["input_quality"]["injuries_synced_at"] == "2091-10-18T22:10:14"          # unchanged, pair stamp
     assert one["injuries"]["home_count"] == 3 and one["injuries"]["away_count"] == 0     # unchanged block
     assert one["desk"]["pass_kind"] == "injuries_one_sided" and "OS Beta lists no name" in one["desk"]["reason"]
-    assert two["desk"]["pass_kind"] != "injuries_one_sided"
+    assert two["desk"]["pass_kind"] not in ("injuries_one_sided", "injuries_both_empty")
     assert doc["desk_meta"]["injuries_one_sided_rule"] is True
 
 
@@ -408,7 +460,8 @@ def test_the_receipt_isolates_the_guard_per_case_and_counts_the_calls_only_it_ch
                            "reference": {"none": 1, "odds": 6, "snapshot": 1}, "one_sided": 6, "held": 4,
                            "one_sided_earlier": {"default_rating": 1, "started": 1},
                            "earlier": {"default_rating": 1, "started": 1},
-                           "held_off": {"LADDER": 1, "PASS noref": 2, "PLAY": 1}, "changed_call": 2,
+                           "held_off": {"LADDER": 1, "PASS noref": 2, "PLAY": 1},
+                           "both_empty_held": 0, "both_empty_held_off": {}, "changed_call": 2,
                            "changed_by_reference": {"odds": 1, "snapshot": 1},
                            "changed_graded": {"LADDER X2 won": 1, "PLAY AWAY lost": 1},
                            "changed_ids": [pids[0], pids[7]]}
@@ -433,7 +486,8 @@ def test_the_receipt_isolates_the_guard_per_case_and_counts_the_calls_only_it_ch
     assert any(o.startswith(f"  {pids[8]} ·") and o.endswith(f"not evaluated: {rc.UNKNOWN_REF}") for o in out)
     assert any(o.startswith(f"  {pids[9]} ·") and o.endswith("PASS injuries_one_sided / PASS noref · ref none")
                for o in out)
-    assert '"guard": {"changed_by_reference": {"odds": 1, "snapshot": 1}, "changed_call": 2' in out[-1]
+    assert ('"guard": {"both_empty_held": 0, "both_empty_held_off": {}, "changed_by_reference": {"odds": 1, '
+            '"snapshot": 1}, "changed_call": 2') in out[-1]
 
 
 def test_the_as_of_reference_reads_the_session_the_export_read_then():
@@ -474,7 +528,8 @@ def test_the_guard_block_reads_only_rows_that_carry_both_calls_and_grades_by_the
           {"prediction_id": 3, "result": "HOME", "pick": "HOME", "counts": (3, 0)}]            # an older row: no calls
     assert rc.guard_summary(rs) == {"n": 1, "not_evaluated": {"no computed_at": 1, "no desk calls": 1},
                                     "reference": {"snapshot": 1}, "one_sided": 1, "held": 1, "one_sided_earlier": {},
-                                    "earlier": {}, "held_off": {"PLAY": 1}, "changed_call": 1,
+                                    "earlier": {}, "held_off": {"PLAY": 1}, "both_empty_held": 0,
+                                    "both_empty_held_off": {}, "changed_call": 1,
                                     "changed_by_reference": {"snapshot": 1}, "changed_graded": {"PLAY AWAY lost": 1}, "changed_ids": [1]}
     assert [rc.instrument("LADDER", "AWAY", r) for r in ("AWAY", "DRAW", "HOME")] == \
         ["LADDER X2 won", "LADDER X2 won", "LADDER X2 lost"]
@@ -539,3 +594,32 @@ def test_under_role_host_a_one_sided_case_reads_as_reached_by_the_host_fence_fir
 def _match_stub():
     from types import SimpleNamespace as N
     return N(id=1, home_team=N(name="H"), away_team=N(name="A"), utc_date=datetime(2091, 1, 1, 19))
+
+
+def test_the_receipt_counts_both_empty_apart_from_the_guard():
+    """addendum 503 item 1 Q3: "a receipt that counts causes must be able to tell them apart". The off run lifts
+    both rules (one switch), so a both-empty row's change is its own count, never the one-sided guard's."""
+    import scripts.soccer_injury_factor_receipt as rc
+
+    def case(pid, counts, on, off):
+        return {"prediction_id": pid, "counts": counts, "desk_on": on, "desk_off": off, "desk_pick": "AWAY",
+                "result": "AWAY", "desk_ref": {"from": "odds"}}
+    one = {"call": "PASS", "units": 0, "pass_kind": "injuries_one_sided"}
+    both = {"call": "PASS", "units": 0, "pass_kind": "injuries_both_empty"}
+    play = {"call": "PLAY", "units": 1, "pass_kind": None}
+    g = rc.guard_summary([case(1, (3, 0), one, play), case(2, (0, 0), both, play), case(3, (0, 0), both, play)])
+    assert (g["held"], g["both_empty_held"], g["changed_call"], g["changed_ids"]) == (1, 2, 1, [1])
+    assert g["both_empty_held_off"] == {"PLAY": 2} and g["one_sided"] == 1
+
+
+def test_desk_rescore_names_a_published_play_the_both_empty_rule_now_passes():
+    """The both-empty rule rides the one-sided switch, which addendum_off holds on both sides of desk-rescore, so a
+    published PLAY it now passes would read 0u = 0u "unchanged": it is its own verdict, as the host fence's is."""
+    r = row_9226(0, 0)
+    with dp.injuries_one_sided_rule_off():
+        doc = dp.annotate({"sport": "soccer", "predictions": [json.loads(json.dumps(r))]}, now=NOW)
+    d = doc["predictions"][0]["desk"]
+    d["call"] = "PLAY"                      # a file published before the rule, with a staked call on (0, 0)
+    rows = dp.rescore(doc)
+    assert [x["verdict"] for x in rows] == ["injuries both empty"]
+    assert rows[0]["addendum_call"] == "PASS" and rows[0]["pass_reason"].startswith("injury lists both empty")

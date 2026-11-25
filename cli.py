@@ -5918,7 +5918,7 @@ def desk_rescore_cmd(files, out_path):
         console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
         raise SystemExit(2)
     lines = [f"DESK RESCORE (#87 v1.1 addendum, rule 3) · run {stamp}"]
-    n = halved = quarantined = suspended = fenced = non_positive = 0
+    n = halved = quarantined = suspended = fenced = non_positive = both_empty = 0
     for f in files:
         doc = _json.load(open(f))
         meta = doc.get("desk_meta") or {}
@@ -5935,6 +5935,7 @@ def desk_rescore_cmd(files, out_path):
             suspended += x["verdict"] == "kalshi-only suspended"     # Q3 K1 (ARCHITECT 2026-10-08): its own too
             fenced += x["verdict"] == "host fence"                   # addendum 109 item 3 (#410): its own too
             non_positive += x["verdict"] == "exec non-positive"      # addendum 305: its own too
+            both_empty += x["verdict"] == "injuries both empty"      # addendum 503 item 1 Q3: its own too
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
             if x["verdict"] == "kalshi-only suspended":     # addendum 15 item 2: a suspended row is not priced
@@ -5968,6 +5969,9 @@ def desk_rescore_cmd(files, out_path):
     if non_positive:
         lines.append(f"{non_positive} PLAY(s) now PASS at an exec edge <= 0 (addendum 305: the Desk never buys above "
                      f"its own price) — not counted as halved")
+    if both_empty:
+        lines.append(f"{both_empty} soccer PLAY(s) now PASS with both injury lists empty (addendum 502 item 2 Q3, 503 "
+                     f"item 1 Q3-Q4) — not counted as halved")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)
     try:                                    # EXCLUSIVE create: two runs racing on one name never overwrite (Codex)

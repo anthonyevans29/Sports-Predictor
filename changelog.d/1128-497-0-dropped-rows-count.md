@@ -1,4 +1,4 @@
-## 2026-11-25 (#000: 497-0-dropped-rows-count — the rows the adapters drop before counting, the games sync-odds does not read and the games sync-odds-football leaves unpriced, each counted with its causes on a printed line (ARCHITECT 2026-11-24, addendum 497 Q7 and item 2 step (0); addendum 502 Q7; MONEY-PATH; #1102))
+## 2026-11-25 (#1128: 497-0-dropped-rows-count — the rows the adapters drop before counting, the games sync-odds does not read and the games sync-odds-football leaves unpriced, each counted with its causes on a printed line (ARCHITECT 2026-11-24, addendum 497 Q7 and item 2 step (0); addendum 502 Q7; MONEY-PATH; #1102))
 - **src/adapters/base.py:** two shared module-level helpers.
   - `dropped_line(source, what, dropped)` returns `<source> /<what>: N listing(s) not read (reason n · reason n): id, id`, or None when nothing was dropped. A None id is counted but not listed.
   - `report_dropped(owner, what, dropped, source=None)` sets `owner.last_dropped` and prints the line, plainly, when there is one.

@@ -70,6 +70,9 @@ def _job_sync_teams(*, competition_code: str, season: str, **kwargs) -> str:
     if result.names_kept:      # #764: never silent
         from src.ingestion.service import names_kept_line
         out += f" {names_kept_line(len(result.names_kept))}"
+    if result.nfl_member_team_refused:      # addendum 542 item 1(a): "counted on its own receipt line"
+        from src.ingestion.service import nfl_member_team_refused_line
+        out += f" · {nfl_member_team_refused_line(result.nfl_member_team_refused)}"
     return out
 
 

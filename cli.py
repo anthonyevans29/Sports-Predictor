@@ -877,8 +877,10 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
     kept as <source>_prev), every referencing row re-pointed, then the empty
     newer row deleted. Clusters of 3+, swapped pairs and unique-table
     conflicts are reported, never merged. Every run (the pair path and
-    --orphans) ends with one record line (addendum 254 item 2(4)): "record
-    rows on retired match ids: N", or n/a with its reason; a SELECT only."""
+    --orphans) prints one record line (addendum 254 item 2(4)): "record
+    rows on retired match ids: N", or n/a with its reason; a SELECT only.
+    Then its outcome lines, last (addendum 497 step (1), _dedupe_outcome):
+    exit 1 when a provider read failed ("unresolved", --orphans only), else 0."""
     import json as _json
 
     from src.db.schema import Match as _M
@@ -892,13 +894,14 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
 
     if orphans:
         try:
-            out = _dedupe_orphans(competition_code, source, apply, sample)
+            r = _dedupe_orphans(competition_code, source, apply, sample)
         except _OpErr as e:
             _schema_refusal(e)
         if md.SKIPPED_ABSENT:
             click.echo(f"  reference tables absent from the live DB, skipped (they hold no references; "
                        f"`init-db` creates them): {sorted(md.SKIPPED_ABSENT)}")
-        return out
+        _dedupe_outcome(r, orphans=True)
+        return
     try:
         r = md.run(competition_code, source=source, apply=apply, sample=8 if sample is None else sample)
     except ValueError as e:
@@ -920,6 +923,23 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
             click.echo(f"  REFUSED keeper {x['keeper']} / newer {x['newer']}: {x['why']}")
     _dedupe_state_lines(r, source)
     _dedupe_record_line(r)
+    _dedupe_outcome(r, orphans=False)
+
+
+def _dedupe_outcome(r, orphans):
+    """ARCHITECT 2026-11-24 10:03 ET, addendum 497 item 2 step (1), Q1 and Q8 (match_dedupe.outcome): the run's last
+    lines, after everything it printed before, then its exit. A provider read that failed (planned "unresolved",
+    --orphans only, dry run or apply) prints "dedupe-matches: N unresolved (provider read failed): <ids>" last and
+    exits 1; nothing else of the run changes (no plan entry, no write). A team with no provider id planned "orphan" is
+    a classification, counted on its own line, exit 0 (Q8). A routine state (no duplicate pairs and nothing refused at
+    detection; no candidates; every candidate live) prints the one line that names it, exit 0 (Q1)."""
+    from src.ingestion import match_dedupe as md
+
+    lines, code = md.outcome(r, orphans)
+    for ln in lines:
+        click.echo(ln)
+    if code:
+        raise SystemExit(code)
 
 
 
@@ -1079,6 +1099,7 @@ def _dedupe_orphans(competition_code, source, apply, sample):
             click.echo(f"  REFUSED id {x['id']}: {x['why']}")
     _dedupe_state_lines(r, source)
     _dedupe_record_line(r)
+    return r
 
 
 @cli.command("retire-orphans")

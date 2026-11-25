@@ -316,7 +316,8 @@ def state(s, competition_code: str, source: str) -> dict:
 #                            renamed by 383 item 4(a)): another pair (neither
 #                            the stored one nor its reverse), or the same pair
 #                            under another season (a resync writes another row);
-#   * lookup error        -> UNRESOLVED: untouched (never read as absent);
+#   * lookup error        -> UNRESOLVED: untouched (never read as absent); the run exits 1 after printing
+#                            (addendum 497 step (1); outcome(), at the end of this module);
 #   * NOT FOUND + exactly one twin whose id IS found -> MERGE (keeper = the older
 #     row; when the stale row is the keeper it takes the twin's id and state,
 #     else the twin keeps its own and the stale id joins its _prev);
@@ -324,7 +325,9 @@ def state(s, competition_code: str, source: str) -> dict:
 #     searched for the same home AND away team: exactly one, its id held by no
 #     row -> RELINK (re-key in place, provider state applied); held by a row
 #     outside the twin window, two games, or only home/away swapped -> REFUSED
-#     (reported); none -> STALE_ORPHAN (never deleted).
+#     (reported); none -> STALE_ORPHAN (never deleted). A row whose home or away team has no provider id can
+#     match nothing in the search, so it plans STALE_ORPHAN too: a classification, counted on its own line, exit 0
+#     (497 Q8). One failed search day leaves the set UNRESOLVED (exit 1).
 # Dry-run by default; --apply needs a verified .backup (CLI).
 STALE_H = 6
 TWIN_H = 48
@@ -419,6 +422,7 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                         and (m.utc_date < stale_cut or twins(m))), key=lambda m: m.id)
         tsid = _team_sids(s, source, [t for m in cands for t in (m.home_team_id, m.away_team_id)])
         plan, claimed = [], set()                        # claimed: live ids a relink already takes
+        no_team_sid = []                                 # orphan plans whose home or away team has no provider id
 
         # PR #270 review 2 (Anthony): uniqueness is decided per CONNECTED COMPONENT of the twin graph
         # (same home+away, kickoffs within TWIN_H, different ids), never candidate by candidate — so no
@@ -646,7 +650,10 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                                 f"{[n.source_id for n in swapped]}"))
                 else:
                     plan.append(entry(m, "orphan", _row=m))
+                    if not (tsid.get(m.home_team_id) and tsid.get(m.away_team_id)):
+                        no_team_sid.append(m.id)         # 497 Q8: date_search could match nothing; a classification
         out["counts"] = dict(Counter(p["action"] for p in plan))
+        out["orphan_no_provider_team_id"] = sorted(no_team_sid)
         out["provider_lookups"] = {"games_by_id": len(cache), "dates_searched": len(day_cache)}
         applied, refused = Counter(), []
         # the merges' newer rows are the ids retired (relink and orphan retire none: the row stays, re-keyed or marked)
@@ -696,3 +703,66 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
         out["plan"] = [{k: v for k, v in p.items() if not k.startswith("_")} for p in plan]
         out["after"] = state(s, competition_code, source) if apply else out["before"]
     return out
+
+
+# ---------------------------------------------------------------------------
+# THE EXIT (ARCHITECT 2026-11-24 10:03 ET, addendum 497 item 2 step (1), Q1 and Q8; DEV 3's map on #1102, row 8).
+# Q8, verbatim: "A dedupe-matches team with no provider id, planned "orphan", is a classification: exit 0, printed and
+# counted." Q1, verbatim: "A ROUTINE STATE EXITS 0 AND PRINTS ONE LINE THAT NAMES IT [...] No code of its own [...]
+# The line's words are pinned by a test." The failure is the map's: a provider read that raised, planned "unresolved"
+# ("UNRESOLVED, never absent"), whether a by-id lookup in the candidate set (orphans' resolve) or a day of the date
+# search (games_on). The command prints everything it printed before and plans and writes exactly what it did, then
+# prints the outcome lines below, last, and exits 1 when anything is unresolved (refresh-by-id's rule: "Exits 1 when a
+# game stayed unresolved (a lookup error ...)"; NOT FOUND is not a failure). The pair path reads no provider: it has
+# no unresolved state and exits as before. A merge or an orphan mark refused at apply is reported as before and keeps
+# exit 0: neither is a provider read.
+EXIT_UNRESOLVED = 1
+NOTHING_TO_MERGE_LINE = "dedupe-matches: nothing to merge (no duplicate pairs)"
+NO_CANDIDATES_LINE = "dedupe-matches --orphans: nothing to do (no candidates)"
+
+
+def _ids_text(ids) -> str:
+    return ", ".join(str(i) for i in ids)
+
+
+def unresolved_ids(r) -> list:
+    """The stored match ids an --orphans run planned "unresolved" (a provider read failed), sorted."""
+    return sorted(p["id"] for p in r.get("plan") or [] if p["action"] == "unresolved")
+
+
+def unresolved_line(ids) -> str:
+    """"dedupe-matches: N unresolved (provider read failed): <ids>", printed only when N > 0."""
+    return f"dedupe-matches: {len(ids)} unresolved (provider read failed): {_ids_text(ids)}"
+
+
+def no_team_id_line(ids) -> str:
+    """Q8's classification, printed on every --orphans run, zero included: "dedupe-matches: N stale_orphan planned for a
+    team with no provider id (a classification, not a failure)", then ": <ids>" when N > 0."""
+    ids = list(ids)
+    return (f"dedupe-matches: {len(ids)} stale_orphan planned for a team with no provider id (a classification, "
+            f"not a failure)" + (f": {_ids_text(ids)}" if ids else ""))
+
+
+def every_live_line(n: int) -> str:
+    """Q1's routine state where every candidate is `live` (the code's own "nothing to do", addendum 365 item 3(b))."""
+    return f"dedupe-matches --orphans: nothing to do (every candidate live: {n})"
+
+
+def outcome(r, orphans: bool) -> tuple[list, int]:
+    """(lines, exit): the run's last lines and its exit. Pair path: the routine line when no pair was found AND nothing
+    was refused at detection (find_pairs' report is empty: no 3+ cluster, no same-or-missing-id pair, no swapped
+    near-pair; a refused duplicate is reported for review, not a routine state), exit 0 either way.
+    --orphans: the classification line always; the routine line when there was no candidate or every candidate is
+    live; the unresolved line LAST when any is unresolved (so a runner's last-line read names it), exit 1."""
+    if not orphans:
+        return ([NOTHING_TO_MERGE_LINE] if not r.get("pairs") and not r.get("report") else []), 0
+    plan = r.get("plan") or []
+    lines = [no_team_id_line(r.get("orphan_no_provider_team_id") or [])]
+    if not plan:
+        lines.append(NO_CANDIDATES_LINE)
+    elif all(p["action"] == "live" for p in plan):
+        lines.append(every_live_line(len(plan)))
+    bad = unresolved_ids(r)
+    if bad:
+        lines.append(unresolved_line(bad))
+    return lines, (EXIT_UNRESOLVED if bad else 0)

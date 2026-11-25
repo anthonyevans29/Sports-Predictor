@@ -466,3 +466,37 @@ def test_a_column_the_orm_read_loads_is_checked(tmp_path):
     con.close()
     code, out = run(db)
     assert code == 2 and "yes_bid not in odds_snapshots (law 1)" in out[-1]
+
+
+# ---- Codex round 1 on #1148, pinned ------------------------------------------------------------------------------
+
+def test_d_the_ever_book_flagged_are_classified_by_their_ends(world):
+    code, out = run(world["db"])
+    d = tail(out)["families"]["NFL"]["d"]
+    # 1 (from_at at 17:00), 4 (to_at at 17:50), 5 and 9 (both legs at every flagged stamp)
+    assert d["ever_book_flag_end"] == {"one-sided at from_at": 1, "one-sided at to_at": 1,
+                                       "one-sided at neither end": 2}
+
+
+def test_d_a_reverted_move_with_a_one_sided_end_is_classified(tmp_path):
+    """A HOME-only 16:00 stamp flags the book; a two-legged 17:30 brings it back before the bell."""
+    f = _small(tmp_path, {13: ("NFL", "REGULAR", KO, [(D + "14:00:00", {"HOME": 0.5, "AWAY": 0.5}),
+                                                      (D + "16:00:00", {"HOME": 1.0}),
+                                                      (D + "17:30:00", {"HOME": 0.52, "AWAY": 0.48})], None, [])})
+    d = f["d"]
+    assert "book" not in d["bell"] or d["bell"]["book"] == 0
+    assert d["ever_book_flag_end"] == {"one-sided at to_at": 1}
+
+
+def test_an_unreadable_stamp_is_counted_in_its_family_and_month(tmp_path):
+    db = tmp_path / "x.db"
+    build_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute("UPDATE odds_snapshots SET captured_at = 'unknown' WHERE match_id = 8")    # not kicked off: not loaded
+    con.commit()
+    con.close()
+    code, out = run(db)
+    t = tail(out)
+    assert t["families"]["NFL"]["a"]["unreadable_stamp"] == 2
+    assert t["families"]["NFL"]["a"]["by_month"]["(no date)"] == {"unreadable stamp": 2}
+    assert t["families"]["NCAA"]["a"]["unreadable_stamp"] == 0

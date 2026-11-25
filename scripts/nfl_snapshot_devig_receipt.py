@@ -279,6 +279,7 @@ def read_counts(s) -> dict:
             "SELECT m.id, m.utc_date, m.stage, m.status, c.code FROM matches m LEFT JOIN competitions c "
             "ON c.id = m.competition_id WHERE m.sport = :sp"), {"sp": Sport.NFL.name}):
         matches[mid] = {"id": mid, "kickoff": redated.as_utc(ko), "stage": stage, "status": status, "code": code,
+                        "unreadable": 0,
                         "sessions": defaultdict(lambda: defaultdict(list))}
     unreadable_snap, outside = 0, 0
     newest = None
@@ -288,6 +289,8 @@ def read_counts(s) -> dict:
         t = redated.as_utc(at)
         if t is None:
             unreadable_snap += 1
+            if mid in matches:      # its family's own count, month "(no date)"; outside the families it stays global
+                matches[mid]["unreadable"] += 1
             continue
         if mid not in matches:
             outside += 1
@@ -313,6 +316,9 @@ def read_counts(s) -> dict:
     fams = {f: new_family() for f in FAMILIES}
     apart = {"other_codes": Counter(), "preseason": Counter(), "by_month": defaultdict(Counter)}
     for m in sorted(matches.values(), key=lambda x: x["id"]):
+        if m["code"] in FAMILIES and m["unreadable"] and not is_preseason(m["stage"]):
+            fams[m["code"]]["a"]["unreadable_stamp"] += m["unreadable"]
+            fams[m["code"]]["a"]["by_month"]["(no date)"]["unreadable stamp"] += m["unreadable"]
         if not m["sessions"]:
             continue
         code = m["code"]
@@ -338,12 +344,14 @@ def read_counts(s) -> dict:
 def new_family() -> dict:
     return {"first_session": None, "statuses": Counter(),
             "a": {"all": 0, **{k: 0 for k in SESSION_KINDS}, "leg_exactly_1": 0, "leg_exactly_0": 0,
+                  "unreadable_stamp": 0,
                   "at_kickoff": 0, "after_kickoff": 0, "by_month": defaultdict(Counter)},
             "matches": 0, "not_kicked_off_on_copy": 0, "no_kickoff": 0, "by_month": defaultdict(Counter),
             "b": {"with_a_first_session": 0, "first": Counter(), "by_month": defaultdict(Counter)},
             "c": {"cause": Counter(), "compared": 0, "agree": 0, "differ": Counter(), "differ_pp": [],
                   "not_rederived": Counter(), "by_month": defaultdict(Counter)},
             "d": {"evaluated": 0, "bell": Counter(), "ever": Counter(), "book_flag_end": Counter(),
+                  "ever_book_flag_end": Counter(),
                   "hidden_end": 0, "hidden_end_book_flagged": 0, "by_month": defaultdict(Counter)}}
 
 
@@ -497,23 +505,41 @@ def line_moves(s, m: dict, ko: datetime, d: dict, kmo: str) -> None:
         if hidden:
             d["hidden_end_book_flagged"] += 1
             d["by_month"][kmo]["hidden end, book-flagged"] += 1
-        bk = bell["venues"]["book"]
-        ends = []
-        for side in ("from_at", "to_at"):
-            t = datetime.fromisoformat(bk[side])
-            sels = {x.selection for x in _book_rows_at(snaps, t)}
-            if sels != {"HOME", "AWAY"}:
-                ends.append(side)
-        end = "one-sided at " + (" and ".join(ends) if ends else "neither end")
+        end = end_label(one_sided_ends(snaps, bell))
         d["book_flag_end"][end] += 1
         d["by_month"][kmo]["book-flagged, " + end] += 1
     start = ko - timedelta(hours=lmv.LINE_MOVE_WINDOW_H)
     ever = set()
+    ever_ends = set()          # the ends found one-sided at ANY stamp whose book alarm is set (the ever cohort)
     for t, upto in ever_inputs(snaps, start, ko):
-        ever |= flags(lmv.line_move(upto, ko, t))
+        lm = lmv.line_move(upto, ko, t)
+        got = flags(lm)
+        ever |= got
+        if "book" in got:
+            ever_ends |= set(one_sided_ends(snaps, lm))
     for k in ever:
         d["ever"][k] += 1
         d["by_month"][kmo]["ever " + k] += 1
+    if "book" in ever:
+        end = end_label(sorted(ever_ends, key=("from_at", "to_at").index))
+        d["ever_book_flag_end"][end] += 1
+        d["by_month"][kmo]["ever book-flagged, " + end] += 1
+
+
+def one_sided_ends(snaps, lm: dict) -> list:
+    """The ends (from_at, to_at) of a line_move result's book venue whose session is not both legs: the non-Kalshi 1X2
+    rows at that stamp, as line_move._series reads them."""
+    bk = lm["venues"]["book"]
+    ends = []
+    for side in ("from_at", "to_at"):
+        sels = {x.selection for x in _book_rows_at(snaps, datetime.fromisoformat(bk[side]))}
+        if sels != {"HOME", "AWAY"}:
+            ends.append(side)
+    return ends
+
+
+def end_label(ends: list) -> str:
+    return "one-sided at " + (" and ".join(ends) if ends else "neither end")
 
 
 def ever_inputs(snaps, start: datetime, ko: datetime):
@@ -591,9 +617,9 @@ def render(c: dict, out) -> None:
                                                                  f["no_kickoff"]))
         out("(a) SESSIONS: all {} · {} · a leg at exactly 1: {} · a leg at exactly 0: {} (none expected: every "
             "implied value is above 0, and a one-sided session's other leg is an absent row) · at exactly kickoff "
-            "{} · after kickoff {}".format(a["all"], " · ".join("{} {}".format(k, a[k]) for k in SESSION_KINDS),
-                                           a["leg_exactly_1"], a["leg_exactly_0"], a["at_kickoff"],
-                                           a["after_kickoff"]))
+            "{} · after kickoff {} · rows with an unreadable captured_at {} (in no session)".format(
+                a["all"], " · ".join("{} {}".format(k, a[k]) for k in SESSION_KINDS), a["leg_exactly_1"],
+                a["leg_exactly_0"], a["at_kickoff"], a["after_kickoff"], a["unreadable_stamp"]))
         out("(b) FIRST SESSION before kickoff: matches {} · {}".format(b["with_a_first_session"], _kv(b["first"])))
         dd = cc["differ_pp_dist"]
         out("(c) LAST SESSION before kickoff, against the close's own fair from the offers that remain: compared {} · "
@@ -608,9 +634,10 @@ def render(c: dict, out) -> None:
         out("(d) LINE MOVE (line_move.line_move): matches {} · AT THE BELL (kickoff less 1 microsecond): {} · EVER "
             "FLAGGED (at each stored stamp in [kickoff - 3 h, kickoff)): {}".format(
                 d["evaluated"], _kv(d["bell"]), _kv(d["ever"])))
-        out("    of the book-flagged at the bell, by a one-sided session at an end of the book venue: {} · {}: {} "
-            "(of them book-flagged {})".format(_kv(d["book_flag_end"]), HIDDEN, d["hidden_end"],
-                                              d["hidden_end_book_flagged"]))
+        out("    of the book-flagged at the bell, by a one-sided session at an end of the book venue: {} · of the ever "
+            "book-flagged, by the ends found one-sided at any stamp whose book alarm is set: {} · {}: {} (of them "
+            "book-flagged at the bell {})".format(_kv(d["book_flag_end"]), _kv(d["ever_book_flag_end"]), HIDDEN,
+                                                  d["hidden_end"], d["hidden_end_book_flagged"]))
         out("(e) BY MONTH ({}):".format(TZ))
         months = sorted(set(a["by_month"]) | set(b["by_month"]) | set(cc["by_month"]) | set(d["by_month"])
                         | set(f["by_month"]))

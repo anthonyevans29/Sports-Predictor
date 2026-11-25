@@ -123,7 +123,7 @@ def test_the_counts_q0_to_q6(tmp_path):
     # Q0: stage by status, as stored
     assert "  'Pre Season': FINISHED 1" in text
     assert "  'Regular Season': FINISHED 7 · POSTPONED 1 · SCHEDULED 3" in text
-    assert "  '(none)': FINISHED 1 · SCHEDULED 10" in text
+    assert "  (none): FINISHED 1 · SCHEDULED 10" in text
     assert "preseason by the shadow's rule: date 1 · stage 1" in text
     # Q1: the six, found and set apart
     assert "FOUND as 445 item 3(b) finds them: 4 clubs with no game before 2027-02-01, 6 games between them" in text
@@ -252,7 +252,8 @@ def test_a_copy_that_changes_during_the_read_refuses(tmp_path, monkeypatch):
     assert code == 2 and "changed during the read" in text and "Q0" not in text
 
 
-@pytest.mark.parametrize("argv", [[], ["--db", "x.db", "--after", "2026-13-40"], ["--db", "x.db", "--after", "soon"]])
+@pytest.mark.parametrize("argv", [[], ["--db", "x.db", "--after", "2026-13-40"], ["--db", "x.db", "--after", "soon"],
+                                  ["--db", "x.db", "--after", "2026-W01-1"], ["--db", "x.db", "--after", "20261127"]])
 def test_bad_options_exit_2(argv):
     with pytest.raises(SystemExit) as e:
         ncc.main(argv, out=lambda s: None)
@@ -403,3 +404,17 @@ def test_a_missing_zone_refuses_before_any_read(tmp_path, monkeypatch):
     monkeypatch.setattr(ncc, "_et", no_zone)
     code, text = run(["--db", str(db)])
     assert code == 2 and "zone cannot be loaded (KeyError)" in text and "--db" not in text.split("\n", 1)[1]
+
+
+# ---- the PR's first review round, pinned ----------------------------------------------------------------------------
+
+
+def test_a_stored_stage_that_reads_none_or_is_blank_is_never_merged_with_null(tmp_path):
+    db = _copy(tmp_path)
+    _sql(db, "UPDATE matches SET stage = '(none)' WHERE utc_date = '2026-10-28 23:00:00.000000'",
+         "UPDATE matches SET stage = '  ' WHERE utc_date = '2026-10-29 23:00:00.000000'")
+    code, text = run(["--db", str(db), "--after", "2026-10-27"])
+    assert code == 0
+    assert "  (none): FINISHED 1 · SCHEDULED 10" in text            # NULL alone
+    assert "  '(none)': SCHEDULED 1" in text and "  '  ': SCHEDULED 1" in text
+    assert "by stage (none) 4 · '  ' 1 · '(none)' 1 · 'Regular Season' 1" in text

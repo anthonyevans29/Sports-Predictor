@@ -21,8 +21,8 @@ THE NAMES IT USES, each read from the schema and the code first (law 1; 523 item
 - the statuses: schema.MatchStatus, every member, stored as the member NAME (schema.py:68-98); status_raw is the
   provider's code verbatim (schema.py:186-190; the hockey map at api_hockey.py:46-61), NULL until a re-sync.
 - the stage: the provider's string verbatim, NULL when empty (api_hockey.py:204). No code names the NHL's stage
-  vocabulary, so the read assumes none: it prints the stored values (Q0) and counts by them; it never filters on a
-  stage name. Preseason is the shadow's own rule, nhl_backtest.preseason_reason with nhl_shadow's season starts (a
+  vocabulary, so the read assumes none: it prints the stored values (Q0), quoted, and counts by them, each stored
+  string its own value and NULL its own, (none); it never filters on a stage name. Preseason is the shadow's own rule, nhl_backtest.preseason_reason with nhl_shadow's season starts (a
   stage containing "pre", or a game whose UTC start date is before the 2026 opener 2026-09-29, nhl_shadow.py:67-68).
 - played: FINISHED with both scores (nhl_backtest.load_games, nhl_backtest.py:420-426); to come: SCHEDULED.
 - the goalie table's game type: nhl_goalie_appearances.game_type, the API's gameType, 2 regular, 3 playoffs
@@ -68,6 +68,7 @@ sys.dont_write_bytecode = True      # 523 item 2(a), "nothing is written anywher
 
 import argparse  # noqa: E402
 import errno  # noqa: E402
+import re  # noqa: E402
 import sqlite3  # noqa: E402
 from collections import Counter, defaultdict  # noqa: E402
 from datetime import date, datetime, timezone  # noqa: E402
@@ -202,8 +203,14 @@ def on_copy(copy: Path, read):
 # --------------------------------------------------------------------------
 
 
-def _stage(v) -> str:
-    return "(none)" if v is None or not str(v).strip() else str(v)
+def _stage(v):
+    """The stage as stored: None for NULL, every stored string kept as it is (an empty or a whitespace stage, or one
+    that reads "(none)", is its own key, never merged with NULL)."""
+    return v
+
+
+def _key_order(kv):
+    return (kv[0] is not None, str(kv[0]))
 
 
 def read_counts(s, afters: list) -> dict:
@@ -233,7 +240,7 @@ def read_counts(s, afters: list) -> dict:
         g["pre"] = why
         if why:
             pre[why] += 1
-    c["q0"] = {k: dict(v) for k, v in sorted(q0.items())}
+    c["q0"] = {k: dict(v) for k, v in sorted(q0.items(), key=_key_order)}
     c["preseason"] = dict(pre)
 
     # Q1: the six, as 445 item 3(b) finds them
@@ -260,7 +267,7 @@ def read_counts(s, afters: list) -> dict:
     c["q1"] = {"found": found, "differs": differs, "clubs": len(clubs), "games": len(six),
                "at_kickoff": len(six) - off_time,
                "status": dict(Counter(g["status"].name for g in six)),
-               "raw": dict(Counter(g["raw"] or "(none)" for g in six))}
+               "raw": dict(Counter(g["raw"] for g in six))}
     apart = {g["id"] for g in six} if found else set()
 
     league = [g for g in games if g["id"] not in apart and not g["pre"]]
@@ -272,7 +279,7 @@ def read_counts(s, afters: list) -> dict:
         b = q2[et_month(g["utc"])]
         st = g["status"].name
         b["status"][st] += 1
-        b["raw"][st][g["raw"] or "(none)"] += 1
+        b["raw"][st][g["raw"]] += 1
         if g["status"] == MatchStatus.FINISHED:
             if g["hs"] is not None and g["as_"] is not None:
                 b["played"] += 1
@@ -353,7 +360,8 @@ def read_counts(s, afters: list) -> dict:
     for d in afters:
         by = Counter(_stage(g["stage"]) for g in league
                      if g["status"] == MatchStatus.SCHEDULED and et_date(g["utc"]) > d)
-        c["q5"].append({"after": d.isoformat(), "to_come": sum(by.values()), "by_stage": dict(sorted(by.items()))})
+        c["q5"].append({"after": d.isoformat(), "to_come": sum(by.values()),
+                        "by_stage": dict(sorted(by.items(), key=_key_order))})
     return c
 
 
@@ -382,10 +390,12 @@ def _esc(k) -> str:
 
 def _counts(d: dict, stored: bool = False) -> str:
     """'key n · key n'. stored=True: the keys are stored strings (a stage, a status_raw), printed quoted, so none can
-    read as a count of its own."""
+    read as a count of its own; NULL prints as (none), unquoted, so no stored string can stand for it."""
     def key(k):
-        return _esc(repr(k)) if stored and k not in ("(none)",) else _esc(k)
-    return " · ".join("{} {}".format(key(k), v) for k, v in sorted(d.items(), key=lambda kv: str(kv[0]))) or "none"
+        if stored:
+            return "(none)" if k is None else _esc(repr(k))
+        return _esc(k)
+    return " · ".join("{} {}".format(key(k), v) for k, v in sorted(d.items(), key=_key_order)) or "none"
 
 
 def render(c: dict, out: Callable[[str], None]) -> None:
@@ -395,9 +405,9 @@ def render(c: dict, out: Callable[[str], None]) -> None:
         "months and --after dates are America/New_York; the goalie and shot tables' season is the game's UTC start, "
         "1 July to 30 June; counts only, no row".format(
             COMPETITION_CODE, SEASON, c["n"], ", ".join(c["statuses"]), c["starts"]))
-    out("Q0 STAGE BY STATUS (stage as stored; '(none)' = NULL or empty):")
+    out("Q0 STAGE BY STATUS (stage as stored, quoted; (none) = NULL; an empty or whitespace stage is its own value):")
     for stage, by in c["q0"].items():
-        out("  {}: {}".format(_esc(repr(stage)), _counts(by)))
+        out("  {}: {}".format("(none)" if stage is None else _esc(repr(stage)), _counts(by)))
     out("  preseason by the shadow's rule: {} (kept out of Q2, Q3 and Q5)".format(_counts(c["preseason"])))
     q1 = c["q1"]
     out("Q1 THE SIX INTERNATIONAL GAMES (445 item 3(b)):")
@@ -452,8 +462,15 @@ def render(c: dict, out: Callable[[str], None]) -> None:
 # --------------------------------------------------------------------------
 
 
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
+
+
 def _parse_date(s: str) -> date:
+    """YYYY-MM-DD exactly: 3.11+'s fromisoformat also takes week dates (2026-W01-1) and compact ones (20261127),
+    which 3.10 refuses; the shape is checked first so every Python reads the option alike."""
     try:
+        if not _ISO_DATE.fullmatch(s):
+            raise ValueError(s)
         return date.fromisoformat(s)
     except ValueError:
         raise argparse.ArgumentTypeError("not a YYYY-MM-DD date: {!r}".format(s))

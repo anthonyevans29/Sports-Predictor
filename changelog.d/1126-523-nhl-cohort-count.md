@@ -15,4 +15,4 @@
   - the goalie table's game type;
   - the July-to-June season of the goalie and shot tables.
 - **The copy:** fenced as soccer_expansion.check_copy is, with this read's tables, and refused under any directory named data. The read runs on mode=ro + immutable=1, and the sha256 prints, checked again after the read with no sidecar. Nothing is written. No row, model, rating or figure is printed.
-- **tests/test_nhl_cohort_count.py (34):** synthetic copies under tmp_path only. They pin each finding of the independent review made before the PR, among them: a stored value its type cannot read refuses and never prints a traceback; no `__pycache__` of the repo is written; stored strings cannot forge a line. They pass on Python 3.10 and 3.13. Nothing was run on a real copy.
+- **tests/test_nhl_cohort_count.py (37):** synthetic copies under tmp_path only. They pin each finding of the independent review made before the PR, among them: a stored value its type cannot read refuses and never prints a traceback; no `__pycache__` of the repo is written; stored strings cannot forge a line. They pass on Python 3.10 and 3.13. Nothing was run on a real copy.

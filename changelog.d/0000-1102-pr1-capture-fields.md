@@ -1,6 +1,6 @@
 ## 2026-11-25 (#0000: 1102-pr1-capture-fields — THE FIELDS, F1 to F4 (addendum 529 item 3(a), 532 item 2, 534 item 4; DEV 3's one text on #1102, comment 7167846609; gate-class: an export contract))
 - **F1 `run_started_at`, top level** (`src/walters/export.py`, `src/walters/nfl_predict.py`). It is the slate run's held start, ISO Z with microseconds, written verbatim.
-  - It comes from `--run-start`, an option of `export-predictions` and `export-nfl-predictions` only (`cli.py`). Any other form of the value exits 2 at parse time, before any read; it is checked by a regex, not `fromisoformat`, which refuses "Z" on Python 3.10.
+  - It comes from `--run-start`, an option of `export-predictions` and `export-nfl-predictions` only (`cli.py`). The slate passes it: the watch's slate stage, or the architect's by-hand slate block (519 2(c)). Any other form of the value exits 2 at parse time, before any read; it is checked by an ASCII-only regex, not `fromisoformat`, which refuses "Z" on Python 3.10.
   - With `--format csv` it exits 2: a CSV has no top level.
   - With no `--run-start` there is no key, and the file is as before.
 - **The slate's export step alone passes it** (`deploy/hosting/closing.py` `slate_steps`, 526 Q1 amending 133 item 3(a) in this one place). In every family it goes before `--out` and after SOCCER's window, with the run's held start (`iso_z_us`). Nothing else is inserted.
@@ -9,6 +9,7 @@
   - The slate's receipts and its failure page carry the command as run, run start included.
 - **F2 `market.books_captured_at` and F4 `market.books_source_updated_at`**, on the priced 1X2 block only (where `bookmaker_count` > 0; never the dark spread fallback). They come from `close.book_capture_fields`:
   - F2 is the oldest capture of the close's last session, every row of it, incomplete books included. That is the closing watch's `price_captures` books reading (C:1176).
+  - **One named edge.** The watch cuts each stored capture to the second before it forms the session; the close reads full precision. A capture with a fraction within one second of the 10-minute session edge can put one book in the watch's session and out of the close's, which moves F2. It is pinned, and the close is not changed to match: R2 stays untouched.
   - F4 is `close.book_stamp` on the same close: the oldest provider stamp over the rows it priced. One unstamped row makes it null; null is unknown, never fresh.
   - F4 is null on every MLB row, because the provider sends no stamp (#628). Fixture rows keep their own all-rows reading (E:1234), and `_fixture_row` is untouched.
 - **F3 `kalshi_legs_captured_at`**, beside `kalshi_legs` (`venue.kalshi_legs_captured_at`). Per leg it is the capture time of the snapshot `kalshi_legs` reads: the last before kickoff, a mismatched game's legs dropped. It is null with `kalshi_legs`, never {}.

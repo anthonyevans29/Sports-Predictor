@@ -6493,14 +6493,15 @@ RUN_START_FORMAT = "YYYY-MM-DDTHH:MM:SS.ffffffZ"
 
 
 def _run_start_option(ctx, param, value):
-    """#1102 PR1, F1: `--run-start`, the slate run's held start, given by the closing watch's slate stage (526 Q1).
+    """#1102 PR1, F1: `--run-start`, the slate run's held start: the closing watch's slate stage passes it (526 Q1),
+    and the architect's by-hand slate block passes it itself (519 2(c)); no closing, freshen or MLB closing run does.
     Exactly ISO Z with microseconds, written verbatim; anything else exits 2 at parse time, before any read. A regex,
     never datetime.fromisoformat, which refuses the "Z" on the laptop's Python 3.10."""
     if value is None:
         return None
     import re
     from datetime import datetime as _dt
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z", value):
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z", value, re.ASCII):   # ASCII digits only
         try:
             _dt.strptime(value[:-1], "%Y-%m-%dT%H:%M:%S.%f")
             return value
@@ -6510,8 +6511,9 @@ def _run_start_option(ctx, param, value):
 
 
 _RUN_START_HELP = ("#1102 PR1, F1: the slate run's held start (" + RUN_START_FORMAT + "), written as the file's "
-                   "top-level run_started_at. Only the closing watch's slate stage passes it; with no --run-start "
-                   "there is no key. A value in any other form exits 2.")
+                   "top-level run_started_at. The slate passes it (the closing watch's slate stage, or the "
+                   "architect's by-hand slate block); no closing, freshen or MLB closing run does. With no "
+                   "--run-start there is no key. A value in any other form exits 2.")
 
 
 @cli.command("export-nfl-predictions")

@@ -313,6 +313,7 @@ def test_f1_is_written_verbatim_at_the_top_and_only_when_given(iso):
 
 GOOD = "2026-11-25T16:00:09.123456Z"
 BAD = ["2026-11-25T16:00:09Z", "2026-11-25T16:00:09.123456+00:00", "2026-11-25T16:00:09.1234567Z",
+       "\uff12\uff10\uff12\uff16-11-25T16:00:09.123456Z",                  # fullwidth digits: ASCII only
        "2026-11-25 16:00:09.123456Z", "2026-13-25T16:00:09.123456Z", "", "junk"]
 
 
@@ -389,3 +390,23 @@ def test_the_fixture_rows_carry_none_of_the_four(iso, tmp_path):
     body = open(path).read() if isinstance(path, str) and Path(path).exists() else json.dumps(path)
     for name in FIELDS:
         assert f'"{name}"' not in body, name
+
+
+def test_the_one_named_edge_a_fraction_at_the_session_boundary(iso):
+    """Named, not hidden (the review of #1102 PR1): the watch cuts each stored capture to the second before it forms
+    the session (closing.parse_utc); the export's close reads full precision. Captures 10 min 0.2 s apart, the older
+    with a fraction, are one session to the watch and two to the close, so F2 is the newer book's there and the older
+    one's in the watch. At whole-second captures (every other test here) the two agree."""
+    from src.db.database import session_scope
+    ko = _ko()
+    t = ko - timedelta(hours=2)
+    with session_scope() as s:
+        m = _match(s, "edge", ko, Sport.MLB, "CFEDGE")
+        _odds(s, m, [("bkA", "HOME", 1.8, t + timedelta(seconds=0.3), None),
+                     ("bkA", "AWAY", 2.1, t + timedelta(seconds=0.3), None),
+                     ("bkB", "HOME", 1.9, t + timedelta(minutes=10, seconds=0.5), None),
+                     ("bkB", "AWAY", 2.0, t + timedelta(minutes=10, seconds=0.5), None)])
+        mid = m.id
+    _, rows = _export(Sport.MLB, "CFEDGE", ko)
+    assert rows[mid]["market"]["books_captured_at"] == mc.iso_z(t + timedelta(minutes=10))   # the close: bkB alone
+    assert mc.iso_z(_captures(iso, mid, ko)["books"]) == mc.iso_z(t)                          # the watch: both books

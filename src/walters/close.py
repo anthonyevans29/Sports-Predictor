@@ -262,7 +262,10 @@ def book_stamp(cl, session=None) -> datetime | None:
 def session_captured_at(cl) -> datetime | None:
     """#1102 PR1, F2: the OLDEST capture of a book close's session, every row of it (`rows`: the last 1X2 session
     before the cutoff, incomplete books included), as the closing watch's price_captures reads its books (R2). None
-    when there is no close or no row."""
+    when there is no close or no row. ONE NAMED EDGE: the watch reads each stored capture cut to the second
+    (closing.parse_utc) before it forms the session, this close at full precision; where a capture has a fraction and
+    sits within one second of the session's 10-minute edge, the two sessions can differ by that book (the pin in
+    tests/test_1102_capture_fields.py). The close itself is not changed to match: R2 stays untouched."""
     return min((o.captured_at for o in (cl or {}).get("rows") or () if o.captured_at is not None), default=None)
 
 

@@ -1055,9 +1055,34 @@ def test_the_real_roadmap_moves_the_nba_probe_step_to_the_host_sitting():
     rule for an owner; the open half is the architect's block on the host)."""
     lane = _lane(_real(), "availability-record")
     st = [s for s in lane["steps"] if s["what"].startswith("the NBA injury-report probe")]
-    assert len(st) == 1 and st[0]["due"] == "2026-11-25" and st[0]["owner"] == "architect" and st[0]["done"] is None
+    assert len(st) == 1 and st[0]["due"] == "2026-11-25" and st[0]["owner"] == "architect"
     (mv,) = lane["moved"]
     assert (mv["moved_on"], mv["which"], mv["was"], mv["now"]) == ("2026-11-24", st[0]["what"], "2026-11-24", "2026-11-25")
     assert mv["why"] == ("the report phase is the architect's block on the host (368 item 4); the host sitting is "
                          "Wednesday 2026-11-25 (addendum 492 item 4)")
     assert mv["ruling"].startswith("ARCHITECT 2026-11-24 08:31 ET, addendum 492 item 4, verbatim: \"4. THE NBA INJURY")
+
+
+def test_the_real_roadmap_marks_the_nba_probe_step_done_and_orders_no_nba_feed():
+    """ARCHITECT 2026-11-25 10:26 ET, addendum 531 item 2(d): "THE ROADMAP STEP OF 2026-11-25 IS DONE TODAY, on that
+    console ... No feed PR follows. DEV 1: the done-mark with the outcome in the step's own words, and the lane's next
+    line saying no NBA feed is ordered." The step is done on its own date, its due and its moved line unchanged; with
+    no step left the lane reads closed (the validator allows only live or closed; that state waits on the architect's
+    word) and live_needs opens with DEV 1's line that no NBA feed is ordered, then 531 item 2(d) in part and 2(e) whole,
+    verbatim. No date moves."""
+    lane = _lane(_real(), "availability-record")
+    (st,) = [s for s in lane["steps"] if s["what"].startswith("the NBA injury-report probe")]
+    assert st["due"] == "2026-11-25" and st["done"]["date"] == "2026-11-25"
+    r = st["done"]["receipt"]
+    assert r.startswith("DONE on the architect's block's consoles on #839 (the step's own words: ")
+    assert "addendum 531 item 2(a) to (d), verbatim in part" in r and "The answer was HTTP 403." in r
+    assert "THE INDEX IS CLOSED BY ACCESS" in r and "No feed PR follows." in r
+    assert rm.next_step(lane) is None and lane["state"] == "closed" and lane["earliest_live"] is None
+    assert lane["live_needs"].startswith("No NBA feed is ordered: the line 531 item 2(d) asks DEV 1 for, in DEV 1's "
+                                         "words. Ruled (ARCHITECT 2026-11-25 10:26 ET, addendum 531 item 2(d) in part, "
+                                         "and 2(e) whole, verbatim): \"No feed PR follows.\"")
+    assert "Until he decides, nothing is built and nothing is read." in lane["live_needs"]
+    assert lane["live_needs"].endswith("the lane is done when its steps are done. No model goes live from it; the first "
+                                       "host reads and the timers' enablement are the architect's blocks.")
+    assert len(lane["moved"]) == 1          # 492 item 4's line, kept; 531 moves no date
+    assert rm.validate(_real()) == []

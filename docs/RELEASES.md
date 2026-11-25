@@ -160,6 +160,7 @@ its compare verdict.
 | `v1.6.8` | 2026-11-13 21:13:23Z | `b3c5fbcf0791ff9201136d57882b80d33f01a474` | `5a88468c646ae2198790da448b11d4ddf7befbe1` | #990 |
 | `v1.6.9` | 2026-11-15 19:57:26Z | `482de3fdc4ee81ee532733975fd127999d6b7843` | `eb3becef4f5f24524cefa803923c463e416e908c` | #1027 |
 | `v1.6.10` | 2026-11-21 12:57:39Z | `67f02dfc1bdcd30ab7860dd1cc5c78737908a1d8` | `a081dceded6b897f3f3623de16518bdd0acb9bdd` | #1061 |
+| `v1.6.11` | 2026-11-25 14:54:00Z | `3b63269b5463ebddde57bf3781bf79caeca7ae54` | `4d4f00497517db7d332a08521f35343b65bfcd62` | pending (ritual step 4) |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -672,6 +673,89 @@ its compare verdict.
       character for character, with the server's attribution footer after it. The byte-identical copy is the tag.
     - Addendum 438 item 1 (the post-deploy read that closes 436 item 1(e)'s gap) is pasted verbatim in a comment of its
       own.
+- **v1.6.11** (ARCHITECT 2026-11-25 09:41 ET, addendum 528 item 1): no migration, and none was due. The commit is the
+  #1121 merge 3b63269b, as v1.6.10's was the #1060 merge: the ledger compile 1688ea48 (36 changelog fragments, 38
+  ledger entries) over 9fcd5e8d (#1113's merge). Its tree 0dedefdb is the tree of the architect's own compile on
+  9fcd5e8d (512 item 1(a); 514 item 1). The tag was cut by the operator's own hand from the architect's block and is on
+  origin, as Code fetched it. Its tagger stamp is 2026-11-25 14:54:00Z (09:54:00 -0500). Verbatim (528 item 1, its
+  heading): "v1.6.11 IS RULED: THE TAG IS CUT ON 3b63269b." **NOT DEPLOYED:** the deploy's day is left open until the
+  architect gives it (528 item 3), and the host stays on v1.6.10 until his read after its own reboot (530 item 1(c)).
+  PRODUCTION stays v1.6.10.
+  - **Step 1 (528 item 1, verbatim):** "The three conditions are met: (a) CI is green on 3b63269b. (b) The compare of
+    2026-11-24 is CLEAN (525 item 2). (c) THE HOST'S RECEIPTS SINCE THE v1.6.10 TAG, by the operator's block at 14:38Z:
+    98 hours; 3,165 rows, 6,017 with the steps; 0 failing. The landing watch: 1,076 runs, none failed. The graph unit:
+    none failed. Timers: 22 named, 22 active, none missing, none stray. No failed unit; the checkout is clean on
+    v1.6.10. The operator has the tag block. It reads CI itself and refuses a tag that exists."
+  - **Step 1(b), the compare (ARCHITECT 2026-11-25 08:09 ET, addendum 525 item 2, verbatim):** "THE DAY'S COMPARE
+    (2026-11-24) IS CLEAN, by the repo's own tool on the mirror at 3b63269b: one paired kind compared, fixtures_NHL, 11
+    rows a side in the window, no difference; twelve files one-sided as expected; the skew named is the laptop's
+    498a9295 against the host's 67f02dfc. With CI green on 3b63269b that is two of the tag's three conditions. The third
+    is the host's receipts since the v1.6.10 tag, by the operator's block this morning."
+  - **Step 2, the fold (ARCHITECT 2026-11-24 17:07 ET, addendum 512 item 1, verbatim in part, to (b)):** "THE v1.6.11 FOLD, #1121, IS
+    READ AT 1688ea48 AND IS MERGE-READY WHEN ITS CI IS GREEN. (a) It was cut from 9fcd5e8d, as expected. I ran the
+    ledger compile on that main myself and got the fold's tree, 0dedefdb: BACKLOG.md, CHANGELOG.md and 74 deleted
+    fragment files, 36 sections and 38 entries, nothing else. The review found nothing. (b) The release notes on the
+    fold's commit, my preview: exit 0, 565 lines, 36 sections, no AMENDED line and no failing line." And its merge
+    (ARCHITECT 2026-11-24 17:24 ET, addendum 514 item 1, verbatim): "THE FOLD IS MERGED. #1121 at 1688ea48 was merged
+    by the operator's agent from my block at about 17:23 ET; the first run stopped rightly while CI was running. MAIN IS
+    3b63269b, its tree the fold's, 0dedefdb, with no fragment pending. The release notes are written on the laptop:
+    exit 0, 565 lines, 36 sections, no AMENDED line and no failing line, as my preview had them." #1121 merged
+    2026-11-24T22:23:20Z. #1116 was not on main at 17:00 ET, so the fold did not carry it, and the fold's body says so
+    (508 item 1(c); 512 item 2).
+  - **Main held, then released (514 item 2 in part and 528 item 3 whole, verbatim):** "MAIN IS HELD AT 3b63269b UNTIL v1.6.11 IS CUT.
+    Nothing merges and nobody pushes to main before the tag." Then: "MAIN IS RELEASED WHEN THE TAG IS ON GITHUB, and not
+    a minute before. Then the five waiting PRs merge by my one block, which reads the tag first: #1116, #1115, #1117,
+    #1124, #1126. DEV 1: the records PR follows #1116's merge; the release record names the tag's day and leaves the
+    deploy's day open until I give it."
+  - **Step 3, the tag, read from git:** tag object `4d4f00497517db7d332a08521f35343b65bfcd62` on
+    `3b63269b5463ebddde57bf3781bf79caeca7ae54` (tree `0dedefdb24d121185a366788d6523fb3dfd47524`); tagger timestamp
+    1795618440 -0500, which is 2026-11-25 09:54:00 -0500 (14:54:00Z), the tag's day 2026-11-25.
+  - **The tag and the merges, read by the architect on GitHub (ARCHITECT 2026-11-25 10:11 ET, addendum 530 item 1(a)
+    to (d), verbatim):** "(a) v1.6.11 is cut: the tag object 4d4f0049 points at 3b63269b, tagged 2026-11-25 09:54 ET by
+    the operator's own hand, its message the notes file whole (565 lines, 36 sections). (b) By my block, after the tag:
+    #1116 at 39f1cc21, #1115 at 14cc90be, #1117 at 2934ceea, #1124 at 6edc4515, #1126 at 1dd09e8d. MAIN IS 1dd09e8d AND
+    IS NO LONGER HELD. (c) THE DEPLOY IS NOT TODAY (528): the host stays on v1.6.10 until my read after its own reboot.
+    Nothing merged today is on the host, and no session writes as if it were. (d) The roadmap on main prints overdue:
+    0."
+  - **The tag message:**
+    - Stored (`git cat-file -p v1.6.11`): 565 lines and 77,738 bytes (its final newline included); 37 lines begin with
+      `#` (the header and all 36 `## ` section headings). Its first line reads "# Release notes ·
+      3b63269b5463ebddde57bf3781bf79caeca7ae54 (3b63269b) · since v1.6.10".
+    - It is byte-identical to `python3 scripts/release_notes.py --to 3b63269b5463ebddde57bf3781bf79caeca7ae54` (565
+      lines, exit 0). `git for-each-ref --format='%(contents)'` prints one more newline, as on the earlier entries.
+    - No AMENDED line, no `✗` and no `FAIL`.
+  - **The deploy (528 item 2, verbatim):** "THE DEPLOY IS NOT TODAY. The same console reads "reboot pending: YES". My
+    deploy block refuses on a pending reboot and I keep that refusal: one change at a time on the host. The host
+    reboots itself at 04:30 UTC when a security upgrade asks (322 item 1). The deploy follows my read of the host after
+    that reboot, on the day the operator chooses. NOTHING WAITS ON IT: main is released by the tag, not by the
+    deploy." The deploy's day: open, until the architect gives it (528 item 3).
+  - **What changed for the host, read from git (`v1.6.10..v1.6.11`):**
+    - `src/db/schema.py`, every `migrate_*.py`, `requirements.txt` and both side requirements files are unchanged
+      (514 item 3: "schema.py, requirements.txt and the unit files are unchanged and there is no migration").
+    - Three deploy/hosting files changed, all three named as 514 item 3 rules: `deploy/hosting/laptop_routine.py`, new
+      (#1096, the laptop's morning steps as one command; it runs on the laptop); `deploy/hosting/sp_window_page.py`
+      (#1104, the window page carries the registry's certification for each model row); and
+      `deploy/hosting/compare_exports.py` (#1064, with soccer-v23's dormant PASS shadow on the host's PL pages). No unit
+      file was added or changed: the pack ships 27 timers, as at v1.6.10.
+  - **Carries:** git's `v1.6.10..v1.6.11` holds 161 commits and 63 files. Of its 50 merge commits, 37 are "Merge pull
+    request #N" on main's first parent: the 36 PRs the notes carry, one CHANGELOG section each, and the fold PR #1121.
+    The other 13 merge into PR branches: main or another branch four times into #1096's, three times into #1086's,
+    twice into #1075's and once each into #1085's, #1077's and #1056's; and fcbfff35 merges the laptop's PD
+    substitution commit 371aca2c into #1088's (addendum 460 item 3). The 36: #1056, #1057, #1059, #1062, #1063, #1064,
+    #1065, #1066, #1068, #1069, #1070, #1071, #1075, #1076, #1077, #1080, #1082, #1083, #1085, #1086, #1088, #1090,
+    #1091, #1094, #1095, #1096, #1097, #1099, #1100, #1101, #1103, #1104, #1105, #1106, #1107, #1113. Not in the tag:
+    #1116 (39f1cc21), #1115 (14cc90be), #1117 (2934ceea), #1124 (6edc4515) and #1126 (1dd09e8d), merged after the tag
+    by the architect's one block, which read the tag first (528 item 3; 530 item 1(b)); they open the next span.
+  - **The host's MLB hold, set after the tag and on v1.6.10 (ARCHITECT 2026-11-25 10:26 ET, addendum 531 item 1,
+    verbatim in part):** "THE MLB SYNC HOLD ON THE HOST (522), by my OPERATOR block, 15:22Z, on v1.6.10." **The host
+    holds MLB from 2026-11-25, lifted only by the architect's block with the plan's renewal before the 2027 season**
+    (531 item 1(d), whose words are "the host holds MLB from 2026-11-25, lifted only by my block with the plan's renewal
+    before the 2027 season (522 item 4)"; the lift as 522 item 3(b) rules it, "I lift it by block when the plan is
+    back", and 522 item 3(d): "The plan must be back before the first 2027 game the live path prices"). It is not a file
+    of the tag: one bare line naming MLB in the host's env file (531 item 1(a)), and "No timer, unit or chain changed"
+    (531 item 1(c)). The hosting spec's section O carries it beside `SP_SYNC_HOLD`, with 531 item 1(a) to (c) whole.
+  - **Release Issue:** pending (ritual step 4). No Release Issue and no milestone v1.6.11 exist when this record is
+    written; the draft follows v1.6.10's #1061 in form.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

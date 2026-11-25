@@ -160,7 +160,7 @@ its compare verdict.
 | `v1.6.8` | 2026-11-13 21:13:23Z | `b3c5fbcf0791ff9201136d57882b80d33f01a474` | `5a88468c646ae2198790da448b11d4ddf7befbe1` | #990 |
 | `v1.6.9` | 2026-11-15 19:57:26Z | `482de3fdc4ee81ee532733975fd127999d6b7843` | `eb3becef4f5f24524cefa803923c463e416e908c` | #1027 |
 | `v1.6.10` | 2026-11-21 12:57:39Z | `67f02dfc1bdcd30ab7860dd1cc5c78737908a1d8` | `a081dceded6b897f3f3623de16518bdd0acb9bdd` | #1061 |
-| `v1.6.11` | 2026-11-25 14:54:00Z | `3b63269b5463ebddde57bf3781bf79caeca7ae54` | `4d4f00497517db7d332a08521f35343b65bfcd62` | pending (ritual step 4) |
+| `v1.6.11` | 2026-11-25 14:54:00Z | `3b63269b5463ebddde57bf3781bf79caeca7ae54` | `4d4f00497517db7d332a08521f35343b65bfcd62` | #1138 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -750,12 +750,21 @@ its compare verdict.
     verbatim in part):** "THE MLB SYNC HOLD ON THE HOST (522), by my OPERATOR block, 15:22Z, on v1.6.10." **The host
     holds MLB from 2026-11-25, lifted only by the architect's block with the plan's renewal before the 2027 season**
     (531 item 1(d), whose words are "the host holds MLB from 2026-11-25, lifted only by my block with the plan's renewal
-    before the 2027 season (522 item 4)"; the lift as 522 item 3(b) rules it, "I lift it by block when the plan is
-    back", and 522 item 3(d): "The plan must be back before the first 2027 game the live path prices"). It is not a file
+    before the 2027 season (522 item 4)"; corrected by ARCHITECT 2026-11-25 13:42 ET, addendum 537 item 3 Q2, verbatim in part:
+    "MY ERROR IN 531 item 1(d): the cite is 522 items 3(b) and 3(d), not item 4."; the lift as 522 item 3(b) rules it,
+    "I lift it by block when the plan is back", and 522 item 3(d): "The plan must be back before the first 2027 game the
+    live path prices"). It is not a file
     of the tag: one bare line naming MLB in the host's env file (531 item 1(a)), and "No timer, unit or chain changed"
     (531 item 1(c)). The hosting spec's section O carries it beside `SP_SYNC_HOLD`, with 531 item 1(a) to (c) whole.
-  - **Release Issue:** pending (ritual step 4). No Release Issue and no milestone v1.6.11 exist when this record is
-    written; the draft follows v1.6.10's #1061 in form.
+  - **Release Issue:** #1138 (ritual step 4), opened 2026-11-25 on ARCHITECT 2026-11-25 13:42 ET, addendum 537 item 3
+    Q3, on the milestone v1.6.11. Verbatim (537 item 3 Q3): "OPEN THE RELEASE ISSUE NOW. The tag exists; the Issue names
+    the tag's day and says the deploy waits for the host's own reboot. The deploy's lines are added the day it runs."
+    - It is "Release v1.6.11 (3b63269b)", labelled release, track:H, class:lane, sport:all and size:S, in the form of
+      v1.6.10's #1061. It names the tag's day (cut 2026-11-25, 14:54:00Z) and says the deploy waits for the host's own
+      reboot (528 item 2; 530 item 1(c)). The deploy's lines are added the day it runs.
+    - It carries the notes in two comments (7171823071 and 7171823693). Read back from GitHub, each with the server's
+      attribution footer after it, the two bodies joined by one blank line are the tag message character for character
+      (77,642 characters, its final newline included).
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

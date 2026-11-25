@@ -194,8 +194,9 @@ become MORE binding under an income goal, never less."
   chain calls it, printed the HELD line alone and left with 0; no timer,
   unit or chain changed. The host holds MLB from 2026-11-25, lifted only
   by the architect's block with the plan's renewal before the 2027 season
-  (531 item 1(d)); the plan must be back before the first 2027 game the
-  live path prices (522 item 3(d)). The window's MLB sync-odds is outside
+  (531 item 1(d), its cite corrected to 522 items 3(b) and 3(d) by 537
+  item 3 Q2); the plan must be back before the first 2027 game the live
+  path prices (522 item 3(d)). The window's MLB sync-odds is outside
   SP_SKIP_FAMILIES and the sync hold: quiet only while no unfinished MLB
   game is stored on the host (533 item 4(d)).
 - **Soccer**: soccer_elo_poisson **v22** on the 16,546-match / 24-comp
@@ -244,7 +245,12 @@ become MORE binding under an income goal, never less."
   MoneyPuck's listed files were reopened by the operator (517 item 1; the
   risk log #1122): fetched by the architect's block only, kept on the laptop
   in a gitignored folder, raw fields only as inputs, credited by name where
-  something built on them is shown (517 item 2(b)-(e)).
+  something built on them is shown (517 item 2(b)-(e)). The first fetch,
+  four files each asked for once, ran on the laptop at 18:48Z on
+  2026-11-25 by the architect's block; the structure receipt printed no row
+  (538 item 1). "NOTHING IS GRANTED BY THIS READ. No build (517 item 2(g)),
+  no figure of any candidate, NHL 2025 stays retired, and nothing reads the
+  file's 2025-26 or 2026-27 games for a figure." (538 item 6(c), in part).
   Projected starters are the INFERRED LAYER's pilot (NHL starting goalies,
   shadow only; lane inferred-layer, #992; host-only store, never sports.db);
   what the pilot is for is ruled 12-03 (496 item 4(d)). The bar did not move.

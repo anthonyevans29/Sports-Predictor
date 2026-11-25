@@ -1626,11 +1626,13 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         before v1.6.11's deploy (530 item 1(c)). **Its lifting condition: the host holds MLB from 2026-11-25, lifted
         only by the architect's block with the plan's renewal before the 2027 season** (531 item 1(d), whose words are
         "hosting-h1 section O and the release record say the host holds MLB from 2026-11-25, lifted only by my block
-        with the plan's renewal before the 2027 season (522 item 4)"; the lift as 522 item 3(b) rules it, "I lift it
-        by block when the plan is back", and 522 item 3(d): "The plan must be back before the first 2027 game the live
-        path prices"). The lift is the procedure above ("Lifting a hold"). This entry is 522 item 6's ("section O of
-        the hosting spec takes the hold and its lifting condition in the records PR after my block has run and I say
-        so"), written after 531 item 1 said the block had run.
+        with the plan's renewal before the 2027 season (522 item 4)"; corrected by ARCHITECT 2026-11-25 13:42 ET,
+        addendum 537 item 3 Q2, verbatim in part: "MY ERROR IN 531 item 1(d): the cite is 522 items 3(b) and 3(d), not item
+        4."; the lift as 522 item 3(b) rules it, "I lift it by block when the plan is back", and 522 item 3(d): "The
+        plan must be back before the first 2027 game the live path prices"). The lift is the procedure above
+        ("Lifting a hold"). This entry is 522 item 6's ("section O of the hosting spec takes the hold and its lifting
+        condition in the records PR after my block has run and I say so"), written after 531 item 1 said the block had
+        run.
         **What the hold does not reach (ARCHITECT 2026-11-25 11:01 ET, addendum 533 item 4(d), verbatim):** "THE
         WINDOW'S MLB sync-odds, outside SP_SKIP_FAMILIES and the sync hold: quiet only while no unfinished MLB game is
         stored on the host. No build. It goes into my MLB lane declaration on #97 (by 12-18): the plan's renewal comes

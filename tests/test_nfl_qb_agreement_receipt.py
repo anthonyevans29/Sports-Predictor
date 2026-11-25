@@ -264,8 +264,13 @@ def test_no_name_and_no_id_is_printed(tmp_path):
     db, pay = _world(tmp_path)
     code, text = run(["--db", str(db), "--payloads", str(pay)])
     assert code == 0
+    # the copy's sha256 is printed by design, and a hex digest can hold "e12" or "9001" by chance (CI on #1139,
+    # smoke-py310: 'e12' found inside 8e8e1272...): the digests are taken out before the ids are looked for
+    import re
+    assert re.search(r"\b[0-9a-f]{64}\b", text)
+    scrubbed = re.sub(r"\b[0-9a-f]{64}\b", "<sha256>", text)
     for word in (SECRET, "Josh", "Allen", "Brady", "Mac Jones", "Bo Nix", "e12", "9001", "8001"):
-        assert word not in text, word
+        assert word not in scrubbed, word
 
 
 def test_the_copy_and_the_payloads_are_unchanged(tmp_path):

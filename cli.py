@@ -530,6 +530,16 @@ def _print_provider_id_collision(result) -> None:
         print(season_unknown_line(result.provider_id_season_unknown), flush=True)
 
 
+def _print_placeholder_filled(result) -> None:
+    """THE PLACEHOLDER FILL (ARCHITECT 2026-11-24, addendum 500 Q1, verbatim): "The fill is never silent: its own
+    receipt line with the match ids." Printed plainly on its own line (never rich-wrapped) only when N > 0, right after
+    the provider-id collision lines (the scores-by-team line stays the tail's last line); nothing when the result
+    carries no SyncResult lists (a test's stand-in service)."""
+    if getattr(result, "placeholder_filled", None):
+        from src.ingestion.service import placeholder_filled_line
+        print(placeholder_filled_line(result.placeholder_filled), flush=True)
+
+
 def _print_nfl_team_refused(result) -> None:
     """THE NFL-TEAM REFUSAL (ARCHITECT 2026-11-24, addendum 500 Q9 and item 3(a): "THE NFL-TEAM REFUSAL of Q9, with
     its count line"): "nfl_team_refused N: <listing id> (match <stored id>), <listing id>, ...", the stored match id
@@ -636,6 +646,7 @@ def sync_matches_cmd(
             result = service.sync_matches(competition_code, season=season_str)
             console.print(f"  {result}")
             _print_provider_id_collision(result)
+            _print_placeholder_filled(result)
             _print_nfl_team_refused(result)
             _print_skipped_listings(result)
             _print_scores_by_team(result)
@@ -651,6 +662,7 @@ def sync_matches_cmd(
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
     _print_provider_id_collision(result)
+    _print_placeholder_filled(result)
     _print_nfl_team_refused(result)
     _print_skipped_listings(result)
     _print_scores_by_team(result)

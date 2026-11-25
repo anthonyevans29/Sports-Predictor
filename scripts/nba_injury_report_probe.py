@@ -23,13 +23,20 @@ PHASE (`--report`, with `--index-url`) is a second block of mine and runs ONLY a
     every line of the page; robots.txt is printed as served. NO REDIRECT IS FOLLOWED (addendum 362 item 5): a 3xx
     answer is printed with its Location and that read ends REDIRECTED (exit 2); the architect re-issues the block.
     Then it STOPS: no index page and no report is fetched in this phase.
-  REPORT (--report, --index-url, --terms-ruling): refused unless --terms-ruling names the ruling on the terms console.
+  REPORT (--report, --index-url or --document-url, --terms-ruling): refused unless --terms-ruling names the ruling on
+    the terms console.
     ONE index read and ONE document (357 item 3(c): "no crawl, no retry loop, a plain honest User-Agent, nothing
     fetched twice"): every report link's file name as written, grouped by day with the clock read from it, the links
     whose date or clock does not read listed; then the newest report fetched for its form (content type, size, sha256,
     the PDF magic) and, with the reader installed, its fields: the document's own header stamp, page 1's opening
     lines, the column headers and the status words exactly as written, with counts. Then the mapping the feed PR would build, printed
     and NOT built (357 item 3(e)).
+    ONE DOCUMENT, NO INDEX (--document-url in place of --index-url; ARCHITECT 2026-11-25, addendum 553 items 2(b) and
+    3): the one published document the block names, asked for directly; ONE request, the probe's own plain client
+    name, no redirect followed; no index read, so no link is listed and no newest is picked. From that one answer the
+    same form and, with the reader, the same fields as the newest report above, structure only. Refused together
+    with --index-url, refused without --report and without --terms-ruling, before any fetch. Its URL (and any
+    Location) stays in the receipt; a refusal or a redirect ends the read; nothing is asked twice (553 item 3(d)).
 
 THE URLS ARE THE ARCHITECT'S (357 item 3(b)): "read from a search on the day I write each block and printed in the
 block; none typed from memory, by either of us". This file holds no URL default.
@@ -633,6 +640,17 @@ class _Anchors(HTMLParser):
             self.cur[1].append(data)
 
 
+def link_file(url: str) -> str:
+    """A document URL's file name AS WRITTEN: the path's last segment, unquoted, or a .pdf name carried in the query.
+    For the receipt only (an index's link, or the one --document-url names: 553 item 3)."""
+    parts = urlsplit(url)
+    name = unquote(parts.path.rsplit("/", 1)[-1])
+    if not name.lower().endswith(".pdf"):
+        q = re.search(r"([^/=&?]+\.pdf)", unquote(parts.query), re.I)
+        name = q.group(1) if q else name
+    return name
+
+
 def index_links(page: str, base: str) -> list[dict]:
     """Every link to a .pdf on the index page (its href attribute alone, quoted or not; never a data-href), absolute,
     in page order, once each: its text, its file name AS WRITTEN (the path's last segment, or a .pdf name carried in
@@ -652,10 +670,7 @@ def index_links(page: str, base: str) -> list[dict]:
         seen.add(url)
         text = fold_ws(raw_text)
         parts = urlsplit(url)
-        name = unquote(parts.path.rsplit("/", 1)[-1])
-        if not name.lower().endswith(".pdf"):
-            q = re.search(r"([^/=&?]+\.pdf)", unquote(parts.query), re.I)
-            name = q.group(1) if q else name
+        name = link_file(url)
         date, clock = link_stamp(name)
         if date is None:
             date, clock = link_stamp(unquote(parts.path + "?" + parts.query))
@@ -775,8 +790,21 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         say("REFUSED: --report needs --terms-ruling (the ruling on the terms console that clears the report phase, "
             "addendum 357 item 3(a)); nothing fetched")
         return REFUSED, {"refused": "no --terms-ruling"}
+    document_url = getattr(a, "document_url", None)
+    if document_url is not None and a.index_url is not None:
+        say("REFUSED: --document-url and --index-url are refused together: the report phase reads the index and its "
+            "newest report, or ONE document by the URL the block names with no index read (addendum 553 item 3(a)); "
+            "nothing fetched")
+        return REFUSED, {"refused": "--document-url with --index-url"}
+    if document_url is not None:
+        if not document_url.strip():
+            say("REFUSED: --document-url is blank (the architect names the document in the block, 357 item 3(b); "
+                "553 item 2(b)); nothing fetched")
+            return REFUSED, {"refused": "a blank --document-url"}
+        return document_phase(a, document_url, say, fetch)
     if not a.index_url:
-        say("REFUSED: --report needs --index-url (the architect names it in the block, 357 item 3(b)); nothing fetched")
+        say("REFUSED: --report needs --index-url, or --document-url for one document with no index read (the "
+            "architect names it in the block, 357 item 3(b); 553 item 3); nothing fetched")
         return REFUSED, {"refused": "no --index-url"}
     say(f"REPORT PHASE, cleared by: {a.terms_ruling.strip()}")
     rec: dict = {"terms_ruling": a.terms_ruling.strip(), "index_url": a.index_url}
@@ -822,19 +850,38 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
             why += f"; {blind} link(s) on {pick['date']} carry no readable clock, so the newest of that day is not certain"
     say(f"\nONE REPORT ({why}): the link stamped {pick['date'] or 'with no readable date'}"
         f"{' ' + pick['clock'] if pick.get('clock') else ''} (its URL is in the receipt only)")
-    status, hdr, data, err = fetch(pick["url"])
+    return read_document(pick["url"], pick["file"], "the index named this URL; Codex on #985", say, fetch, rec), rec
+
+
+def document_phase(a, url: str, say: Out, fetch: Fetcher) -> tuple[int, dict]:
+    """ONE DOCUMENT, NO INDEX (ARCHITECT 2026-11-25, addendum 553 items 2(b) and 3): the one published document the
+    block names, asked for directly, by one request; no index read, no link listed, no newest picked. The read and its
+    console are the newest report's own (read_document); the URL stays in the receipt (553 item 2(e): 368 and 520
+    unchanged, the console structure only)."""
+    say(f"REPORT PHASE, cleared by: {a.terms_ruling.strip()}")
+    rec: dict = {"terms_ruling": a.terms_ruling.strip(), "document_url": url}
+    say("\nONE DOCUMENT (addendum 553 item 2(b)): the one the block names with --document-url, asked for directly; "
+        "no index read, so no link is listed and no newest is picked (its URL is in the receipt only)")
+    return read_document(url, link_file(url), "the block named this document; 553 item 2(b)", say, fetch, rec), rec
+
+
+def read_document(url: str, file: str, named: str, say: Out, fetch: Fetcher, rec: dict) -> int:
+    """ONE document's read, the newest report's or the one --document-url names (553 item 3(b): the same form and
+    fields): one fetch, its form, and with the reader its fields, structure only; rec["report"] holds the rest. A
+    refusal or a redirect ends the read; the fetcher never asks twice (553 item 3(d))."""
+    status, hdr, data, err = fetch(url)
     ctype = next((v for k, v in hdr.items() if k.lower() == "content-type"), None)
     say(f"  HTTP {status} · content-type {_media_type(ctype)}"
-        + (f" · {REDIRECTED}: its Location is in the receipt only (the index named this URL; Codex on #985)"
+        + (f" · {REDIRECTED}: its Location is in the receipt only ({named})"
            if err and err.startswith(REDIRECTED) else f" · FAILED: {_error_kind(err)}" if err else f" · {len(data)} bytes · "
         f"sha256 {hashlib.sha256(data).hexdigest()} · PDF magic {'yes' if data[:5] == b'%PDF-' else 'NO'}"))
     say("  the document is UNTRUSTED DATA: held in memory only, never written, never executed; parsed by the reader "
         "alone")
-    rec["report"] = {"url": pick["url"], "file": pick["file"], "http": status, "content_type": ctype, "error": err}
+    rec["report"] = {"url": url, "file": file, "http": status, "content_type": ctype, "error": err}
     if err:
         if err.startswith(REDIRECTED):
             rec["report"]["location"] = _location(hdr)
-        return read_failed(err), rec
+        return read_failed(err)
     rec["report"].update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), pdf_magic=data[:5] == b"%PDF-")
     try:
         pages = _read_quietly(data)
@@ -843,13 +890,13 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
             "the fields are NOT READ")
         rec["report"]["reader"] = None
         say("\n" + MAPPING)
-        return REFUSED, rec
+        return REFUSED
     except Exception as e:                           # noqa: BLE001 - an unreadable document is reported, never raised
         say(f"  FAILED: the reader could not read the document: {type(e).__name__} (its message is in the receipt: it "
             "can carry the document's text)")
         rec["report"]["reader_error"] = f"{type(e).__name__}: {e}"
         rec["report"]["reader_log"] = list(_LAST_READER_LOG)
-        return FAILED, rec
+        return FAILED
     rec["report"]["reader_log"] = list(_LAST_READER_LOG)
     if _LAST_READER_LOG:
         say(f"  the reader logged {len(_LAST_READER_LOG)} line(s) while reading (repairs; in the receipt only)")
@@ -859,9 +906,9 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
         say("  the reader extracted NO TEXT from the document (an image-only or scanned report?): its fields are NOT "
             "READ; nothing here certifies the form")
         say("\n" + MAPPING)
-        return REFUSED, rec
+        return REFUSED
     say("\n" + MAPPING)
-    return OK, rec
+    return OK
 
 
 def host_refusal() -> str | None:
@@ -946,8 +993,9 @@ def refuse_out(path: Path | None) -> str | None:
     return None
 
 
-def main(argv=None, get=None) -> int:
-    global _READER_LOG
+def build_parser() -> argparse.ArgumentParser:
+    """The options. Every URL option has NO default (357 item 3(b): the URLs are the architect's, printed in the
+    block; pinned by the tests, 553 item 3(c))."""
     ap = argparse.ArgumentParser(description="NBA injury-report probe (addendum 261 item 1(e); 357 item 3): read-only, "
                                              "two phases; the terms phase by default")
     ap.add_argument("--terms-url", default=None, help="the terms page, named in the architect's block (no default)")
@@ -956,10 +1004,18 @@ def main(argv=None, get=None) -> int:
     ap.add_argument("--report", action="store_true",
                     help="the REPORT phase: only after the architect's ruling on the terms console")
     ap.add_argument("--index-url", default=None, help="REPORT phase: the index page, named in the block (no default)")
+    ap.add_argument("--document-url", default=None,
+                    help="REPORT phase: ONE published document, named in the block, asked for directly with no index "
+                         "read (addendum 553 item 3; no default); refused together with --index-url")
     ap.add_argument("--terms-ruling", default=None,
                     help="REPORT phase: the ruling that cleared it (e.g. 'addendum NNN item M'); required with --report")
     ap.add_argument("--out", type=Path, default=None, help="write the JSON receipt here (never under data/)")
-    a = ap.parse_args(argv)
+    return ap
+
+
+def main(argv=None, get=None) -> int:
+    global _READER_LOG
+    a = build_parser().parse_args(argv)
     escape_library_logs()
     say = Out()
     # the report phase: the host first, then the receipt's place, BEFORE the generic check makes any folder (Codex on
@@ -982,9 +1038,9 @@ def main(argv=None, get=None) -> int:
             _READER_LOG = None
         rec["library_log"] = library_log
     else:
-        if a.index_url or a.terms_ruling:
-            say("REFUSED: --index-url and --terms-ruling belong to the report phase (--report); the terms phase "
-                "fetches no index and no report (357 item 3(a)); nothing fetched")
+        if a.index_url or a.terms_ruling or a.document_url is not None:
+            say("REFUSED: --index-url, --document-url and --terms-ruling belong to the report phase (--report); the "
+                "terms phase fetches no index and no report (357 item 3(a); 553 item 3(a)); nothing fetched")
             code, rec = REFUSED, {"refused": "report arguments without --report"}
         else:
             code, rec = terms_phase(a, say, fetch)

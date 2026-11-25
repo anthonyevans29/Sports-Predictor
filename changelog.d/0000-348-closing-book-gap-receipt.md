@@ -1,0 +1,10 @@
+## 2026-11-25 (#0000: 348-closing-book-gap-receipt — the closing book-gap receipt, read-only (477 item 4(b); 532 item 4, its plan ruled by 534 item 3; DEV 4, Lane D; Refs #348))
+- **scripts/closing_book_gap_receipt.py --exports DIR --db COPY [--from INSTANT] [--through INSTANT]**, new. Counts and gaps in pp only, no network, nothing written.
+- **The rows:** SOCCER (PL 2026/27) and NFL rows of the latest closing page of each start. Earlier pages and copies are printed, labelled and out; a start whose latest page cannot be told counts no page.
+- **The books' session:** the copy's 1X2 snapshot session (api_football for SOCCER, api_american_football for NFL), validated against the page's fair to 4 places. Its stamp is source_updated_at, the oldest over its rows, aged at exported_at, as #1077 reads it.
+- **The HOME gap:** |books' fair - Kalshi's normalised price| in pp, by 532's buckets (under 1 h, 1-2, 2-3, 3-6, 6-12, 12-24, 24 h or more, no stamp). "Stamp after the export" and "books' session not found" are counted apart; rows with no gap are counted by cause.
+- **The window:** each family from its first stamped row, printed. Earlier rows are out and counted once; a later row with no stamp is in the "no stamp" bucket with its gap.
+- **The staked rows:** PLAY in the staked line, LADDER in a line of its own: the pick's gap and its reference's bucket; "reference not the books" counted apart; desk.market_ref checked against the page's fair on the pick.
+- **Never read:** desk units, order, exec, ladder_exec, value_shadow, the holds, desk_meta, the row's Kalshi quotes, costs and fees, kalshi_legs, and any bookmaker name or price. Only desk.call, pick, reference and market_ref are read.
+- **tests/test_closing_book_gap_receipt.py:** synthetic copies and pages only; sentinel amounts that must never print; a desk block that refuses any other key. They pass on Python 3.10 and 3.13. Nothing was run on a real copy.
+- **scripts/README.md:** indexes this receipt and the quarterback agreement receipt (#1134) as TOOLs; counts recounted.

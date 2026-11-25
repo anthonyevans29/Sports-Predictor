@@ -558,6 +558,15 @@ def _strict_split(result, named, missing) -> tuple[list, list]:
     return sorted(m for m in missing if m in refused_ids), sorted(m for m in missing if m not in refused_ids)
 
 
+def _strict_nfl_split(result, missing) -> tuple[list, list]:
+    """--match-ids (#1123 review, Codex P2): a named row whose listing addendum 500 Q9 refused (either listed team
+    holds a membership of the NFL competition) WAS in the provider's answer; split out of `missing` and printed with
+    its own label, never as absent. Only the row of the listing's season carrying its id is named (a re-key target is
+    not). (refused by Q9, still missing), both sorted."""
+    rows = set(getattr(result, "nfl_team_refused_rows", None) or [])
+    return sorted(m for m in missing if m in rows), sorted(m for m in missing if m not in rows)
+
+
 def _print_strict_refused(refused, named) -> None:
     if refused:
         print(f"✗ STRICT: {len(refused)} of {len(named)} named game(s) REFUSED (the listing's teams are neither the "
@@ -651,12 +660,17 @@ def sync_matches_cmd(
         range_note = getattr(service.adapter, "range_note", None)
         note = range_note(season, date_from, date_to) if range_note else None
         refused, missing = _strict_split(result, named, missing)
+        nfl_refused, missing = _strict_nfl_split(result, missing)
         if missing:
             print(f"✗ STRICT: {len(missing)} of {len(named)} named game(s) not in the provider's answer "
                   f"({competition_code} {date_from or ''}..{date_to or ''}{f': {note}' if note else ''}): "
                   + ", ".join(f"match {m}" for m in missing), flush=True)
         _print_strict_refused(refused, named)
-        if missing or refused:
+        if nfl_refused:
+            print(f"✗ STRICT: {len(nfl_refused)} of {len(named)} named game(s) REFUSED (a listed team holds a "
+                  f"membership of the NFL competition, addendum 500 Q9; nothing written): "
+                  + ", ".join(f"match {m}" for m in nfl_refused), flush=True)
+        if missing or refused or nfl_refused:
             raise SystemExit(1)
         print(f"✓ the provider's answer held all {len(named)} named game(s)" + (f" ({note})" if note else ""),
               flush=True)

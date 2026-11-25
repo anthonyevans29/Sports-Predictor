@@ -190,8 +190,14 @@ class SyncResult:
     # either of whose teams holds a membership of the NFL competition is refused at create and at update, counted with
     # its id, never stored." The listing's provider id of every such listing, in listing order: nothing written (no
     # row, no key), also counted in `skipped`. Not printed by __str__: the sync-matches command prints
-    # nfl_team_refused_line on its own line when N > 0.
+    # nfl_team_refused_line on its own line when N > 0. Whether 297 C(ii)'s key is still written on a stored row the
+    # listing names neither pair of waits on the architect (#1123, For the architect item 1): not written here.
     nfl_team_refused: list = field(default_factory=list)
+    # The stored match id of the row of the listing's season carrying a refused listing's id (the upsert's own lookup,
+    # _same_season_row), whatever its pair (#1123 review, Codex P2): read by sync-matches --match-ids STRICT only, so
+    # such a named row is reported as refused, never as absent from the provider's answer. A row the re-keys would have
+    # claimed (by its id history or its natural key) is not looked up and not named here. Not a count; not printed.
+    nfl_team_refused_rows: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -740,7 +746,7 @@ class IngestionService:
         # THE NFL-TEAM REFUSAL (ARCHITECT 2026-11-24, addendum 500 Q9), verbatim: "in the college competition, a listing
         # either of whose teams holds a membership of the NFL competition is refused at create and at update, counted
         # with its id, never stored." Before every write path below (update by id, both re-keys, create): nothing is
-        # written, cached or claimed for the listing.
+        # written, cached or claimed for the listing (_nfl_refused_row only names the same-season row, #1123 review).
         nfl = cache.get("__nfl_members__")
         if nfl is None:
             nfl = cache["__nfl_members__"] = self._nfl_members(s, comp)
@@ -750,6 +756,7 @@ class IngestionService:
                         ", ".join(str(t.id) for t in (home, away) if t.id in nfl))
             result.nfl_team_refused.append(str(nm.source_id))
             result.skipped += 1
+            self._nfl_refused_row(s, nm, result, cache)
             return None
         match, refusal = self._match_by_source(s, nm, comp, result, cache)
         if refusal:
@@ -882,6 +889,19 @@ class IngestionService:
                     "neither the stored pair nor its reverse; provider_orientation reads mismatch, scores, kickoff and "
                     "status unwritten", comp.code, nm.source, nm.source_id, match.id)
         result.teams_mismatch_refused.append(match.id)
+
+    def _nfl_refused_row(self, s: Session, nm: NormalizedMatch, result: SyncResult, cache: dict) -> None:
+        """A listing refused by addendum 500 Q9 whose provider id a stored row of the listing's own season carries
+        (#1123 review, Codex P2): the row's id goes on result.nfl_team_refused_rows for --match-ids STRICT. Nothing is
+        written: 297 C(ii)'s key on a row whose pair the listing names neither way waits on the architect (#1123, For
+        the architect item 1). The lookup is the upsert's own (_same_season_row, addendum 310 item 3(a)): a row of
+        another season carrying the id is another game and never read here."""
+        match = self._same_season_row(nm, cache)
+        if match is None:
+            return
+        if match.id is None:
+            s.flush()              # a row created earlier in this run (autoflush=False): the receipt names its id
+        result.nfl_team_refused_rows.append(match.id)
 
     @staticmethod
     def _scores_by_team(match: Match, home_id: int, away_id: int, nm: NormalizedMatch, result: SyncResult,

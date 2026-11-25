@@ -129,8 +129,10 @@ def check_args(code, db, exports, pages_digest) -> str:
 
 # ---------------------------------------------------------------------------------------- 2. the entry --
 
-def reservation_path(eid: str) -> str:
-    return os.path.join(RESERVATION_DIR or os.path.dirname(_reg().LEDGER), f"{eid}.started.json")
+def reservation_path(eid: str, suffix: str = ".started.json") -> str:
+    """docs/registry/<eid><suffix>: the window read's `.started.json`; the confirmation read's is
+    registry.CONFIRM_RESERVATION_SUFFIX (447's PR 3, the name the cross-ref guard reads, 448 item 1(f))."""
+    return os.path.join(RESERVATION_DIR or os.path.dirname(_reg().LEDGER), f"{eid}{suffix}")
 
 
 def _started_at(p: str) -> str:
@@ -277,14 +279,24 @@ def first_allowed(w: dict) -> date | None:
     return None if not last else last[1].date() + timedelta(days=1)
 
 
-def window_fingerprint(code: str, w: dict, stored: dict, copy_sha: str, digest: str) -> str:
+def window_fingerprint(code: str, w: dict, stored: dict, copy_sha: str, digest: str,
+                       tag: str = FINGERPRINT_TAG) -> str:
     """sha256 over the member ids in the window's order, their stored rows, the ruled list, the copy's sha256, the pages
-    digest and the frozen constants (the plan's list, approved). JSON, sorted keys, no whitespace."""
+    digest and the frozen constants (the plan's list, approved). JSON, sorted keys, no whitespace. `tag`: the command's
+    (the confirmation's is its own, so the two never share one). A window read with an opening (447's PR 3) also
+    covers the opening (kickoff, match id), the findings (447 C1(d): games before the opening that the run record
+    does not account for) and the sha of the run record's account (its members and took-no-slot ids, sorted); the
+    window's own body is unchanged."""
     import hashlib
-    body = {"tag": FINGERPRINT_TAG, "code": code, "id": w.get("id"), "members": list(w["members"]),
+    body = {"tag": tag, "code": code, "id": w.get("id"), "members": list(w["members"]),
             "stored_rows": [stored.get(i) for i in w["members"]],
             "ruled": _jsonable(sorted(w.get("ruled_items_read", {}).items())),
             "copy_sha256": copy_sha, "pages_digest": digest, "constants": dict(w["constants"])}
+    if w.get("opening"):
+        acc = w.get("accounted") or {}
+        ids = sorted(set(acc.get("members") or ()) | set(acc.get("no_slot") or {}))
+        body.update({"opening": [_iso(w["opening"][0]), w["opening"][1]], "redated": _jsonable(w.get(lw.REDATED)),
+                     "accounted_sha": _reg()._ids_sha(ids)})
     blob = json.dumps(_jsonable(body), sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False,
                       default=str)
     return hashlib.sha256(blob.encode("ascii")).hexdigest()
@@ -297,10 +309,10 @@ def _copy_session(path: Path):
         yield s
 
 
-def _window(code: str, s, exports, now: datetime) -> dict:
+def _window(code: str, s, exports, now: datetime, confirmation: bool = False) -> dict:
     from sqlalchemy.exc import SQLAlchemyError
     try:
-        w = lw.read((code,), now=now, export_dir=str(exports), s=s)[code]
+        w = lw.read((code,), now=now, export_dir=str(exports), s=s, confirmation=confirmation)[code]
     except lw.WindowRefused as err:
         raise ReadRefused(f"{lw.DECLARATION_IDS[code]}: {err}") from err
     except SQLAlchemyError as err:                 # the copy could not be read as the window reads it: never a traceback
@@ -313,19 +325,19 @@ def _window(code: str, s, exports, now: datetime) -> dict:
     return w
 
 
-def load(code, e: dict, path: Path, exports, pages_digest, now: datetime, s=None):
+def load(code, e: dict, path: Path, exports, pages_digest, now: datetime, s=None, confirmation: bool = False):
     """Steps 3 (the copy's hash) to 6, after check_entry and check_copy: the pages, the window. Returns (copy_sha,
     pages, window, stored rows). With `s` given (the run), the window is read through it; else a session is opened
-    and closed here (the preflight)."""
+    and closed here (the preflight). `confirmation`: the confirmation's read (leagues_window.read's flag; 447 PR 3)."""
     sha, sides = copy_state(path)
     if sides:
         raise ReadRefused(f"--db {path}: a sidecar appeared ({', '.join(sides)}); nothing read")
     pages = check_pages(exports, pages_digest)
     if s is None:
         with _copy_session(path) as s2:
-            w = _window(code, s2, exports, now)
+            w = _window(code, s2, exports, now, confirmation)
     else:
-        w = _window(code, s, exports, now)
+        w = _window(code, s, exports, now, confirmation)
     try:
         stored = lw.stored_rows(code, w.get("declared_at_text"), str(exports))
     except lw.WindowRefused as err:
@@ -395,12 +407,13 @@ def preflight_lines(code, db, exports, pages_digest, now: datetime | None = None
 
 # ------------------------------------------------------------------------------------- the reservation --
 
-def reserve(eid: str, meta: dict, no_fetch: bool = False, echo=None) -> str:
+def reserve(eid: str, meta: dict, no_fetch: bool = False, echo=None, path: str | None = None) -> str:
     """The #329 cross-ref guard, then the exclusive create of docs/registry/<eid>.started.json (nfl_v2_gate.reserve's
-    shape: serialised first; written, fsynced, closed, its directory fsynced; on a failure removed: nothing spent)."""
+    shape: serialised first; written, fsynced, closed, its directory fsynced; on a failure removed: nothing spent).
+    `path`: another reservation file (the confirmation read's, 447 PR 3); None is the window read's."""
     from src.walters import nfl_v2_gate as ng
     reg = _reg()
-    p = reservation_path(eid)
+    p = path or reservation_path(eid)
     if os.path.lexists(p):
         raise ReadRefused(f"{eid}: the one read was started at {_started_at(p)}: it is spent")
     try:

@@ -498,19 +498,10 @@ def _instant_z(v) -> bool:
     return True
 
 
-def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: str,
-                        path: str = LEDGER, ids_dir: str = IDS_DIR) -> dict:
-    """The confirmation READ, executed against the declared plan (never a
-    stated outcome). Refused unless the entry is `confirming` (a PASS), the
-    read scores >= plan.n_games games, every game started AFTER the verdict
-    (`result["first_game_at"]`, ISO UTC), none of them was in the scored test
-    set, and the result carries the plan's metric (and the reference's when
-    the plan requires beating it). The outcome is COMPUTED: CONFIRMED iff
-    metric <= bar and, when required, metric < reference (a tie fails). A plan
-    whose bar is null (addendum 449 item 6(b): admitted by check_plan only with
-    must_beat_reference true and a named reference) is CONFIRMED iff
-    metric < reference alone, strict; a null bar on any other plan refuses."""
-    entries = load(path)
+def _confirmation_checked(entries: list[dict], eid: str, scored_ids: list[int], first_game_at, first_game_id,
+                          ids_dir: str) -> tuple[dict, dict, list[int]]:
+    """record_confirmation's checks before the metric, on `entries` as loaded: (the entry, its checked plan, the ids
+    sorted), or RegistryError. No metric is read and nothing is written."""
     e = next((x for x in entries if x["id"] == eid), None)
     if e is None or e.get("status") != "confirming":
         raise RegistryError(f"{eid} is not in a confirmation window (needs a PASS verdict)")
@@ -526,7 +517,7 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
                             f"unscored, {extra} outside it) — incomplete, never a replacement")
     if len(ids) < plan["n_games"]:
         raise RegistryError(f"{eid}: confirmation scored {len(ids)} games < the plan's {plan['n_games']} — incomplete")
-    first = result.get("first_game_at")
+    first = first_game_at
     verdict_at = e["verdict"].get("at") if isinstance(e.get("verdict"), dict) else None
     res = (e.get("run") or {}).get("result") if isinstance(e.get("run"), dict) else None
     held = isinstance(res, dict) and "confirmation_opens_after" in res     # present, even as null: never a fall-back
@@ -549,6 +540,32 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
             raise RegistryError(f"{eid}: confirmation games must not start earlier than the opening (the 60th "
                                 f"member's kickoff {o_at!r}, match {mid!r}; each written to the second with the Z, "
                                 f"the match id an integer); first_game_at {first!r}")
+        # ARCHITECT 2026-11-23, addendum 467 item 1(a): at the opening's kickoff the order is by match id, so a first
+        # game AT that kickoff must carry an id above the opening's match (447 C1: "the same kickoff and a higher
+        # id"); missing, not an integer or a bool, or not above, refuses (law 4). A later kickoff compares no id.
+        if first == o_at:
+            fid = first_game_id
+            if isinstance(fid, bool) or not isinstance(fid, int) or fid <= mid:
+                raise RegistryError(f"{eid}: the first game kicks off AT the opening's kickoff {o_at} and its id "
+                                    f"{fid!r} is not above the opening's match {mid} (addendum 467 item 1(a)): it is "
+                                    "not later than the opening in the window's order; first_game_id must name it")
+        # ARCHITECT 2026-11-25, addendum 540 item 1 Q5, ruled IN (447's PR 3), each ONLY for an entry that holds a
+        # readable opening (this branch, past the checks above); every other entry keeps today's rule. Guards on the
+        # backstop, like 448 item 1(f) and 467 item 1(a), not policy. (a) "A missing ids file REFUSES the record. A
+        # file that is not there is not an empty set (law 4), and the scored-set check must not pass on nothing."
+        if _ids_of(e, ids_dir) is None:
+            raise RegistryError(f"{eid}: the window run's ids file ({(e.get('run') or {}).get('ids_file')!r}) is "
+                                "missing: a file that is not there is not an empty set, and the scored-set check "
+                                "does not pass on nothing (addendum 540 item 1 Q5(a); law 4)")
+        # (b) "n_games EQUALS the plan's 60. '60 more' is a number, not a floor."
+        if len(ids) != plan["n_games"]:
+            raise RegistryError(f"{eid}: confirmation scored {len(ids)} games, not the plan's {plan['n_games']}: "
+                                "the number is exact, not a floor (addendum 540 item 1 Q5(b))")
+        # (c) "first_game_id is one of the confirmation's ids."
+        fid = first_game_id
+        if isinstance(fid, bool) or not isinstance(fid, int) or fid not in set(ids):
+            raise RegistryError(f"{eid}: first_game_id {fid!r} is not one of the confirmation's ids (addendum 540 "
+                                "item 1 Q5(c))")
     elif not first or not verdict_at or str(first) <= str(verdict_at):
         raise RegistryError(f"{eid}: confirmation games must all start AFTER the verdict ({verdict_at}); "
                             f"first_game_at {first!r}")
@@ -556,6 +573,41 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     overlap = len(seen & set(ids))
     if overlap:
         raise RegistryError(f"{eid}: {overlap} confirmation game(s) were in the scored test set — not future games")
+    return e, plan, ids
+
+
+def confirmation_refusal(eid: str, scored_ids: list[int], first_game_at, first_game_id=None, path: str = LEDGER,
+                         ids_dir: str = IDS_DIR) -> str | None:
+    """THE BACKSTOP READ BEFORE A RESERVATION (447's PR 3): the text record_confirmation would refuse with before the
+    metric (the entry, the plan, the frozen cohort, the count, the opening and 467 item 1(a)'s tie, 540 item 1 Q5's
+    three guards for an entry holding the opening, the scored set), or None. Reads `path`, writes nothing, reads no
+    metric. A caller passes path and ids_dir explicitly (the defaults are bound at import)."""
+    try:
+        _confirmation_checked(load(path), eid, scored_ids, first_game_at, first_game_id, ids_dir)
+    except RegistryError as err:
+        return str(err)
+    return None
+
+
+def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: str,
+                        path: str = LEDGER, ids_dir: str = IDS_DIR) -> dict:
+    """The confirmation READ, executed against the declared plan (never a
+    stated outcome). Refused unless the entry is `confirming` (a PASS), the
+    read scores >= plan.n_games games, every game started AFTER the verdict
+    (`result["first_game_at"]`, ISO UTC), none of them was in the scored test
+    set, and the result carries the plan's metric (and the reference's when
+    the plan requires beating it). The outcome is COMPUTED: CONFIRMED iff
+    metric <= bar and, when required, metric < reference (a tie fails). A plan
+    whose bar is null (addendum 449 item 6(b): admitted by check_plan only with
+    must_beat_reference true and a named reference) is CONFIRMED iff
+    metric < reference alone, strict; a null bar on any other plan refuses.
+    Every refusal before the metric is _confirmation_checked's, which confirmation_refusal reads before a reservation
+    (447's PR 3); for an entry holding the opening, a first game AT its kickoff needs `result["first_game_id"]` above
+    the opening's match id (addendum 467 item 1(a)), and (addendum 540 item 1 Q5, that entry only) the window run's ids
+    file must be there, the count must EQUAL plan.n_games, and first_game_id must be one of the scored ids."""
+    entries = load(path)
+    e, plan, ids = _confirmation_checked(entries, eid, scored_ids, result.get("first_game_at"),
+                                         result.get("first_game_id"), ids_dir)
     metric = result.get(plan["metric"])
     if not isinstance(metric, (int, float)):
         raise RegistryError(f"{eid}: result lacks the plan's metric {plan['metric']!r}")
@@ -597,7 +649,12 @@ REG_REL = "docs/registry"
 GUARD_REMOTE = "origin"
 GUARD_FETCH_REFSPEC = "+refs/heads/laptop/*:refs/remotes/origin/laptop/*"
 NOT_CHECKED = "other clones not checked"
-GUARD_KINDS = ("cohort", "run record", "reservation")
+# ARCHITECT 2026-11-22, addendum 448 item 1(f): "PR 3 extends _guard_paths to the confirmation's ids file and its
+# reservation. Named now, as you did; it is a guard, not a policy, and rides in PR 3." The confirmation record is the
+# ledger's `confirmation` with ids/<eid>.confirm.txt (record_confirmation's file), as the run record pairs `run` with
+# its file; the confirmation reservation is the file alone, as the one-run reservation is.
+GUARD_KINDS = ("cohort", "run record", "reservation", "confirmation record", "confirmation reservation")
+CONFIRM_RESERVATION_SUFFIX = ".confirm.started.json"     # leagues_confirm's reservation (447's PR 3): one name
 
 
 class CrossRefRefused(RegistryError):
@@ -611,7 +668,9 @@ def _git(repo: str, *args: str, inp: bytes | None = None):
 
 def _guard_paths(eid: str) -> dict:
     return {"ledger": f"{REG_REL}/experiments.json", "cohort": f"{REG_REL}/ids/{eid}.cohort.txt",
-            "run": f"{REG_REL}/ids/{eid}.txt", "reservation": f"{REG_REL}/{eid}.started.json"}
+            "run": f"{REG_REL}/ids/{eid}.txt", "reservation": f"{REG_REL}/{eid}.started.json",
+            "confirmation": f"{REG_REL}/ids/{eid}.confirm.txt",                       # 448 item 1(f)
+            "confirmation reservation": f"{REG_REL}/{eid}{CONFIRM_RESERVATION_SUFFIX}"}
 
 
 def _guard_state(eid: str, read) -> dict:
@@ -640,7 +699,9 @@ def _guard_state(eid: str, read) -> dict:
     # Codex on #748 (P2): mlb-pitchers-v1 freezes its test cohort under test_cohort (its {eid}.cohort.txt is that
     # cohort, never a confirmation one), so a ref holding either field holds the cohort kind.
     return {"cohort": val(("confirmation_cohort", "test_cohort"), "cohort"), "run record": val("run", "run"),
-            "reservation": val(None, "reservation")}
+            "reservation": val(None, "reservation"),
+            "confirmation record": val("confirmation", "confirmation"),                  # 448 item 1(f)
+            "confirmation reservation": val(None, "confirmation reservation")}
 
 
 def _worktree_reader(repo: str):
@@ -678,7 +739,8 @@ def cross_ref_guard(eid: str, no_fetch: bool = False, repo: str | None = None) -
     """THE shared guard (#329 RULED 2026-10-08): every cohort freeze and every one-run reservation calls it BEFORE
     it writes. Fetches origin's laptop/* branches (unless no_fetch; a failed fetch refuses), then scans every ref
     the clone knows (refs/heads, refs/remotes; symbolic refs skipped) for a cohort, a run record or a reservation
-    of `eid` that this working tree does not hold identically, and refuses (CrossRefRefused, a RegistryError: the
+    of `eid` (and, from 447's PR 3, a confirmation record or a confirmation reservation: GUARD_KINDS, 448 item 1(f))
+    that this working tree does not hold identically, and refuses (CrossRefRefused, a RegistryError: the
     CLI exits 2) naming every such ref and its commit. Returns the receipt line; with no_fetch it says that other
     clones were not checked. A clone git cannot read refuses (fails closed)."""
     repo = repo or ROOT
@@ -714,7 +776,8 @@ def cross_ref_guard(eid: str, no_fetch: bool = False, repo: str | None = None) -
                 hits.append(f"a {kind} on ref {name.removeprefix('refs/')} at commit {sha}{detail}")
     if hits:
         raise CrossRefRefused(f"{eid}: the cross-ref guard (#329) found " + "; ".join(hits)
-                              + " — not held identically by this tree. A cohort is frozen once and the one run is "
-                              "reserved once, never overwritten: splice that ref or get a ruling first")
-    return (f"cross-ref guard: {scope} · {len(refs)} ref(s) scanned · none holds a cohort, run record or reservation "
-            f"for {eid} that this tree does not hold identically")
+                              + " — not held identically by this tree. A cohort is frozen once, the one run is "
+                              "reserved once and the confirmation is read and recorded once, never overwritten: "
+                              "splice that ref or get a ruling first")
+    return (f"cross-ref guard: {scope} · {len(refs)} ref(s) scanned · none holds a cohort, run record, reservation, "
+            f"confirmation record or confirmation reservation for {eid} that this tree does not hold identically")

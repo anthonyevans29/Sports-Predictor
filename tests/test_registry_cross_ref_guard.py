@@ -28,7 +28,8 @@ def git(repo, *args):
 ENTRY = {"id": EID, "status": "confirming", "run": None, "confirmation_plan": {"n_games": 2}}
 
 
-def write_registry(repo, entry=None, cohort=None, run_ids=None, reservation=None):
+def write_registry(repo, entry=None, cohort=None, run_ids=None, reservation=None, confirm_ids=None,
+                   confirm_reservation=None):
     d = repo / "docs" / "registry"
     (d / "ids").mkdir(parents=True, exist_ok=True)
     (d / "experiments.json").write_text(json.dumps([{"id": "other", "run": {"x": 1}}, entry or ENTRY], indent=2))
@@ -38,6 +39,10 @@ def write_registry(repo, entry=None, cohort=None, run_ids=None, reservation=None
         (d / "ids" / f"{EID}.txt").write_text(run_ids)
     if reservation is not None:
         (d / f"{EID}.started.json").write_text(reservation)
+    if confirm_ids is not None:                          # 448 item 1(f): record_confirmation's ids file
+        (d / "ids" / f"{EID}.confirm.txt").write_text(confirm_ids)
+    if confirm_reservation is not None:                  # 448 item 1(f): the confirmation read's reservation
+        (d / f"{EID}{reg.CONFIRM_RESERVATION_SUFFIX}").write_text(confirm_reservation)
 
 
 def commit(repo, msg):
@@ -158,6 +163,60 @@ def test_a_failed_fetch_refuses_unless_no_fetch(clone):
 def test_a_clone_git_cannot_read_refuses(tmp_path):
     with pytest.raises(reg.CrossRefRefused, match="cannot list this clone's refs"):
         REAL_GUARD(EID, no_fetch=True, repo=str(tmp_path))
+
+
+# --------------------------------------------- ARCHITECT 2026-11-22, addendum 448 item 1(f): the two new kinds --
+
+CONFIRMATION = {"outcome": "CONFIRMED", "ruling": "r", "at": "2026-12-08T00:00:00Z", "n_scored": 2,
+                "ids_sha256": "5a1e" + "0" * 60, "ids_file": f"docs/registry/ids/{EID}.confirm.txt"}
+
+
+def test_448_1f_the_guard_reads_the_confirmations_ids_file_and_its_reservation():
+    p = reg._guard_paths(EID)
+    assert p["confirmation"] == f"docs/registry/ids/{EID}.confirm.txt"
+    assert p["confirmation reservation"] == f"docs/registry/{EID}.confirm.started.json"
+    assert reg.GUARD_KINDS == ("cohort", "run record", "reservation", "confirmation record",
+                               "confirmation reservation")
+
+
+def test_448_1f_a_confirmation_record_on_another_ref_refuses_naming_the_ref_and_the_commit(clone):
+    a = clone["a"]
+    sha = on_branch(a, "laptop/exp-x-confirmation-record", entry={**ENTRY, "status": "production",
+                                                                  "confirmation": CONFIRMATION}, confirm_ids="3\n4\n")
+    with pytest.raises(reg.CrossRefRefused) as ei:
+        REAL_GUARD(EID, no_fetch=True, repo=str(a))
+    msg = str(ei.value)
+    assert (f"a confirmation record on ref heads/laptop/exp-x-confirmation-record at commit {sha}, sha256 5a1e" in msg)
+    assert "a cohort" not in msg and "a run record" not in msg and "a reservation" not in msg
+    # the ids file alone (no ledger field) is a confirmation record too
+    git(a, "branch", "-q", "-D", "laptop/exp-x-confirmation-record")
+    sha2 = on_branch(a, "laptop/file-only", confirm_ids="3\n4\n")
+    with pytest.raises(reg.CrossRefRefused, match=f"a confirmation record on ref heads/laptop/file-only at commit "
+                                                  f"{sha2}"):
+        REAL_GUARD(EID, no_fetch=True, repo=str(a))
+
+
+def test_448_1f_a_confirmation_reservation_on_another_ref_refuses(clone):
+    a = clone["a"]
+    sha = on_branch(a, "laptop/confirm-reserved",
+                    confirm_reservation='{"id": "exp-x", "started_at": "2027-01-10T00:00:00Z"}\n')
+    with pytest.raises(reg.CrossRefRefused, match=f"a confirmation reservation on ref heads/laptop/confirm-reserved "
+                                                  f"at commit {sha}"):
+        REAL_GUARD(EID, no_fetch=True, repo=str(a))
+
+
+def test_448_1f_an_identical_confirmation_state_passes_and_the_receipt_names_the_five_kinds(clone):
+    a = clone["a"]
+    state = {"entry": {**ENTRY, "status": "production", "confirmation": CONFIRMATION}, "confirm_ids": "3\n4\n",
+             "confirm_reservation": '{"id": "exp-x"}\n'}
+    on_branch(a, "laptop/same-confirmation", **state)
+    write_registry(a, **state)                                          # this tree holds it too, byte for byte
+    out = REAL_GUARD(EID, no_fetch=True, repo=str(a))
+    assert out.endswith("none holds a cohort, run record, reservation, confirmation record or confirmation "
+                        f"reservation for {EID} that this tree does not hold identically")
+    write_registry(a, **{**state, "confirm_reservation": '{"id": "exp-x", "other": 1}\n'})
+    with pytest.raises(reg.CrossRefRefused, match="a confirmation reservation on ref heads/laptop/same-confirmation"):
+        REAL_GUARD(EID, no_fetch=True, repo=str(a))
 
 
 # ------------------------------------------------------------------ every caller calls the ONE function --

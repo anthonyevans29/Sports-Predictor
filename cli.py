@@ -6822,6 +6822,75 @@ def leagues_window_read_cmd(code, db, exports, pages_digest, preflight, word, fi
                "(commit docs/registry/ on the laptop/<eid>-run-record branch)")
 
 
+@cli.command("leagues-confirmation-read")
+@click.option("--code", "code", default=None, help="PD, SA, FL1, ELC or BL1: the confirming leagues entry to read.")
+@click.option("--db", "db", default=None,
+              help="The host's pulled .backup copy, OUTSIDE data/ (law 5), opened mode=ro + immutable=1 (addendum 346's "
+                   "fence, as leagues-window-read). REQUIRED.")
+@click.option("--exports", "exports", default=None,
+              help="The host's pages, pulled into a folder OUTSIDE the checkout and outside data/ (refused inside the "
+                   "checkout; never written). REQUIRED.")
+@click.option("--pages-digest", "pages_digest", default=None,
+              help="The digest the host printed for its pages (scripts/leagues_window.py --pages-digest). REQUIRED.")
+@click.option("--preflight", is_flag=True,
+              help="Counts only, the opening, the games named against it, the first date the read is allowed, "
+                   "then the CONFIRMATION FINGERPRINT; scores nothing, reserves nothing, writes nothing.")
+@click.option("--architect-word", "word", default=None,
+              help="The architect's word to start the ONE read, verbatim; a word naming CONFIRMED or NOT_CONFIRMED "
+                   "refuses (addendum 540 item 1 Q1(i)).")
+@click.option("--confirmation-fingerprint", "fingerprint", default=None,
+              help="The fingerprint --preflight printed; the read refuses a confirmation that differs.")
+@click.option("--ruling", "ruling", default=None,
+              help="The addendum that orders the read, by number and date (never an outcome), recorded beside the "
+                   "computed outcome (one invocation; addendum 540 item 1 Q1(i): naming CONFIRMED or NOT_CONFIRMED "
+                   "refuses).")
+@click.option("--no-fetch", "no_fetch", is_flag=True, help="Cross-ref guard (#329): skip fetching origin laptop/*.")
+def leagues_confirmation_read_cmd(code, db, exports, pages_digest, preflight, word, fingerprint, ruling, no_fetch):
+    """THE LEAGUES' CONFIRMATION READ (ARCHITECT 2026-11-22, addendum 447 item 3 C1 and item 4 PR 3; addendum 448 item
+    1(e)-(f); addendum 467 item 1(a); lane leagues, #322; src/walters/leagues_confirm.py). Two invocations:
+    --preflight (computes no figure, reserves nothing: the refusals in order, the counts, the pages digest, the
+    opening, the findings (447 C1(d)), the first allowed date, the CONFIRMATION FINGERPRINT; 540 item 1 Q1(ii));
+    the ONE read with its record (--architect-word, --confirmation-fingerprint, --ruling: the addendum that orders the
+    read, by number and date, never an outcome; 540 item 1 Q1(i)). The cohort is the first 60
+    games later than the run record's opening in the window's order, by the window's own rules. Every refusal prints
+    REFUSED and exits 2 with nothing reserved; a failure after the reservation says the read is spent (the reservation
+    stands; released only by the architect's ruling) and records nothing. Records registry.record_confirmation, the
+    outcome COMPUTED there (CONFIRMED iff the candidate's mean log-loss is strictly below the close's; a tie fails):
+    commit docs/registry/ on the laptop/<eid>-confirmation-record branch. A CONFIRMED record prints one console-only
+    line, stored nowhere: production on a leagues entry turns on no call (540 item 1 Q2). Changes no prediction
+    output."""
+    from src.walters import leagues_confirm as lc
+    from src.walters import leagues_read as lr
+    from src.walters import registry as reg
+
+    try:
+        if preflight:
+            if word or fingerprint or ruling:
+                raise lr.ReadRefused("--preflight takes no word, no fingerprint and no ruling; nothing read")
+            for line in lc.preflight_lines(code, db, exports, pages_digest):
+                click.echo(line)
+            return
+        click.echo(f"LEAGUES CONFIRMATION READ · THE ONE READ · {code} · word: {word!r} · confirmation fingerprint "
+                   f"{fingerprint!r}")
+        res = lc.run(code, db, exports, pages_digest, word, fingerprint, ruling, no_fetch=no_fetch,
+                     echo=lambda line: click.echo(f"  {line}"))
+    except lr.ReadRefused as err:
+        click.echo(f"REFUSED: {err}")
+        raise SystemExit(2)
+    for line in lc.run_lines(res):
+        click.echo(line)
+    try:
+        e = lc.record(res["code"], res, ruling)
+    except (reg.RegistryError, OSError, ValueError) as err:     # never a traceback after the reservation
+        click.echo(f"NOT RECORDED: {type(err).__name__}: {err} (the reservation stands: the read is spent; inspect "
+                   "docs/registry/ before anything else)")
+        raise SystemExit(2)
+    click.echo(lc.recorded_line(e))
+    note = lc.confirmed_note(e)          # 540 item 1 Q2: console only, stored nowhere
+    if note:
+        click.echo(note)
+
+
 @cli.command("capture-weather-nfl")
 def capture_weather_nfl_cmd():
     """Tracking-only weather capture for upcoming NFL games (N1 phase 1).

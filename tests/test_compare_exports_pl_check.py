@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "deploy" / "hosting"))
 import compare_exports as ce  # noqa: E402
 
-KEYS = "desk,desk_meta,line_move,late_news_flag"
+KEYS = "desk,desk_meta,line_move,late_news_flag,run_started_at"     # F1 added by 526 Q2 (#1102 PR1)
 F = "soccer_PL_2026-10-17_to_2026-10-20.json"
 
 
@@ -44,7 +44,8 @@ def test_clock_read_fields_are_left_out_and_named_db_fields_still_compared(tmp_p
     (tmp_path / "x").mkdir()
     assert run(tmp_path / "x", a, b, "--ignore-keys", KEYS, "--require-predictions") == ce.EXIT_CLEAN
     out = capsys.readouterr().out
-    assert "left out of the comparison (--ignore-keys, read off the clock): desk, desk_meta, late_news_flag, line_move" in out
+    assert ("left out of the comparison (--ignore-keys, read off the clock): desk, desk_meta, late_news_flag, line_move, "
+            "run_started_at") in out
     assert "predictions compared (rows with a prediction and its probabilities): laptop 2 · host 2" in out
     assert out.strip().splitlines()[-1] == "VERDICT: CLEAN"
     b2 = doc([row("Arsenal", 0.56), row("Leeds", 0.40)])                 # a number from the database differs
@@ -106,3 +107,25 @@ def test_a_missing_host_file_is_no_coverage_not_divergent(tmp_path, capsys):
     assert ce.main([str(la), str(ho), "--since", "0", "--ignore-keys", KEYS,
                     "--require-predictions"]) == ce.EXIT_NO_COVERAGE
     assert capsys.readouterr().out.strip().splitlines()[-1] == "VERDICT: NO-COVERAGE (0 compared) — not a data verdict"
+
+
+# ---- #1102 PR1 (526 Q2): F1 read off the clock and left out by name; F2-F4 stored times, compared -----------------
+
+def test_the_run_start_is_left_out_and_the_capture_stamps_are_compared(tmp_path, capsys):
+    stamps = {"books_captured_at": "2026-10-17T06:00:00Z", "books_source_updated_at": "2026-10-17T05:00:00Z"}
+    legs = {"HOME": "2026-10-17T06:10:00Z", "DRAW": "2026-10-17T06:10:00Z", "AWAY": "2026-10-17T06:10:00Z"}
+    a = doc([{**row("Arsenal", 0.55), "market": dict(stamps), "kalshi_legs_captured_at": dict(legs)}])
+    b = doc([{**row("Arsenal", 0.55), "market": dict(stamps), "kalshi_legs_captured_at": dict(legs)}])
+    a["run_started_at"] = "2026-10-17T11:00:00.123456Z"                  # the slate's, one side only
+    assert run(tmp_path, a, b, "--ignore-keys", KEYS, "--require-predictions") == ce.EXIT_CLEAN
+    for path, val in ((("market", "books_captured_at"), "2026-10-17T06:01:00Z"),
+                      (("market", "books_source_updated_at"), None),
+                      (("kalshi_legs_captured_at", "DRAW"), "2026-10-17T06:11:00Z")):
+        c = json.loads(json.dumps(b))
+        c["predictions"][0][path[0]][path[1]] = val
+        d = tmp_path / ("x" + path[1])
+        d.mkdir()
+        assert run(d, a, c, "--ignore-keys", KEYS, "--require-predictions") == ce.EXIT_DIVERGENT, path
+        assert ce.diff(a, c) == [], path                                 # the daily compare masks it (_at$)
+    assert all(ce.TS_KEY.search(k) for k in ("run_started_at", "books_captured_at", "books_source_updated_at",
+                                              "kalshi_legs_captured_at"))

@@ -234,7 +234,7 @@ def refuse_out_path(out_path: str) -> None:
 def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                            receipts: dict | None = None,
                            hours_ahead: float | None = None, desk: bool | None = None,
-                           out_path: str | None = None) -> str:
+                           out_path: str | None = None, run_started_at: str | None = None) -> str:
     # Export windowing (architect 2026-09-28): the FILE's rows are scoped to
     # kickoffs in [now, now + window]; predictions are generated and stored
     # exactly as before (early-week claims stay for CLV). hours_ahead wins
@@ -265,13 +265,14 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
             market = None
-            from src.walters.close import close_1x2, outcomes_for, priced
+            from src.walters.close import book_capture_fields, close_1x2, outcomes_for, priced
             _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport)) if odds_rows else None   # #167 + #207
             if priced(_cl):
                 market = {
                     "bookmaker_count": _cl["books"],
                     "fair_prob": {k: round(v, 4) for k, v in _cl["fair"].items()},
                     "fair_source": "1X2",
+                    **book_capture_fields(_cl, s),      # F2, F4 (#1102 PR1): the priced block only, never the fallback
                 }
             elif _fb_live():
                 # Spread->win-prob fallback (2026-09-26): no 1X2 consensus but
@@ -310,7 +311,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
             # DISPLAY/WARNING ONLY — quarantine below still keys on the book
             # divergence exactly as ratified.
             from src.walters.venue import (KALSHI_EXEC_NULL, kalshi_exec, kalshi_home_prob, kalshi_legs,
-                                           latest_kalshi_by_selection, venue_gap)
+                                           kalshi_legs_captured_at, latest_kalshi_by_selection, venue_gap)
             _ksnaps = list(s.execute(select(OddsSnapshot).where(
                 OddsSnapshot.match_id == m.id,
                 OddsSnapshot.source == "kalshi")).scalars())
@@ -318,6 +319,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
             from src.walters.kalshi_legs import guard_snaps, status_block
             _ksnaps, _kmm = guard_snaps(_ksnaps, s)
             kal = kalshi_home_prob(_ksnaps, m.utc_date)
+            _klatest = latest_kalshi_by_selection(_ksnaps, m.utc_date)   # one map for kalshi_legs and F3
             gap_pp, venue_flag = venue_gap(_fair.get("HOME"),
                                            kal["home"] if kal else None)
             from src.walters.line_move import line_move_for_match
@@ -367,7 +369,8 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                                two_way=True) if kal else
                    dict(KALSHI_EXEC_NULL)),
                 # ORDER LINE (ARCHITECT 2026-10-04, additive): each leg's ticker + quotes
-                "kalshi_legs": kalshi_legs(latest_kalshi_by_selection(_ksnaps, m.utc_date)),
+                "kalshi_legs": kalshi_legs(_klatest),
+                "kalshi_legs_captured_at": kalshi_legs_captured_at(_klatest),   # F3 (#1102 PR1): null with kalshi_legs
                 "input_quality": {
                     "book_odds": (market or {}).get("bookmaker_count", 0),
                     "injuries": inj,
@@ -399,6 +402,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                             f"nfl_predictions_{utc_now_naive().strftime('%Y-%m-%d')}.json")
     payload = {
         "exported_at": utc_now_naive().isoformat() + "Z",
+        **({"run_started_at": run_started_at} if run_started_at is not None else {}),   # F1 (#1102 PR1)
         "git_sha": _git_sha(),
         "sport": "nfl",
         "model_version": MODEL_VERSION,

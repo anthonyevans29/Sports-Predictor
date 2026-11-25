@@ -801,7 +801,14 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
             say("REFUSED: --document-url is blank (the architect names the document in the block, 357 item 3(b); "
                 "553 item 2(b)); nothing fetched")
             return REFUSED, {"refused": "a blank --document-url"}
-        return document_phase(a, document_url, say, fetch)
+        try:
+            file = link_file(document_url)
+        except ValueError as e:                      # a URL that does not parse is refused, never raised (pre-PR pass)
+            say("REFUSED: --document-url does not parse as a URL (its text and the parser's message are in the "
+                "receipt only); nothing fetched")
+            return REFUSED, {"refused": "an unparseable --document-url", "document_url": document_url,
+                             "parse_error": f"{type(e).__name__}: {e}"}
+        return document_phase(a, document_url, file, say, fetch)
     if not a.index_url:
         say("REFUSED: --report needs --index-url, or --document-url for one document with no index read (the "
             "architect names it in the block, 357 item 3(b); 553 item 3); nothing fetched")
@@ -853,7 +860,7 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     return read_document(pick["url"], pick["file"], "the index named this URL; Codex on #985", say, fetch, rec), rec
 
 
-def document_phase(a, url: str, say: Out, fetch: Fetcher) -> tuple[int, dict]:
+def document_phase(a, url: str, file: str, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     """ONE DOCUMENT, NO INDEX (ARCHITECT 2026-11-25, addendum 553 items 2(b) and 3): the one published document the
     block names, asked for directly, by one request; no index read, no link listed, no newest picked. The read and its
     console are the newest report's own (read_document); the URL stays in the receipt (553 item 2(e): 368 and 520
@@ -862,7 +869,7 @@ def document_phase(a, url: str, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     rec: dict = {"terms_ruling": a.terms_ruling.strip(), "document_url": url}
     say("\nONE DOCUMENT (addendum 553 item 2(b)): the one the block names with --document-url, asked for directly; "
         "no index read, so no link is listed and no newest is picked (its URL is in the receipt only)")
-    return read_document(url, link_file(url), "the block named this document; 553 item 2(b)", say, fetch, rec), rec
+    return read_document(url, file, "the block named this document; 553 item 2(b)", say, fetch, rec), rec
 
 
 def read_document(url: str, file: str, named: str, say: Out, fetch: Fetcher, rec: dict) -> int:

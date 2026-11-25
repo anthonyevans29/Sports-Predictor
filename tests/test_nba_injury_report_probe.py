@@ -1329,6 +1329,21 @@ def test_553_2d_a_refusal_ends_the_read_and_nothing_is_asked_again(capsys, monke
     code, out, rec, fake = run(capsys, DOC_ARGS, {DOC: (status, b"denied", {})})
     assert code == probe.FAILED and [u for u, _ in fake.asked] == [DOC]
     assert f"FAILED: HTTP {status}" in out and rec["report"]["error"] == f"HTTP {status}"
+    assert DOC not in out and "documents.example" not in out and "Injury-Report_" not in out and "denied" not in out
+    assert rec["report"]["url"] == DOC and "bytes" not in rec["report"]
+
+
+@pytest.mark.parametrize("bad", ["https://[Synthetic-Rowname]/Injury-Report.pdf",
+                                 "https://[documents.example.invalid/Synthetic-Rowname.pdf"])
+def test_553_a_document_url_that_does_not_parse_is_refused_before_any_fetch_never_raised(capsys, bad):
+    code, out, rec, fake = run(capsys, ["--report", "--document-url", bad, "--terms-ruling", "addendum 999 item 1"],
+                               {bad: (200, PDF, {"Content-Type": "application/pdf"})})
+    err = capsys.readouterr().err
+    assert code == probe.REFUSED and fake.asked == [] and rec["fetched"] == []
+    assert "--document-url does not parse as a URL" in out and out.strip().splitlines()[-1].startswith(probe.TAIL)
+    assert "Rowname" not in out and "Rowname" not in err and "Traceback" not in err
+    assert rec["refused"] == "an unparseable --document-url" and rec["document_url"] == bad
+    assert rec["parse_error"].startswith("ValueError")
 
 
 def test_553_a_document_fetch_error_prints_its_type_only(capsys):

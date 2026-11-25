@@ -3204,7 +3204,11 @@ def send_resend(item: dict, tick_at: datetime, now: datetime, fams: tuple[str, .
     topic), which start no chain on the next tick either, so they do not hold a resend (else a refused closing would
     hold its own refusal's resend to T-5, and it would never go out). A refusal that clears by itself (#442's export
     path, an unreadable schedule) and a feed-down MLB closing stay in the bound, as 138 item 3(c) rules for the pages
-    ("feed-down MLB closings included"): the next tick may run them. Sent: its line
+    ("feed-down MLB closings included"): the next tick may run them. `no_chain_fams`: the families a refusal_checks
+    refusal reached this tick, a closing's (_refuse) or a slate's (_slate_refuse): a family's own refusal that family,
+    the machine's settings "*" (every family). A feed-down MLB closing leaves the bound only there: the watch probes
+    the feed before run(), and run() reads the same settings before any step, so a feed that answers on the next tick
+    still meets that refusal and starts no chain (Codex on #1131). Sent: its line
     written (`resent`), exit NOTIFIED where a channel took it, 1 where none did, NOTIFIED where the send was cut at
     its bound (504 item 4(b); not taken, so a later tick sends it again); a refusal's is 2 whatever its notice. Not
     sent: it waits for a later tick, nothing written, and this tick exits 1 (a refusal's 2). A try writes its line only
@@ -3347,12 +3351,18 @@ def _slate_rec(base: dict, fam: str, day: date, attempt: int, at: datetime, tick
              "exit": 1}, late)
 
 
-def _slate_refuse(why: str, fam: str, day: date, base: dict, tick: dict | None = None, bounded: bool = False) -> int:
+def _slate_refuse(why: str, fam: str, day: date, base: dict, tick: dict | None = None, bounded: bool = False,
+                  config: bool = False) -> int:
     """A receipted refusal (exit 2), once per family, day and reason. The family refusal pages nothing (#590 (d));
     every other refusal is notified, as a closing's is (reading 7). Addendum 504 item 4(b): the once-per-reason mark
     is set when a channel took the notice, so a refusal no channel took is notified again on a later tick (queued for
-    the tick's end when `tick` is given); the family refusal, which pages nothing, stays marked when receipted."""
+    the tick's end when `tick` is given); the family refusal, which pages nothing, stays marked when receipted.
+    `config`: the refusal is refusal_checks' own (the machine's settings, or the family's), as _refuse's is: it
+    refuses every closing it reaches on the next tick too, so none of them bounds a resend (send_resend's
+    `no_chain_fams`; Codex on #1131). #442's export path clears by itself and is not one."""
     silent = why == _family_refusal(fam)
+    if tick is not None and config:   # a slate has no --start: every refusal_checks refusal is the family's or the machine's
+        tick.setdefault("no_chain_fams", set()).add(fam if silent else "*")
 
     def match(r):
         return r.get("family") == fam and r.get("date") == day.isoformat() and r.get("refused") == why
@@ -3738,7 +3748,7 @@ def slate_watch(fam: str, tick_at: datetime, now: datetime | None = None, dry_ru
     for check in refusal_checks(fam, folder):
         why = check()
         if why:
-            return _slate_refuse(why, fam, day, base, tick=tick)
+            return _slate_refuse(why, fam, day, base, tick=tick, config=True)
     if not any(not started(g, now) for g in games):
         return notice_exit(record_slate_miss(fam, day, SLATE_ALL_STARTED,
                                              text=f"SLATE {fam} {day.isoformat()} MISSED: {SLATE_ALL_STARTED} — no "

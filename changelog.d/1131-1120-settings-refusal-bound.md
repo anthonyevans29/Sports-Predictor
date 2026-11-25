@@ -3,5 +3,7 @@
   - `_refuse` now also records, in the tick's new `no_chain_fams`, what a `refusal_checks` refusal reaches. A family's own refusal (`SP_SKIP_FAMILIES`) adds that family. The machine's settings (the backup folder, the mirror, the role, the card topic) add `"*"`, every family. A bad `--start` adds nothing: it lifts only that start, as before.
   - `send_resend`'s bound (`closing_ahead`) leaves out those families, or every family on `"*"`. With no family left, nothing bounds the resend.
   - `watch()` carries the set from the closings to the slate stage's resends, beside `no_chain`.
+  - **The slate stage too** (Codex on #1131, P2): `_slate_refuse` takes `config=` as `_refuse` does. A slate's `refusal_checks` refusal adds its family, or `"*"` for a machine setting, so a slate refusal's resend is not held by a closing that the same setting will refuse. #442's export path clears by itself and adds nothing.
+  - A feed-down MLB closing leaves the bound only under a machine setting: the watch probes the feed before `run()`, and `run()` reads the same settings before any step, so a feed that answers on the next tick still meets that refusal (the docstring says so; Codex's second P2 on #1131, answered).
 - **Unchanged:** the refusals and their exits; the two kinds that still bound a resend (a refusal that clears by itself, and a feed-down MLB closing, 138 item 3(c)); no call, no page text, no bar, no date and no held timer.
-- **Test:** `tests/test_closing_runs.py::test_a_settings_refusal_lifts_every_closing_it_reaches_from_the_bound`.
+- **Tests:** `tests/test_closing_runs.py::test_a_settings_refusal_lifts_every_closing_it_reaches_from_the_bound`; `tests/test_slate_run.py::test_a_slate_settings_refusal_lifts_every_closing_it_reaches_from_the_bound`.

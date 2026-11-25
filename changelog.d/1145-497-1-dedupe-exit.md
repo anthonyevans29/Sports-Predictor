@@ -1,4 +1,4 @@
-## 2026-11-25 (#000: 497-1-dedupe-exit — dedupe-matches exits 1 when a provider read failed, after printing everything it printed before; a team with no provider id planned "orphan" is counted as a classification, exit 0; the routine nothing-to-do states each print one named line, exit 0 (ARCHITECT 2026-11-24, addendum 497 item 2 step (1), Q1, Q4 and Q8; MONEY-PATH; #1102))
+## 2026-11-25 (#1145: 497-1-dedupe-exit — dedupe-matches exits 1 when a provider read failed, after printing everything it printed before; a team with no provider id planned "orphan" is counted as a classification, exit 0; the routine nothing-to-do states each print one named line, exit 0 (ARCHITECT 2026-11-24, addendum 497 item 2 step (1), Q1, Q4 and Q8; MONEY-PATH; #1102))
 - **src/ingestion/match_dedupe.py:**
   - `orphans()` returns a new key, `orphan_no_provider_team_id`: the ids of the "orphan" plans whose home or away team has no provider id, so the date search could match nothing. No plan entry changes.
   - New helpers, each line's words pinned by a test:

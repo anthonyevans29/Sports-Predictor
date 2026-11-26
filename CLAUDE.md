@@ -157,6 +157,28 @@ become MORE binding under an income goal, never less."
   comments since the last one it read, by the API's own since parameter, or
   pages to the end; and it says in its report the id of the newest comment
   it saw. A read that cannot say that id has not read the channel."
+- **The lanes (ARCHITECT 2026-11-26, addendum 561 item 2, by the operator's
+  decision; amends 518's lanes):**
+  "2. THE LANES. DEV 1, Lane A, UNCHANGED: the release lane, the records of
+  every addendum, operations and the follow-ups. Dev 1 alone records. DEV 2,
+  Lane B: THE DESK AND THE MONEY PATH, FOR EVERY SPORT: the Desk, the exports
+  the Desk reads, the registry and its commands, the ledger, the deploy
+  scripts. With it the builds already dated to it (503's PR 2, 12-22) and
+  lane inferred-layer until 12-03's ruling. DEV 3, Lane C, BECOMES SOCCER:
+  the roadmap's lanes soccer-v23, pl-availability, leagues, pd, cups and unl.
+  DEV 4, Lane D, BECOMES NORTH AMERICA AND THE NEW SPORTS: mlb-retire and
+  mlb-pitchers, nfl-qb, nfl-v2 and nfl-confirm, nhl, ncaa,
+  basketball-market-only, tennis-market-only and availability-record.
+  deploy/hosting/pull_backup.py stays Dev 4's (552 item 4). No session is
+  added. A lane is split again only by an addendum, when two of its sports
+  have builds at the same time."
+- **The reading timer (ARCHITECT 2026-11-26, addendum 561 item 4; amends
+  463's timer in the architect-channel paragraph above):**
+  "4. THE READING TIMER, AMENDED (463). The operator pays for every read. A
+  session with a PR open or in review, or an order due within seven days,
+  reads every 30 minutes from 08:00 to 20:00 ET, as now. A session with
+  neither reads four times a day: 08:00, 12:00, 16:00 and 20:00 ET. 490 and
+  504 govern every read. Each report says which timer the session is on."
 - **`--db` copies (ARCHITECT 2026-11-01, addendum 198 item 6(ii), standing):**
   "every `--db` on a copy opens it with `immutable=1` beside `mode=ro` (SQLite's
   own read of a file nothing else writes) ... the live file keeps readonly_scope

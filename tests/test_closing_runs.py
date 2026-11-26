@@ -207,6 +207,27 @@ class Box:
         self.stale_sides = set()       # (match_id, side) sync-pitchers does not refresh (380.1)
         self.page_ok = True
         self.receipt_locks = []
+        # 503's PR 2 (addendum 563 item 6): each export step stamps every MLB and SOCCER row's
+        # prediction.computed_at with that step's time, re-stamped at every step (never NFL's, which carry none); a
+        # test plants its own value here, by match id: a string or None as the stamp, or DROP_STAMP for no key
+        self.computed = {}
+
+
+DROP_STAMP = object()
+
+
+def stamp_predictions(b, doc, at):
+    """What export-predictions writes (src/walters/export.py: `pred.computed_at.isoformat()`, naive UTC): every row's
+    prediction stamped at the step's time `at`, in place, at every export step; b.computed plants a test's own."""
+    for r in (doc or {}).get("predictions") or []:
+        pred = r.get("prediction")
+        if not isinstance(pred, dict):
+            continue
+        v = b.computed.get(r.get("match_id"), at.replace(tzinfo=None).isoformat())
+        if v is DROP_STAMP:
+            pred.pop("computed_at", None)
+        else:
+            pred["computed_at"] = v
 
 
 SYNC_PRICES = {"sync-odds": "books", "sync-odds-football": "books", "sync-kalshi": "kalshi",
@@ -215,6 +236,11 @@ SYNC_PRICES = {"sync-odds": "books", "sync-odds-football": "books", "sync-kalshi
 
 @pytest.fixture
 def box(tmp_path, monkeypatch):
+    return make_box(tmp_path, monkeypatch)
+
+
+def make_box(tmp_path, monkeypatch):
+    """The box fixture's body, callable twice in one test (503's PR 2: two runs, each in its own box)."""
     repo = tmp_path / "repo"
     (repo / "exports").mkdir(parents=True)
     monkeypatch.setattr(c, "REPO", repo)
@@ -267,6 +293,8 @@ def box(tmp_path, monkeypatch):
             con.close()
         day = run_start_of(run_id).date().isoformat()
         out = (repo / argv[argv.index("--out") + 1]) if "--out" in argv else None   # addendum 40 item 2
+        if argv[0] == "export-predictions":       # 503's PR 2: the export's own stamp (src/walters/export.py)
+            stamp_predictions(b, b.docs.get("MLB" if "--date" in argv else "SOCCER"), at)
         if argv[0] == "export-predictions" and "--date" in argv:
             (out or repo / "exports" / f"mlb_MLB_{argv[argv.index('--date') + 1]}.json").write_text(
                 json.dumps(b.docs["MLB"]))

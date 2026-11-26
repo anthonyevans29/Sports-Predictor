@@ -31,11 +31,17 @@ nine points on #1053 read by addendum 554 item 2):
   database opened, never re-hashed); the age from the name's own date (00:00Z of
   it, or its _HHMMSS), never from the file's time (3(c); 554 item 2(d)).
 - ONE NOTICE when that copy is older than 3 days, one more for each further 3 days
-  it stays so; no verified copy at all is a step of its own. Told only when the
-  card (NTFY_CARD_TOPIC) or, failing it, the operator's topic (NTFY_TOPIC) took
-  it; never the screen alone (3(d)). A step no channel took is sent again on the
-  next run. Its text names no host (3(f)). Every run tells by age, a good pull of
-  an old copy included.
+  it stays so (the step: floor(age / 3 days)); no verified copy at all is a step of
+  its own, told once in each spell without one; a folder that cannot be read is
+  its own state, never "no copy". Told only when the card (NTFY_CARD_TOPIC) or,
+  failing it, the operator's topic (NTFY_TOPIC) took it; never the screen alone
+  (3(d)). A step no channel took is sent again on the next run. Its text names no
+  host (3(f)). Every run tells by age, a good pull of an old copy included.
+- THE ORDER (#1053 P7: "after the receipt, inside its own try"): the pull's receipt
+  is appended first, whole; then the notice is sent in its own try, cut at a
+  wall-clock bound (NOTICE_MAX_S), and recorded as a line of its own, kind
+  "pull_notice" {copy, step, channel}, which later runs read. A run killed during
+  the send has its receipt already.
 - The exit stays 1 on a failed night; a notice never changes it (3(f)).
 - The receipt's "from" and the printed line keep the host name: they are the
   laptop's own record of its own run, not a notice (554 item 2(c)).
@@ -60,9 +66,13 @@ DAILY = re.compile(r"^sports_\d{4}-\d{2}-\d{2}(_\d{6})?\.db$")
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
 SSH_KILL_S, SCP_KILL_S = 60, 1800
 TAIL_LINES, TAIL_CHARS = 2, 300
+SCRUB_CHARS = 2000                     # the most of ssh's message the scrub reads (a bound before any pattern runs)
 STEP_DAYS = 3                          # 552 item 3(c): one notice past 3 days, one more each further 3 days
 NO_COPY = "none"                       # the step of a folder holding no verified copy at all
+UNREAD = "unread"                      # the state of a folder that could not be read: never told as NO_COPY
 NOTICE_TITLE = "Backup pull"
+NOTICE_KIND = "pull_notice"
+NOTICE_MAX_S = 45                      # the card's 20 s and the operator topic's 20 s, and a margin
 _NAME_TIME = re.compile(r"^sports_(\d{4})-(\d{2})-(\d{2})(?:_(\d{2})(\d{2})(\d{2}))?\.db$")
 
 
@@ -118,11 +128,11 @@ def copy_time(name: str) -> datetime | None:
 def newest_verified(dest: Path) -> str | None:
     """552 item 3(c): "a daily name with its sha256 beside it, never a partial". By the names alone: no database is
     opened and nothing is hashed again (the sidecar is put in place only after the copy's sha256 and integrity check
-    passed, verify_and_place; #1053 P5). A name whose date does not read is passed over."""
-    try:
-        names = [p.name for p in dest.iterdir()]
-    except OSError:
+    passed, verify_and_place; #1053 P5). A name whose date does not read is passed over. A folder that cannot be read
+    raises (OSError): it is not a folder holding no copy."""
+    if not dest.exists():
         return None
+    names = [p.name for p in dest.iterdir()]
     have = set(names)
     ok = [n for n in names if DAILY.match(n) and f"{n}.sha256" in have and copy_time(n) is not None
           and (dest / n).is_file() and (dest / f"{n}.sha256").is_file()]
@@ -138,12 +148,13 @@ def copy_age(dest: Path, now: datetime) -> dict | None:
     return {"name": name, "age_hours": round(hours, 1), "age_days": round(hours / 24, 2)}
 
 
-def notice_step(newest: dict | None) -> int | str | None:
+def notice_step(newest: dict | None, now: datetime) -> int | str | None:
     """The notice step (#1053 P7): None while the newest verified copy is 3 days old or less; else floor(age / 3
-    days), 1 from past 3 days; NO_COPY when there is no verified copy at all."""
+    days), 1 from past 3 days, read from the exact age (the receipt's is rounded); NO_COPY when there is no verified
+    copy at all."""
     if newest is None:
         return NO_COPY
-    days = newest["age_hours"] / 24
+    days = (now - copy_time(newest["name"])).total_seconds() / 86400
     return int(days // STEP_DAYS) if days > STEP_DAYS else None
 
 
@@ -154,15 +165,16 @@ def _scrub(text: str, host: str, user: str) -> str:
         text = c.redact(text)
     except Exception as e:  # noqa: BLE001 - a .env that does not decode (laptop_routine._redacted's rule)
         return f"(the message could not be redacted: {type(e).__name__})"
+    text = text[:SCRUB_CHARS]
     if host:
-        if user:
-            text = text.replace(f"{user}@{host}", "<user>@<host>")
-        text = text.replace(host, "<host>")
+        # the name as given, in any case, and with any dotted suffix ssh may print after it (its FQDN)
+        text = re.sub(rf"(?<![\w.-]){re.escape(host)}(?:\.[\w-]+)*(?![\w-])", "<host>", text, flags=re.I)
     if user:
-        text = re.sub(rf"(?<![\w.-]){re.escape(user)}(?=@)", "<user>", text)
-    text = re.sub(r"(?<![\w.:])\d{1,3}(?:\.\d{1,3}){3}(?![\w.])", "<addr>", text)
-    # an IPv6 address: hex groups and colons holding "::" or at least five colons (a clock's "12:34:56" is not one)
-    return re.sub(r"(?<![\w:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:]*(?![\w:])",
+        text = re.sub(rf"(?<![\w.-]){re.escape(user)}(?=@)", "<user>", text, flags=re.I)
+    text = re.sub(r"(?<![\w.:])\d{1,3}(?:\.\d{1,3}){3}(?![\w])", "<addr>", text)
+    # an IPv6 address: a run of hex digits and colons (one linear pass) holding "::" or at least five colons; a
+    # clock's "12:34:56" is not one
+    return re.sub(r"(?<![\w:])[0-9A-Fa-f:]{2,}(?![\w:])",
                   lambda m: "<addr>" if "::" in m.group(0) or m.group(0).count(":") >= 5 else m.group(0), text)
 
 
@@ -172,7 +184,7 @@ def _tail(stderr, host: str, user: str) -> str | None:
         return None
     if isinstance(stderr, bytes):
         stderr = stderr.decode("utf-8", "replace")
-    lines = [ln.rstrip() for ln in str(stderr).splitlines() if ln.strip()]
+    lines = [ln.rstrip()[:SCRUB_CHARS] for ln in str(stderr)[-4 * SCRUB_CHARS:].splitlines() if ln.strip()]
     return _scrub("\n".join(lines[-TAIL_LINES:]), host, user)[:TAIL_CHARS] if lines else None
 
 
@@ -189,7 +201,9 @@ def _ssh(remote: str, command: str):
 
 
 def _past_notices(copy: str | None, step) -> list[dict]:
-    """The notices earlier pull receipts in this machine's receipts log record for this copy and step."""
+    """The notices this machine's receipts log records for this copy and step (kind "pull_notice"). With no copy (no
+    verified copy, or an unread folder) only those since the last pull receipt that held a verified copy count: a
+    second spell without one is told again (the pre-PR pass)."""
     p = c.receipts_path()
     if not p.exists():
         return []
@@ -199,31 +213,44 @@ def _past_notices(copy: str | None, step) -> list[dict]:
             r = json.loads(line)
         except json.JSONDecodeError:
             continue
-        n = r.get("notice") if isinstance(r, dict) and r.get("kind") == "pull" else None
-        if isinstance(n, dict) and n.get("copy") == copy and n.get("step") == step:
-            out.append(n)
+        if not isinstance(r, dict):
+            continue
+        if copy is None and r.get("kind") == "pull" and r.get("newest_copy"):
+            out = []                                 # a copy was held: the spell without one ended
+        elif r.get("kind") == NOTICE_KIND and r.get("copy") == copy and r.get("step") == step:
+            out.append(r)
     return out
 
 
 def notice_text(newest: dict | None, rec: dict, machine: str) -> str:
     """The notice's words: the copy's name and age, the run's stage and its error's class, the machine by its role.
     No host name (552 item 3(f))."""
-    head = (f"The newest verified copy of the host's backup on this machine is {newest['age_days']:.1f} days old "
-            f"({newest['name']}).") if newest else "This machine holds no verified copy of the host's backup."
+    if rec.get("newest_copy_error"):
+        head = (f"The backup folder on this machine could not be read ({rec['newest_copy_error']}): the age of its "
+                "newest verified copy is not known.")
+    elif newest:
+        head = (f"The newest verified copy of the host's backup on this machine is {newest['age_days']:.1f} days old "
+                f"({newest['name']}).")
+    else:
+        head = "This machine holds no verified copy of the host's backup."
     last = "pulled" if rec.get("exit") == 0 else f"failed at {rec.get('stage')} ({rec.get('error_class')})"
     return f"{head}\nTonight's pull: {last}.\n{machine}"
 
 
-def tell(newest: dict | None, rec: dict) -> dict | None:
-    """552 item 3(c)-(d): the notice for this run, or None when none is due (the copy is fresh, or this step was
-    already taken). The card first; the operator's topic when the card did not take it; never the screen. The
-    senders are closing's own (they never record the URL or the message)."""
-    step = notice_step(newest)
+def due(newest: dict | None, rec: dict, now: datetime) -> tuple[str | None, int | str] | None:
+    """(copy, step) of the notice this run owes, or None (the copy is fresh, or this step was already taken)."""
+    step = UNREAD if rec.get("newest_copy_error") else notice_step(newest, now)
     if step is None:
         return None
-    copy = newest["name"] if newest else None
+    copy = newest["name"] if newest and step != UNREAD else None
     if any(n.get("channel") for n in _past_notices(copy, step)):
         return None
+    return copy, step
+
+
+def tell(newest: dict | None, rec: dict, copy: str | None, step) -> dict:
+    """552 item 3(c)-(d): the notice. The card first; the operator's topic when the card did not take it; never the
+    screen. The senders are closing's own (they never record the URL or the message)."""
     import closing
     text = notice_text(newest, rec, closing.machine_line())
     n = {"copy": copy, "step": step, "text": text}
@@ -240,6 +267,24 @@ def tell(newest: dict | None, rec: dict) -> dict | None:
         took = "operator" if n["operator"].get("accepted") is True else None
     n["channel"] = took
     return n
+
+
+def bounded_tell(newest: dict | None, rec: dict, copy: str | None, step) -> dict:
+    """tell() cut at NOTICE_MAX_S of wall clock (closing._bounded_notify's pattern): a daemon thread, so a send that
+    hangs (a DNS lookup the sockets' timeouts do not bound) never holds the job; cut, no channel is known to have
+    taken it, so it is sent again on the next run."""
+    import threading
+    box: dict = {}
+
+    def run():
+        try:
+            box["n"] = tell(newest, rec, copy, step)
+        except BaseException as e:  # noqa: BLE001 - recorded, never raised into the job
+            box["n"] = {"copy": copy, "step": step, "channel": None, "error": type(e).__name__}
+    t = threading.Thread(target=run, name="pull-notice", daemon=True)
+    t.start()
+    t.join(NOTICE_MAX_S)
+    return box.get("n") or {"copy": copy, "step": step, "channel": None, "cut_at_bound_s": NOTICE_MAX_S}
 
 
 def main(argv=None, now: datetime | None = None) -> int:
@@ -278,9 +323,9 @@ def main(argv=None, now: datetime | None = None) -> int:
         # the user and the host, so it is not stored; ssh's message, scrubbed, is
         rec["error_class"] = type(e).__name__
         code = getattr(e, "returncode", None)
-        own = _scrub(str(e), a.host, a.user) if isinstance(e, PullError) else None
-        rec["error"] = (f"{type(e).__name__} at {rec['stage']}" + (f", exit {code}" if code is not None else "")
-                        + (f": {own}" if own else ""))[:TAIL_CHARS]
+        rec["error"] = f"{type(e).__name__} at {rec['stage']}" + (f", exit {code}" if code is not None else "")
+        if isinstance(e, PullError):                 # the script's own words (no host, user or command), apart
+            rec["reason"] = _scrub(str(e), a.host, a.user)[:TAIL_CHARS]
         tail = _tail(getattr(e, "stderr", None), a.host, a.user)
         if tail:
             rec["ssh_tail"] = tail
@@ -293,17 +338,25 @@ def main(argv=None, now: datetime | None = None) -> int:
     except Exception as e:  # noqa: BLE001 - the age is read best effort; the receipt is still written
         rec["newest_copy_error"] = type(e).__name__
     rec["newest_copy"] = newest
-    try:                                             # in its own try: a notice never changes the pull's exit
-        n = tell(newest, rec)
-        if n is not None:
-            rec["notice"] = n
-    except Exception as e:  # noqa: BLE001
-        rec["notice"] = {"copy": newest["name"] if newest else None, "step": notice_step(newest), "channel": None,
-                         "error": type(e).__name__}
-    c.append_receipt(rec)
-    age = f" · newest verified copy {newest['name']} {newest['age_days']:.1f}d" if newest else \
-        " · no verified copy held"
-    told = f" · notice {rec['notice']['channel'] or 'NOT TAKEN'}" if rec.get("notice") else ""
+    owed = None
+    try:
+        owed = due(newest, rec, now)
+    except Exception as e:  # noqa: BLE001 - the log could not be read: the notice is owed, and said so
+        rec["notice_history_error"] = type(e).__name__
+        step = UNREAD if rec.get("newest_copy_error") else notice_step(newest, now)
+        owed = None if step is None else (newest["name"] if newest and step != UNREAD else None, step)
+    c.append_receipt(rec)                            # the pull's receipt first, whole (#1053 P7)
+    age = (f" · the backup folder could not be read ({rec['newest_copy_error']})" if rec.get("newest_copy_error")
+           else f" · newest verified copy {newest['name']} {newest['age_days']:.1f}d" if newest
+           else " · no verified copy held")
+    told = ""
+    if owed is not None:                             # then the notice, in its own try: it never changes the exit
+        try:
+            n = bounded_tell(newest, rec, *owed)
+            c.append_receipt({"kind": NOTICE_KIND, **n})
+            told = f" · notice {n.get('channel') or 'NOT TAKEN'}"
+        except Exception as e:  # noqa: BLE001
+            told = f" · notice not recorded ({type(e).__name__})"
     print(f"{'✓' if rec['exit'] == 0 else '✗'} pull {rec['file']} from {a.host}: "
           f"sha256={(rec.get('sha256') or '-')[:16]} {rec.get('note') or rec.get('error') or ''}{age}{told}")
     return rec["exit"]

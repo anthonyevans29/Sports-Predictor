@@ -352,7 +352,8 @@ def new_family() -> dict:
                   "not_rederived": Counter(), "by_month": defaultdict(Counter)},
             "d": {"evaluated": 0, "bell": Counter(), "ever": Counter(), "book_flag_end": Counter(),
                   "ever_book_flag_end": Counter(),
-                  "hidden_end": 0, "hidden_end_book_flagged": 0, "by_month": defaultdict(Counter)}}
+                  "hidden_end": 0, "hidden_end_book_flagged": 0, "hidden_end_ever_book_flagged": 0,
+                  "by_month": defaultdict(Counter)}}
 
 
 def measure_match(s, m: dict, rows: list, newest, f: dict) -> None:
@@ -524,6 +525,9 @@ def line_moves(s, m: dict, ko: datetime, d: dict, kmo: str) -> None:
         end = end_label(sorted(ever_ends, key=("from_at", "to_at").index))
         d["ever_book_flag_end"][end] += 1
         d["by_month"][kmo]["ever book-flagged, " + end] += 1
+        if hidden:                 # #1149: the hidden end's subset for the ever cohort too, beside the bell's
+            d["hidden_end_ever_book_flagged"] += 1
+            d["by_month"][kmo]["hidden end, ever book-flagged"] += 1
 
 
 def one_sided_ends(snaps, lm: dict) -> list:
@@ -636,8 +640,9 @@ def render(c: dict, out) -> None:
                 d["evaluated"], _kv(d["bell"]), _kv(d["ever"])))
         out("    of the book-flagged at the bell, by a one-sided session at an end of the book venue: {} · of the ever "
             "book-flagged, by the ends found one-sided at any stamp whose book alarm is set: {} · {}: {} (of them "
-            "book-flagged at the bell {})".format(_kv(d["book_flag_end"]), _kv(d["ever_book_flag_end"]), HIDDEN,
-                                                  d["hidden_end"], d["hidden_end_book_flagged"]))
+            "book-flagged at the bell {} · ever book-flagged {})".format(
+                _kv(d["book_flag_end"]), _kv(d["ever_book_flag_end"]), HIDDEN, d["hidden_end"],
+                d["hidden_end_book_flagged"], d["hidden_end_ever_book_flagged"]))
         out("(e) BY MONTH ({}):".format(TZ))
         months = sorted(set(a["by_month"]) | set(b["by_month"]) | set(cc["by_month"]) | set(d["by_month"])
                         | set(f["by_month"]))

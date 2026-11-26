@@ -207,6 +207,41 @@ INJURIES_ONE_SIDED_RULING = "one-sided injury list, ARCHITECT 2026-10-11"
 # off, and desk_meta.injuries_one_sided_rule says both are on); a row without both counts as integers is unchanged.
 INJURIES_BOTH_EMPTY_KIND = "injuries_both_empty"
 INJURIES_BOTH_EMPTY_RULING = "both injury lists empty, ARCHITECT 2026-11-24"
+# A STALE PRICE GETS NO CALL (#1102 PR2, THE DESK'S RULE; DEV 3's one text, comment 7167846609, PR2 bullets): kind
+# "stale_price", the slate's alone, its own switch, in NO_CALL_KINDS, by _no_call (PASS, units 0; reference books if a
+# book price, else null): no order, exec, shadow or parlay leg. It turns a PLAY or a LADDER (513 Q1), last, on
+# desk_call's return (after 214: NFL only with 214 off). F1 (the file's top-level run_started_at) is read in evaluate,
+# F2 (market.books_captured_at) and F3 (kalshi_legs_captured_at) through normalize; the Desk reads F4 nowhere. The
+# check is R2's (513 Q2): a stamp before F1 or in its second is stale (law 4). Books where shown, F2 null stale; Kalshi
+# where shown: one leg or none, that leg (min F3); more, the legs the UNTURNED call reads, null stale, unread inert;
+# beyond the day. Reasons carry no time: "<P> captured before this run's start: no call" | "<P> never captured: no
+# call", P "books price" | "Kalshi <leg> leg"; a start present but not ISO Z (null too) turns every staked row, "this
+# run's start is unreadable: no call" (526 Q3); a file with no F1 is never turned, by a rescore either (532 Q3).
+# desk_meta.stale_price_rule: "on" | "on: run start unreadable" | "off: no run start" | "off" (switch off, any start).
+# ARCHITECT 2026-11-25 18:46 ET, addendum 555 item 1 (verbatim where quoted):
+#   Q1 "KALSHI SHOWN WITH NO LEG TO NAME: stale, as you read it, "Kalshi price never captured: no call". [...] The
+#      text's P gains "Kalshi price" for this one case".
+#   Q2 "F1's FORM IS THE CLI's SIX-DIGIT FORM AND NOTHING ELSE, by ONE definition in timeutil that the option and the
+#      Desk both call" (src/timeutil.py parse_run_start).
+#   Q3 "AN F2 OR F3 THAT WILL NOT PARSE IS STALE, YES; BUT NOT UNDER "never captured". [...] Its own wording, beside the
+#      run start's: the text's P, then " capture time unreadable: no call"."
+#   Q4 "ALL THE REASONS, in R2's order: the books first, then the legs sorted" (joined " · " by desk_block).
+#   Q5 "NO. The turned row keeps nothing of what the call would have been" (_no_call; the shadows null).
+#   Q6 "503's PATTERN [...]: counted apart beside "both empty"; "no executable quote"" (desk-rescore).
+#   (a) "The rule ships OFF. The addendum that turns it on will name the day from which a slate file is read under it,
+#      and what a rescore does with the files published between PR1 and that day. Until that addendum nothing turns,
+#      on a new file or an old one." So the switch's line below is {"on": False}, base_v11 holds it off too, and every
+#      file annotate writes says "off".
+STALE_PRICE_RULE = {"on": False}
+STALE_PRICE_KIND = "stale_price"
+STALE_UNREADABLE_REASON = "this run's start is unreadable: no call"      # 526 Q3, verbatim
+STALE_BEFORE = "{} captured before this run's start: no call"
+STALE_NEVER = "{} never captured: no call"
+STALE_UNPARSED = "{} capture time unreadable: no call"                   # addendum 555 item 1 Q3, verbatim
+STALE_BOOKS = "books price"
+STALE_LEG = "Kalshi {} leg"
+STALE_KALSHI = "Kalshi price"                                            # addendum 555 item 1 Q1: no leg to name
+RUN_START_UNREADABLE = object()                    # run_start_reading's answer for an F1 that is not the CLI's form
 # AN EMPTY NFL INJURY LIST IS UNREAD (ARCHITECT 2026-10-11, addendum 40 item 4, RULED): "An NFL team with no stored
 # injury row is a list we could not read, not a team with nobody hurt. A flag we could not look up is not a flag that
 # is off (addendum 23, A2). Where either team's list is empty, the Desk sizes an NFL PLAY as it sizes a QB-flagged
@@ -278,7 +313,8 @@ NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no
                  INJURIES_ONE_SIDED_KIND,           # + addendum 40 item 6 (2026-10-11)
                  INJURIES_BOTH_EMPTY_KIND,          # + addendum 502 item 2 Q3, 503 item 1 Q3-Q4 (2026-11-24)
                  KICKOFF_CLOCK_KIND,                # + addendum 72 item 1 (2026-10-15)
-                 HOST_FENCE_KIND)                   # + addendum 109 item 3 (2026-10-17)
+                 HOST_FENCE_KIND,                   # + addendum 109 item 3 (2026-10-17)
+                 STALE_PRICE_KIND)                  # + #1102 PR2, the one text; addendum 555 item 1 (2026-11-25)
 # NFL MARKET-ONLY (ARCHITECT 2026-11-02 10:15 ET, addendum 214 item 2, RULED): "nfl_elo_v1's certification was earned
 # on defective data and is VOID on the evidence; the model is UNCERTIFIED as of this addendum. NFL goes MARKET-ONLY
 # (PAPER, exactly as NHL and NCAA: no model-edge call, no units, no position; the value shadow lines continue unstaked
@@ -502,6 +538,9 @@ def normalize(doc: dict) -> list[dict]:
             "utc": p.get("utc_date") or "", "probsAll": probs, "fairAll": market,
             "div": p.get("market_divergence_pp"), "quar": bool(p.get("quarantine")),
             "books": mk.get("bookmaker_count"), "qbs": qbs, "injEmpty": inj_empty,
+            # #1102 PR2: F2 and F3, the capture stamps the stale-price rule reads (absent and null read the same:
+            # never captured, law 4). Not booksAt: that is #91's market.captured_at on the fixtures' rows
+            "booksCap": mk.get("books_captured_at"), "kalCap": p.get("kalshi_legs_captured_at"),
             "stage": p["stage"] if "stage" in p else MISSING,
             "comp": (p.get("competition") or doc.get("sport") or "").upper(),
             "kalProb": kal_from_prediction(p, mk, market),
@@ -658,10 +697,12 @@ def base_v11():
     was_fence = HOST_FENCE_RULE["on"]          # addendum 109 item 3: the golden holds whatever the machine's role
     was_nfl_mo = NFL_MARKET_ONLY_RULE["on"]    # addendum 214: the frozen battery's NFL rows predate it
     was_xnp = EXEC_NON_POSITIVE["on"]          # addendum 305: postdates the frozen battery (moot with EXEC_RULES off)
+    was_stale = STALE_PRICE_RULE["on"]         # #1102 PR2: the one text, "own switch off in base_v11"
     EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
     KALSHI_ONLY_MLB_SUSPENDED["on"] = INJURIES_ONE_SIDED_RULE["on"] = INJURY_EMPTY_RULE["on"] = False
     SKEW_TEST_VENUE_RULE["on"] = KICKOFF_CLOCK_RULE["on"] = HOST_FENCE_RULE["on"] = False
     NFL_MARKET_ONLY_RULE["on"] = EXEC_NON_POSITIVE["on"] = False
+    STALE_PRICE_RULE["on"] = False
     try:
         yield
     finally:
@@ -671,6 +712,7 @@ def base_v11():
         INJURY_EMPTY_RULE["on"], SKEW_TEST_VENUE_RULE["on"] = was_inj, was_skew
         KICKOFF_CLOCK_RULE["on"], HOST_FENCE_RULE["on"] = was_clock, was_fence
         NFL_MARKET_ONLY_RULE["on"], EXEC_NON_POSITIVE["on"] = was_nfl_mo, was_xnp
+        STALE_PRICE_RULE["on"] = was_stale
 
 
 @contextmanager
@@ -807,6 +849,18 @@ def nfl_market_only_rule_off():
         yield
     finally:
         NFL_MARKET_ONLY_RULE["on"] = was
+
+
+@contextmanager
+def stale_price_rule_off():
+    """The Desk without the stale-price rule (#1102 PR2) — for comparing a file with and without it. The switch ships
+    off (addendum 555 item 1(a)), so today this changes nothing; it holds once an addendum turns the rule on."""
+    was = STALE_PRICE_RULE["on"]
+    STALE_PRICE_RULE["on"] = False
+    try:
+        yield
+    finally:
+        STALE_PRICE_RULE["on"] = was
 
 
 def has_started(r, now_ms: float) -> bool:
@@ -1236,11 +1290,180 @@ def host_fenced(r) -> str | None:
     return HOST_FENCE_UNSET_REASON
 
 
-def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
+def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0, run_start=None) -> dict:
     """The Desk's call for ONE model-sport row: the v1.1 policy (_desk_call), then Q3 K1 (ARCHITECT 2026-10-08):
     an MLB row whose reference would be the kalshi-only mid is PASS with no reference; its would-be call is kept
-    in `koHold` for the record (K3). Then NFL market-only (addendum 214): every NFL row is PASS (nfl_market_only)."""
-    return nfl_market_only(r, _desk_call_k1(r, now_ms, postseason_graded, intl_graded))
+    in `koHold` for the record (K3). Then NFL market-only (addendum 214): every NFL row is PASS (nfl_market_only).
+    Then, last, the stale-price rule (#1102 PR2) on that return: `run_start` is evaluate's run_start_reading of the
+    file's F1 (None: no run start, the rule is off for the file; the default, for the callers that pass none)."""
+    return stale_price(r, nfl_market_only(r, _desk_call_k1(r, now_ms, postseason_graded, intl_graded)), run_start)
+
+
+# ------------------------------------------------------------ the stale-price rule (#1102 PR2) --
+
+STALE_STAKED_CALLS = ("PLAY", "LADDER")    # 513 Q1: the staked calls (deploy/hosting/closing.py STAKED_CALLS)
+
+
+def run_start_reading(doc: dict):
+    """F1, read from the file's top level only: None when the key is absent (the rule is off for the file: "off: no
+    run start"); the run's start as a naive UTC datetime CUT to its second when the value is the CLI's one form
+    (src/timeutil.py parse_run_start, addendum 555 item 1 Q2); RUN_START_UNREADABLE for anything else, null, a
+    non-str and a date that does not exist included (526 Q3: every staked row turns)."""
+    if "run_started_at" not in doc:
+        return None
+    from src.timeutil import parse_run_start
+    t = parse_run_start(doc["run_started_at"])
+    return RUN_START_UNREADABLE if t is None else t.replace(microsecond=0)
+
+
+def _stamp(s):
+    """An F2 / F3 stamp as written (src/timeutil.py iso_z_seconds: ISO Z, whole seconds, ASCII) as a naive UTC
+    datetime; None for anything else, a non-str included."""
+    import re
+    if not isinstance(s, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", s, re.ASCII):
+        return None
+    try:
+        return datetime.strptime(s[:-1], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
+
+
+_UNPARSED = object()                       # a leg's value read from an F3 that is not a dict: no time can be read
+
+
+def _stale_reason(price: str, value, s0: datetime) -> str | None:
+    """One shown price's reason, or None when it is fresh. Absent and null: never captured (law 4); a value that will
+    not parse: its own wording (addendum 555 item 1 Q3); a stamp before F1 or in its second (s0 is F1 cut to its
+    second): captured before this run's start (513 Q2)."""
+    if value is None:
+        return STALE_NEVER.format(price)
+    t = _stamp(value)
+    if t is None:
+        return STALE_UNPARSED.format(price)
+    return STALE_BEFORE.format(price) if t <= s0 else None
+
+
+def shows_books_row(src: dict) -> bool:
+    """deploy/hosting/closing.py shows_books, ported (C8: the Desk never imports deploy/): the export row priced at
+    least one complete book (market.bookmaker_count > 0). A test pins the two."""
+    return bool(((src.get("market") or {}).get("bookmaker_count") or 0) > 0)
+
+
+def shows_kalshi_row(src: dict) -> bool:
+    """deploy/hosting/closing.py shows_kalshi, ported: the HOME contract's bid/ask, any captured leg, or a kalshi
+    market block that is not mismatched (addendum 37 item 3: a mismatched block carries no price)."""
+    k = (src.get("market") or {}).get("kalshi")
+    return (src.get("kalshi_bid") is not None or src.get("kalshi_ask") is not None or bool(src.get("kalshi_legs"))
+            or bool(k and k.get("status") != "mismatched"))
+
+
+def _read_leg(r, side):
+    """deploy/hosting/closing.py _side_leg, ported: the leg side_quotes reads for `side` (r["threeWay"] for its
+    _three_way). None: no Kalshi contract read."""
+    if side not in ("HOME", "DRAW", "AWAY"):
+        return None
+    legs = (r.get("src") or {}).get("kalshi_legs") or {}
+    leg = legs.get(side) or {}
+    if leg.get("ticker"):
+        return side
+    opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(side)
+    if not r.get("threeWay") and opp and (legs.get(opp) or {}).get("ticker"):
+        return opp
+    if leg.get("ask") is not None:
+        return side
+    if side == "HOME" or (side == "AWAY" and not r.get("threeWay")):
+        return "HOME"                     # k_side: the HOME contract's quotes
+    return None
+
+
+def read_legs(r, c) -> set | None:
+    """deploy/hosting/closing.py desk_read_legs (A5), ported onto the UNTURNED call `c` (a turned PASS has no exec,
+    order or value shadow, so the legs are named from the call the rule judges): None = every leg (the reference is
+    the kalshi-only mid); else the exec block's leg, the order's leg (by its ticker only) and the value shadow's exec
+    leg. Runs in the caller's unit scope, as desk_block's order does. A test pins it to desk_read_legs."""
+    if c["kalOnly"] and c["mktRef"] is not None:
+        return None
+    out = set()
+    if call_exec_block(r, c) is not None:
+        out.add(_read_leg(r, r["pick"]))
+    if c["call"] in STALE_STAKED_CALLS:
+        o = order_line(r, r["pick"], c["units"], ladder=(c["call"] == "LADDER"))
+        if o and o.get("ticker"):
+            for sel, leg in ((r.get("src") or {}).get("kalshi_legs") or {}).items():
+                if (leg or {}).get("ticker") == o["ticker"]:
+                    out.add(sel)
+                    break
+    v = _value_for(r, c)
+    if v and exec_block(r, v["side"], v["modelP"], VALUE["units"]) is not None:
+        out.add(_read_leg(r, v["side"]))
+    out.discard(None)
+    return out
+
+
+def stale_reasons(r, c, s0: datetime) -> list[str]:
+    """The stale prices of a staked row, in R2's order (addendum 555 item 1 Q4: the books first, then the legs
+    sorted). `s0` is F1 cut to its second. Books where shown (F2); Kalshi where shown (F3): one leg or none, that leg
+    (none to name: "Kalshi price", Q1); more, the legs the unturned call reads (read_legs), a stale leg it does not
+    read inert."""
+    src = r["src"]
+    out = []
+    if shows_books_row(src):
+        x = _stale_reason(STALE_BOOKS, r.get("booksCap"), s0)
+        if x:
+            out.append(x)
+    if not shows_kalshi_row(src):
+        return out
+    raw = r.get("kalCap")
+    f3 = raw if isinstance(raw, dict) else {}
+
+    def at(leg):                           # an F3 that is neither a dict nor null reads no time for any leg (Q3)
+        return _UNPARSED if raw is not None and not isinstance(raw, dict) else f3.get(leg)
+    every = set(f3) | set(src.get("kalshi_legs") or {})
+    if len(every) <= 1:
+        if every:
+            (leg,) = every
+            x = _stale_reason(STALE_LEG.format(leg), at(leg), s0)
+        else:
+            x = _stale_reason(STALE_KALSHI, None if raw is None or isinstance(raw, dict) else _UNPARSED, s0)
+        if x:
+            out.append(x)
+        return out
+    read = read_legs(r, c)
+    read = every if read is None else read
+    for leg in sorted(every | read):       # a read leg with no capture is stale (law 4); an unread one is inert
+        if leg in read:
+            x = _stale_reason(STALE_LEG.format(leg), at(leg), s0)
+            if x:
+                out.append(x)
+    return out
+
+
+def stale_price(r, c: dict, rs) -> dict:
+    """#1102 PR2: the rule, last on desk_call's return. A PLAY or a LADDER with a stale price is PASS stale_price by
+    _no_call (no order, exec, value shadow or parlay leg; nothing of the would-be call is kept, addendum 555 item 1
+    Q5), every reason kept (Q4). The switch off, no run start (rs None) or any other call: unchanged. An unreadable
+    start turns every staked row with its one reason, no stamp read (526 Q3)."""
+    if not STALE_PRICE_RULE["on"] or rs is None or c["call"] not in STALE_STAKED_CALLS:
+        return c
+    if rs is RUN_START_UNREADABLE:
+        return _no_call(r, STALE_PRICE_KIND, STALE_UNREADABLE_REASON)
+    reasons = stale_reasons(r, c, rs)
+    if not reasons:
+        return c
+    out = _no_call(r, STALE_PRICE_KIND, reasons[0])
+    out["reasons"] = reasons
+    return out
+
+
+def stale_price_meta(doc: dict) -> str:
+    """desk_meta.stale_price_rule: "off" with the switch off (any start); else "off: no run start" (no F1 key), "on:
+    run start unreadable", or "on"."""
+    if not STALE_PRICE_RULE["on"]:
+        return "off"
+    rs = run_start_reading(doc)
+    if rs is None:
+        return "off: no run start"
+    return "on: run start unreadable" if rs is RUN_START_UNREADABLE else "on"
 
 
 def nfl_market_only(r, c: dict) -> dict:
@@ -1723,6 +1946,12 @@ def _parlay_block(t) -> dict:
                       "order": order_line(l, l["pick"], PARLAY["units"])} for l in t["legs"]]}
 
 
+def _value_for(r, c):
+    """The row's value shadow (or None) for the call `c`. addendum 214: an NFL market-only row's value shadow follows
+    its chain's own kind (chain_kind). evaluate and the stale-price rule's read_legs share this one definition."""
+    return None if chain_kind(c) in NO_CALL_KINDS else value_side(r, POLICY.get(r["sport"]) or POLICY["DEFAULT"])
+
+
 def evaluate(doc: dict, now_ms: float, counts: dict | None = None) -> dict:
     """Desk output for one export document, row order as the Cockpit's:
     calls (model rows), value shadows, venue (every row)."""
@@ -1731,13 +1960,13 @@ def evaluate(doc: dict, now_ms: float, counts: dict | None = None) -> dict:
     rows = normalize(doc)
     if any(r["sport"] == "INTL" for r in rows):     # INTL v0 (2): only an intl file carries the count
         counts[INTL_COUNT_KEY] = intl_graded
+    rs = run_start_reading(doc)                     # #1102 PR2: F1, read once for the file
     calls, values, venue = [], [], []
     for r in rows:
         if not r["marketOnly"]:
-            c = desk_call(r, now_ms, counts["postseason_graded"], intl_graded)
+            c = desk_call(r, now_ms, counts["postseason_graded"], intl_graded, run_start=rs)
             calls.append((r, c))
-            # addendum 214: an NFL market-only row's value shadow follows its chain's own kind (chain_kind)
-            v = None if chain_kind(c) in NO_CALL_KINDS else value_side(r, POLICY.get(r["sport"]) or POLICY["DEFAULT"])
+            v = _value_for(r, c)
             if v:
                 values.append((r, v))
     for r in rows:
@@ -2221,6 +2450,9 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "nfl_market_only_rule": NFL_MARKET_ONLY_RULE["on"],
                         # addendum 305 (2026-11-09): a PLAY whose exec edge is <= 0 is PASS exec_non_positive
                         "exec_non_positive_rule": EXEC_NON_POSITIVE["on"],
+                        # #1102 PR2: "on" | "on: run start unreadable" | "off: no run start" | "off" (switch off, any
+                        # start); the switch ships off (addendum 555 item 1(a)), so every file reads "off" today
+                        "stale_price_rule": stale_price_meta(doc),
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),
                         # addendum 179 (v1.2): the day's unit, its state and the fractions (the label is the order's)
@@ -2372,6 +2604,9 @@ def _rescore(doc: dict) -> list[dict]:
                                 # addendum 503 item 1 Q3: the both-empty rule rides the one-sided switch, which
                                 # addendum_off holds, so a published PLAY it now passes would read 0u = 0u "unchanged"
                                 "injuries both empty" if c.get("passKind") == INJURIES_BOTH_EMPTY_KIND else
+                                # #1102 PR2 (addendum 555 item 1 Q6, 503's pattern): the stale-price switch,
+                                # which addendum_off holds, so a published PLAY it now passes would read 0u = 0u "unchanged"
+                                "stale price" if c.get("passKind") == STALE_PRICE_KIND else
                                 "halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
                                 else "raised")})
     return out

@@ -802,22 +802,24 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
             say("REFUSED: --document-url is blank (the architect names the document in the block, 357 item 3(b); "
                 "553 item 2(b)); nothing fetched")
             return REFUSED, {"refused": "a blank --document-url"}
+        url = document_url.strip()                   # stripped once; both checks and the fetch use it (#1155)
         try:
-            file = link_file(document_url)
+            file = link_file(url)
+            parts = urlsplit(url)
+            host = parts.hostname
         except ValueError as e:                      # a URL that does not parse is refused, never raised (pre-PR pass)
             say("REFUSED: --document-url does not parse as a URL (its text and the parser's message are in the "
                 "receipt only); nothing fetched")
             return REFUSED, {"refused": "an unparseable --document-url", "document_url": document_url,
                              "parse_error": f"{type(e).__name__}: {e}"}
-        parts = urlsplit(document_url.strip())
-        if parts.scheme.lower() != "https" or not parts.hostname:
+        if parts.scheme.lower() != "https" or not host:
             # ARCHITECT 2026-11-25, addendum 555 item 2 D: "THE DOCUMENT'S URL IS https OR IT IS REFUSED, before any
             # request, with its own REFUSED line. For this option only [...] A request of ours does not go in the
             # clear to a host we are asking for the first time."
             say("REFUSED: --document-url is not an https URL with a host (addendum 555 item 2 D: a request of ours "
                 "does not go in the clear; its text is in the receipt only); nothing fetched")
             return REFUSED, {"refused": "a --document-url that is not https", "document_url": document_url}
-        return document_phase(a, document_url, file, say, fetch)
+        return document_phase(a, url, file, say, fetch, given=document_url)
     if not a.index_url:
         say("REFUSED: --report needs --index-url, or --document-url for one document with no index read (the "
             "architect names it in the block, 357 item 3(b); 553 item 3); nothing fetched")
@@ -869,13 +871,14 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
     return read_document(pick["url"], pick["file"], "the index named this URL; Codex on #985", say, fetch, rec), rec
 
 
-def document_phase(a, url: str, file: str, say: Out, fetch: Fetcher) -> tuple[int, dict]:
+def document_phase(a, url: str, file: str, say: Out, fetch: Fetcher, given: str | None = None) -> tuple[int, dict]:
     """ONE DOCUMENT, NO INDEX (ARCHITECT 2026-11-25, addendum 553 items 2(b) and 3): the one published document the
     block names, asked for directly, by one request; no index read, no link listed, no newest picked. The read and its
     console are the newest report's own (read_document); the URL stays in the receipt (553 item 2(e): 368 and 520
-    unchanged, the console structure only)."""
+    unchanged, the console structure only). `url` is the stripped value that is fetched; the receipt keeps the value
+    as given (#1155)."""
     say(f"REPORT PHASE, cleared by: {a.terms_ruling.strip()}")
-    rec: dict = {"terms_ruling": a.terms_ruling.strip(), "document_url": url}
+    rec: dict = {"terms_ruling": a.terms_ruling.strip(), "document_url": url if given is None else given}
     say("\nONE DOCUMENT (addendum 553 item 2(b)): the one the block names with --document-url, asked for directly; "
         "no index read, so no link is listed and no newest is picked (its URL is in the receipt only)")
     return read_document(url, file, "the block named this document; 553 item 2(b)", say, fetch, rec), rec

@@ -35,7 +35,8 @@ PHASE (`--report`, with `--index-url`) is a second block of mine and runs ONLY a
     3): the one published document the block names, asked for directly; ONE request, the probe's own plain client
     name, no redirect followed; no index read, so no link is listed and no newest is picked. From that one answer the
     same form and, with the reader, the same fields as the newest report above, structure only. Refused together
-    with --index-url, refused without --report and without --terms-ruling, before any fetch. Its URL (and any
+    with --index-url, refused without --report and without --terms-ruling, and refused unless it is https (555
+    item 2 D), before any fetch. Its URL (and any
     Location) stays in the receipt; a refusal or a redirect ends the read; nothing is asked twice (553 item 3(d)).
 
 THE URLS ARE THE ARCHITECT'S (357 item 3(b)): "read from a search on the day I write each block and printed in the
@@ -808,6 +809,14 @@ def report_phase(a, say: Out, fetch: Fetcher) -> tuple[int, dict]:
                 "receipt only); nothing fetched")
             return REFUSED, {"refused": "an unparseable --document-url", "document_url": document_url,
                              "parse_error": f"{type(e).__name__}: {e}"}
+        parts = urlsplit(document_url.strip())
+        if parts.scheme.lower() != "https" or not parts.hostname:
+            # ARCHITECT 2026-11-25, addendum 555 item 2 D: "THE DOCUMENT'S URL IS https OR IT IS REFUSED, before any
+            # request, with its own REFUSED line. For this option only [...] A request of ours does not go in the
+            # clear to a host we are asking for the first time."
+            say("REFUSED: --document-url is not an https URL with a host (addendum 555 item 2 D: a request of ours "
+                "does not go in the clear; its text is in the receipt only); nothing fetched")
+            return REFUSED, {"refused": "a --document-url that is not https", "document_url": document_url}
         return document_phase(a, document_url, file, say, fetch)
     if not a.index_url:
         say("REFUSED: --report needs --index-url, or --document-url for one document with no index read (the "

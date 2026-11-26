@@ -1393,3 +1393,29 @@ def test_553_the_documents_file_name_is_read_as_written_for_the_receipt():
     assert probe.link_file("https://documents.example.invalid/get?name=Injury%20Report_2026-11-25.pdf") == \
         "Injury Report_2026-11-25.pdf"
     assert probe.link_file("https://documents.example.invalid/files/Injury%2DReport.pdf") == "Injury-Report.pdf"
+
+
+@pytest.mark.parametrize("bad", ["http://documents.example.invalid/injury/Injury-Report_2026-11-25_05PM.pdf",
+                                 "ftp://documents.example.invalid/Injury-Report.pdf",
+                                 "file:///etc/Injury-Report.pdf",
+                                 "https:///Injury-Report.pdf",
+                                 "documents.example.invalid/Injury-Report.pdf"])
+def test_555_2d_a_document_url_that_is_not_https_is_refused_before_any_request(capsys, bad):
+    code, out, rec, fake = run(capsys, ["--report", "--document-url", bad, "--terms-ruling", "addendum 999 item 1"],
+                               {bad: (200, PDF, {"Content-Type": "application/pdf"})})
+    assert code == probe.REFUSED and fake.asked == [] and rec["fetched"] == []
+    assert "--document-url is not an https URL with a host" in out and "documents.example" not in out
+    assert rec["refused"] == "a --document-url that is not https" and rec["document_url"] == bad
+
+
+def test_555_2d_https_in_any_case_is_read_and_the_index_path_is_left_as_it_is(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: PAGE_TEXT)
+    upper = DOC.replace("https://", "HTTPS://")
+    code, out, rec, fake = run(capsys, ["--report", "--document-url", upper, "--terms-ruling", "addendum 999 item 1"],
+                               {upper: (200, PDF, {"Content-Type": "application/pdf"})})
+    assert code == probe.OK and [u for u, _ in fake.asked] == [upper]
+    plain = INDEX.replace("https://", "http://")              # the index's path is unchanged: no scheme check there
+    pages = {plain: (200, INDEX_PAGE.encode(), {"Content-Type": "text/html"})}
+    code, out, rec, fake = run(capsys, ["--report", "--index-url", plain, "--terms-ruling", "addendum 999 item 1"],
+                               pages)
+    assert [u for u, _ in fake.asked][0] == plain

@@ -1,3 +1,3 @@
-## 2026-11-26 (#0000: 1161-closing-test-clock — a #1161 test no longer fails after 12:00 UTC (a test fix; no code, call or output changes))
+## 2026-11-26 (#1165: 1161-closing-test-clock — a #1161 test no longer fails after 12:00 UTC (a test fix; no code, call or output changes))
 - **tests/test_1102_stale_price_rule.py:** `test_a_closings_file_has_no_f1_reads_off_no_run_start_and_carries_f2_to_f4` seeded its kickoff at 12:00 UTC today. From 12:00 UTC the game had started, the export skipped it, and the test failed with `KeyError` on every CI run until midnight UTC. Found by 503's PR 2 build on 8de2a3ac. The kickoff is now two hours from the clock, cut to the minute; the closing's argv is resolved from that start (`resolve_steps` reads the start's own UTC date), so the window follows it at any hour.
 - **Unchanged:** every other line of the test and of the code; no pin is loosened.

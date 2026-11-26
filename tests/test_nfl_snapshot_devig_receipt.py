@@ -245,7 +245,7 @@ def test_d_the_bell_and_ever_flagged(world):
     assert d["ever"] == {"book": 4, "kalshi": 1, "combined": 5}      # and 9, at 16:00 only
     assert d["book_flag_end"] == {"one-sided at from_at": 1, "one-sided at to_at": 1,
                                   "one-sided at neither end": 1}
-    assert d["hidden_end"] == 1 and d["hidden_end_book_flagged"] == 1
+    assert d["hidden_end"] == 1 and d["hidden_end_book_flagged"] == 1 and d["hidden_end_ever_book_flagged"] == 1
 
 
 def test_d_the_bell_is_line_move_for_match_at_kickoff_less_one_microsecond(world):
@@ -500,3 +500,24 @@ def test_an_unreadable_stamp_is_counted_in_its_family_and_month(tmp_path):
     assert t["families"]["NFL"]["a"]["unreadable_stamp"] == 2
     assert t["families"]["NFL"]["a"]["by_month"]["(no date)"] == {"unreadable stamp": 2}
     assert t["families"]["NCAA"]["a"]["unreadable_stamp"] == 0
+
+
+# ---- #1149 (Codex round 2 on #1148): the hidden end's subset for the ever cohort ---------------------------------
+
+def test_1149_a_reverted_move_ending_on_an_away_only_stamp_is_in_the_ever_cohorts_hidden_end(tmp_path):
+    """A HOME-only 16:00 stamp flags the book; a two-legged 17:00 brings it back before the bell; the last stamp before
+    kickoff, 17:45, is AWAY-only (the hidden end). In the hidden end and in the ever cohort, so in their intersection;
+    not in the bell's."""
+    f = _small(tmp_path, {13: ("NFL", "REGULAR", KO, [(D + "14:00:00", {"HOME": 0.5, "AWAY": 0.5}),
+                                                      (D + "16:00:00", {"HOME": 1.0}),
+                                                      (D + "17:00:00", {"HOME": 0.52, "AWAY": 0.48}),
+                                                      (D + "17:45:00", {"AWAY": 0.48})], None, [])})
+    d = f["d"]
+    assert d["bell"].get("book", 0) == 0 and d["ever"]["book"] == 1
+    assert d["hidden_end"] == 1 and d["hidden_end_book_flagged"] == 0 and d["hidden_end_ever_book_flagged"] == 1
+    assert sum(v.get("hidden end, ever book-flagged", 0) for v in d["by_month"].values()) == 1
+
+
+def test_1149_the_console_prints_both_cohorts_hidden_ends(world):
+    code, out = run(world["db"])
+    assert any("(of them book-flagged at the bell 1 · ever book-flagged 1)" in ln for ln in out)

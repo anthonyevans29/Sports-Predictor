@@ -187,13 +187,30 @@ def _scrub(text: str, host: str, user: str) -> str:
 _QUAD = re.compile(r"(?<!\d)\d{1,3}(?:\.\d{1,3}){3}(?!\d)")
 
 
+def _glued(ch: str) -> bool:
+    return ch.isalnum() or ch == "_"
+
+
 def _addr(m) -> str:
-    t, tail = m.group(0), ""
+    """One run of hex digits, colons and dots, classified (#1158). Where the run touches a word, the hex letters glued
+    to that word are the word's ("std::string", "2001:db8::1.Connection"), not the address's; a run that is then only
+    colons, or ends in a colon against a word ("Bad::Thing"), is not an address."""
+    s, a, b = m.string, m.start(), m.end()
+    t, lead, trail = m.group(0), "", ""
+    if a > 0 and _glued(s[a - 1]):
+        k = re.match(r"[0-9A-Fa-f]*", t).end()
+        lead, t = t[:k], t[k:]
+    right = b < len(s) and _glued(s[b])
+    if right:
+        k = len(t) - len(re.search(r"[0-9A-Fa-f]*$", t).group(0))
+        t, trail = t[:k], t[k:]
+    dots = ""
     while t.endswith("."):
-        t, tail = t[:-1], "." + tail
-    if "::" in t or t.count(":") >= 5:
-        return "<addr>" + tail
-    return _QUAD.sub("<addr>", t) + tail
+        t, dots = t[:-1], "." + dots
+    six = ("::" in t or t.count(":") >= 5) and re.search(r"[0-9A-Fa-f]", t) is not None \
+        and not (right and not trail and t.endswith(":"))
+    # not an IPv6 form: any dotted quad in the whole run goes, glued to a word or not ("x10.0.0.1y")
+    return lead + "<addr>" + dots + trail if six else _QUAD.sub("<addr>", m.group(0))
 
 
 def _tail(stderr, host: str, user: str) -> str | None:

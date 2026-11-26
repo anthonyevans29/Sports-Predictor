@@ -586,7 +586,8 @@ def test_a_closings_file_has_no_f1_reads_off_no_run_start_and_carries_f2_to_f4(i
     import cli
     from src.db.database import session_scope
     from src.timeutil import utc_now_naive
-    ko = utc_now_naive().replace(hour=12, minute=0, second=0, microsecond=0)    # in the argv's window: today (UTC)
+    # still to come whatever the clock (the export skips a started game), and the argv is resolved from it
+    ko = (utc_now_naive() + timedelta(hours=2)).replace(second=0, microsecond=0)
     with session_scope() as s:
         mid = _soccer_world(s, ko, key="clo").id
     games = [{"match_id": mid, "start": ko.replace(tzinfo=timezone.utc)}]

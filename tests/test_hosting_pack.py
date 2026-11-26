@@ -627,14 +627,368 @@ def test_a_failed_pull_removes_every_partial(sandbox, monkeypatch):
 
     def run(cmd, **kw):
         if cmd[0] == "ssh" and cmd[-1].startswith("ls"):
-            return types.SimpleNamespace(stdout="sports_2026-10-15.db\nsports_2026-10-15.db.sha256\n")
+            return types.SimpleNamespace(returncode=0, stderr="",
+                                         stdout="sports_2026-10-15.db\nsports_2026-10-15.db.sha256\n")
         if cmd[0] == "ssh":
-            return types.SimpleNamespace(stdout="0" * 64 + "  sports_2026-10-15.db\n")
-        raise pull_backup.subprocess.CalledProcessError(1, cmd)               # scp fails
+            return types.SimpleNamespace(returncode=0, stderr="", stdout="0" * 64 + "  sports_2026-10-15.db\n")
+        return types.SimpleNamespace(returncode=1, stderr="scp: failed", stdout="")    # scp fails
     monkeypatch.setattr(pull_backup.subprocess, "run", run)
+    _quiet_pages(monkeypatch)
     assert pull_backup.main(["--dest", str(dest)]) == 1
     assert sorted(x.name for x in dest.iterdir()) == ["sports_2026-10-14.db"]
+    assert [r for r in receipts(sandbox) if r["kind"] == "pull"][-1]["stage"] == "copy"
 
+
+# ---- ARCHITECT 2026-11-25, addendum 552 item 3 (DEV 3's plan as ruled; #1053's nine points, 554 item 2): the job tells
+
+PULL_HOST, PULL_USER = "sp-vps-test", "spu"
+PULL_NOW = datetime(2026, 11, 25, 22, 0, tzinfo=timezone.utc)
+
+
+def _quiet_pages(monkeypatch, card=False, operator=False):
+    """closing's two senders, recorded (never the network); the screen fails the test if it is ever used."""
+    import closing
+    sent = []
+    monkeypatch.setattr(closing, "page_phone", lambda t, b, p="default": sent.append(("card", t, b)) or {"accepted": card})
+    monkeypatch.setattr(closing, "page_operator", lambda t, b: sent.append(("operator", t, b)) or {"accepted": operator})
+    monkeypatch.setattr(closing, "notify", lambda *a, **k: pytest.fail("the screen is never a channel (552 3(d))"))
+    return sent
+
+
+def _held(dest: Path, *names: str) -> None:
+    """Verified copies by name: junk bytes with a sidecar beside each (the age is read from the name alone)."""
+    dest.mkdir(parents=True, exist_ok=True)
+    for n in names:
+        (dest / n).write_bytes(b"x")
+        (dest / f"{n}.sha256").write_text("0" * 64 + f"  {n}\n")
+
+
+def _fake_host(monkeypatch, sandbox, name="sports_2026-11-25.db", fail=None):
+    """ssh and scp answered here; anything else (git, for the receipt's release) runs for real. The pulled bytes are
+    the sandbox's own SQLite file, so the copy verifies. `fail`: (stage, 'timeout' or a return code, stderr). Returns
+    the list of (argv, kill seconds) asked."""
+    src = (sandbox / "live" / "sports.db").read_bytes()
+    import hashlib
+    digest = hashlib.sha256(src).hexdigest()
+    calls = []
+    real = pull_backup.subprocess.run
+
+    def run(cmd, **kw):
+        if cmd[0] not in ("ssh", "scp"):
+            return real(cmd, **kw)
+        calls.append((list(cmd), kw.get("timeout")))
+        stage = ("list" if cmd[0] == "ssh" and cmd[-1].startswith("ls") else
+                 "sidecar" if cmd[0] == "ssh" else "copy")
+        if fail and fail[0] == stage:
+            if fail[1] == "timeout":
+                raise pull_backup.subprocess.TimeoutExpired(cmd, kw.get("timeout"), stderr=fail[2])
+            return types.SimpleNamespace(returncode=fail[1], stderr=fail[2], stdout="")
+        if stage == "list":
+            return types.SimpleNamespace(returncode=0, stderr="", stdout=f"{name}\n{name}.sha256\n" if name else "")
+        if stage == "sidecar":
+            return types.SimpleNamespace(returncode=0, stderr="", stdout=f"{digest}  {name}\n")
+        dst = Path(cmd[-1])
+        assert dst.parent.is_relative_to(sandbox)                # the fake writes nowhere but the sandbox
+        dst.write_bytes(src) if not dst.name.endswith(".sha256.partial") else dst.write_text(f"{digest}  {name}\n")
+        return types.SimpleNamespace(returncode=0, stderr="", stdout="")
+    monkeypatch.setattr(pull_backup.subprocess, "run", run)
+    return calls
+
+
+def _pull(dest, now=PULL_NOW):
+    return pull_backup.main(["--host", PULL_HOST, "--user", PULL_USER, "--dest", str(dest)], now=now)
+
+
+def _last(sandbox, kind="pull"):
+    return [r for r in receipts(sandbox) if r["kind"] == kind][-1]
+
+
+def _notices(sandbox):
+    return [r for r in receipts(sandbox) if r["kind"] == "pull_notice"]
+
+
+def test_1053_ssh_and_scp_carry_a_connect_timeout_below_the_kill_and_a_good_pull_says_done(sandbox, monkeypatch):
+    calls = _fake_host(monkeypatch, sandbox)
+    sent = _quiet_pages(monkeypatch)
+    dest = sandbox / "pulled"
+    assert _pull(dest) == 0
+    assert [a[0] for a, _ in calls] == ["ssh", "ssh", "scp", "scp"]
+    for argv, kill in calls:
+        assert argv[argv.index("ConnectTimeout=15") - 1] == "-o" and "BatchMode=yes" in argv
+        assert 15 < kill and kill in (60, 1800)                 # 552 item 3(f): below the 60-second kill
+    r = _last(sandbox)
+    assert r["exit"] == 0 and r["stage"] == "done" and r["integrity"] == "ok" and "error" not in r
+    assert r["newest_copy"] == {"name": "sports_2026-11-25.db", "age_hours": 22.0, "age_days": 0.92}
+    assert _notices(sandbox) == [] and sent == []              # a fresh copy tells nothing
+    assert sorted(x.name for x in dest.iterdir()) == ["sports_2026-11-25.db", "sports_2026-11-25.db.sha256"]
+    assert _pull(dest) == 0 and _last(sandbox)["note"] == "already present"
+    assert _last(sandbox)["stage"] == "done" and _last(sandbox)["newest_copy"]["name"] == "sports_2026-11-25.db"
+
+
+def test_1053_a_night_the_host_does_not_answer_leaves_ssh_s_message_scrubbed_and_the_stage(sandbox, monkeypatch, capsys):
+    msg = (f"debug: something earlier\nssh: connect to host {PULL_HOST.upper()}.tail1234.ts.net port 22: timed out\n"
+           f"{PULL_USER}@{PULL_HOST}: via 100.101.102.103 and fd7a:115c:a1e0::1 at 12:34:56\n")
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, msg))
+    _quiet_pages(monkeypatch)
+    dest = sandbox / "pulled"
+    _held(dest, "sports_2026-11-24.db")
+    assert _pull(dest) == 1                                     # 552 item 3(f): the exit stays 1
+    r = _last(sandbox)
+    assert r["stage"] == "list" and r["file"] is None and r["error_class"] == "StepFailed"
+    assert r["error"] == "StepFailed at list, exit 255" and "reason" not in r
+    assert r["ssh_tail"] == ("ssh: connect to host <host> port 22: timed out\n"
+                             "<user>@<host>: via <addr> and <addr> at 12:34:56")
+    body = json.dumps({k: v for k, v in r.items() if k not in ("from", "host")})
+    assert PULL_HOST not in body.lower() and f"{PULL_USER}@" not in body and "100.101" not in body
+    assert "tail1234" not in body
+    assert r["from"] == PULL_HOST                               # 554 item 2(c): the laptop's own record keeps it
+    assert PULL_HOST in capsys.readouterr().out                 # the printed line too
+    assert r["newest_copy"]["name"] == "sports_2026-11-24.db" and _notices(sandbox) == []
+
+
+def test_1053_a_timeout_stores_its_class_and_stage_never_the_command(sandbox, monkeypatch):
+    _fake_host(monkeypatch, sandbox, fail=("sidecar", "timeout", None))
+    _quiet_pages(monkeypatch)
+    assert _pull(sandbox / "pulled") == 1
+    r = _last(sandbox)
+    assert r["stage"] == "sidecar" and r["error"] == "TimeoutExpired at sidecar" and "ssh_tail" not in r
+    assert f"{PULL_USER}@{PULL_HOST}" not in json.dumps(receipts(sandbox)) and "cat /var" not in json.dumps(r)
+
+
+def test_1053_every_stage_is_named_where_the_run_ended(sandbox, monkeypatch):
+    _quiet_pages(monkeypatch)
+    _fake_host(monkeypatch, sandbox, fail=("copy", 1, "scp: /var/backups/x: No such file\n"))
+    assert _pull(sandbox / "a") == 1
+    r = _last(sandbox)
+    assert r["stage"] == "copy" and r["ssh_tail"] == "scp: /var/backups/x: No such file"
+    _fake_host(monkeypatch, sandbox, name=None)
+    assert _pull(sandbox / "b") == 1
+    r = _last(sandbox)
+    assert r["error"] == "PullError at list" and r["reason"] == "no daily backup on the host"
+    _fake_host(monkeypatch, sandbox)
+    real_integrity = c.copy_integrity
+    monkeypatch.setattr(c, "copy_integrity", lambda p: "*** in database main *** Page 2 is never used")
+    assert _pull(sandbox / "c") == 1
+    r = _last(sandbox)
+    assert r["stage"] == "verify" and r["error"] == "PullError at verify" and r["reason"].startswith("integrity_check")
+    assert sorted(x.name for x in (sandbox / "c").iterdir()) == []              # every partial removed
+    monkeypatch.setattr(c, "copy_integrity", real_integrity)
+
+    held = sandbox / "e"                                          # a copy already here whose hash cannot be read
+    _held(held, "sports_2026-11-25.db")
+    real_sha = c.sha256_file
+    monkeypatch.setattr(c, "sha256_file", lambda p: (_ for _ in ()).throw(OSError("unreadable")))
+    assert _pull(held) == 1 and _last(sandbox)["stage"] == "verify"           # not "sidecar" (Codex on #1154)
+    monkeypatch.setattr(c, "sha256_file", real_sha)
+
+    def denied(*a, **k):
+        raise PermissionError("denied")
+    monkeypatch.setattr(pull_backup.os, "chmod", denied)          # os is global: undone at the test's end
+    assert _pull(sandbox / "d") == 1
+    assert _last(sandbox)["stage"] == "place" and _last(sandbox)["error"] == "PermissionError at place"
+
+
+def test_1053_the_newest_verified_copy_is_a_daily_with_its_sidecar_never_a_partial(tmp_path):
+    import os as _os
+    d = tmp_path / "bk"
+    _held(d, "sports_2026-11-20.db", "sports_2026-11-21_093000.db", "sports_2026-11-22_prerefresh_0900.db",
+          "sports_2026-13-40.db")
+    later = PULL_NOW.timestamp()
+    _os.utime(d / "sports_2026-11-20.db", (later, later))                      # the older name, the newer file
+    (d / "sports_2026-11-23.db").write_bytes(b"x")                             # no sidecar: not verified
+    (d / "sports_2026-11-24.db.partial").write_bytes(b"x")
+    (d / "sports_2026-11-24.db.sha256.partial").write_text("0" * 64)
+    (d / "sports_2026-11-25.db").mkdir()                                       # a directory is not a copy
+    (d / "sports_2026-11-25.db.sha256").write_text("0" * 64)
+    assert pull_backup.newest_verified(d) == "sports_2026-11-21_093000.db"
+    assert pull_backup.newest_verified(tmp_path / "missing") is None
+    assert pull_backup.copy_age(tmp_path / "missing", PULL_NOW) is None
+
+
+def test_1053_the_age_is_read_from_the_name_never_from_the_files_time(tmp_path):
+    import os as _os
+    d = tmp_path / "bk"
+    _held(d, "sports_2026-11-20.db")
+    _os.utime(d / "sports_2026-11-20.db", (PULL_NOW.timestamp(), PULL_NOW.timestamp()))   # pulled "just now"
+    assert pull_backup.copy_age(d, PULL_NOW) == {"name": "sports_2026-11-20.db", "age_hours": 142.0, "age_days": 5.92}
+    assert pull_backup.copy_time("sports_2026-11-20_093015.db") == datetime(2026, 11, 20, 9, 30, 15, tzinfo=timezone.utc)
+    assert pull_backup.copy_time("sports_2026-11-20.db") == datetime(2026, 11, 20, tzinfo=timezone.utc)
+    assert pull_backup.copy_time("sports_2026-02-30.db") is None and pull_backup.copy_time("x.db") is None
+
+
+def test_1053_the_step_is_read_from_the_exact_age(tmp_path):
+    t0 = datetime(2026, 11, 21, tzinfo=timezone.utc)
+    newest = {"name": "sports_2026-11-21.db"}
+    assert pull_backup.notice_step(newest, t0 + timedelta(hours=72)) is None           # 3 days: not older than 3
+    assert pull_backup.notice_step(newest, t0 + timedelta(hours=72, seconds=60)) == 1
+    assert pull_backup.notice_step(newest, t0 + timedelta(hours=144, seconds=-60)) == 1
+    assert pull_backup.notice_step(newest, t0 + timedelta(hours=144)) == 2
+    assert pull_backup.notice_step(None, t0) == "none"
+
+
+def test_1053_one_notice_past_three_days_and_one_more_each_further_three(sandbox, monkeypatch):
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, "ssh: connect to host x port 22: timed out"))
+    sent = _quiet_pages(monkeypatch, card=True)
+    dest = sandbox / "pulled"
+    _held(dest, "sports_2026-11-21.db")
+    t0 = datetime(2026, 11, 21, tzinfo=timezone.utc)
+    told = []
+    for hours in (24, 71, 72, 73, 80, 140, 144, 145, 200, 217, 218):
+        before = len(_notices(sandbox))
+        _pull(dest, now=t0 + timedelta(hours=hours))
+        if len(_notices(sandbox)) > before:
+            told.append((hours, _notices(sandbox)[-1]["step"]))
+    # exactly 3 days is not "older than 3 days"; then the step is floor(age / 3 days), as #1053 P7 was ruled (554
+    # item 2): step 1 once, step 2 once (from 6 days), step 3 once (from 9)
+    assert told == [(73, 1), (144, 2), (217, 3)]
+    assert [ch for ch, _, _ in sent] == ["card", "card", "card"]               # the card took each: no operator page
+
+
+def test_1053_the_pull_receipt_is_written_before_the_notice_is_sent(sandbox, monkeypatch):
+    """#1053 P7: "after the receipt, inside its own try": a run killed during the send has its receipt already."""
+    import closing
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    dest = sandbox / "pulled"
+    _held(dest, "sports_2026-11-20.db")
+    seen = []
+
+    def card(t, b, p="default"):
+        seen.append([r["kind"] for r in receipts(sandbox)])
+        raise KeyboardInterrupt
+    _quiet_pages(monkeypatch)
+    monkeypatch.setattr(closing, "page_phone", card)
+    assert _pull(dest) == 1
+    assert seen == [["pull"]]                                   # the pull's line was written before the card was asked
+    assert _notices(sandbox)[-1] == {**_notices(sandbox)[-1], "channel": None, "error": "KeyboardInterrupt"}
+
+
+def test_1053_a_send_that_hangs_is_cut_at_its_bound_and_sent_again(sandbox, monkeypatch):
+    import closing
+    import threading
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    dest = sandbox / "pulled"
+    _held(dest, "sports_2026-11-20.db")
+    release = threading.Event()
+    _quiet_pages(monkeypatch)
+    monkeypatch.setattr(closing, "page_phone", lambda *a, **k: release.wait(5) and {"accepted": True})
+    monkeypatch.setattr(pull_backup, "NOTICE_MAX_S", 0.2)
+    assert _pull(dest) == 1
+    release.set()
+    n = _notices(sandbox)[-1]
+    assert n["channel"] is None and n["cut_at_bound_s"] == 0.2 and n["step"] == 1
+    sent = _quiet_pages(monkeypatch, card=True)
+    assert _pull(dest) == 1 and _notices(sandbox)[-1]["channel"] == "card" and len(sent) == 1   # sent again
+
+
+def test_1053_a_notice_no_channel_took_is_sent_again_and_the_operator_topic_is_tried(sandbox, monkeypatch, capsys):
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, f"ssh: connect to host {PULL_HOST}: timed out"))
+    dest = sandbox / "pulled"
+    _held(dest, "sports_2026-11-20.db")
+    sent = _quiet_pages(monkeypatch)                                          # neither takes it
+    assert _pull(dest) == 1
+    n = _notices(sandbox)[-1]
+    assert n["step"] == 1 and n["channel"] is None and [ch for ch, _, _ in sent] == ["card", "operator"]
+    assert "notice NOT TAKEN" in capsys.readouterr().out
+    text = sent[0][2]                                           # a failed night's words: copy, age, stage, class
+    assert "5.9 days old (sports_2026-11-20.db)" in text and "Tonight's pull: failed at list (StepFailed)." in text
+    assert PULL_HOST not in text and PULL_USER not in text and "<host>" not in text and "timed out" not in text
+    sent = _quiet_pages(monkeypatch, operator=True)                           # the next run: sent again
+    assert _pull(dest) == 1
+    assert _notices(sandbox)[-1]["channel"] == "operator" and [ch for ch, _, _ in sent] == ["card", "operator"]
+    sent = _quiet_pages(monkeypatch, card=True)
+    count = len(_notices(sandbox))
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == count and sent == []   # taken: not again
+
+
+def test_1053_no_verified_copy_is_a_step_of_its_own_told_once_in_each_spell(sandbox, monkeypatch):
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    sent = _quiet_pages(monkeypatch, card=True)
+    dest = sandbox / "pulled"
+    assert _pull(dest) == 1
+    n = _notices(sandbox)[-1]
+    assert _last(sandbox)["newest_copy"] is None and n["step"] == "none" and n["copy"] is None
+    assert "holds no verified copy" in sent[0][2] and n["channel"] == "card"
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == 1                   # the same spell: not again
+    _held(dest, "sports_2026-11-25.db")                                       # a copy is held, fresh: nothing
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == 1
+    for p in dest.iterdir():                                                  # every copy lost again
+        p.unlink()
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == 2 and _notices(sandbox)[-1]["step"] == "none"
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == 2
+
+
+def test_1053_a_folder_that_cannot_be_read_is_its_own_state_never_no_copy(sandbox, monkeypatch):
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    sent = _quiet_pages(monkeypatch, card=True)
+    dest = sandbox / "pulled"
+    _held(dest, "sports_2026-11-25.db")
+    real_iterdir = Path.iterdir
+
+    def iterdir(self):
+        if self == dest:
+            raise PermissionError("denied")
+        return real_iterdir(self)
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    assert _pull(dest) == 1
+    r, n = _last(sandbox), _notices(sandbox)[-1]
+    assert r["newest_copy"] is None and r["newest_copy_error"] == "PermissionError"
+    assert n["step"] == "unread" and "could not be read (PermissionError)" in sent[0][2]
+    assert "holds no verified copy" not in sent[0][2]
+    monkeypatch.setattr(Path, "iterdir", real_iterdir)
+    for p in dest.iterdir():
+        p.unlink()
+    assert _pull(dest) == 1 and _notices(sandbox)[-1]["step"] == "none"      # a real "none" is still told
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == 2                   # once in its spell
+    monkeypatch.setattr(Path, "iterdir", iterdir)                             # unread again: a new spell, told
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == 3 and _notices(sandbox)[-1]["step"] == "unread"
+    monkeypatch.setattr(Path, "iterdir", real_iterdir)                        # empty again (Codex on #1154): told
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == 4 and _notices(sandbox)[-1]["step"] == "none"
+
+
+def test_1053_a_good_pull_of_an_old_copy_tells_too_and_the_text_names_no_host(sandbox, monkeypatch):
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "laptop")
+    _fake_host(monkeypatch, sandbox, name="sports_2026-11-21.db")            # the host's own newest is 4 days old
+    sent = _quiet_pages(monkeypatch, card=True)
+    assert _pull(sandbox / "pulled") == 0
+    assert _last(sandbox)["exit"] == 0
+    n = _notices(sandbox)[-1]
+    assert n["step"] == 1 and n["channel"] == "card" and n["copy"] == "sports_2026-11-21.db"
+    (_, title, text), = sent
+    assert title == "Backup pull" and "4.9 days old (sports_2026-11-21.db)" in text and "Tonight's pull: pulled." in text
+    assert text.endswith("\nmachine: laptop")
+    assert PULL_HOST not in text and PULL_USER not in text and "sp-backups" not in text and str(sandbox) not in text
+
+
+def test_1053_a_notice_that_fails_never_changes_the_exit(sandbox, monkeypatch):
+    import closing
+
+    def boom(*a, **k):
+        raise RuntimeError("no network")
+    _fake_host(monkeypatch, sandbox, name="sports_2026-11-21.db")
+    _quiet_pages(monkeypatch)
+    monkeypatch.setattr(closing, "page_phone", boom)
+    monkeypatch.setattr(closing, "page_operator", boom)
+    assert _pull(sandbox / "pulled") == 0                                      # a good pull stays 0
+    n = _notices(sandbox)[-1]
+    assert n["channel"] is None and n["card"] == {"accepted": False, "error": "RuntimeError"}
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    monkeypatch.setattr(pull_backup, "tell", boom)
+    assert _pull(sandbox / "pulled") == 1                                      # a failed night stays 1
+    assert _notices(sandbox)[-1] == {**_notices(sandbox)[-1], "copy": "sports_2026-11-21.db", "step": 1,
+                                     "channel": None, "error": "RuntimeError"}
+
+
+def test_1053_the_scrub_replaces_host_user_and_addresses_keeps_a_clock_and_is_bounded():
+    import time
+    s = pull_backup._scrub("SPU@SP-VPS-TEST said 10.0.0.1, fe80::1%en0 and 2001:db8:1:2:3:4:5:6 at 12:34:56; "
+                           "spu@other; sports_x and sp-vps-tester stay", "sp-vps-test", "spu")
+    assert s == ("<user>@<host> said <addr>, <addr>%en0 and <addr> at 12:34:56; <user>@other; sports_x and "
+                 "sp-vps-tester stay")
+    assert pull_backup._tail("a\n\nb\nc\n", "h", "u") == "b\nc" and pull_backup._tail(b"x\n", "h", "u") == "x"
+    assert pull_backup._tail(None, "h", "u") is None and pull_backup._tail("  \n", "h", "u") is None
+    t = time.monotonic()
+    out = pull_backup._tail(" " + "a:" * 50000 + "g\n", "h", "u")
+    assert time.monotonic() - t < 2 and len(out) <= pull_backup.TAIL_CHARS
 
 def test_prune_leaves_partial_files_to_the_cleanup(tmp_path):
     """Addendum 72 item 4: "sp_prune leaves them to that cleanup": an old backup is planned, never a .partial* file."""

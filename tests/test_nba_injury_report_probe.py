@@ -1198,3 +1198,224 @@ def test_985r3_the_documents_media_type_prints_validated_only(capsys, monkeypatc
     pages[doc] = (200, PDF, {"Content-Type": "Synthetic Rowname"})
     code, out, rec, _ = run(capsys, REPORT_ARGS, pages)
     assert "Rowname" not in out and "content-type (not a media type; in the receipt)" in out
+
+
+# ---- ARCHITECT 2026-11-25, addendum 553 items 2(b) and 3: ONE document by the URL the block names, no index read ------
+
+DOC = "https://documents.example.invalid/injury/Injury-Report_2026-11-25_05PM.pdf"
+DOC_ARGS = ["--report", "--document-url", DOC, "--terms-ruling", "addendum 999 item 1"]
+MASKED = "<the report document: its URL is in the receipt>"
+
+
+def doc_pages():
+    return {DOC: (200, PDF, {"Content-Type": "application/pdf"})}
+
+
+def _tail(out):
+    return json.loads(out.strip().splitlines()[-1].split(" ", 1)[1])
+
+
+def test_553_one_document_is_one_get_with_the_plain_client_and_no_index_read(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: PAGE_TEXT)
+    code, out, rec, fake = run(capsys, DOC_ARGS, doc_pages())
+    assert code == probe.OK, out
+    assert [u for u, _ in fake.asked] == [DOC] and fake.follow_flags == [False]      # one request, no redirect followed
+    assert [h for _, h in fake.asked] == [{"User-Agent": probe.USER_AGENT}]           # the probe's own name, nothing else
+    assert "ONE DOCUMENT (addendum 553 item 2(b))" in out
+    assert "REPORT LINKS" not in out and "REPORTS PER DAY" not in out and "ONE REPORT" not in out and "INDEX" not in out
+    assert "links" not in rec and "index" not in rec and "index_url" not in rec
+    assert rec["document_url"] == DOC and rec["report"]["url"] == DOC and rec["fetched"] == [DOC]
+    assert rec["report"]["file"] == "Injury-Report_2026-11-25_05PM.pdf" and rec["report"]["reader"] == "pypdf"
+    assert "PDF magic yes" in out and "UNTRUSTED DATA" in out and "content-type application/pdf" in out
+    assert "Player Name: found" in out and "Out: 1" in out and "THE MAPPING, printed and NOT built" in out
+    # 553 item 2(e), 368 and 520 unchanged: the console is structure only; the URL and the rows stay in the receipt
+    assert DOC not in out and "documents.example" not in out and "Injury-Report_" not in out
+    assert "Poe, Edgar" not in out and "NOT YET SUBMITTED" not in out
+    assert "Poe, Edgar Day-To-Day Synthetic" in rec["report"]["fields"]["lines_no_status_word_all"]
+    assert _tail(out)["fetched"] == [MASKED] and _tail(out)["report"]["sha256"] == rec["report"]["sha256"]
+
+
+def test_553_the_one_document_prints_what_the_newest_report_prints(capsys, monkeypatch):
+    """553 item 3(b): "from that one answer, everything the report phase prints for 'the newest report'": the same
+    form and fields lines, the same receipt fields, for the same bytes."""
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: NAMED_PAGES)
+    _, out_i, rec_i, _ = run(capsys, REPORT_ARGS, report_pages())
+    _, out_d, rec_d, _ = run(capsys, DOC_ARGS, doc_pages())
+
+    def read_lines(out):
+        lines = out.splitlines()
+        first = next(k for k, ln in enumerate(lines) if ln.startswith("  HTTP 200 · content-type"))
+        last = next(k for k, ln in enumerate(lines) if ln.startswith("THE MAPPING, printed and NOT built"))
+        return lines[first:last + 1]
+    assert read_lines(out_d) == read_lines(out_i) and len(read_lines(out_d)) > 5
+    assert "Rowname" not in out_d
+    assert rec_d["report"]["fields"] == rec_i["report"]["fields"]
+    assert {k: v for k, v in rec_d["report"].items() if k not in ("url", "file")} == \
+        {k: v for k, v in rec_i["report"].items() if k not in ("url", "file")}
+
+
+@pytest.mark.parametrize("argv", [
+    [*DOC_ARGS, "--index-url", INDEX],
+    ["--report", "--index-url", INDEX, "--document-url", DOC, "--terms-ruling", "addendum 999 item 1"],
+    [*DOC_ARGS, "--index-url", ""],
+])
+def test_553_3a_the_document_url_is_refused_together_with_the_index_url(capsys, argv):
+    pages = {**report_pages(), **doc_pages()}
+    code, out, rec, fake = run(capsys, argv, pages)
+    assert code == probe.REFUSED and fake.asked == [] and rec["fetched"] == []
+    assert "--document-url and --index-url are refused together" in out
+    assert rec["refused"] == "--document-url with --index-url"
+
+
+@pytest.mark.parametrize("argv", [
+    ["--report", "--document-url", DOC],
+    ["--report", "--document-url", DOC, "--terms-ruling", "   "],
+])
+def test_553_3a_the_document_url_is_refused_without_the_terms_ruling(capsys, argv):
+    code, out, rec, fake = run(capsys, argv, doc_pages())
+    assert code == probe.REFUSED and fake.asked == [] and "--report needs --terms-ruling" in out
+
+
+@pytest.mark.parametrize("argv", [
+    ["--document-url", DOC],
+    ["--terms-url", TERMS, "--document-url", DOC],
+    ["--terms-url", TERMS, "--document-url", ""],
+])
+def test_553_3a_the_document_url_is_refused_without_report(capsys, argv):
+    code, out, rec, fake = run(capsys, argv, {**terms_pages(), **doc_pages()})
+    assert code == probe.REFUSED and fake.asked == []                     # not even the terms page
+    assert "--document-url and --terms-ruling belong to the report phase" in out
+
+
+def test_553_a_blank_document_url_is_refused_and_neither_url_names_both(capsys):
+    code, out, rec, fake = run(capsys, ["--report", "--document-url", " ", "--terms-ruling", "addendum 999 item 1"],
+                               doc_pages())
+    assert code == probe.REFUSED and fake.asked == [] and "--document-url is blank" in out
+    code, out, rec, fake = run(capsys, ["--report", "--terms-ruling", "addendum 999 item 1"], doc_pages())
+    assert code == probe.REFUSED and fake.asked == [] and "--index-url, or --document-url" in out
+
+
+def test_553_the_document_read_keeps_the_hosts_gate_and_the_receipts_place(tmp_path, capsys, monkeypatch):
+    fake = Fake(doc_pages())
+    monkeypatch.setattr(probe, "host_refusal", lambda: "REFUSED: the report phase runs on the host only (test)")
+    assert probe.main([*DOC_ARGS, "--out", str(probe.ROOT / "logs" / "availability" / "_probe_tests" / "x.json")],
+                      get=fake) == probe.REFUSED
+    assert "runs on the host only" in capsys.readouterr().out and fake.asked == []
+    monkeypatch.setattr(probe, "host_refusal", lambda: None)
+    assert probe.main(DOC_ARGS, get=fake) == probe.REFUSED
+    assert "--report needs --out under logs/availability/" in capsys.readouterr().out and fake.asked == []
+    assert probe.main([*DOC_ARGS, "--out", str(tmp_path / "r.json")], get=fake) == probe.REFUSED and fake.asked == []
+
+
+def test_553_3d_a_redirect_ends_the_read_and_its_location_stays_in_the_receipt(capsys, monkeypatch):
+    def never(data):
+        raise AssertionError("a redirect is not read")
+    monkeypatch.setattr(probe, "read_pdf_pages", never)
+    loc = "https://cdn.example.invalid/Synthetic-Rowname.pdf"
+    pages = {DOC: (302, b"", {"Location": loc}), loc: (200, PDF, {"Content-Type": "application/pdf"})}
+    code, out, rec, fake = run(capsys, DOC_ARGS, pages)
+    assert code == probe.REFUSED and [u for u, _ in fake.asked] == [DOC] and fake.follow_flags == [False]
+    assert "Rowname" not in out and "cdn.example" not in out and DOC not in out
+    assert "REDIRECTED, not followed: its Location is in the receipt only" in out and "Location (in the receipt)" in out
+    assert rec["report"]["location"] == loc and rec["redirects"] == [{"url": DOC, "http": 302, "location": loc}]
+    assert "bytes" not in rec["report"] and "reader" not in rec["report"]
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 500])
+def test_553_2d_a_refusal_ends_the_read_and_nothing_is_asked_again(capsys, monkeypatch, status):
+    def never(data):
+        raise AssertionError("a refused answer is not read")
+    monkeypatch.setattr(probe, "read_pdf_pages", never)
+    code, out, rec, fake = run(capsys, DOC_ARGS, {DOC: (status, b"denied", {})})
+    assert code == probe.FAILED and [u for u, _ in fake.asked] == [DOC]
+    assert f"FAILED: HTTP {status}" in out and rec["report"]["error"] == f"HTTP {status}"
+    assert DOC not in out and "documents.example" not in out and "Injury-Report_" not in out and "denied" not in out
+    assert rec["report"]["url"] == DOC and "bytes" not in rec["report"]
+
+
+@pytest.mark.parametrize("bad", ["https://[Synthetic-Rowname]/Injury-Report.pdf",
+                                 "https://[documents.example.invalid/Synthetic-Rowname.pdf"])
+def test_553_a_document_url_that_does_not_parse_is_refused_before_any_fetch_never_raised(capsys, bad):
+    code, out, rec, fake = run(capsys, ["--report", "--document-url", bad, "--terms-ruling", "addendum 999 item 1"],
+                               {bad: (200, PDF, {"Content-Type": "application/pdf"})})
+    err = capsys.readouterr().err
+    assert code == probe.REFUSED and fake.asked == [] and rec["fetched"] == []
+    assert "--document-url does not parse as a URL" in out and out.strip().splitlines()[-1].startswith(probe.TAIL)
+    assert "Rowname" not in out and "Rowname" not in err and "Traceback" not in err
+    assert rec["refused"] == "an unparseable --document-url" and rec["document_url"] == bad
+    assert rec["parse_error"].startswith("ValueError")
+
+
+def test_553_a_document_fetch_error_prints_its_type_only(capsys):
+    class Failing(Fake):
+        def __call__(self, url, headers=None, timeout=None, allow_redirects=True):
+            self.asked.append((url, dict(headers or {})))
+            raise ConnectionError(f"Max retries exceeded with url: /Synthetic-Rowname.pdf ({url})")
+    import shutil
+    import tempfile
+    base = probe.ROOT / "logs" / "availability" / "_probe_tests"
+    base.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(dir=base))
+    fake = Failing({})
+    try:
+        code = probe.main([*DOC_ARGS, "--out", str(folder / "r.json")], get=fake)
+        out = capsys.readouterr().out
+        rec = json.loads((folder / "r.json").read_text())
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    assert code == probe.FAILED and len(fake.asked) == 1 and "FAILED: ConnectionError" in out
+    assert "Rowname" not in out and DOC not in out and "Synthetic-Rowname" in rec["report"]["error"]
+
+
+def test_553_without_the_reader_the_documents_form_prints_and_its_fields_are_not_read(capsys, monkeypatch):
+    def absent(data):
+        raise ImportError("No module named 'pypdf'")
+    monkeypatch.setattr(probe, "read_pdf_pages", absent)
+    code, out, rec, _ = run(capsys, DOC_ARGS, doc_pages())
+    assert code == probe.REFUSED and "READER NOT INSTALLED" in out and "PDF magic yes" in out
+    assert rec["report"]["reader"] is None and rec["report"]["bytes"] == len(PDF)
+
+
+def test_553_3c_the_file_holds_no_url_default_and_every_url_option_defaults_to_none():
+    """553 item 3(c): the docstring's rule is kept, and pinned: the sentence itself, and no default on any URL
+    option (the literal check above keeps every http(s) string out of the file)."""
+    assert "This file holds no URL default." in " ".join(probe.__doc__.split())
+    ap = probe.build_parser()
+    urls = {s: x for x in ap._actions for s in x.option_strings if s.endswith("-url")}
+    assert set(urls) == {"--terms-url", "--robots-url", "--index-url", "--document-url"}
+    assert all(x.default is None for x in urls.values())
+    a = ap.parse_args([])
+    assert (a.terms_url, a.robots_url, a.index_url, a.document_url) == (None, None, None, None)
+
+
+def test_553_the_documents_file_name_is_read_as_written_for_the_receipt():
+    assert probe.link_file(DOC) == "Injury-Report_2026-11-25_05PM.pdf"
+    assert probe.link_file("https://documents.example.invalid/get?name=Injury%20Report_2026-11-25.pdf") == \
+        "Injury Report_2026-11-25.pdf"
+    assert probe.link_file("https://documents.example.invalid/files/Injury%2DReport.pdf") == "Injury-Report.pdf"
+
+
+@pytest.mark.parametrize("bad", ["http://documents.example.invalid/injury/Injury-Report_2026-11-25_05PM.pdf",
+                                 "ftp://documents.example.invalid/Injury-Report.pdf",
+                                 "file:///etc/Injury-Report.pdf",
+                                 "https:///Injury-Report.pdf",
+                                 "documents.example.invalid/Injury-Report.pdf"])
+def test_555_2d_a_document_url_that_is_not_https_is_refused_before_any_request(capsys, bad):
+    code, out, rec, fake = run(capsys, ["--report", "--document-url", bad, "--terms-ruling", "addendum 999 item 1"],
+                               {bad: (200, PDF, {"Content-Type": "application/pdf"})})
+    assert code == probe.REFUSED and fake.asked == [] and rec["fetched"] == []
+    assert "--document-url is not an https URL with a host" in out and "documents.example" not in out
+    assert rec["refused"] == "a --document-url that is not https" and rec["document_url"] == bad
+
+
+def test_555_2d_https_in_any_case_is_read_and_the_index_path_is_left_as_it_is(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: PAGE_TEXT)
+    upper = DOC.replace("https://", "HTTPS://")
+    code, out, rec, fake = run(capsys, ["--report", "--document-url", upper, "--terms-ruling", "addendum 999 item 1"],
+                               {upper: (200, PDF, {"Content-Type": "application/pdf"})})
+    assert code == probe.OK and [u for u, _ in fake.asked] == [upper]
+    plain = INDEX.replace("https://", "http://")              # the index's path is unchanged: no scheme check there
+    pages = {plain: (200, INDEX_PAGE.encode(), {"Content-Type": "text/html"})}
+    code, out, rec, fake = run(capsys, ["--report", "--index-url", plain, "--terms-ruling", "addendum 999 item 1"],
+                               pages)
+    assert [u for u, _ in fake.asked][0] == plain

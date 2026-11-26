@@ -319,8 +319,14 @@ PLACEHOLDER_FILLED_LINE = re.compile(r"^placeholder_filled (?P<n>\d+)(?:: (?P<id
 #                                                                                     (service.nfl_team_refused_line)
 NFL_TEAM_REFUSED_LINE = re.compile(r"^nfl_team_refused (?P<n>\d+)(?:: (?P<ids>.*))?$")
 _NFL_REFUSED_ITEM = re.compile(r"^(?P<sid>.*?)(?: \(match (?P<mid>[^)]*)\))?$")
+# THE NFL MEMBER AT THE TEAM LISTING (ARCHITECT 2026-11-25, addendum 542 item 1(a)), verbatim: "The listing is refused,
+# counted on its own receipt line with the provider's team id". The line sync-teams prints only when N > 0, right after
+# its summary line:
+#   sync-teams           "nfl_member_team_refused N: <provider team id>, ..."   (service.nfl_member_team_refused_line)
+NFL_MEMBER_TEAM_REFUSED_LINE = re.compile(r"^nfl_member_team_refused (?P<n>\d+)(?:: (?P<ids>.*))?$")
 _SYNC_LINES = (TEAMS_LINE, FALLBACK_TEAMS_LINE, MATCHES_LINE, SKIPPED_LISTINGS_LINE, SCORES_BY_TEAM_LINE,
-               ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE, HELD_LINE, PLACEHOLDER_FILLED_LINE, NFL_TEAM_REFUSED_LINE)
+               ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE, HELD_LINE, PLACEHOLDER_FILLED_LINE, NFL_TEAM_REFUSED_LINE,
+               NFL_MEMBER_TEAM_REFUSED_LINE)
 
 
 def _ids(text) -> list:
@@ -342,7 +348,9 @@ def sync_counts(lines: list[str]) -> dict:
     `nfl_team_refused` (addendum 500 item 3(a)): {n, ids, matches}, present only when the step printed the line; every
     such line of the step ADDS, as the scores-by-team line does (a --seasons run prints one per season). `ids` are the
     listing ids; `matches` (addendum 527 item 1 (3)) is beside them, same index: the stored match id printed beside a
-    listing id, None where the line printed none."""
+    listing id, None where the line printed none.
+    `nfl_member_team_refused` (addendum 542 item 1(a)): {n, ids}, the provider team ids sync-teams refused, present only
+    when the step printed the line; every such line of the step ADDS, as the NFL-team refusal's does."""
     out: dict = {}
     for s in lines:
         s = s.rstrip()
@@ -393,6 +401,12 @@ def sync_counts(lines: list[str]) -> dict:
                 one = _NFL_REFUSED_ITEM.match(item)
                 ntr["ids"].append(one.group("sid"))
                 ntr["matches"].append(one.group("mid"))
+            continue
+        m = NFL_MEMBER_TEAM_REFUSED_LINE.match(s)
+        if m:
+            nmr = out.setdefault("nfl_member_team_refused", {"n": 0, "ids": []})
+            nmr["n"] += int(m.group("n"))
+            nmr["ids"] += _ids(m.group("ids"))
             continue
         for key, rx in zip(ODDS_BY_TEAM_KEYS, (ODDS_SWAPPED_LINE, ODDS_MISMATCH_LINE)):
             m = rx.match(s)

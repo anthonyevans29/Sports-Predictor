@@ -1,0 +1,12 @@
+## 2026-11-25 (#1148: 1141-nfl-snapshot-devig-receipt — the NFL snapshot de-vig receipt, read-only (544 item 2, its nine points ruled by 545 item 3; DEV 4, Lane D; Refs #1141))
+- **scripts/nfl_snapshot_devig_receipt.py --db COPY**, new. Counts and pp only, no book name, no price, no network, nothing written. The fence is #1134's: mode=ro + immutable=1, sha256 before and after, sidecars and any data/ directory refused.
+- **For NFL and for college apart, from the first stored session on:**
+  - (a) the api_american_football 1X2 sessions: all, complete, HOME-only, AWAY-only, a leg at exactly 1 and at exactly 0 (none expected), sessions at and after kickoff;
+  - (b) the matches whose first session before kickoff is one-sided, by the side;
+  - (c) each match's last session before kickoff against the close's own fair (close_1x2) re-derived from the odds rows that remain, where every one carries that session's stamp: agree at 4 places, or the difference bucketed in pp (under 0.1, 0.1-0.5, 0.5-1, 1-2, 2-5, 5 or more); the sessions written where no complete book stood; the other causes counted; the stored pooled value re-derived as the writer forms it, a mismatch counted;
+  - (d) line_move itself, at the bell (kickoff less 1 microsecond) and ever flagged at each stored stamp in the window: the book venue's alarm, the combined flag and Kalshi's; of the book-flagged, a one-sided session at either end; the hidden AWAY-only end apart;
+  - (e) each count by America/New_York month.
+- **Apart:** other competition codes under Sport.NFL, preseason games, and matches kicked off after the copy's newest snapshot. The second writer (a manual sync-odds) cannot be told apart and is said so.
+- **tests/test_nfl_snapshot_devig_receipt.py (29):** a synthetic copy only, the pooled snapshot written as the writer writes it; a sentinel book name and price that must never print; each pre-PR review finding pinned. They pass on Python 3.10 and 3.13. Nothing was run on a real copy.
+- **The pre-PR review's fixes:** the copy's newest stamp is the newest parsed one; (b) reads every match (a first session never changes); every count has its New York month; the ruled third cause of (c) comes before "no session before kickoff"; the re-derivation is counted apart from the causes, on the compared and the unpriced alike; the cause labels say what reaches them (the writer wipes every market of the match, so a later fetch with no 1X2 rows leaves no 1X2 odds); every column the ORM loads is checked.
+- **scripts/README.md:** indexes it as a TOOL; counts recounted.

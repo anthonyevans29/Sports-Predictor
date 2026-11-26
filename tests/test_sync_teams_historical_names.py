@@ -216,9 +216,11 @@ def test_a_short_name_change_alone_is_kept_and_counted(fresh_db):
 
 
 def test_memberships_across_two_competitions_of_the_same_sport_count(fresh_db):
-    """NCAA and NFL rows are both Sport.NFL: a 2026 NFL membership makes an NCAA 2025 listing historical."""
-    tid, comps = _setup(memberships_of=lambda c: [(c["NCAA"], "2023"), (c["NFL"], "2026")], codes=("NCAA", "NFL"))
-    r = _sync("NCAA", "2025", {"2025": [("1385", "Hawaii", None)]})
+    """NCAA and NFL rows are both Sport.NFL: a 2026 NCAA membership makes an NFL 2025 listing historical. (The college
+    listing of a team holding an NFL membership is refused before any write since addendum 542 item 1(a),
+    tests/test_sync_teams_nfl_refusal.py, so the cross-competition rule is pinned from the NFL side.)"""
+    tid, comps = _setup(memberships_of=lambda c: [(c["NFL"], "2023"), (c["NCAA"], "2026")], codes=("NCAA", "NFL"))
+    r = _sync("NFL", "2025", {"2025": [("1385", "Hawaii", None)]})
     assert _row(tid)[0] == "Hawai'i" and len(r.names_kept) == 1
 
 

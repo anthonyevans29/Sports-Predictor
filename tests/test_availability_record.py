@@ -728,7 +728,9 @@ def test_the_lane_is_in_the_roadmap_with_no_competitions_and_no_moved_date():
     evidence, and this lane prices nothing). Addendum 492 item 4: the NBA probe's step moves 2026-11-24 to 2026-11-25,
     its one moved line, and its owner is the architect's (the report phase is his block on the host). Addendum 531
     item 2(d): that step is done 2026-11-25 on the report console and every step is done. Addendum 537 item 3 Q1: "LANE
-    availability-record IS LIVE, NOT CLOSED"; the state reads live, earliest_live null (invent no date)."""
+    availability-record IS LIVE, NOT CLOSED"; the state reads live, earliest_live null (invent no date). Addendum 553
+    item 4: one step appended, "the NBA injury report's direct-document probe on the host (553)", owner architect, due
+    2026-12-15, not done; no date moved."""
     from src import roadmap as rm
     doc = rm.load()
     (ln,) = [x for x in doc["lanes"] if x["lane"] == "availability-record"]
@@ -741,8 +743,10 @@ def test_the_lane_is_in_the_roadmap_with_no_competitions_and_no_moved_date():
         ("code", "2026-11-20"), ("code", "2026-11-21"),
         ("code", "2026-11-23"),          # the graph's node shape, an added step (ARCHITECT 2026-11-14, 379 item 7)
         ("architect", "2026-11-25"),     # the NBA injury-report probe (357 item 4); moved and its owner ruled, 492 item 4
-        ("code", "2026-11-25")]
-    assert all(st["done"] is not None for st in ln["steps"]) and ln["steps"][7]["done"]["date"] == "2026-11-25"  # 531
+        ("code", "2026-11-25"),
+        ("architect", "2026-12-15")]     # the NBA injury report's direct-document probe on the host, appended (553 item 4)
+    assert all(st["done"] is not None for st in ln["steps"][:-1]) and ln["steps"][7]["done"]["date"] == "2026-11-25"  # 531
+    assert ln["steps"][-1]["done"] is None                            # 553 item 4: the probe of one document, to do
     assert ln["state"] == "live" and ln["earliest_live"] is None     # 537 item 3 Q1: live, not closed; no date
     assert ln["live_needs"].startswith("ARCHITECT 2026-11-25 13:42 ET, addendum 537 item 3 Q1, verbatim: \"Q1. LANE "
                                        "availability-record IS LIVE, NOT CLOSED.")

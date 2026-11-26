@@ -316,7 +316,8 @@ become MORE binding under an income goal, never less."
   (531 item 2(d)). No NBA candidate without an as-of availability term,
   and today the NBA has no source for one (531 item 2(e); 261 item 1(f)):
   the NBA stays market-only, with no candidate, no declaration and no
-  date (533 item 2(a)).
+  date (533 item 2(a)). A probe of one NBA injury-report document is
+  ordered, and no NBA feed (553 item 2(f)).
 - Season strings: soccer clubs "2026/27"; WC "2026"; UNL "2026/27";
   MLB/NFL/NHL/NCAA int-style "2026". Per-comp truth is what the DB
   stores — check, don't assume.

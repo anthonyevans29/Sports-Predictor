@@ -970,13 +970,18 @@ def test_the_last_line_says_exits_are_counted_not_outcomes_and_a_dry_run_prints_
         out = capsys.readouterr().out.splitlines()
         assert counts_and_note(out).startswith(("✓" if code == 0 else "✗") + " laptop-routine: steps run 2/2")
         assert out.count(lr.EXITS_NOTE) == 1
-    # the docs name the ten commands, and the two that exit non-zero on every real failure
+    # the docs name the nine commands, and the two that exit non-zero on every real failure; dedupe-matches is no
+    # longer among the nine since #1145 (497 item 2 step (1)), and its note says so (551 item 1(e))
     doc = lr.__doc__
     assert "THE ROUTINE COUNTS EXITS, NOT OUTCOMES" in doc and "#1102" in doc
+    assert "nine of the twelve commands" in doc and "ten of the twelve" not in doc
+    listed = doc[doc.index("nine of the twelve commands"):doc.index("evaluate and export-fixtures exit non-zero")]
     for cmd in ("sync-kalshi:", "sync-kalshi-atp and sync-kalshi-wta:", "export-results:", "sync-matches:",
-                "sync-teams:", "improve:", "dedupe-matches (the dry run):", "nhl-goalie-sync:", "results-tally:",
-                "evaluate and export-fixtures exit non-zero"):
-        assert cmd in doc, cmd
+                "sync-teams:", "improve:", "nhl-goalie-sync:", "results-tally:"):
+        assert cmd in listed, cmd
+    assert "dedupe-matches" not in listed
+    assert "evaluate and export-fixtures exit non-zero" in doc
+    assert "dedupe-matches (the dry run): no longer one of the nine above since #1145" in doc
     assert lr.main(["--dry-run"]) == 0
     assert lr.EXITS_NOTE not in capsys.readouterr().out
 

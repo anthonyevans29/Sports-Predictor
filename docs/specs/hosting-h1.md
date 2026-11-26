@@ -1181,6 +1181,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
    been read, the laptop reinstalls the CLV capture jobs (MLB only) and the closing watch with `--family MLB`;
    with no MLB game left in the season, nothing is reinstalled. The 2027 decision is Issue #97. CORRECTED
    (ARCHITECT 2026-11-11 08:45 ET, addendum 335 item 4(e), verbatim): "THE LAPTOP DB'S SCOPE: hosting-h1.md's "written by the MLB chains ... and by nothing else" (addendum 45 item 4) is corrected: the laptop's DB is written by the architect's morning block and nothing else — the MLB routine, the NCAA sync, the tennis daily step, and from this ruling NHL's three single-day syncs."
+   **The four MLB capture-odds jobs are UNLOADED for the off-season** (ARCHITECT 2026-11-25 17:07 ET, addendum 549 item 3, on 547 item 2): the laptop's four launchd jobs of `scripts/setup_clv_capture.sh` (08:00, 12:00, 16:00 and 20:00 local, each for MLB 2026) were unloaded by the operator's own hand from the architect's block at about 22:05Z on 2026-11-25; the four plist files are kept, launchd marks all four disabled so a restart does not bring them back, and the closing watch and the backup pull stay loaded; the reload is the architect's block before the 2027 season (#97).
 
 **Rollback** uses the same protocol in reverse:
 1. Stop the host timers.

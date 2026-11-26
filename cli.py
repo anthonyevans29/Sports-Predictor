@@ -257,6 +257,12 @@ def sync_teams_cmd(competition_code: str, season: str | None):
     service = IngestionService(_adapter_for_competition(competition_code))
     result = service.sync_teams(competition_code, season)
     console.print(f"[green]✓ Teams ({competition_code}): {result}[/green]")
+    if result.nfl_member_team_refused:
+        # addendum 542 item 1(a), verbatim: "The listing is refused, counted on its own receipt line with the
+        # provider's team id": printed plainly on its own line (never rich-wrapped) only when N > 0, right after the
+        # summary line (sp_run.NFL_MEMBER_TEAM_REFUSED_LINE reads it back)
+        from src.ingestion.service import nfl_member_team_refused_line
+        print(nfl_member_team_refused_line(result.nfl_member_team_refused), flush=True)
     if result.names_kept:
         # #764 (ARCHITECT 2026-11-01, addendum 204 item 2): a historical-season listing never renames; never silent
         from src.ingestion.service import names_kept_line

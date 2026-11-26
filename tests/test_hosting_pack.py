@@ -990,6 +990,123 @@ def test_1053_the_scrub_replaces_host_user_and_addresses_keeps_a_clock_and_is_bo
     out = pull_backup._tail(" " + "a:" * 50000 + "g\n", "h", "u")
     assert time.monotonic() - t < 2 and len(out) <= pull_backup.TAIL_CHARS
 
+# ---- #1158 (#1154's follow-up, addendum 557 item 2(a)): the mixed address form; a job identity on the history ------
+
+def test_1158_a_mixed_or_ported_address_is_scrubbed_as_one_token_and_a_clock_is_not():
+    s = pull_backup._scrub("via ::ffff:192.0.2.1, 64:ff9b::198.51.100.7. ::ffff:192.0.2.1:22 host:10.0.0.1 "
+                           "bad:10.0.0.2 at 12:34:56.789; OpenSSH_9.6p1 deadbeef 2026-11-26", "h", "u")
+    assert s == ("via <addr>, <addr>. <addr> host:<addr> bad:<addr> at 12:34:56.789; OpenSSH_9.6p1 deadbeef "
+                 "2026-11-26")
+    for leak in ("192", "198", "10.0", ".0.2.1"):
+        assert leak not in s
+    # a word glued to a run keeps its letters (the pre-PR pass); an address glued to a word still goes
+    assert pull_backup._scrub("std::runtime_error Bad::Thing 2001:db8::1.Connection a10.0.0.1x [fe80::1]:22",
+                              "h", "u") == "std::runtime_error Bad::Thing <addr>.Connection a<addr>x [<addr>]:22"
+    # a digit glued to a word stays the address's (Codex on #1159): nothing of the address is given back
+    assert pull_backup._scrub("::ffff:192.0.2.1x x2001:db8::1 y10.0.0.9z", "h", "u") == "<addr>x x<addr> y<addr>z"
+
+
+def test_1158_a_notice_of_one_job_never_quiets_another(sandbox, monkeypatch):
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    sent = _quiet_pages(monkeypatch, card=True)
+    a, b = sandbox / "a", sandbox / "b"
+    _held(a, "sports_2026-11-20.db")
+    _held(b, "sports_2026-11-20.db")                                           # the same daily name in both
+    assert _pull(a) == 1 and _pull(b) == 1
+    assert len(_notices(sandbox)) == 2 and len(sent) == 2                      # each job told once
+    ja, jb = (pull_backup.job_id(PULL_HOST, d) for d in (a, b))
+    assert ja != jb and {n["job"] for n in _notices(sandbox)} == {ja, jb}
+    assert {r["job"] for r in receipts(sandbox) if r["kind"] == "pull"} == {ja, jb}
+    assert all(PULL_HOST not in json.dumps(n) for n in _notices(sandbox))     # the identity names no host
+    assert _pull(a) == 1 and _pull(b) == 1 and len(_notices(sandbox)) == 2     # taken: neither again
+
+
+def test_1158_another_jobs_receipts_neither_end_nor_restart_this_jobs_spell(sandbox, monkeypatch):
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    _quiet_pages(monkeypatch, card=True)
+    empty, held = sandbox / "empty", sandbox / "held"
+    empty.mkdir()
+    _held(held, "sports_2026-11-25.db")
+    assert _pull(empty) == 1 and len(_notices(sandbox)) == 1                   # "none" told for the empty job
+    assert _pull(held) == 1 and len(_notices(sandbox)) == 1                    # a fresh copy elsewhere: nothing
+    assert _pull(empty) == 1 and len(_notices(sandbox)) == 1                   # the empty job's spell did not end
+
+
+def test_1158_a_line_from_before_identities_is_read_as_the_installed_jobs(sandbox, monkeypatch):
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    sent = _quiet_pages(monkeypatch, card=True)
+    installed, other = sandbox / "sp-backups", sandbox / "other"
+    monkeypatch.setattr(pull_backup, "DEFAULT_DEST", installed)
+    _held(installed, "sports_2026-11-20.db")
+    _held(other, "sports_2026-11-20.db")
+    c.append_receipt({"kind": "pull_notice", "copy": "sports_2026-11-20.db", "step": 1, "channel": "card"})  # old
+    assert pull_backup.main(["--dest", str(installed)], now=PULL_NOW) == 1      # the installed job: already told
+    assert sent == []
+    assert pull_backup.main(["--dest", str(other)], now=PULL_NOW) == 1          # another job: its own history
+    assert len(sent) == 1
+
+
+def test_1158_the_host_is_half_of_the_identity(sandbox, monkeypatch):
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    sent = _quiet_pages(monkeypatch, card=True)
+    d = sandbox / "d"
+    _held(d, "sports_2026-11-20.db")
+    for host in (PULL_HOST, "sp-vps-other"):
+        assert pull_backup.main(["--host", host, "--user", PULL_USER, "--dest", str(d)], now=PULL_NOW) == 1
+    assert len(_notices(sandbox)) == 2 and len(sent) == 2                       # one folder, two hosts: two jobs
+    assert len({r["job"] for r in receipts(sandbox) if r["kind"] == "pull"}) == 2
+    for host in (PULL_HOST, "sp-vps-other"):
+        assert pull_backup.main(["--host", host, "--user", PULL_USER, "--dest", str(d)], now=PULL_NOW) == 1
+    assert len(_notices(sandbox)) == 2                                          # each taken: neither again
+    assert "sp-vps-other" not in json.dumps(_notices(sandbox))
+
+
+def test_1158_the_identity_folds_the_hosts_case_and_resolves_the_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "x").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "x")
+    want = pull_backup.job_id("sp-vps-1", tmp_path / "x")
+    assert pull_backup.job_id("SP-VPS-1", Path("~/x")) == want
+    assert pull_backup.job_id(" sp-vps-1 ", Path("x")) == want
+    assert pull_backup.job_id("sp-vps-1", tmp_path / "link") == want
+    assert pull_backup.job_id("sp-vps-2", tmp_path / "x") != want and len(want) == 12
+
+
+def test_1158_a_pull_line_from_before_identities_ends_the_installed_jobs_spell(sandbox, monkeypatch):
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    sent = _quiet_pages(monkeypatch, card=True)
+    installed = sandbox / "sp-backups"
+    installed.mkdir()
+    monkeypatch.setattr(pull_backup, "DEFAULT_DEST", installed)
+    c.append_receipt({"kind": "pull_notice", "copy": None, "step": "none", "channel": "card"})     # old, told
+    assert pull_backup.main(["--dest", str(installed)], now=PULL_NOW) == 1 and sent == []        # same spell
+    c.append_receipt({"kind": "pull", "exit": 0, "newest_copy": {"name": "sports_2026-11-25.db"}})  # old: a copy
+    assert pull_backup.main(["--dest", str(installed)], now=PULL_NOW) == 1 and len(sent) == 1    # a new spell
+
+
+def test_1158_legacy_history_is_the_default_folders_whatever_host_was_installed(sandbox, monkeypatch):
+    """Codex on #1159: scripts/setup_backup_pull.sh takes a host; the installed job is the one on the default --dest,
+    so a custom host keeps its pre-upgrade history. A legacy pull line names its host and must be that host."""
+    _fake_host(monkeypatch, sandbox, fail=("list", 255, ""))
+    sent = _quiet_pages(monkeypatch, card=True)
+    installed = sandbox / "sp-backups"
+    monkeypatch.setattr(pull_backup, "DEFAULT_DEST", installed)
+    _held(installed, "sports_2026-11-20.db")
+    c.append_receipt({"kind": "pull_notice", "copy": "sports_2026-11-20.db", "step": 1, "channel": "card"})  # old
+    assert pull_backup.main(["--host", "custom-box", "--dest", str(installed)], now=PULL_NOW) == 1
+    assert sent == []                                                             # the custom host: already told
+    for p in installed.iterdir():
+        p.unlink()
+    c.append_receipt({"kind": "pull_notice", "copy": None, "step": "none", "channel": "card"})               # old
+    c.append_receipt({"kind": "pull", "from": "elsewhere", "newest_copy": {"name": "sports_2026-11-25.db"}})  # old
+    assert pull_backup.main(["--host", "custom-box", "--dest", str(installed)], now=PULL_NOW) == 1
+    assert sent == []                                  # another host's old pull line did not end this job's spell
+    c.append_receipt({"kind": "pull", "from": "CUSTOM-BOX", "newest_copy": {"name": "sports_2026-11-25.db"}})
+    assert pull_backup.main(["--host", "custom-box", "--dest", str(installed)], now=PULL_NOW) == 1
+    assert len(sent) == 1                              # its own host's old pull line did: a new spell, told
+
+
 def test_prune_leaves_partial_files_to_the_cleanup(tmp_path):
     """Addendum 72 item 4: "sp_prune leaves them to that cleanup": an old backup is planned, never a .partial* file."""
     for n in ("sports_2026-09-01.db", "sports_2026-09-01.db.sha256", "sports_2026-09-01.db.partial",

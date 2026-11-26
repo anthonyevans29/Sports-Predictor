@@ -42,6 +42,11 @@ nine points on #1053 read by addendum 554 item 2):
   wall-clock bound (NOTICE_MAX_S), and recorded as a line of its own, kind
   "pull_notice" {copy, step, channel}, which later runs read. A run killed during
   the send has its receipt already.
+- THE JOB (#1158, addendum 557 item 2(a)): every pull and pull_notice line carries
+  "job", a short hash of the host and the resolved --dest (no host name), and a job
+  reads only its own history; a line written before identities is the installed
+  job's: the job on the default --dest, whatever its host (a legacy pull line must
+  name that host).
 - The exit stays 1 on a failed night; a notice never changes it (3(f)).
 - The receipt's "from" and the printed line keep the host name: they are the
   laptop's own record of its own run, not a notice (554 item 2(c)).
@@ -72,6 +77,8 @@ NO_COPY = "none"                       # the step of a folder holding no verifie
 UNREAD = "unread"                      # the state of a folder that could not be read: never told as NO_COPY
 NOTICE_TITLE = "Backup pull"
 NOTICE_KIND = "pull_notice"
+DEFAULT_HOST, DEFAULT_USER = "sp-vps-1", "sp"
+DEFAULT_DEST = Path.home() / "sp-backups"
 NOTICE_MAX_S = 45                      # the card's 20 s and the operator topic's 20 s, and a margin
 _NAME_TIME = re.compile(r"^sports_(\d{4})-(\d{2})-(\d{2})(?:_(\d{2})(\d{2})(\d{2}))?\.db$")
 
@@ -171,11 +178,44 @@ def _scrub(text: str, host: str, user: str) -> str:
         text = re.sub(rf"(?<![\w.-]){re.escape(host)}(?:\.[\w-]+)*(?![\w-])", "<host>", text, flags=re.I)
     if user:
         text = re.sub(rf"(?<![\w.-]){re.escape(user)}(?=@)", "<user>", text, flags=re.I)
-    text = re.sub(r"(?<![\w.:])\d{1,3}(?:\.\d{1,3}){3}(?![\w])", "<addr>", text)
-    # an IPv6 address: a run of hex digits and colons (one linear pass) holding "::" or at least five colons; a
-    # clock's "12:34:56" is not one
-    return re.sub(r"(?<![\w:])[0-9A-Fa-f:]{2,}(?![\w:])",
-                  lambda m: "<addr>" if "::" in m.group(0) or m.group(0).count(":") >= 5 else m.group(0), text)
+    # any IP address (#1158): one linear pass over each maximal run of hex digits, colons and dots, then classified.
+    # An IPv6 form (holding "::" or at least five colons, a mixed form's dotted tail and a port with it) is replaced
+    # whole; otherwise any dotted quad inside the run is (an IPv4 address, after a word or a colon too). A clock's
+    # "12:34:56" or "12:34:56.789" is neither; a sentence's last "." stays.
+    return re.sub(r"(?<![0-9A-Fa-f:.])[0-9A-Fa-f:.]{2,}", _addr, text)
+
+
+_QUAD = re.compile(r"(?<!\d)\d{1,3}(?:\.\d{1,3}){3}(?!\d)")
+
+
+def _glued(ch: str) -> bool:
+    return ch.isalnum() or ch == "_"
+
+
+def _addr(m) -> str:
+    """One run of hex digits, colons and dots, classified (#1158). Where the run touches a word, the hex letters glued
+    to that word are the word's ("std::string", "2001:db8::1.Connection"), not the address's; a run that is then only
+    colons, or ends in a colon against a word ("Bad::Thing"), is not an address."""
+    s, a, b = m.string, m.start(), m.end()
+    t, lead, trail = m.group(0), "", ""
+    # only LETTERS are given back to a glued word: a digit glued to a word stays the address's ("::ffff:1.2.3.4x",
+    # "x2001:db8::1": Codex on #1159), so a glued run errs on the scrubbed side
+    if a > 0 and _glued(s[a - 1]):
+        k = re.match(r"[A-Fa-f]*", t).end()
+        if k < len(t) and t[k] == ":":               # a word's letters, then the run's own colon ("std::")
+            lead, t = t[:k], t[k:]
+    right = b < len(s) and _glued(s[b])
+    if right:
+        g = re.search(r"\.([A-Fa-f]+)$", t)         # a dot, then a word's letters ("::1.Connection")
+        if g:
+            t, trail = t[:g.start(1)], g.group(1)
+    dots = ""
+    while t.endswith("."):
+        t, dots = t[:-1], "." + dots
+    six = ("::" in t or t.count(":") >= 5) and re.search(r"[0-9A-Fa-f]", t) is not None \
+        and not (right and not trail and t.endswith(":"))
+    # not an IPv6 form: any dotted quad in the whole run goes, glued to a word or not ("x10.0.0.1y")
+    return lead + "<addr>" + dots + trail if six else _QUAD.sub("<addr>", m.group(0))
 
 
 def _tail(stderr, host: str, user: str) -> str | None:
@@ -205,11 +245,35 @@ def _state(r: dict) -> str:
     return UNREAD if r.get("newest_copy_error") else "copy" if r.get("newest_copy") else NO_COPY
 
 
-def _past_notices(copy: str | None, step) -> list[dict]:
-    """The notices this machine's receipts log records for this copy and step (kind "pull_notice"). With no copy (no
-    verified copy, or an unread folder) only those since the last pull receipt in another state count: a spell ends
-    when a run sees a copy or the other no-copy state, and the next spell is told again (the pre-PR pass; Codex on
-    #1154)."""
+def job_id(host: str, dest: Path) -> str:
+    """The pull job's identity (#1158): a short hash of the host and the resolved --dest, so a line can say which job
+    it is without naming the host."""
+    import hashlib
+    key = f"{host.strip().lower()}\n{Path(dest).expanduser().resolve()}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+
+def _of_job(r: dict, job: str | None, legacy_host: str | None = None) -> bool:
+    """A line of this job: its own identity, or, a line written before identities (#1158), the installed job's. The
+    installed job is the one on the default --dest, whatever host scripts/setup_backup_pull.sh was given (Codex on
+    #1159): `legacy_host` is this run's host when its --dest is the default, else None. A legacy pull line names its
+    host ("from"), so it must be that host; a legacy notice line names none."""
+    if job is None:
+        return True
+    have = r.get("job")
+    if have is not None:
+        return have == job
+    if legacy_host is None:
+        return False
+    frm = r.get("from")
+    return frm is None or str(frm).strip().lower() == legacy_host.strip().lower()
+
+
+def _past_notices(copy: str | None, step, job: str | None = None, legacy_host: str | None = None) -> list[dict]:
+    """The notices this machine's receipts log records for this job, copy and step (kind "pull_notice"). With no copy
+    (no verified copy, or an unread folder) only those since the job's last pull receipt in another state count: a
+    spell ends when a run sees a copy or the other no-copy state, and the next spell is told again (the pre-PR pass;
+    Codex on #1154). Another job's lines are not this job's history (#1158)."""
     p = c.receipts_path()
     if not p.exists():
         return []
@@ -219,7 +283,7 @@ def _past_notices(copy: str | None, step) -> list[dict]:
             r = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if not isinstance(r, dict):
+        if not isinstance(r, dict) or not _of_job(r, job, legacy_host):
             continue
         if copy is None and r.get("kind") == "pull" and "newest_copy" in r and _state(r) != step:
             out = []                                 # that run was in another state: the spell asked about ended
@@ -243,13 +307,14 @@ def notice_text(newest: dict | None, rec: dict, machine: str) -> str:
     return f"{head}\nTonight's pull: {last}.\n{machine}"
 
 
-def due(newest: dict | None, rec: dict, now: datetime) -> tuple[str | None, int | str] | None:
+def due(newest: dict | None, rec: dict, now: datetime, legacy_host: str | None = None
+        ) -> tuple[str | None, int | str] | None:
     """(copy, step) of the notice this run owes, or None (the copy is fresh, or this step was already taken)."""
     step = UNREAD if rec.get("newest_copy_error") else notice_step(newest, now)
     if step is None:
         return None
     copy = newest["name"] if newest and step != UNREAD else None
-    if any(n.get("channel") for n in _past_notices(copy, step)):
+    if any(n.get("channel") for n in _past_notices(copy, step, rec.get("job"), legacy_host)):
         return None
     return copy, step
 
@@ -295,15 +360,15 @@ def bounded_tell(newest: dict | None, rec: dict, copy: str | None, step) -> dict
 
 def main(argv=None, now: datetime | None = None) -> int:
     ap = argparse.ArgumentParser(description="Pull the host's newest daily .backup.")
-    ap.add_argument("--host", default="sp-vps-1")
-    ap.add_argument("--user", default="sp")
-    ap.add_argument("--dest", type=Path, default=Path.home() / "sp-backups")
+    ap.add_argument("--host", default=DEFAULT_HOST)
+    ap.add_argument("--user", default=DEFAULT_USER)
+    ap.add_argument("--dest", type=Path, default=DEFAULT_DEST)
     a = ap.parse_args(argv)
     dest = a.dest.expanduser()
     c.refuse_under_data(dest)
     dest.mkdir(parents=True, exist_ok=True)
     remote = f"{a.user}@{a.host}"
-    rec = {"kind": "pull", "exit": 1, "from": a.host, "file": None, "stage": "list"}
+    rec = {"kind": "pull", "exit": 1, "from": a.host, "file": None, "stage": "list", "job": job_id(a.host, dest)}
     try:
         name = newest_daily(_ssh(remote, f"ls -1 {REMOTE_DIR}").stdout.splitlines())
         if name is None:
@@ -347,7 +412,8 @@ def main(argv=None, now: datetime | None = None) -> int:
     rec["newest_copy"] = newest
     owed = None
     try:
-        owed = due(newest, rec, now)
+        legacy_host = a.host if dest.resolve() == Path(DEFAULT_DEST).expanduser().resolve() else None
+        owed = due(newest, rec, now, legacy_host)
     except Exception as e:  # noqa: BLE001 - the log could not be read: the notice is owed, and said so
         rec["notice_history_error"] = type(e).__name__
         step = UNREAD if rec.get("newest_copy_error") else notice_step(newest, now)
@@ -360,7 +426,7 @@ def main(argv=None, now: datetime | None = None) -> int:
     if owed is not None:                             # then the notice, in its own try: it never changes the exit
         try:
             n = bounded_tell(newest, rec, *owed)
-            c.append_receipt({"kind": NOTICE_KIND, **n})
+            c.append_receipt({"kind": NOTICE_KIND, "job": rec["job"], **n})
             told = f" · notice {n.get('channel') or 'NOT TAKEN'}"
         except Exception as e:  # noqa: BLE001
             told = f" · notice not recorded ({type(e).__name__})"

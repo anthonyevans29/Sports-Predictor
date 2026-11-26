@@ -1,4 +1,4 @@
-**2026-11-26 — 503's PR 2, THE STALE PREDICTION AT A CLOSING: its own failure "stale predictions", SHIPPED OFF behind closing.py's own switch (addendum 502 item 2 Q2; addendum 503 item 1 Q1-Q2; addendum 563; money path, not gate-class; #0000).**
+**2026-11-26 — 503's PR 2, THE STALE PREDICTION AT A CLOSING: its own failure "stale predictions", SHIPPED OFF behind closing.py's own switch (addendum 502 item 2 Q2; addendum 503 item 1 Q1-Q2; addendum 563; money path, not gate-class; #1166).**
 - **Ruling (verbatim, addendum 563 item 2(a)):** "OFF IT STILL COUNTS. With the switch off the check runs, fails nothing, and changes no page, no file, no exit and no notice. It prints one line and writes one key on the run's receipt: the rows it would have failed, each with its cause, or that there are none. That is the evidence the turn-on is ruled from."
 - **Built:**
   - `STALE_PREDICTION_RULE = {"on": False}` in `deploy/hosting/closing.py`, tied to nothing: not to the Desk's switch (563 item 2(b)), and closing.py imports no Desk (C8).

@@ -498,9 +498,13 @@ Which machine runs item 5's readout (ARCHITECT 2026-10-18, addendum 128 item 1(a
       step whose output could not be read whole included: "unreceipted in 461 item 3(d)'s sense; the run exits 1 and
       the receipt says why", addendum 469 item 5(2)); 2 for the refusal, nothing run.
       IT COUNTS EXITS, NOT OUTCOMES (ARCHITECT 2026-11-23, addendum 479 item 1; finding #1102): a step that exits 0
-      may still have failed. Ten of the twelve commands can end a real failure with exit 0: `sync-kalshi`,
+      may still have failed. Nine of the twelve commands can end a real failure with exit 0: `sync-kalshi`,
       `sync-kalshi-atp`, `sync-kalshi-wta`, `export-results`, `sync-matches`, `sync-teams`, `improve`,
-      `dedupe-matches`, `nhl-goalie-sync` and `results-tally` (the module's docstring names what each lets through), so the run's last line, after the counts, reads "exits counted, not
+      `nhl-goalie-sync` and `results-tally` (the module's docstring names what each lets through).
+      `dedupe-matches` is no longer one of them since #1145 (addendum 497 item 2 step (1)): a provider read that
+      failed prints `dedupe-matches: N unresolved (provider read failed): <ids>` as its last line and exits 1, so step
+      10 and the routine may read exit 1; a team with no provider id is a classification, counted on its own line,
+      exit 0 (497 Q8). The run's last line, after the counts, reads "exits counted, not
       outcomes: a step that exits 0 may still have failed (see #1102)". The architect reads each step's own lines in
       the console (479 item 1(c)); no exit is changed (479 item 2).
    4. **The MLB orphan dry run:** `retire-orphans --competition MLB --season 2026` (no `--apply`), by hand, in the

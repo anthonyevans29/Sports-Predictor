@@ -1070,7 +1070,10 @@ def test_the_real_roadmap_marks_the_nba_probe_step_done_and_orders_no_nba_feed()
     ARCHITECT 2026-11-25 13:42 ET, addendum 537 item 3 Q1: "LANE availability-record IS LIVE, NOT CLOSED. ... Build what
     the validator needs for live and invent no date". The state reads live, earliest_live stays null (the validator needs
     no date for live), and live_needs opens with 537 item 3 Q1 whole, then the line it asks for, ending "no NBA feed is
-    ordered (531 item 2)", then 531 item 2(d) in part and 2(e) whole, verbatim. No date moves."""
+    ordered (531 item 2)", then 531 item 2(d) in part and 2(e) whole, verbatim. No date moves.
+    ARCHITECT 2026-11-25 17:59 ET, addendum 553 item 4: the lane's line "no longer says that no NBA feed is ordered and
+    nothing more; it says a probe of one document is ordered and no feed (553 item 2(f))", and one step is appended
+    (pinned in the test after this one), so the lane's next step is that step."""
     lane = _lane(_real(), "availability-record")
     (st,) = [s for s in lane["steps"] if s["what"].startswith("the NBA injury-report probe")]
     assert st["due"] == "2026-11-25" and st["done"]["date"] == "2026-11-25"
@@ -1078,7 +1081,8 @@ def test_the_real_roadmap_marks_the_nba_probe_step_done_and_orders_no_nba_feed()
     assert r.startswith("DONE on the architect's block's consoles on #839 (the step's own words: ")
     assert "addendum 531 item 2(a) to (d), verbatim in part" in r and "The answer was HTTP 403." in r
     assert "THE INDEX IS CLOSED BY ACCESS" in r and "No feed PR follows." in r
-    assert rm.next_step(lane) is None and lane["state"] == "live" and lane["earliest_live"] is None
+    assert rm.next_step(lane)[1]["what"] == "the NBA injury report's direct-document probe on the host (553)"
+    assert lane["state"] == "live" and lane["earliest_live"] is None
     ln = lane["live_needs"]
     assert ln.startswith("ARCHITECT 2026-11-25 13:42 ET, addendum 537 item 3 Q1, verbatim: \"Q1. LANE "
                          "availability-record IS LIVE, NOT CLOSED. The record runs every day on the host with two feeds, "
@@ -1086,14 +1090,44 @@ def test_the_real_roadmap_marks_the_nba_probe_step_done_and_orders_no_nba_feed()
                          "line says so and then \"no NBA feed is ordered (531 item 2)\". A third feed is a new step by "
                          "addendum. Build what the validator needs for live and invent no date: if it needs one, it is "
                          "the day the first feed first ran on the host, read from the receipts.\" The lane is live: the "
-                         "record runs every day on the host with two feeds, the depth charts and the NHL game pages, and "
-                         "no NBA feed is ordered (531 item 2). Ruled (ARCHITECT 2026-11-25 10:26 ET, addendum 531 item "
-                         "2(d) in part, and 2(e) whole, verbatim): \"No feed PR follows.\"")
-    assert ln.count("no NBA feed is ordered (531 item 2)") == 2      # in the quote, and the line it asks for
+                         "record runs every day on the host with two feeds, the depth charts and the NHL game pages. A "
+                         "probe of one NBA injury-report document is ordered, and no NBA feed (553 item 2(f)). Ruled "
+                         "(ARCHITECT 2026-11-25 10:26 ET, addendum 531 item 2(d) in part, and 2(e) whole, verbatim): "
+                         "\"No feed PR follows.\"")
+    assert ln.count("no NBA feed is ordered (531 item 2)") == 1      # in 537's quote; 553 item 4 replaced the line
     assert "Until he decides, nothing is built and nothing is read." in ln
     assert "closed" not in ln.replace("NOT CLOSED", "").replace("is not closed", "")   # 537 Q1: no closed state line
     assert "waits on the architect" not in ln
     assert lane["live_needs"].endswith("the lane is done when its steps are done. No model goes live from it; the first "
                                        "host reads and the timers' enablement are the architect's blocks.")
     assert len(lane["moved"]) == 1          # 492 item 4's line, kept; 531 moves no date
+    assert rm.validate(_real()) == []
+
+
+def test_the_real_roadmap_appends_the_nba_direct_document_probe_step_and_moves_no_date():
+    """ARCHITECT 2026-11-25 17:59 ET, addendum 553 item 4, verbatim: "DEV 1: one step is added to lane
+    availability-record on the roadmap, appended, no date moved: "the NBA injury report's direct-document probe on the
+    host (553)", owner architect, due Tuesday 2026-12-15. The lane's line no longer says that no NBA feed is ordered and
+    nothing more; it says a probe of one document is ordered and no feed (553 item 2(f)). CLAUDE.md's basketball line
+    takes the same sentence. In your next records PR." The step is the lane's last, not done; every earlier step and
+    the one moved line stand; the line says the probe is ordered and no feed, with 553 items 1 and 2(f) quoted."""
+    lane = _lane(_real(), "availability-record")
+    st = lane["steps"][-1]
+    assert st == {"what": "the NBA injury report's direct-document probe on the host (553)", "owner": "architect",
+                  "due": "2026-12-15", "done": None}
+    assert [s["what"] for s in lane["steps"]].count(st["what"]) == 1
+    assert all(s["done"] is not None for s in lane["steps"][:-1])
+    assert rm.next_step(lane) == (len(lane["steps"]), st)
+    assert len(lane["moved"]) == 1 and lane["moved"][0]["now"] == "2026-11-25"     # 492 item 4's line only
+    assert lane["state"] == "live" and lane["earliest_live"] is None
+    line = ("A probe of one NBA injury-report document is ordered, and no NBA feed (553 item 2(f)).")
+    ln = lane["live_needs"]
+    assert ln.count(line) == 1
+    assert ("Ruled (ARCHITECT 2026-11-25 17:59 ET, addendum 553 items 1 and 2(f), verbatim in part): \"1. THE OPERATOR "
+            "HAS DECIDED (17:58 ET today), in his words: \"go route 3 for now\".\" \"(f) THIS IS A PROBE OF ONE "
+            "DOCUMENT, NOT A FEED. Whether a feed follows, and how it would know a document's name without the index, "
+            "is ruled on the probe's console and not before.\"") in ln
+    claude = (rm.ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    basketball = claude[claude.index("- **Basketball (NBA, NCAAMB, WNBA)**"):claude.index("- Season strings:")]
+    assert line in " ".join(basketball.split())          # the same sentence, as CLAUDE.md wraps it
     assert rm.validate(_real()) == []

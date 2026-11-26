@@ -33,7 +33,7 @@ WHAT IT DOES (451 item 3(b), as 461 items 2 and 3 amend it):
   written, when any). After the counts, one more line, always, the run's last (479 item 1(b)): EXITS_NOTE, "exits
   counted, not outcomes: a step that exits 0 may still have failed (see #1102)". One line, no logic.
 - THE ROUTINE COUNTS EXITS, NOT OUTCOMES (ARCHITECT 2026-11-23, addendum 479 item 1(a); finding #1102). A step that
-  exits 0 may still have failed: ten of the twelve commands of the list can end a real failure with exit 0, each read
+  exits 0 may still have failed: nine of the twelve commands of the list can end a real failure with exit 0, each read
   in cli.py and src/ (#1102 holds the lines):
     sync-kalshi: an exception, an ok:false result, and a market fetch that failed (it reads as "no open markets");
     sync-kalshi-atp and sync-kalshi-wta: a status read that failed, a listing refusal, no competition row;
@@ -42,13 +42,18 @@ WHAT IT DOES (451 item 3(b), as 461 items 2 and 3 amend it):
       read); listings whose clubs are not in the DB and SP_SYNC_HOLD are ruled exit 0 (204 item 3(c), 332 item 3);
     sync-teams: a missing competition row, after the provider call is spent;
     improve: a holdout under 30 games, or a model it cannot score, reads as REJECTED;
-    dedupe-matches (the dry run): a provider lookup that failed is planned "unresolved", and a team with no
-      provider id is planned "orphan";
     nhl-goalie-sync: a 200 with an empty body, or with no games in it, reads as no games (refused boxscores are
       ruled exit 0, 389 item 3(e); a non-200 answer, or a body that is not JSON, does exit non-zero);
     results-tally: five sections write "Grade unavailable." and go on; an unreadable closing file is dropped.
-  evaluate and export-fixtures exit non-zero on every real failure. The architect reads each step's own lines in the
-  console (479 item 1(c)); no exit is changed (479 item 2).
+  evaluate and export-fixtures exit non-zero on every real failure.
+  dedupe-matches (the dry run): no longer one of the nine above since #1145 (ARCHITECT 2026-11-24, addendum 497
+    item 2 step (1)), which changed that command's exit and none of this module: a provider read that failed (a by-id
+    lookup, or a day of the date search, planned "unresolved") prints "dedupe-matches: N unresolved (provider read
+    failed): <ids>" as its last line and exits 1, on the dry run and on --apply, so step 10 and the routine may read
+    exit 1; a team with no provider id, planned "orphan", is a classification, counted on its own line, exit 0 (497
+    Q8). From 497 step (2) on, each step's own PR corrects its own line here (ARCHITECT 2026-11-25, addendum 551 item
+    1(e)).
+  The architect reads each step's own lines in the console (479 item 1(c)); no exit is changed (479 item 2).
 - A step whose non-zero exit is routine carries those exits in the list (Step.routine) and is counted apart. READ FROM
   cli.py (law 1): `improve --sport mlb --hold-on-pass` gives a rejection NO non-zero exit. improve_cmd prints
   "✓ Candidate <v>: REJECTED" (or HELD, or PROMOTED) and returns, exit 0; its one SystemExit is 2 for

@@ -42,3 +42,25 @@ def iso_z_seconds(t: datetime | None) -> str | None:
     if t.tzinfo is not None:
         t = t.astimezone(timezone.utc)
     return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# #1102 F1's one form (ARCHITECT 2026-11-25, addendum 555 item 1 Q2, verbatim): "F1's FORM IS THE CLI's SIX-DIGIT FORM
+# AND NOTHING ELSE, by ONE definition in timeutil that the option and the Desk both call. PR1's refusals of a bad value
+# stay as they are, test for test." cli.py's --run-start (export-predictions, export-nfl-predictions) refuses what this
+# does not read; the Desk's stale-price rule (src/walters/desk_policy.py run_start_reading) reads a file's
+# run_started_at through it.
+RUN_START_PATTERN = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z"
+
+
+def parse_run_start(value) -> datetime | None:
+    """A slate run's held start in the CLI's one form, YYYY-MM-DDTHH:MM:SS.ffffffZ (ASCII digits, exactly six of the
+    fraction), as a naive UTC datetime WITH its microseconds; None for anything else (another form, a non-str, a date
+    that does not exist). A regex, then strptime, never datetime.fromisoformat, which refuses the "Z" on the laptop's
+    Python 3.10."""
+    import re
+    if not isinstance(value, str) or not re.fullmatch(RUN_START_PATTERN, value, re.ASCII):   # ASCII digits only
+        return None
+    try:
+        return datetime.strptime(value[:-1], "%Y-%m-%dT%H:%M:%S.%f")
+    except ValueError:
+        return None

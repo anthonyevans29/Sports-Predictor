@@ -6007,7 +6007,7 @@ def desk_rescore_cmd(files, out_path):
         console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
         raise SystemExit(2)
     lines = [f"DESK RESCORE (#87 v1.1 addendum, rule 3) · run {stamp}"]
-    n = halved = quarantined = suspended = fenced = non_positive = both_empty = 0
+    n = halved = quarantined = suspended = fenced = non_positive = both_empty = stale = 0
     for f in files:
         doc = _json.load(open(f))
         meta = doc.get("desk_meta") or {}
@@ -6025,6 +6025,7 @@ def desk_rescore_cmd(files, out_path):
             fenced += x["verdict"] == "host fence"                   # addendum 109 item 3 (#410): its own too
             non_positive += x["verdict"] == "exec non-positive"      # addendum 305: its own too
             both_empty += x["verdict"] == "injuries both empty"      # addendum 503 item 1 Q3: its own too
+            stale += x["verdict"] == "stale price"                   # #1102 PR2 (addendum 555 item 1 Q6): its own too
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
             if x["verdict"] == "kalshi-only suspended":     # addendum 15 item 2: a suspended row is not priced
@@ -6061,6 +6062,10 @@ def desk_rescore_cmd(files, out_path):
     if both_empty:
         lines.append(f"{both_empty} soccer PLAY(s) now PASS with both injury lists empty (addendum 502 item 2 Q3, 503 "
                      f"item 1 Q3-Q4) — not counted as halved")
+    if stale:
+        lines.append(f"{stale} PLAY(s) now PASS on a stale price (captured before the run's start, never captured or "
+                     f"its capture time unreadable, or the run's start unreadable; #1102, 513 Q2) — not counted as "
+                     f"halved")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)
     try:                                    # EXCLUSIVE create: two runs racing on one name never overwrite (Codex)
@@ -6562,18 +6567,14 @@ RUN_START_FORMAT = "YYYY-MM-DDTHH:MM:SS.ffffffZ"
 def _run_start_option(ctx, param, value):
     """#1102 PR1, F1: `--run-start`, the slate run's held start: the closing watch's slate stage passes it (526 Q1),
     and the architect's by-hand slate block passes it itself (519 2(c)); no closing, freshen or MLB closing run does.
-    Exactly ISO Z with microseconds, written verbatim; anything else exits 2 at parse time, before any read. A regex,
-    never datetime.fromisoformat, which refuses the "Z" on the laptop's Python 3.10."""
+    Exactly ISO Z with microseconds, written verbatim; anything else exits 2 at parse time, before any read. The form
+    is src/timeutil.py parse_run_start's, the one definition the Desk's stale-price rule reads F1 by (addendum 555
+    item 1 Q2): a regex, never datetime.fromisoformat, which refuses the "Z" on the laptop's Python 3.10."""
     if value is None:
         return None
-    import re
-    from datetime import datetime as _dt
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z", value, re.ASCII):   # ASCII digits only
-        try:
-            _dt.strptime(value[:-1], "%Y-%m-%dT%H:%M:%S.%f")
-            return value
-        except ValueError:
-            pass
+    from src.timeutil import parse_run_start     # the one definition the Desk reads F1 by too (addendum 555 item 1 Q2)
+    if parse_run_start(value) is not None:
+        return value
     raise click.BadParameter(f"{value!r} is not an instant written {RUN_START_FORMAT}")
 
 

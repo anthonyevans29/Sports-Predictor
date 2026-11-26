@@ -200,10 +200,16 @@ def _ssh(remote: str, command: str):
     return _run(["ssh", *SSH_OPTS, remote, command], SSH_KILL_S)
 
 
+def _state(r: dict) -> str:
+    """A pull receipt's state for the no-copy spells: UNREAD, NO_COPY, or "copy"."""
+    return UNREAD if r.get("newest_copy_error") else "copy" if r.get("newest_copy") else NO_COPY
+
+
 def _past_notices(copy: str | None, step) -> list[dict]:
     """The notices this machine's receipts log records for this copy and step (kind "pull_notice"). With no copy (no
-    verified copy, or an unread folder) only those since the last pull receipt that held a verified copy count: a
-    second spell without one is told again (the pre-PR pass)."""
+    verified copy, or an unread folder) only those since the last pull receipt in another state count: a spell ends
+    when a run sees a copy or the other no-copy state, and the next spell is told again (the pre-PR pass; Codex on
+    #1154)."""
     p = c.receipts_path()
     if not p.exists():
         return []
@@ -215,8 +221,8 @@ def _past_notices(copy: str | None, step) -> list[dict]:
             continue
         if not isinstance(r, dict):
             continue
-        if copy is None and r.get("kind") == "pull" and r.get("newest_copy"):
-            out = []                                 # a copy was held: the spell without one ended
+        if copy is None and r.get("kind") == "pull" and "newest_copy" in r and _state(r) != step:
+            out = []                                 # that run was in another state: the spell asked about ended
         elif r.get("kind") == NOTICE_KIND and r.get("copy") == copy and r.get("step") == step:
             out.append(r)
     return out
@@ -308,6 +314,7 @@ def main(argv=None, now: datetime | None = None) -> int:
         if not side:
             raise PullError("the host's sidecar is empty")
         side_remote = side[0]
+        rec["stage"] = "verify"                      # hashing a copy already here is a verify (Codex on #1154)
         if final.exists() and c.sha256_file(final) == side_remote:
             rec.update(exit=0, sha256=side_remote, note="already present", stage="done")
         else:

@@ -774,6 +774,13 @@ def test_1053_every_stage_is_named_where_the_run_ended(sandbox, monkeypatch):
     assert sorted(x.name for x in (sandbox / "c").iterdir()) == []              # every partial removed
     monkeypatch.setattr(c, "copy_integrity", real_integrity)
 
+    held = sandbox / "e"                                          # a copy already here whose hash cannot be read
+    _held(held, "sports_2026-11-25.db")
+    real_sha = c.sha256_file
+    monkeypatch.setattr(c, "sha256_file", lambda p: (_ for _ in ()).throw(OSError("unreadable")))
+    assert _pull(held) == 1 and _last(sandbox)["stage"] == "verify"           # not "sidecar" (Codex on #1154)
+    monkeypatch.setattr(c, "sha256_file", real_sha)
+
     def denied(*a, **k):
         raise PermissionError("denied")
     monkeypatch.setattr(pull_backup.os, "chmod", denied)          # os is global: undone at the test's end
@@ -931,6 +938,11 @@ def test_1053_a_folder_that_cannot_be_read_is_its_own_state_never_no_copy(sandbo
     for p in dest.iterdir():
         p.unlink()
     assert _pull(dest) == 1 and _notices(sandbox)[-1]["step"] == "none"      # a real "none" is still told
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == 2                   # once in its spell
+    monkeypatch.setattr(Path, "iterdir", iterdir)                             # unread again: a new spell, told
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == 3 and _notices(sandbox)[-1]["step"] == "unread"
+    monkeypatch.setattr(Path, "iterdir", real_iterdir)                        # empty again (Codex on #1154): told
+    assert _pull(dest) == 1 and len(_notices(sandbox)) == 4 and _notices(sandbox)[-1]["step"] == "none"
 
 
 def test_1053_a_good_pull_of_an_old_copy_tells_too_and_the_text_names_no_host(sandbox, monkeypatch):

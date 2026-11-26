@@ -118,6 +118,8 @@ def _db_lock():
                                                              "closing run holds it)", p))
 REKEY_WINDOW_H = 12
 PLACEHOLDER_REKEY_COMPETITIONS = frozenset({"NCAA"})
+# sync_teams' own lookup not made for a listing (addendum 542 item 1(a)): _upsert_team looks the team up itself.
+_NOT_LOOKED_UP = object()
 
 
 @dataclass
@@ -210,6 +212,14 @@ class SyncResult:
     # such a named row is reported as refused, never as absent from the provider's answer. A row the re-keys would have
     # claimed (by its id history or its natural key) is not looked up and not named here. Not a count; not printed.
     nfl_team_refused_rows: list = field(default_factory=list)
+    # THE NFL MEMBER AT THE TEAM LISTING (ARCHITECT 2026-11-25, addendum 542 item 1(a)), verbatim: "in the college
+    # competition, sync-teams does not link a team that holds a membership of the NFL competition. The listing is
+    # refused, counted on its own receipt line with the provider's team id, and no membership is stored. The team's own
+    # row is not touched: it is the NFL's club and stays so." The listing's provider team id of every such listing, in
+    # listing order: no membership added, no team created, nothing of the team's row written; also counted in
+    # `skipped` once. Item 1(b): a membership already stored is never taken away by sync-teams. Not printed by
+    # __str__: the sync-teams command prints nfl_member_team_refused_line on its own line when N > 0.
+    nfl_member_team_refused: list = field(default_factory=list)
     # COUNT FIRST (ARCHITECT 2026-11-24, addendum 497 Q7; addendum 502 Q7, verbatim: "sync-odds' uncounted drops and
     # sync-odds-football's skips get a printed count first, with 497's step (0); no exit changes with it."): reason ->
     # [ids] for every game an odds sync did not read. sync_odds: stored match ids ("no provider id"; with match_ids,
@@ -409,6 +419,16 @@ def nfl_team_refused_line(ids, matches=None) -> str:
     return f"nfl_team_refused {len(ids)}" + (f": {', '.join(parts)}" if parts else "")
 
 
+def nfl_member_team_refused_line(ids) -> str:
+    """Addendum 542 item 1(a), verbatim: "The listing is refused, counted on its own receipt line with the provider's
+    team id". The college competition's team listings refused because the stored team they name holds a membership of
+    the NFL competition (SyncResult.nfl_member_team_refused). One plain line, printed by sync-teams only when N > 0:
+    "nfl_member_team_refused N: <provider team id>, <provider team id>, ...", in listing order. N counts the listings.
+    sp_run.NFL_MEMBER_TEAM_REFUSED_LINE reads it back."""
+    ids = [str(i) for i in ids]
+    return f"nfl_member_team_refused {len(ids)}" + (f": {', '.join(ids)}" if ids else "")
+
+
 def newest_membership_years(s: Session, sport, team_ids=None) -> dict[int, int]:
     """team id -> the newest year (season_year) over the team's stored competition_teams rows, across every
     competition of `sport` (addendum 204 item 2: "the team's NEWEST stored membership season across every
@@ -575,22 +595,61 @@ class IngestionService:
             # #764: the newest stored membership year per team of this sport, read ONCE before any write of this
             # sync (so a listing's own membership never counts as its team's newest)
             newest = newest_membership_years(s, comp.sport) if season_year(season) is not None else {}
+            # addendum 542 item 1(a): the NFL competition's members, read ONCE per run (sync_teams adds memberships of
+            # this competition only, never of the NFL's, so the set is exact for the whole run); empty, with no query,
+            # outside the college competition (_nfl_members), and then no listing is looked up twice
+            nfl = self._nfl_members(s, comp)
             for nt in teams:
-                team = self._upsert_team(s, nt, result, season=season, newest_years=newest)
+                found = _NOT_LOOKED_UP
+                if nfl:
+                    found = self._find_team_by_source(s, nt.sport, nt.source, nt.source_id)
+                    if self._nfl_member_listed(nt, found, nfl, comp, result):
+                        continue
+                team = self._upsert_team(s, nt, result, season=season, newest_years=newest, found=found)
                 if season:
                     self._link_team_to_competition(s, team, comp, season)
-        log.info("sync_teams(%s): %s%s", competition_code, result,
-                 f" {names_kept_line(len(result.names_kept))}" if result.names_kept else "")
+        log.info("sync_teams(%s): %s%s%s", competition_code, result,
+                 f" {names_kept_line(len(result.names_kept))}" if result.names_kept else "",
+                 f" {nfl_member_team_refused_line(result.nfl_member_team_refused)}"
+                 if result.nfl_member_team_refused else "")
         return result
 
+    @staticmethod
+    def _nfl_member_listed(nt: NormalizedTeam, team: Team | None, nfl: frozenset, comp: Competition,
+                           result: SyncResult) -> bool:
+        """THE NFL MEMBER AT THE TEAM LISTING (ARCHITECT 2026-11-25, addendum 542 item 1(a)), verbatim: "in the college
+        competition, sync-teams does not link a team that holds a membership of the NFL competition. The listing is
+        refused, counted on its own receipt line with the provider's team id, and no membership is stored. The team's
+        own row is not touched: it is the NFL's club and stays so." `team` is the stored team the listing names
+        (_find_team_by_source), None when none is stored: a team not stored yet holds no membership and goes on as
+        today. `nfl` is _nfl_members' set, any season (500 Q9 names none). Addendum 545 item 1 Q6, verbatim: "YES: the
+        placeholder is exempt, by its primary id, in PR-A and in the command's set": the team's own provider id of the
+        listing's source (external_ids[source], never an id a merge recorded), through is_placeholder_team, as #1123's
+        refusal and #1119's fill read it. True when refused: the listing's provider team id is appended to
+        result.nfl_member_team_refused and counted in `skipped` once, and the caller writes nothing for it. Item 1(b):
+        nothing is removed, a stored membership of the college competition included."""
+        from src.ingestion.placeholder import is_placeholder_team
+
+        if team is None or team.id not in nfl or is_placeholder_team((team.external_ids or {}).get(nt.source)):
+            return False
+        log.warning("sync_teams(%s): %s team id %s REFUSED — team %s holds a membership of the NFL competition; "
+                    "not linked, its row not touched (addendum 542 item 1(a))", comp.code, nt.source, nt.source_id,
+                    team.id)
+        result.nfl_member_team_refused.append(str(nt.source_id))
+        result.skipped += 1
+        return True
+
     def _upsert_team(self, s: Session, nt: NormalizedTeam, result: SyncResult, season: str | None = None,
-                     newest_years: dict | None = None) -> Team:
+                     newest_years: dict | None = None, found=_NOT_LOOKED_UP) -> Team:
         """`season` (#764, ARCHITECT 2026-11-01, addendum 204 item 2): the listing's season. An EXISTING team on a
         listing whose season_year is OLDER than the team's newest stored membership year (any competition of the
         same sport) keeps its name and short_name; external_ids are written as always, and a withheld rename is
         recorded on result.names_kept. Equal, newer, an unknown year on either side, no membership yet, or no
-        season: renames as today. `newest_years` is sync_teams' one-query map; without it the team's own is read."""
-        team = self._find_team_by_source(s, nt.sport, nt.source, nt.source_id)
+        season: renames as today. `newest_years` is sync_teams' one-query map; without it the team's own is read.
+        `found` (addendum 542 item 1(a)): the stored team sync_teams' own lookup already resolved for this listing (a
+        Team, or None for none stored), so the college competition's listing is not looked up twice; left at
+        _NOT_LOOKED_UP (every other caller), the lookup runs here as before."""
+        team = self._find_team_by_source(s, nt.sport, nt.source, nt.source_id) if found is _NOT_LOOKED_UP else found
 
         if team:
             if self._historical_listing(s, team, season, newest_years):

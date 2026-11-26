@@ -38,6 +38,37 @@ has five prior reads already (v1 through v5).
    refused. Review on #222 (2026-10-02) reproduced declare → run → PASS →
    CONFIRMED in one second; the regression test pins that it now fails.
 4. A NOT_CONFIRMED outcome closes the entry. The bar does not move.
+5. **An entry whose run record holds the opening** (`confirmation_opens_after`, the leagues windows: ARCHITECT
+   2026-11-22, addendum 447 item 3 C1(b)): the first confirmation game is not earlier than the opening's kickoff
+   (both to the second with the Z, compared as strings, 448 item 1(d)), never verdict.at; and a first game AT that
+   kickoff carries `first_game_id` above the opening's match id (ARCHITECT 2026-11-23, addendum 467 item 1(a)); a
+   later kickoff compares no id. The reader holds the order; the registry is the backstop, and
+   `confirmation_refusal` reads the same checks before a reservation (`leagues-confirmation-read`). Three guards
+   on the backstop, RULED IN by ARCHITECT 2026-11-25, addendum 540 item 1 Q5, each ONLY for an entry that holds an
+   opening (every other entry keeps today's rule, a test for each saying so): (a) "A missing ids file REFUSES the
+   record. A file that is not there is not an empty set (law 4), and the scored-set check must not pass on
+   nothing."; (b) "n_games EQUALS the plan's 60. '60 more' is a number, not a floor."; (c) "first_game_id is one of
+   the confirmation's ids." They are guards, like 448 item 1(f) and 467 item 1(a), not policy.
+6. **The cross-ref guard's kinds** (#329) include the confirmation record (the ledger's `confirmation` with
+   `ids/<eid>.confirm.txt`) and the confirmation reservation (`<eid>.confirm.started.json`): ARCHITECT 2026-11-22,
+   addendum 448 item 1(f). A confirmation recorded on an unmerged laptop branch refuses that entry's later guard
+   calls until it is merged.
+7. **The leagues' confirmation read, its five questions RULED** (ARCHITECT 2026-11-25, addendum 540 item 1; lane
+   leagues, #322). Q1: ONE invocation; the outcome is the computed one, "NO WORD OF MINE ABOUT THE OUTCOME IS TAKEN
+   IN ADVANCE": `--ruling` is the addendum that orders the read, by number and date (never an outcome), and a word
+   or ruling naming CONFIRMED or NOT_CONFIRMED refuses before any load; the preflight computes no figure and
+   reserves nothing. Q2: NO KEY in the confirmation result ("a record is never rewritten, and a rule that may be
+   amended does not belong in one"); a CONFIRMED read prints one console-only line, stored nowhere, that production
+   on a leagues entry turns on no call (220 item 3; 505 item 2(c)). Q3: a window member re-dated past the opening
+   refuses the read before its reservation, naming the game; it lifts only by the architect's registry write naming
+   the game in the entry's one `ruled_exclusions` list, and the game is then out by its named cause and takes no
+   slot. Q4: that one list, unchanged; an item added after the window's verdict changes nothing that the window's
+   recorded fingerprint or any guard reads again: each of them holds a FROZEN COPY of the list as the window read
+   it (the run record's `ruled_exclusions`, the window fingerprint over the items read, recorded in the run record
+   and the reservation, and the guard's "run record" kind, which compares that run field), and nothing re-reads or
+   recomputes any of them after the verdict, so an item added later changes none of them (the run's ids file holds
+   only the 60 ids). Addendum 505 item 2(c), verbatim, standing:
+   "no league leaves the shadow list for calls without its injury sync, or without an exemption that I rule by the league's name".
 
 ## A live model's certification (addendum 214)
 

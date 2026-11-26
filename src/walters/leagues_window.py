@@ -186,6 +186,24 @@ RULED_TEXT = "excluded by ruled cause (each named with its cause and ruling belo
 NO_ROW = "no_prospective_row"         # addendum 222 item 4(a)'s cause: its key; its text as 223 item 2(c) amends it
 TOOK_NO_SLOT = "took_no_slot"     # 447 B2(e): (match id, kickoff, cause) of each reached game that took no slot
 LAST_MEMBER = "last_member"       # 447 C1: (match id, kickoff) of the 60th member, its place in the window's order
+FIRST_MEMBER = "first_member"     # 467 item 1(a): (match id, kickoff) of the 1st member (first_game_at, first_game_id)
+# THE CONFIRMATION'S READ OF ONE WINDOW (ARCHITECT 2026-11-22, addendum 447 item 3 C1; 447's PR 3, the command
+# leagues-confirmation-read, src/walters/leagues_confirm.py): membership() given the OPENING (the run record's
+# (kickoff, match id) of the window's 60th member) and the run record's ACCOUNT (its 60 members and every game the
+# window's loop reached that took no slot, B2(e)) counts the games LATER in the window's order, (kickoff, id) above
+# the opening, by the window's own rules, and names three things beside them. Every comparison with the opening reads
+# each game by after_opening(): its kickoff CUT to the whole second (never rounded) against the opening as stored (to
+# the second, with the Z: addendum 448 item 1(d)). A game the run record names as a WINDOW MEMBER is after the opening
+# only in a LATER second (re-dated past the opening's second); every other game by its place(), the cut kickoff then
+# its id, so a game in the opening's second with a higher id is after it, a lower or equal id before it (the window's
+# own 60th member, or any member, at a sub-second kickoff in the opening's second is never a confirmation game and
+# never 'after'); at whole-second kickoffs nothing changes; the window's read (no opening) is byte-identical:
+REDATED = "redated_finding"       # 447 C1(d): a game before the opening, in the window's order, the run record does not
+                                  # account for: re-dated, or (sub-second) in the opening's second with an id not above
+                                  # the opening's. The key's name is not a statement that the game was re-dated.
+REDATED_NO_SLOT = "redated_no_slot"   # a took-no-slot game re-dated to a kickoff still at or before the opening
+SUBSECOND = "subsecond_kickoffs"   # 556 item 2: the season's games whose stored kickoff carries a fraction of a second
+MEMBERS_AFTER = "window_members_after"   # a window member re-dated to a LATER second than the opening's (refused, Q3)
 NO_ROW_TEXT = "no prospective row under the entry: the entry was not on the host's tag"
 LEAGUE_FIELD = "competition"                  # the entry's league field (181 item 6: equal to the code looked up)
 # Addendum 181 item 1(b): the pre-declaration fence's cut, the addendum's posted instant (11:00 ET), naive UTC as the
@@ -429,6 +447,48 @@ def opening(e: dict | None) -> tuple[datetime, int] | None:
     if ko is None or ko == datetime.min:     # 464 item 2(d): the minimum datetime has no instant before it to cut at
         return None
     return ko, mid
+
+
+def confirmation_basis(e: dict | None) -> dict:
+    """What the confirmation's read takes from the RUN RECORD alone (447 C1: "The run record's
+    confirmation_opens_after holds both"; never from a caller, never from the DB): {"opening": opening(e), "members":
+    the 60 ids of members_in_order, "no_slot": {match id: the kickoff recorded for it} of took_no_slot}. Refused
+    (WindowRefused; law 4: never a fall-back to declared_at or verdict.at) when the opening cannot be read; when
+    members_in_order is not a list of 60 distinct integer ids; when its last id is not the opening's match id; or when
+    took_no_slot is not a list of {match_id: an integer, kickoff: an instant to the second with the Z, cause}."""
+    from src.walters.registry import INSTANT_Z
+    eid = (e or {}).get("id")
+    op = opening(e)
+    if op is None:
+        raise WindowRefused(f"{eid}: the run record holds no readable opening ({OPENING_FIELD}): the confirmation "
+                            "opens nowhere; nothing is read (law 4: never declared_at, never verdict.at)")
+    res = _run_result(e)
+    mem = res.get("members_in_order")
+    if (not isinstance(mem, list) or len(mem) != WINDOW_GAMES
+            or any(isinstance(i, bool) or not isinstance(i, int) for i in mem) or len(set(mem)) != WINDOW_GAMES):
+        raise WindowRefused(f"{eid}: the run record's members_in_order is not a list of {WINDOW_GAMES} distinct match "
+                            "ids; the confirmation cannot be told from the window; nothing is read")
+    if mem[-1] != op[1]:
+        raise WindowRefused(f"{eid}: the run record's 60th member is match {mem[-1]}, but its opening names match "
+                            f"{op[1]}: the record does not hold together; nothing is read")
+    tns = res.get(TOOK_NO_SLOT)
+    no_slot: dict[int, datetime] = {}
+    ok = isinstance(tns, list)
+    for x in tns if ok else ():
+        mid = x.get("match_id") if isinstance(x, dict) else None
+        ko = x.get("kickoff") if isinstance(x, dict) else None
+        cause = x.get("cause") if isinstance(x, dict) else None
+        if (isinstance(mid, bool) or not isinstance(mid, int) or not isinstance(ko, str) or not INSTANT_Z.fullmatch(ko)
+                or parse_instant(ko) is None or mid in no_slot or mid in mem
+                or not isinstance(cause, str) or not cause.strip()):     # Codex on #1153: a cause is present text
+            ok = False
+            break
+        no_slot[mid] = parse_instant(ko)
+    if not ok:
+        raise WindowRefused(f"{eid}: the run record's {TOOK_NO_SLOT} is not a list of {{match_id, kickoff, cause}} "
+                            "(each match id an integer named once and no member, each kickoff to the second with the "
+                            "Z, each cause present text): the window's account cannot be read; nothing is read")
+    return {"opening": op, "members": list(mem), "no_slot": no_slot}
 
 
 def fence_refusal(code, season=None, through: datetime | None = None) -> str | None:
@@ -729,24 +789,55 @@ def ruled_items(code: str, e: dict | None) -> dict[int, dict]:
     return out
 
 
-def apply_ruled(code: str, ruled: dict[int, dict], games, declared_at: datetime) -> None:
+def apply_ruled(code: str, ruled: dict[int, dict], games, declared_at: datetime, cut: bool = False) -> None:
     """#803: each listed game exists in the window: a stored game of the league's season kicking off after the
     declaration, at exactly the listed kickoff (a game re-dated since its ruling is never excluded on it). Refused
-    otherwise; nothing read."""
+    otherwise; nothing read.
+    `cut` (447's PR 3, the CONFIRMATION's read only, membership with an opening): the game's kickoff is CUT to the
+    whole second (never rounded) before it is compared with the item's, which is written to the second with the Z,
+    as the refusal text prints it: an item copied from a refusal matches a game whose stored kickoff is sub-second
+    (the lift of 540 item 1 Q3 and any confirmation-mode exclusion). Without it (the window's read) the comparison is
+    exact, unchanged."""
     by_id = {m.id: m for m in games}
     for mid, it in ruled.items():
         m = by_id.get(mid)
         if m is None or m.utc_date is None or m.utc_date <= declared_at:
             raise WindowRefused(f"{code}: {RULED_FIELD} names match {mid}, which is not a game of the {SEASON} window "
                                 f"(a stored game kicking off after the declaration); nothing read")
-        if m.utc_date != it["kickoff"]:
+        if (m.utc_date.replace(microsecond=0) if cut else m.utc_date) != it["kickoff"]:
             raise WindowRefused(f"{code}: {RULED_FIELD} names match {mid} at {it['kickoff']:%Y-%m-%dT%H:%M:%SZ}, but it "
                                 f"is stored at {m.utc_date:%Y-%m-%dT%H:%M:%SZ}: the ruling is for another kickoff; "
                                 "nothing read")
 
 
+def place(kickoff: datetime, mid: int) -> tuple[datetime, int]:
+    """A game's PLACE as the confirmation compares it with the opening (447 C1): its kickoff CUT to the whole second
+    (never rounded), then its match id. The opening is stored to the second, with the Z (addendum 448 item 1(d); the
+    window read writes it with leagues_read._iso), so a game is compared with it at the opening's own resolution: a
+    game in the opening's second with a higher id is after it, with a lower or equal id before it (the window's own
+    60th member at a sub-second kickoff is the opening itself, never a confirmation game). At whole-second kickoffs
+    nothing changes. The window's read (no opening) never calls it. A WINDOW MEMBER is compared by after_opening(),
+    never by its place alone."""
+    return kickoff.replace(microsecond=0), mid
+
+
+def after_opening(kickoff: datetime, mid: int, opening: tuple[datetime, int], member: bool) -> bool:
+    """Whether a game is LATER than the opening in the confirmation's comparison (447 C1; the window's read, no
+    opening, never calls it). `member`: the run record ACCOUNTS for the game (a window member, members_in_order, or a
+    game its loop reached that took no slot, took_no_slot). Such a game is later than the opening ONLY when its kickoff, cut to the whole second, is in a LATER second than the
+    opening's kickoff: it was re-dated past the opening's second. A member still in the opening's second is never
+    after it, whatever its id: the window counted it before its 60th at the stored sub-second kickoffs (a 59th member
+    at +200 ms with an id above the 60th's at +500 ms), so it stays a window member, never in MEMBERS_AFTER, never
+    refused. Every other game: place(kickoff, mid) > opening (a game in the opening's second with a higher id is
+    after it)."""
+    if member:
+        return kickoff.replace(microsecond=0) > opening[0]
+    return place(kickoff, mid) > opening
+
+
 def membership(s, code: str, declared_at: datetime, constants: dict, now: datetime, stored: dict,
-               first_page: str | None = None, first_file: str | None = None, ruled: dict | None = None) -> dict:
+               first_page: str | None = None, first_file: str | None = None, ruled: dict | None = None,
+               opening: tuple[datetime, int] | None = None, accounted: dict | None = None) -> dict:
     """The window of one declared league as of `now` (the module docstring's order). Counts and ids only: the
     probabilities predict_as_of returns are discarded here and recomputed by score() at the read (R1).
     `stored`: stored_rows(code, the entry's declared_at text, the read's export directory). A game that passes every
@@ -761,7 +852,21 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     no slot, never a refusal, listed in `ruled_exclusion` with its cause and ruling. A listed game whose premise does
     not hold when it reaches that step (it holds a stored row, or it is item 4(a)'s NO_ROW game before the page)
     REFUSES the read (law 4: the list never removes a member and never relabels another cause). A listed game an
-    earlier step excludes or holds pending, or one beyond the 60th member, is named in `ruled_not_applied` with why."""
+    earlier step excludes or holds pending, or one beyond the 60th member, is named in `ruled_not_applied` with why.
+    `opening` (447's PR 3; None, the window's read, unchanged): the run record's (kickoff, match id) of the window's
+    60th member, and `accounted` its account (confirmation_basis: "members", "no_slot"). The games counted are then
+    those LATER in the window's order by after_opening() (447 C1: "a later kickoff, or the same kickoff and a higher
+    id"; each kickoff cut to the whole second, as the opening is stored; a WINDOW MEMBER only in a later second than
+    the opening's), by the window's own rules; every game at or before the opening is walked as the games at or
+    before the instant are. The ruled list stays window-wide (apply_ruled on declared_at, the game's kickoff cut to
+    the whole second: the entry's one list, 540 item 1 Q4).
+    Named beside them, each never a member: REDATED, 447 C1(d), every game kicking off after declared_at and before
+    the opening in that order that the account does not hold (re-dated, or at sub-second precision in the opening's
+    second with an id not above the opening's), (id, kickoff, status); REDATED_NO_SLOT, a game the account holds as
+    taking no slot whose stored kickoff, still at or before the opening, is not the one recorded for it, (id,
+    recorded kickoff, kickoff, status); MEMBERS_AFTER, a window member whose kickoff is now in a later second than
+    the opening's, (id, kickoff), unless the entry's ruled list names it: then it is excluded by its RULED cause and
+    takes no slot (540 item 1 Q3, the lift by the architect's registry write)."""
     from sqlalchemy import select
 
     from src.db.schema import Competition, Match
@@ -772,7 +877,21 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     games = list(s.execute(select(Match).join(Competition, Competition.id == Match.competition_id)
                            .where(Competition.code == code, Match.season == SEASON)
                            .order_by(Match.utc_date, Match.id)).scalars())
-    after = [m for m in games if m.utc_date is not None and m.utc_date > declared_at]
+    if opening is not None and not isinstance(accounted, dict):
+        raise WindowRefused(f"{code}: an opening without the run record's account: nothing is read (law 4)")
+
+    # the run record's window members (the confirmation's read only): compared with the opening by after_opening()
+    acc_members = set((accounted or {}).get("members") or ()) if opening is not None else set()
+    # every game the run record ACCOUNTS for (its members and the games its loop reached that took no slot): each is
+    # compared by after_opening's member rule, so a game the window's loop reached in the opening's second is after the
+    # opening only once re-dated to a later second (448 item 1(e): then it may enter by its real kickoff)
+    acc_all = acc_members | set((accounted or {}).get("no_slot") or {}) if opening is not None else set()
+
+    def beyond(m):                   # the window: after the instant; the confirmation: later than the opening (447 C1)
+        if opening is None:
+            return m.utc_date > declared_at
+        return after_opening(m.utc_date, m.id, opening, m.id in acc_all)
+    after = [m for m in games if m.utc_date is not None and beyond(m)]
     fin = [m for m in after if _status(m) == "finished"]
     ids = [m.id for m in fin]
     snaps = paper._kalshi_snaps(s, ids)
@@ -785,7 +904,13 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
            "awarded_released": [], "no_raw_code_members": [], "score_disagreement": [], "disagreement_before": 0,
            NO_ROW: [], "first_carrying_page": first_page, RULED: [], "ruled_not_applied": [], TOOK_NO_SLOT: []}
     ruled = dict(ruled or {})
-    apply_ruled(code, ruled, games, declared_at)
+    apply_ruled(code, ruled, games, declared_at, cut=opening is not None)
+    # ARCHITECT 2026-11-25, addendum 540 item 1 Q3 (the confirmation's read only): a WINDOW MEMBER re-dated past the
+    # opening refuses the read before its reservation, naming the game (MEMBERS_AFTER, leagues_confirm.backstop). "It
+    # lifts only by my registry write naming the game (Q4's list); after that the game is out by its named cause and
+    # takes no slot": such a listed member is excluded by RULED cause wherever the loop reaches it, and is not named in
+    # MEMBERS_AFTER. The window's read (no opening) is unchanged: there the list never removes a member.
+    lifted_members = {i for i in ruled if i in acc_members}
     applied: set[int] = set()
     reached: set[int] = set()            # the games the window's loop looked at (counting stops at the 60th)
     premise: list[str] = []              # listed games whose premise (no row after a carrying page) does not hold
@@ -794,7 +919,7 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     def took(m, cause):              # 447 B2(e): each game the loop reached that took no slot, by id, with its cause
         out[TOOK_NO_SLOT].append((m.id, m.utc_date, cause))
     for m in games:
-        if m.utc_date is not None and m.utc_date > declared_at:
+        if m.utc_date is not None and beyond(m):
             continue
         st = _status(m)
         if st == "postponed":        # it can still enter the window by its actual kickoff once re-dated (R4)
@@ -814,6 +939,12 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
         if len(out["members"]) >= WINDOW_GAMES:
             break                    # counting stops at the 60th member
         reached.add(m.id)
+        if m.id in lifted_members:   # 540 item 1 Q3: out by its named cause, no slot, before any other step
+            out["excluded"][RULED] += 1
+            out[RULED].append(ruled[m.id])
+            applied.add(m.id)
+            took(m, RULED)
+            continue
         st = _status(m)
         if st == "stale_orphan":
             out["excluded"]["stale_orphan"] += 1
@@ -899,9 +1030,11 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
         raise WindowRefused(f"{code}: {RULED_FIELD} names game(s) whose premise does not hold (the list clears only a "
                             "game with no stored row kicking off after the page whose binding carried the entry, "
                             "addendum 223 item 2(b)); nothing scored, no slot decided: " + "; ".join(premise))
-    out["ruled_not_applied"] = [{**ruled[i], "why": ("beyond the 60th member (counting stopped before it)"
-                                                     if i not in reached else
-                                                     "an earlier step excludes it or holds it pending")}
+    out["ruled_not_applied"] = [{**ruled[i], "why": (
+        "before the opening: a window game (the window read accounted for it)"
+        if opening is not None and not after_opening(ruled[i]["kickoff"], i, opening, i in acc_all) else
+        "beyond the 60th member (counting stopped before it)" if i not in reached else
+        "an earlier step excludes it or holds it pending")}
                                 for i in ruled if i not in applied]
     if on_tag:
         raise WindowRefused(
@@ -942,17 +1075,41 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     out["state"] = ("accruing" if n < WINDOW_GAMES else "waiting" if out["blocking"] else "ready")
     # 447 C1: the 60th member's PLACE in this order (kickoff, then match id), the confirmation's opening
     out[LAST_MEMBER] = ((out["members"][-1], last_ko) if n >= WINDOW_GAMES else None)
+    # 467 item 1(a): the 1st member's place, for the confirmation's first_game_at and first_game_id
+    ko_of = {m.id: m.utc_date for m in after}
+    out[FIRST_MEMBER] = ((out["members"][0], ko_of[out["members"][0]]) if n >= WINDOW_GAMES else None)
+    out["opening"] = opening
+    if opening is not None:
+        # ARCHITECT 2026-11-26, addendum 556 item 2: "the preflight and the read each print how many games of the
+        # league's season carry a stored kickoff with a fraction of a second. A count, expected 0, refusing nothing."
+        out[SUBSECOND] = sum(1 for m in games if m.utc_date is not None and m.utc_date.microsecond)
+        members = set(accounted.get("members") or ())
+        no_slot = dict(accounted.get("no_slot") or {})
+        out[REDATED] = [(m.id, m.utc_date, _status(m)) for m in games
+                        if m.utc_date is not None and m.utc_date > declared_at
+                        and not after_opening(m.utc_date, m.id, opening, m.id in acc_all)
+                        and m.id not in members and m.id not in no_slot]
+        out[REDATED_NO_SLOT] = [(m.id, no_slot[m.id], m.utc_date, _status(m)) for m in games
+                                if m.id in no_slot and m.utc_date is not None
+                                and not after_opening(m.utc_date, m.id, opening, m.id in acc_all)
+                                and m.utc_date.replace(microsecond=0) != no_slot[m.id]]
+        out[MEMBERS_AFTER] = [(m.id, m.utc_date) for m in after if m.id in members and m.id not in lifted_members]
     return out
 
 
-def read(codes=READ_CODES, now: datetime | None = None, export_dir: str = "exports", s=None) -> dict:
+def read(codes=READ_CODES, now: datetime | None = None, export_dir: str = "exports", s=None,
+         confirmation: bool = False) -> dict:
     """{code: window | {"declared": False} | {"refused": why}} for each league (READ_CODES: PD and the four). Read-only:
     one mode=ro session per league (src.db.database.readonly_scope: no connect hook, no commit, a missing file
     refused, never created). The stored rows are read from `export_dir` BEFORE membership, which excludes a game
     without one by cause (addendum 222 item 4(a)), or refuses the league when the game kicks off after a page whose
     binding carried the entry (addendum 223 item 2(b)); an export file that cannot be read refuses the league (law 4,
     export_pages), never excludes its games. Never scores (R2). `s`: a session to read through instead (the one read's
-    --db copy, opened mode=ro + immutable=1: addendum 447 item 2 B2); None reads the app's database as before."""
+    --db copy, opened mode=ro + immutable=1: addendum 447 item 2 B2); None reads the app's database as before.
+    `confirmation` (447's PR 3, leagues-confirmation-read): the confirmation's read of each league, opening at the run
+    record's opening with its account (confirmation_basis: from the run record ONLY, never a caller or the DB); a run
+    record that does not hold together refuses the league (law 4: never a fall-back to declared_at or verdict.at).
+    False reads the window, as before."""
     from src.db.database import ReadOnlyRefused
     from src.timeutil import utc_now_naive
     now = now or utc_now_naive()
@@ -967,12 +1124,17 @@ def read(codes=READ_CODES, now: datetime | None = None, export_dir: str = "expor
             stored = stored_rows(code, e.get("declared_at"), export_dir)     # refuses on an unreadable export file
             page = carrying_page(code, e.get("id"), e.get("declared_at"), export_dir)
             ruled = ruled_items(code, e)                                   # #803: refuses a malformed item
+            basis = confirmation_basis(e) if confirmation else None       # 447 PR 3: the run record alone
+            op, acc = (basis["opening"], basis) if basis else (None, None)
             with _session(s) as s_:
-                w = membership(s_, code, at, constants, now, stored, page["first"], page["path"], ruled)
+                w = membership(s_, code, at, constants, now, stored, page["first"], page["path"], ruled,
+                               opening=op, accounted=acc)
         except (WindowRefused, ReadOnlyRefused) as err:
             out[code] = {"code": code, "declared": True, "id": e["id"], "refused": str(err)}
             continue
         w["ruled_items_read"] = ruled                                     # #803: the score refuses if it changes
+        if confirmation:
+            w["accounted"] = acc
         w.update({"declared": True, "id": e["id"], "declared_at_text": e.get("declared_at"),
                   "verdict_recorded": verdict_recorded(e),
                   "export_dir": str(export_dir), "export_pages": page["pages"],
@@ -1139,7 +1301,7 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
         # read could put another game before the 60th, so the ids and the state must match the read's or nothing
         # is scored (never games 2-61 for 1-60).
         fresh = membership(s, code, window["declared_at"], c, now or utc_now_naive(), stored, page["first"],
-                           page["path"], ruled)
+                           page["path"], ruled, opening=window.get("opening"), accounted=window.get("accounted"))
         if ruled != window.get("ruled_items_read", {}):   # #803: one read stays one: the list the read printed
             raise WindowRefused(f"{code}: the entry's {RULED_FIELD} changed between the read and the score: read it "
                                 "again; nothing is scored")
@@ -1147,6 +1309,10 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
             raise WindowRefused(f"{code}: the window moved between the read and the score (state "
                                 f"{fresh['state']!r}; members {'unchanged' if fresh['members'] == ids else 'changed'}"
                                 "): read it again; nothing is scored")
+        if any(fresh.get(k) != window.get(k) for k in (REDATED, REDATED_NO_SLOT, MEMBERS_AFTER)):
+            raise WindowRefused(f"{code}: the games named against the opening (447 C1(d)'s findings, the took-no-slot "
+                                "games re-dated, the window members after it) moved between the read and the score: "
+                                "read it again; nothing is scored")
         rows = lc._season_rows(s, code, SEASON)
         snaps = paper._kalshi_snaps(s, ids)
         mism = kalshi_legs.mismatched(s, ids)
@@ -1175,7 +1341,10 @@ def score(window: dict, export_dir: str | None = None, now: datetime | None = No
     out.update({"code": code, "match_ids": ids, "constants": dict(c), "audit": a,
                 # 447 B2(e) and C1, from the score's own derivation: every reached game that took no slot, and the
                 # 60th member's place
-                TOOK_NO_SLOT: list(fresh[TOOK_NO_SLOT]), LAST_MEMBER: fresh[LAST_MEMBER]})
+                TOOK_NO_SLOT: list(fresh[TOOK_NO_SLOT]), LAST_MEMBER: fresh[LAST_MEMBER],
+                # 467 item 1(a) and 447 C1(d), the confirmation's (None in the window's read)
+                FIRST_MEMBER: fresh[FIRST_MEMBER], REDATED: fresh.get(REDATED),
+                REDATED_NO_SLOT: fresh.get(REDATED_NO_SLOT)})
     return out
 
 
@@ -1189,8 +1358,40 @@ def _causes(cnt: Counter, labels, below=()) -> str:
     return " · ".join(got) if got else "none"
 
 
+def redated_lines(code: str, w: dict) -> list[str]:
+    """The confirmation's three lists against the opening, each counted (0 included) and each game named: 447 C1(d)'s
+    FINDINGS (a game before the opening in the window's order that the run record does not account for: re-dated, or
+    at sub-second precision in the opening's second with an id not above the opening's; never called re-dated as a
+    fact); the took-no-slot games re-dated to a kickoff still at or before the opening (accounted in the run record,
+    so no finding, and in neither cohort: printed so as never to be silent); and a window member re-dated to a later
+    second than the opening's (the confirmation read refuses on it)."""
+    def ko(t):
+        return f"{t:%Y-%m-%dT%H:%M:%SZ}" if isinstance(t, datetime) else str(t)
+    fnd, nos, aft = w.get(REDATED) or [], w.get(REDATED_NO_SLOT) or [], w.get(MEMBERS_AFTER) or []
+    L = [f"  - {code} · not accounted for by the run record, in neither cohort (447 C1(d)): {len(fnd)} (a {SEASON} "
+         "game kicking off after declared_at and before the opening in the window's order that the run record does "
+         "not account for: re-dated, or at sub-second precision in the opening's second with an id not above the "
+         "opening's; a FINDING, never a member)"]
+    L += [f"    - FINDING match {mid} · kickoff {ko(k)} · status {st}" for mid, k, st in fnd]
+    L.append(f"  - {code} · took no slot in the window, re-dated, still at or before the opening: {len(nos)} "
+             "(accounted for in the run record, so no finding; in neither cohort)")
+    L += [f"    - match {mid} · recorded {ko(r)} · now {ko(k)} · status {st}" for mid, r, k, st in nos]
+    L.append(f"  - {code} · {SEASON} games with a stored kickoff carrying a fraction of a second: "
+             f"{w.get(SUBSECOND, 0)} (addendum 556 item 2: a count, expected 0, refusing nothing; above 0 the "
+             "architect reads the cohort by hand before a record is made)")
+    if aft:
+        L.append(f"  - {code} · window members now later than the opening: {len(aft)} (re-dated to a later second "
+                 "than the opening's; the confirmation read refuses: a game already scored is never a confirmation "
+                 "game)")
+        L += [f"    - match {mid} · kickoff {ko(k)}" for mid, k in aft]
+    return L
+
+
 def lines(res: dict, now: datetime) -> list[str]:
-    """The counts-only print (R2). Never a log-loss, probability, hit or running figure of either arm."""
+    """The counts-only print (R2). Never a log-loss, probability, hit or running figure of either arm. A window read
+    with an opening (447's PR 3, the confirmation's) names it in the head, says "at or before the opening (in the
+    window's order)" for the instant, adds the lines of the games named against the opening (447 C1(d)) and says
+    CONFIRMATION READY / WAITING in place of the verdict line; without one the print is the window's, unchanged."""
     L = [f"LEAGUES WINDOW — THE COHORT READER ({ADDENDUM}, R2-R4, R8; #322) · read-only · counts only (R2: nothing "
          f"of either arm before n = {WINDOW_GAMES}) · season {SEASON} · read clock {now:%Y-%m-%dT%H:%M:%SZ}"]
     for code, w in res.items():
@@ -1201,11 +1402,20 @@ def lines(res: dict, now: datetime) -> list[str]:
             L.append(f"{code} · REFUSED ({w['id']}): {w['refused']}")
             continue
         c = w["constants"]
-        L.append(f"{code} · declared_at {w['declared_at']:%Y-%m-%dT%H:%M:%SZ} ({w['id']}; frozen "
-                 f"{c['production_version']}, rho {c['rho']:g}, Elo goal coefficient {c['elo_goal_coeff']:g}, the run "
-                 f"record's) · members {w['n']} of {WINDOW_GAMES} · state {w['state']}")
-        L.append(f"  - stored games of {SEASON} {w['stored_games']} · kicking off at or before the instant: final or "
-                 f"never walked {w['at_or_before']} (never in the window) · postponed {w['postponed_before']} "
+        op = w.get("opening")
+        if op:                       # 447's PR 3: the confirmation's read, named by its opening
+            L.append(f"{code} · confirmation of {w['id']} · opens after match {op[1]} at {op[0]:%Y-%m-%dT%H:%M:%SZ} "
+                     f"(447 C1, the window's order; frozen {c['production_version']}, rho {c['rho']:g}, Elo goal "
+                     f"coefficient {c['elo_goal_coeff']:g}, the run record's) · members {w['n']} of {WINDOW_GAMES} · "
+                     f"state {w['state']}")
+        else:
+            L.append(f"{code} · declared_at {w['declared_at']:%Y-%m-%dT%H:%M:%SZ} ({w['id']}; frozen "
+                     f"{c['production_version']}, rho {c['rho']:g}, Elo goal coefficient {c['elo_goal_coeff']:g}, the "
+                     f"run record's) · members {w['n']} of {WINDOW_GAMES} · state {w['state']}")
+        before, never = (("at or before the opening (in the window's order)", "never in the confirmation") if op else
+                         ("kicking off at or before the instant", "never in the window"))
+        L.append(f"  - stored games of {SEASON} {w['stored_games']} · {before}: final or "
+                 f"never walked {w['at_or_before']} ({never}) · postponed {w['postponed_before']} "
                  f"({NOT_PLACED}) · not final {w['pending'].get('before_instant', 0)} (pending, below)"
                  + (f" · score disagreement {w['disagreement_before']} (pending, below)"
                     if w.get("disagreement_before") else ""))
@@ -1218,7 +1428,9 @@ def lines(res: dict, now: datetime) -> list[str]:
         L.append(f"  - pending (the read waits for them): scheduled {w['to_come']} · LIVE {pend['live']} · un-ingested "
                  f"{pend['uningested']}" + "".join(f" · {text} {pend[key]}" for key, text in PENDING[3:]
                                                     if pend.get(key)))
-        L.append(f"  - after the instant: not placed {w['not_placed']} ({NOT_PLACED})")
+        L.append(f"  - after the {'opening' if op else 'instant'}: not placed {w['not_placed']} ({NOT_PLACED})")
+        if op:                       # 447 C1(d): counted and named, never a member, never silent
+            L.extend(redated_lines(code, w))
         if w.get("awarded_released"):
             L.append(f"  - AWD / WO rows released from the members' walk {len(w['awarded_released'])} (neither scored "
                      "nor walked: addendum 16 item 1 Q2, the one predicate, addendum 181 item 2):")
@@ -1240,7 +1452,15 @@ def lines(res: dict, now: datetime) -> list[str]:
                     "elsewhere finds none and excludes every game above by that cause)" if not w.get("export_pages")
                     else f" (none labelled {w.get('declared_at_text')} among the {w['export_pages']} shadow export "
                     "file(s) there)"))
-        if w.get("verdict_recorded"):
+        if op:                       # the confirmation's state in place of the verdict line (447's PR 3)
+            if w["state"] == "ready":
+                L.append(f"  - {code} · CONFIRMATION READY: {WINDOW_GAMES} members after the opening, none pending "
+                         f"before the {WINDOW_GAMES}th. Its one read is leagues-confirmation-read; nothing is scored here")
+            elif w["state"] == "waiting":
+                L.append(f"  - {code} · CONFIRMATION WAITING: {WINDOW_GAMES} members after the opening, "
+                         f"{w['blocking']} game(s) before the {WINDOW_GAMES}th pending (not final, or a score "
+                         "disagreement; R4: the read waits, never skips)")
+        elif w.get("verdict_recorded"):
             cut = fence_cutoff(code, SEASON)
             ent = declaration(code)
             L.append(f"  - {code} · the verdict is recorded in {w['id']}: "

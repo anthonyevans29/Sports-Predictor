@@ -135,27 +135,39 @@ def test_c2_pd_soccer_expansion_record_is_no_longer_refused_once_the_leagues_ver
 
 # ------------------------------------------------------------------------------ C1(b): record_confirmation --
 
-def _confirming_file(tmp_path, opening=OPENING):
+def _confirming_file(tmp_path, opening=OPENING, run_ids=None):
+    """`run_ids`: the window run's ids file under tmp_path/ids (ARCHITECT 2026-11-25, addendum 540 item 1 Q5(a): an
+    entry holding an opening refuses its record without one); None writes none (the refusals tested here come first)."""
     p = tmp_path / "x.json"
     e = {"id": "x-v1", "status": "confirming", "confirmation_plan": dict(PLAN),
          "verdict": {"verdict": "PASS", "at": "2026-12-07T12:00:00Z"},
-         "run": {"result": ({"confirmation_opens_after": opening} if opening else {}), "ids_file": None}}
+         "run": {"result": ({"confirmation_opens_after": opening} if opening else {}),
+                 "ids_file": "docs/registry/ids/x-v1.txt" if run_ids is not None else None}}
     p.write_text(json.dumps([e]))
+    if run_ids is not None:
+        (tmp_path / "ids").mkdir(exist_ok=True)
+        (tmp_path / "ids" / "x-v1.txt").write_text("\n".join(str(i) for i in run_ids) + "\n")
     return str(p)
 
 
-def _res(first):
-    return {"first_game_at": first, "log_loss": 0.98, "reference_log_loss": 0.99}
+def _res(first, first_game_id=None):
+    out = {"first_game_at": first, "log_loss": 0.98, "reference_log_loss": 0.99}
+    if first_game_id is not None:            # 467 item 1(a): the first game's id beside its kickoff (447's PR 3)
+        out["first_game_id"] = first_game_id
+    return out
 
 
 @pytest.mark.parametrize("first, ok", [("2026-12-06T14:59:59Z", False), ("2026-12-06T15:00:00Z", True),
                                        ("2026-12-06T15:00:00", False), ("2026-12-06T15:00:00+00:00", False),
                                        ("2026-12-06T15:00:00.000001Z", False), ("2026-12-06T16:00:00Z", True)])
 def test_c1b_the_first_game_is_checked_against_the_openings_kickoff_not_the_verdict(tmp_path, first, ok):
-    """A game played before the verdict's stamp may enter (447 C1(c)): the opening is the bound, not verdict.at."""
-    p = _confirming_file(tmp_path)
-    if ok:
-        e = reg.record_confirmation("x-v1", list(range(1, 61)), _res(first), "r", p, str(tmp_path / "ids"))
+    """A game played before the verdict's stamp may enter (447 C1(c)): the opening is the bound, not verdict.at. A
+    first game AT the opening's kickoff carries an id above the opening's match (4243 > 4242; addendum 467 item 1(a),
+    447's PR 3: the tie on each side of the id is tests/test_467_first_game_id.py's)."""
+    p = _confirming_file(tmp_path, run_ids=[9001])
+    if ok:                                   # 540 item 1 Q5: the run's ids file there, first_game_id among the 60
+        scored = [4243] + list(range(1, 60))
+        e = reg.record_confirmation("x-v1", scored, _res(first, 4243), "r", p, str(tmp_path / "ids"))
         assert e["confirmation"]["outcome"] == "CONFIRMED"
     else:
         with pytest.raises(reg.RegistryError, match="not start earlier than the opening"):

@@ -352,6 +352,7 @@ def run(code, db, exports, pages_digest, word, fingerprint, ruling, now: datetim
         if echo:
             for ln in lr._label(code, path, sha, pages):
                 echo(ln.strip())
+            echo(subsecond_line(code, w))           # 556 item 2: the read prints it too (stored nowhere)
         op = w["opening"]
         meta = {"architect_word": word, "confirmation_fingerprint": fp, "copy_sha256": sha,
                 "pages_digest": pages["digest"], "pages": pages["pages"], "code_sha": lr._code_sha(),
@@ -411,6 +412,15 @@ def result(code, e, w, r, sha, pages, word, fp, now, held) -> dict:
         raise SpentRefused(f"the confirmation could not be written as JSON ({err}); the reservation stands and the "
                            "read is spent; nothing recorded") from err
     return out
+
+
+def subsecond_line(code: str, w: dict) -> str:
+    """ARCHITECT 2026-11-26, addendum 556 item 2: the count of the league's season games whose stored kickoff carries
+    a fraction of a second, printed by the preflight (in leagues_window.redated_lines) and by the read. A count,
+    expected 0, refusing nothing and stored in no record: above 0 the architect reads the cohort by hand before a
+    record is made (the only case where the window's order and a cut to the second can part)."""
+    return (f"{code} · {lw.SEASON} games with a stored kickoff carrying a fraction of a second: "
+            f"{w.get(lw.SUBSECOND, 0)} (addendum 556 item 2: expected 0, refusing nothing)")
 
 
 def run_lines(res: dict) -> list[str]:

@@ -202,6 +202,7 @@ REDATED = "redated_finding"       # 447 C1(d): a game before the opening, in the
                                   # account for: re-dated, or (sub-second) in the opening's second with an id not above
                                   # the opening's. The key's name is not a statement that the game was re-dated.
 REDATED_NO_SLOT = "redated_no_slot"   # a took-no-slot game re-dated to a kickoff still at or before the opening
+SUBSECOND = "subsecond_kickoffs"   # 556 item 2: the season's games whose stored kickoff carries a fraction of a second
 MEMBERS_AFTER = "window_members_after"   # a window member re-dated to a LATER second than the opening's (refused, Q3)
 NO_ROW_TEXT = "no prospective row under the entry: the entry was not on the host's tag"
 LEAGUE_FIELD = "competition"                  # the entry's league field (181 item 6: equal to the code looked up)
@@ -1079,6 +1080,9 @@ def membership(s, code: str, declared_at: datetime, constants: dict, now: dateti
     out[FIRST_MEMBER] = ((out["members"][0], ko_of[out["members"][0]]) if n >= WINDOW_GAMES else None)
     out["opening"] = opening
     if opening is not None:
+        # ARCHITECT 2026-11-26, addendum 556 item 2: "the preflight and the read each print how many games of the
+        # league's season carry a stored kickoff with a fraction of a second. A count, expected 0, refusing nothing."
+        out[SUBSECOND] = sum(1 for m in games if m.utc_date is not None and m.utc_date.microsecond)
         members = set(accounted.get("members") or ())
         no_slot = dict(accounted.get("no_slot") or {})
         out[REDATED] = [(m.id, m.utc_date, _status(m)) for m in games
@@ -1372,6 +1376,9 @@ def redated_lines(code: str, w: dict) -> list[str]:
     L.append(f"  - {code} · took no slot in the window, re-dated, still at or before the opening: {len(nos)} "
              "(accounted for in the run record, so no finding; in neither cohort)")
     L += [f"    - match {mid} · recorded {ko(r)} · now {ko(k)} · status {st}" for mid, r, k, st in nos]
+    L.append(f"  - {code} · {SEASON} games with a stored kickoff carrying a fraction of a second: "
+             f"{w.get(SUBSECOND, 0)} (addendum 556 item 2: a count, expected 0, refusing nothing; above 0 the "
+             "architect reads the cohort by hand before a record is made)")
     if aft:
         L.append(f"  - {code} · window members now later than the opening: {len(aft)} (re-dated to a later second "
                  "than the opening's; the confirmation read refuses: a game already scored is never a confirmation "

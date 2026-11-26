@@ -1054,3 +1054,24 @@ def test_codex_a_no_slot_item_without_a_text_cause_refuses_the_basis(conf, cause
     with pytest.raises(lw.WindowRefused, match=r"each cause present text"):
         lw.confirmation_basis(e)
     assert lw.confirmation_basis(reg.get(EID, reg.LEDGER))["no_slot"]                 # the stored record still reads
+
+
+def test_556_a_whole_second_world_prints_a_subsecond_count_of_0(conf):
+    """ARCHITECT 2026-11-26, addendum 556 item 2: "the preflight and the read each print how many games of the
+    league's season carry a stored kickoff with a fraction of a second. A count, expected 0, refusing nothing." """
+    L = _cpre(conf)
+    assert any("games with a stored kickoff carrying a fraction of a second: 0 (addendum 556 item 2" in x for x in L)
+
+
+def test_556_the_preflight_and_the_read_print_the_subsecond_count_and_store_it_nowhere(conf_sub):
+    """The sub-second world (SUB_59 at +200 ms, 2059 at +500 ms, 3000 at +700 ms): the preflight and the read (its
+    echo) print 3, the read is not refused by it, and neither the result nor the ledger holds it."""
+    Ls = _cpre(conf_sub)
+    assert any("games with a stored kickoff carrying a fraction of a second: 3 (addendum 556 item 2" in x for x in Ls)
+    seen = []
+    res = lc.run("SA", str(conf_sub["copy"]), str(conf_sub["exports"]), conf_sub["digest"], WORD, _cfp(Ls), RULING,
+                 now=NOW, no_fetch=False, echo=seen.append)
+    assert any("fraction of a second: 3 (addendum 556 item 2: expected 0, refusing nothing)" in x for x in seen)
+    assert "subsecond" not in json.dumps(res) and "fraction of a second" not in json.dumps(res)
+    rec = lc.record("SA", res, RULING)
+    assert "subsecond" not in json.dumps(rec) and "fraction of a second" not in json.dumps(rec)

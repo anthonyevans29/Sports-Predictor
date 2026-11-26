@@ -1419,3 +1419,27 @@ def test_555_2d_https_in_any_case_is_read_and_the_index_path_is_left_as_it_is(ca
     code, out, rec, fake = run(capsys, ["--report", "--index-url", plain, "--terms-ruling", "addendum 999 item 1"],
                                pages)
     assert [u for u, _ in fake.asked][0] == plain
+
+
+
+# ---- #1155 (#1151's follow-up, scheduled by addendum 558 item 4): the option is stripped once, then checked ------------
+
+@pytest.mark.parametrize("bad", ["\u00a0https://[bad", "\u00a0https://[Synthetic-Rowname]/Injury-Report.pdf",
+                                 " \u2003https://[documents.example.invalid/x.pdf"])
+def test_1155_a_leading_unicode_space_before_a_url_that_does_not_parse_is_refused_never_raised(capsys, bad):
+    code, out, rec, fake = run(capsys, ["--report", "--document-url", bad, "--terms-ruling", "addendum 999 item 1"],
+                               {})
+    err = capsys.readouterr().err
+    assert code == probe.REFUSED and fake.asked == [] and rec["fetched"] == []
+    assert "--document-url does not parse as a URL" in out and out.strip().splitlines()[-1].startswith(probe.TAIL)
+    assert "Rowname" not in out and "Traceback" not in err and rec["document_url"] == bad
+
+
+def test_1155_the_stripped_url_is_fetched_and_the_receipt_keeps_the_value_as_given(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "read_pdf_pages", lambda data: PAGE_TEXT)
+    given = "\u00a0" + DOC + " \n"
+    code, out, rec, fake = run(capsys, ["--report", "--document-url", given, "--terms-ruling", "addendum 999 item 1"],
+                               doc_pages())
+    assert code == probe.OK and [u for u, _ in fake.asked] == [DOC]
+    assert rec["document_url"] == given and rec["report"]["url"] == DOC
+    assert DOC not in out

@@ -1014,7 +1014,7 @@
       "issue": 656,
       "registry_id": "soccer-v23",
       "competitions": ["PL"],
-      "state": "declared",
+      "state": "to declare",
       "steps": [
         {
           "what": "the design PR (addendum 216 item 3; addendum 230 item 1(d); addendum 248 item 2(b)): the fit, its constraints, the early-season treatment, the harness (one run at the frozen soccer gate on the frozen pot, the reservation pattern), the frozen-bar text written before any result; no run and no declaration before 11-20",
@@ -1038,6 +1038,15 @@
           "what": "the one run on the architect's word, the operator's block, on a .backup copy opened immutable=1 (addendum 216 item 3; soccer-v23-gate)",
           "owner": "operator",
           "due": "2026-11-27",
+          "done": {
+            "date": "2026-11-27",
+            "receipt": "n 14,887 scored, soccer-v23's log-loss 1.017249: (i) against v22 re-walked on this harness, 1.023066: +0.005817, at least 0.0050, it holds; (ii) against v22 recorded, PL 2024/25, over the same 340 matches: recorded 0.9956, soccer-v23 0.992925: +0.002675, it does not hold; (iii) against v22 recorded, PL 2025/26, over the same 340 matches: recorded 1.0465, soccer-v23 1.045811: +0.000689, it does not hold. VERDICT REJECT, addendum 573, #656 comment 7220079040"
+          }
+        },
+        {
+          "what": "the next candidate's proposal on #656, no code (addendum 573 item 5)",
+          "owner": "code",
+          "due": "2026-12-04",
           "done": null
         }
       ],

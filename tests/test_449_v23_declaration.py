@@ -100,7 +100,8 @@ def test_449_items_1_and_6a_declared_at_the_stamp_appended_after_bl1_unrun():
     ids = [x["id"] for x in entries]
     assert ids.count(v.EID) == 1 and ids.index(v.EID) == ids.index("leagues-bl1-v1") + 1   # after BL1, found by id
     assert e["declared_at"] == "2026-11-23T13:05:00Z" and e["sport"] == "soccer"
-    assert (e["status"], e["run"], e["verdict"]) == ("declared", None, None)
+    # ran once 2026-11-27 and REJECTED (ARCHITECT 2026-11-27, addendum 573 item 4(c)): closed, by record_verdict
+    assert (e["status"], e["run"]["run_at"], e["verdict"]["verdict"]) == ("closed", "2026-11-27T13:53:47Z", "REJECT")
     assert LEDGER.read_text() == json.dumps(entries, indent=2) + "\n"            # the file's own form, unchanged
 
 
@@ -142,12 +143,14 @@ def test_449_item_5_the_confirmation_window_and_plan():
     assert reg.check_plan(e["confirmation_plan"]) == PLAN
 
 
-def test_449_item_6c_the_three_states_read_the_real_entry_clean_and_the_gate_takes_it():
-    """Item 6(c): constants_state, slots_state and bar_state each read the entry clean; the plan passes check_plan;
-    the gate's own reader finds it declared and unrun. Nothing is run."""
+def test_449_item_6c_the_three_states_read_the_real_entry_clean_and_the_gate_refuses_a_second_run():
+    """Item 6(c): constants_state, slots_state and bar_state each read the entry clean; the plan passes check_plan.
+    The gate's own reader found it declared and unrun until the one run of 2026-11-27; now that the run is recorded
+    (addendum 573) it refuses, and nothing is run."""
     _, e = _real()
     assert v.constants_state(e) is None and v.slots_state(e)[1] is None and v.bar_state(e) is None
-    assert v.declared_unrun() == e
+    with pytest.raises(v.GateRefused, match="must be declared and unrun"):
+        v.declared_unrun()
 
 
 # --------------------------------------------------------------------------- item 6(b): the reference-only bar --

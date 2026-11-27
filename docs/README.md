@@ -53,7 +53,7 @@ Kinds: **live runbook** (steps or a reference read today); **spec** (a declarati
 - `docs/specs/snapshot-retention.md`: snapshot retention, a ruled design; its status line says nothing in it is built. **spec**. #82.
 - `docs/specs/soccer-expansion-v1.md`: soccer-expansion-v1, the declaration (the production soccer model on PD, SA, BL1, FL1, ELC). **spec**. Roadmap lane pd (#322); registry `soccer-expansion-v1`.
 - `docs/specs/soccer-parity-acceptance.md`: soccer backtest/production acceptance: one parity test and five pins. **spec**. Addenda 230 item 1(e), 248 item 2(a), 249 item 1, 251 item 2, 253 item 2; #788.
-- `docs/specs/soccer-v23.md`: soccer-v23, the design of v22's joint log-linear successor; declared by addendum 449 (2026-11-23), not run. **spec**. Lane soccer-v23 (#656), with #789.
+- `docs/specs/soccer-v23.md`: soccer-v23, the design of v22's joint log-linear successor; declared by addendum 449 (2026-11-23), run once on 2026-11-27 and REJECTED (addendum 573). **spec**. Lane soccer-v23 (#656), with #789.
 - `docs/specs/unl-venue-skew-test.md`: UNL venue eligibility, the favorite-skew test (v2, ratified 2026-10-06). **spec**. #286.
 - `docs/specs/venue-quote-age.md`: venue edge, the quote age (a fetch time is not a quote age). **spec**. #91 (addendum 4 E, ARCHITECT 2026-10-07).
 
@@ -89,11 +89,13 @@ run's files arrive on `main` as the laptop wrote them (each one's adding commit 
 - `docs/registry/ids/nhl-v7.txt`: nhl-v7's scored ids, written by `record_run()` from `python cli.py nhl-backtest`. **record**. #153.
 - `docs/registry/ids/nhl-v8.txt`: nhl-v8's scored ids, written by `record_run()` from `python cli.py nhl-backtest`. **record**. #153.
 - `docs/registry/ids/soccer-expansion-v1.txt`: soccer-expansion-v1's scored ids, written by `python cli.py soccer-expansion-gate`. **record**. Lane pd (#322).
+- `docs/registry/ids/soccer-v23.txt`: soccer-v23's scored ids from the one run (14,887), written by `python cli.py soccer-v23-gate`. **record**. Lane soccer-v23 (#656).
 - `docs/registry/ids/soccer-expansion-v1.cohort.txt`: soccer-expansion-v1's frozen confirmation cohort (60 PD fixtures), written by `python cli.py soccer-expansion-confirm --freeze-cohort`. **record**. Lane pd (#322).
 - `docs/registry/mlb-pitchers-v1.started.json`: mlb-pitchers-v1's run reservation, written by `python cli.py mlb-pitchers-gate`. **record**. #507.
 - `docs/registry/ncaa-elo-v1r.started.json`: ncaa-elo-v1r's run reservation, written by `python cli.py ncaa-v1r-gate`. **record**. #79.
 - `docs/registry/ncaa-elo-v2.started.json`: ncaa-elo-v2's run reservation, kept as the record that the one run was spent (addendum 302 item 3): the architect's word, the cross-ref guard's line, the stream fingerprint and its game count, the scored set's size, the coverage by season, the frozen logistic scale, and the second read's coverage, size and baseline flag. Written by `python cli.py ncaa-gate --id ncaa-elo-v2`. **record**. Lane ncaa (#79).
 - `docs/registry/nfl-elo-v2.started.json`: nfl-elo-v2's run reservation, written by `python cli.py nfl-v2-gate`. **record**. Lane nfl-v2 (#783).
+- `docs/registry/soccer-v23.started.json`: soccer-v23's run reservation, written by `python cli.py soccer-v23-gate`. **record**. Lane soccer-v23 (#656).
 - `docs/registry/soccer-expansion-v1.started.json`: soccer-expansion-v1's run reservation, written by `python cli.py soccer-expansion-gate`. **record**. Lane pd (#322).
 
 ## docs/ledger/

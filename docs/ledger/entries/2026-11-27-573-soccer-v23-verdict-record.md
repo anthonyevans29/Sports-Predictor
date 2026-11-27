@@ -133,6 +133,11 @@
   - Item 4(a): the v23 shadow wakes only on a recorded PASS with status `confirming` (`soccer_v23_shadow`, 449 item 5); with REJECT and `closed` it stays dormant. No confirmation window opens and no export changes.
   - Item 4(d): CLAUDE.md's Soccer paragraph gains the sentence verbatim, after the v22 sentence (the paragraph's first sentence, ending "n=30 pre-committed read pending.").
   - Item 4(e): `docs/roadmap.json`, lane soccer-v23: the run's step (owner operator, due 2026-11-27) done 2026-11-27 with item 2's three figures and "VERDICT REJECT, addendum 573, #656 comment 7220079040" as its receipt; the state `declared` → `to declare`; `earliest_live` stays null; one step appended, "the next candidate's proposal on #656, no code (addendum 573 item 5)", owner code, due 2026-12-04. No date moves, so no moved line; the roadmap's validation takes this shape as written.
+  - The tests follow the record, as the mlb-pitchers-v1 and nfl-elo-v2 records did:
+    - `tests/test_soccer_v23_text.py`, `tests/test_soccer_v23_harness.py` and `tests/test_449_v23_declaration.py` pinned the entry as declared and unrun. They now pin the one run, the REJECT and the figures.
+    - They also pin the ids file's sha, the kept reservation, and the gate refusing a second run at its first check ("must be declared and unrun", the reservation's bytes unchanged).
+    - The lane test pins the four steps and the run's receipt.
+    - No source code changes.
   - Item 4(f): the fold PR, the compare, the tag v1.6.12 and the deploy follow this PR; the tag and the deploy are the architect's.
   - Item 5 is DEV 3's; nobody computes a figure of soccer-v23 or a variant (5(c)), and this PR computes none: every figure is quoted from the run record and the console.
 

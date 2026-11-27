@@ -4,4 +4,5 @@
 - **What follows:** v22 stays the live soccer model. The v23 shadow stays dormant, since it wakes only on a recorded PASS, and no confirmation window opens.
 - **CLAUDE.md:** the Soccer paragraph gains 573 item 4(d)'s sentence verbatim.
 - **docs/roadmap.json, lane soccer-v23:** the run's step is done 2026-11-27 with its receipt. The state is "to declare". One step is appended: the next candidate's proposal on #656, no code, due 2026-12-04 (573 item 4(e)). No date moves.
-- No code changes. The bar did not move. Refs #656.
+- **Tests follow the record:** the real-entry pins in `tests/test_soccer_v23_text.py`, `tests/test_soccer_v23_harness.py` and `tests/test_449_v23_declaration.py` now pin the one run, the REJECT, the figures, the shas and the kept reservation. They also pin the gate refusing a second run at its first check. The lane test pins the four steps and the run's receipt.
+- No source code changes. The bar did not move. Refs #656.

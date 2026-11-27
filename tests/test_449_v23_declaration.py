@@ -143,7 +143,7 @@ def test_449_item_5_the_confirmation_window_and_plan():
     assert reg.check_plan(e["confirmation_plan"]) == PLAN
 
 
-def test_449_item_6c_the_three_states_read_the_real_entry_clean_and_the_gate_takes_it():
+def test_449_item_6c_the_three_states_read_the_real_entry_clean_and_the_gate_refuses_a_second_run():
     """Item 6(c): constants_state, slots_state and bar_state each read the entry clean; the plan passes check_plan.
     The gate's own reader found it declared and unrun until the one run of 2026-11-27; now that the run is recorded
     (addendum 573) it refuses, and nothing is run."""

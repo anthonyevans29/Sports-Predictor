@@ -251,7 +251,13 @@ become MORE binding under an income goal, never less."
   nulls); Kalshi KXNHLGAME live. NO MODEL YET — the frozen gate stands
   (`nhl-backtest`). **PHASE 2 CLOSED 2026-09-25:** v1-v4 all FAILED
   (0.6909 / 0.6921 / 0.6952 / 0.6907 vs the 0.6866 bar — the
-  schedule-only floor is ~0.691). MODEL TRACK SUSPENDED; NHL runs
+  schedule-only floor is ~0.691). Four more candidates followed through the
+  same gate, and each FAILED (registry nhl-v5 to nhl-v8; addendum 565 item 5):
+  v5 (v1 with a goalie term, 09-30) 0.6912; v6 (Elo updated on the xG margin,
+  10-02) 0.6886; v7 (v6 with the xG shot-type label leak removed, 10-02)
+  0.6885, the best of the eight; v8 (v7 with scale and k fitted by maximum
+  likelihood, 10-02) 0.6963. Shot information was the one positive increment
+  (+0.0023 on v6 and v7). MODEL TRACK SUSPENDED; NHL runs
   MARKET-ONLY via `export-fixtures --competition NHL` (season gate
   2026-09-29, the operator-confirmed opening day). The goalie probe came
   back NEGATIVE (2026-09-26). SOURCING DECIDED 2026-11-13: "NHL — none

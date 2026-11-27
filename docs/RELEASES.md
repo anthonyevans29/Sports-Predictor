@@ -161,6 +161,7 @@ its compare verdict.
 | `v1.6.9` | 2026-11-15 19:57:26Z | `482de3fdc4ee81ee532733975fd127999d6b7843` | `eb3becef4f5f24524cefa803923c463e416e908c` | #1027 |
 | `v1.6.10` | 2026-11-21 12:57:39Z | `67f02dfc1bdcd30ab7860dd1cc5c78737908a1d8` | `a081dceded6b897f3f3623de16518bdd0acb9bdd` | #1061 |
 | `v1.6.11` | 2026-11-25 14:54:00Z | `3b63269b5463ebddde57bf3781bf79caeca7ae54` | `4d4f00497517db7d332a08521f35343b65bfcd62` | #1138 |
+| `v1.6.12` | 2026-11-27 17:41:07Z | `412003a7cb8d3e115ff11b316f0384978536f5b1` | `d86021de71bec0189b60efd82869f90f6fc67efd` | #1173 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -765,6 +766,95 @@ its compare verdict.
     - It carries the notes in two comments (7171823071 and 7171823693). Read back from GitHub, each with the server's
       attribution footer after it, the two bodies joined by one blank line are the tag message character for character
       (77,642 characters, its final newline included).
+- **v1.6.12** (ARCHITECT 2026-11-27 12:10 ET, addendum 578 item 2): no migration, and none was due. The commit is the
+  #1171 merge 412003a7, as v1.6.11's was the #1121 merge: the ledger compile a152b22d (32 changelog fragments, 33
+  ledger entries) over 6d511184 (#1170's merge). Its tree 5132fedc is the tree of the architect's own compile on
+  6d511184 (577 item 1(a)). The tag was cut by the operator's own hand from the architect's block and is on origin, as
+  Code fetched it. Its tagger stamp is 2026-11-27 17:41:07Z (12:41:07 -0500). ONE TAG AND ONE DEPLOY (565 item 2(e),
+  for a REJECT; 573 item 4(f)): it carries the record of soccer-v23's one run and its REJECT (#1170) and every merge
+  since v1.6.11, and the host went from v1.6.10 to v1.6.12 in one deploy; v1.6.11 was never deployed by itself.
+  **DEPLOYED 2026-11-27 18:25Z. PRODUCTION = v1.6.12** (580 item 2).
+  - **Step 1, the tag's three conditions (577 item 2, verbatim):** "2. THE TAG's THREE CONDITIONS (docs/RELEASES.md),
+    for v1.6.12: (a) THE HOST's RECEIPTS: read this morning by the operator's block (572 item 1(a)): 0 failing rows in
+    the 47 hours since Wednesday's read, which itself held 0 over 98 hours; 22 timers, clean; no failed unit. (b) THE
+    DAY's COMPARE (2026-11-26) IS CLEAN, by the repo's own tool on the mirror at main 6d511184: one paired kind
+    compared, fixtures_NHL, 27 rows a side in the window, no difference; nine files one-sided as expected; the skew
+    named is the laptop's 8de2a3ac against the host's 67f02dfc. (c) CI ON THE FOLD's MERGE COMMIT: the tag block reads
+    it itself and stops if it is not green. Then ONE tag and ONE deploy, v1.6.10 to v1.6.12, by the operator's blocks,
+    clear of 17:25Z to 17:45Z and 19:20Z to 19:45Z (572 item 2) beside the standing windows. DEV 1: the Release Issue
+    at the tag, as you say."
+  - **Step 2, the fold (577 item 1 and 578 item 1, verbatim):** "1. DEV 1 — THE FOLD, #1171, IS READ WHOLE AT a152b22d
+    AND IS MERGE-READY. (a) I ran the compile on main 6d511184 myself: the same tree, 5132fedc, and pending reads 0
+    after it. The diff is BACKLOG.md, CHANGELOG.md and 65 deleted fragments, 32 and 33. (b) Every check of the head is
+    a success; no review thread. (c) The release notes on the fold's commit, by my own run: exit 0, 499 lines, 32
+    sections, no AMENDED line and no failing line. They agree with yours. (d) Its merge block is with the operator;
+    the block writes the notes file for the tag." Then: "1. THE FOLD, by the agent's block, read by me: #1171 merged
+    at a152b22d; main is 412003a7cb8d3e115ff11b316f0384978536f5b1, its tree 5132fedc, the fold's; pending fragments 0
+    and 0. The notes file for the tag, written on that commit: exit 0, 499 lines, 32 sections, no AMENDED line, no
+    failing line; its first line names the commit." #1171 merged 2026-11-27T17:07:32Z.
+  - **The tag ruled (578 item 2, verbatim):** "2. THE TAG v1.6.12 IS RULED, on 412003a7, by the operator's block
+    (docs/RELEASES.md; 577 item 2): the host's receipts hold 0 failing rows; the day's compare, 2026-11-26, is CLEAN;
+    and the block reads CI on 412003a7 itself and cuts nothing until every check is a success. It carries the 32
+    sections since v1.6.11, soccer-v23's record of REJECT among them."
+  - **Step 3, the tag, read from git:** tag object `d86021de71bec0189b60efd82869f90f6fc67efd` on
+    `412003a7cb8d3e115ff11b316f0384978536f5b1` (tree `5132fedc2dfe2ebc458f8350e15ff5f123aa467b`); tagger timestamp
+    1795801267 -0500, which is 2026-11-27 12:41:07 -0500 (17:41:07Z), the tag's day 2026-11-27.
+  - **The tag message:**
+    - Stored (`git cat-file -p v1.6.12`): 499 lines and 97,657 bytes (its final newline included); 33 lines begin with
+      `#` (the header and all 32 `## ` section headings). Its first line reads "# Release notes ·
+      412003a7cb8d3e115ff11b316f0384978536f5b1 (412003a7) · since v1.6.11".
+    - It is byte-identical to `python3 scripts/release_notes.py --to 412003a7cb8d3e115ff11b316f0384978536f5b1` (499
+      lines, exit 0). `git for-each-ref --format='%(contents)'` prints one more newline, as on the earlier entries.
+    - No AMENDED line and no `FAIL`. Its one `✗` is quoted inside #1128's section ("starting with neither ✓ nor ✗"),
+      not a failing line.
+  - **Step 5, the deploy.** The first attempt (579 item 1, verbatim): "1. THE FIRST DEPLOY ATTEMPT, 18:02Z, by the
+    operator's block: STOPPED, nothing deployed, as built. The host is on v1.6.10, clean, 22 timers, no reboot
+    pending; the dry run named v1.6.12. The receipts of the last 12 hours hold ONE failing row: the bulletin run of
+    17:31Z, exit 2." The exception (579 item 3, verbatim): "3. THE DEPLOY GOES AHEAD ON ONE NAMED EXCEPTION, MINE TO
+    NAME. The rule that a failing row stops a deploy stands. This row is explained, it is the same on both versions,
+    and the deploy neither mends nor worsens it. The second block deploys only if every failing row of the last 12
+    hours is a bulletin run that left with 2, and the host's own receipts name the pattern order_text and no other.
+    Any other failing row stops it as before." The second block (580 item 1, verbatim): "1. THE DEPLOY, the operator's
+    second block, 18:25Z, read whole by me. (a) BEFORE: the host on v1.6.10 at 67f02dfc, up 1 day 13 hours, no reboot
+    pending. The receipts of the last 12 hours: 689 lines, one failing row, the 17:31Z bulletin run that left with 2;
+    no failing row of any other kind; the host's own receipts name the pattern order_text and no other for it. That is
+    579's named exception and nothing more. (b) THE DRY RUN named v1.6.10 to v1.6.12 (412003a7) and left with 0. (c)
+    THE DEPLOY left with 0: v1.6.10 to v1.6.12, 127 files; HEAD is 412003a7cb8d3e115ff11b316f0384978536f5b1, the tag's
+    commit; its receipt row is in the log at 18:25Z. No migration, no requirements change. The line on shipped timers
+    reads as it did before: 3 on MLB_LAPTOP_ONLY and 2 on TIMERS_BY_BLOCK, held off. (d) AFTER: timers.enabled 22
+    names, 22 active, none missing, none stray; the tennis timer disabled and the college basketball one not
+    installed, as held; both availability timers active; no failed unit; the checkout clean. (e) ON THE CHECKOUT: the
+    registry's soccer-v23 entry reads closed, REJECT, 14:05:22Z; the MLB sync hold line stands, one line naming MLB;
+    the second wave's script and the book-gap receipt are present for the next block." And (580 item 2, verbatim): "2.
+    v1.6.12 IS PRODUCTION FROM 18:25Z. v22 is the live soccer model; the v23 shadow is dormant by its recorded REJECT.
+    The first pages it writes are today's 19:25Z closings; I read them." install.sh was not run (579 item 5 Q2: "A
+    comment-only difference in a unit file's /etc copy needs no reinstall"); step 5 above stands as written.
+  - **What changed for the host, read from git (`v1.6.10..v1.6.12`, the deploy's span: 320 commits, 127 files):**
+    - `src/db/schema.py`, every `migrate_*.py` (27 at each end), `requirements.txt` and both side requirements files
+      are unchanged. No setting is added that the host's env file must carry (578 item 3).
+    - One unit file differs, `deploy/hosting/systemd/sp-closing-watch.service`, in comment lines alone (#1117); the
+      pack ships 27 timers and 12 services at v1.6.10, v1.6.11 and v1.6.12.
+    - Under `deploy/hosting/`: `laptop_routine.py` new (#1096, then #1119, #1123, #1150 and #1157; the laptop's
+      command); `closing.py` (#1117, #1131, #1136), `pull_backup.py` (#1154, #1159; it runs on the laptop),
+      `sp_run.py` (#1119, #1123, #1150), `sp_receipts.py` (#1117), `sp_window_page.py` (#1104) and
+      `compare_exports.py` (#1064) changed.
+  - **Carries:** git's `v1.6.11..v1.6.12` holds 159 commits and 93 files. Of its 46 merge commits, 33 are "Merge pull
+    request #N" on main's first parent: the 32 PRs the notes carry, one CHANGELOG section each, and the fold PR #1171.
+    The other 13: twelve merge main into PR branches (three times into #1119's, twice into #1123's, once each into
+    #1117's, #1145's, #1148's, #1150's, #1157's, #1161's and #1162's), and d0dc8425 merges
+    laptop/soccer-v23-run-record (9e959a3c) into #1170's. The 32: #1115, #1116, #1117, #1119, #1123, #1124, #1126,
+    #1128, #1129, #1131, #1134, #1136, #1137, #1139, #1143, #1144, #1145, #1148, #1150, #1151, #1153, #1154, #1156,
+    #1157, #1159, #1160, #1161, #1162, #1165, #1167, #1168, #1170. Not in the tag: none.
+  - **Release Issue:** #1173 (ritual step 4), opened 2026-11-27 at the tag on ARCHITECT 2026-11-27 12:10 ET, addendum
+    578 item 4 ("DEV 1 — the Release Issue at the tag, its figures read again from git"), on the milestone v1.6.12.
+    - It is "Release v1.6.12 (412003a7)", labelled release, track:H, class:lane, sport:all and size:S, in the form of
+      v1.6.11's #1138.
+    - It carries the notes in two comments (7224731828 and 7224732799). Read back from GitHub, each with the server's
+      attribution footer after it, the two bodies joined are the tag message character for character (97,568
+      characters).
+    - The deploy's console is its comment 7225633042, and addendum 580 is placed whole there (7225628713).
+    - On 580 item 3's ruling, quoted verbatim, "v1.6.12 is live on the host from 2026-11-27T18:25Z and carries every
+      merge of v1.6.10 and v1.6.11 (ARCHITECT, addendum 580)", #1061 (v1.6.10) and #1138 (v1.6.11) are closed.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

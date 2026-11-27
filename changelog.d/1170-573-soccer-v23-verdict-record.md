@@ -1,4 +1,4 @@
-## 2026-11-27 (#000: 573-soccer-v23-verdict-record — soccer-v23's one run merged as the laptop wrote it and its REJECT recorded (addenda 572, 573 and 574))
+## 2026-11-27 (#1170: 573-soccer-v23-verdict-record — soccer-v23's one run merged as the laptop wrote it and its REJECT recorded (addenda 572, 573 and 574))
 - **docs/registry/:** the three files of `laptop/soccer-v23-run-record` (9e959a3c), merged byte-identical: `ids/soccer-v23.txt` (14,887 scored ids), `soccer-v23.started.json` and the run block in `experiments.json`.
 - **The verdict:** REJECT, recorded by `registry.record_verdict` with the ruling of ARCHITECT 2026-11-27, addendum 573 item 4(c), verbatim. The status goes from run to closed. soccer-v23 beat v22 re-walked by 0.005817 and missed both of v22's recorded Premier League figures, by 0.002675 (2024/25) and 0.000689 (2025/26), against 0.0050, where all three had to hold.
 - **What follows:** v22 stays the live soccer model. The v23 shadow stays dormant, since it wakes only on a recorded PASS, and no confirmation window opens.

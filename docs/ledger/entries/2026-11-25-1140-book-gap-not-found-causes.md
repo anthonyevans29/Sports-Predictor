@@ -1,4 +1,0 @@
-**2026-11-25 — The book-gap receipt's two unknowns, their causes counted over every row (#1140; 543 item 2(d); DEV 4, Lane D; #1143).**
-- **Ruling (543 item 2(d)):** "#1140 (the not-found line's breakdown leaves out its rows without a gap) IS SCHEDULED: its own small PR, a reviewable head by Friday 2026-12-04 12:00 ET, so that the receipt's first run on the host prints the breakdown whole. The run waits for the tag that carries both."
-- **What landed:** the causes of "books' session not found" and of "no stamp" are counted over every row in the window, each summing to its every-row count. The "no stamp" cause line had the same fault and is fixed with it. No gap, bucket or staked line changes.
-- **Next:** the review rounds, then the merge. The receipt's run is the architect's OPERATOR block on the host, after the tag that carries this and #1139.

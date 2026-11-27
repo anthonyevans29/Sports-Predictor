@@ -1,5 +1,0 @@
-**2026-11-25 — The NFL snapshot de-vig receipt, built (544 item 2; 545 item 3; DEV 4, Lane D; Refs #1141; #1148).**
-- **Ruling (544 item 2, in part):** "I DO NOT RULE ON THE WRITER FROM A MAP ... So a count first, read-only, on a copy of each machine by my blocks. DEV 4 BUILDS IT ... It judges nothing and proposes nothing."
-- **Ruling (545 item 3, in part):** "ALL NINE AS YOU READ THEM ... THE BELL FIRST, kickoff less one microsecond, through the function itself. "EVER FLAGGED" IS WANTED TOO, beside it."
-- **What landed:** `scripts/nfl_snapshot_devig_receipt.py --db COPY`, read-only, for NFL and college apart: (a) the sessions by their legs, (b) the one-sided first sessions, (c) the last session against the close's own fair from the offers that remain, (d) the line move at the bell and ever flagged, (e) by New York month. No book name, no price.
-- **Next:** the review rounds, then the merge. The run is the architect's block on a copy of each machine. Nothing changes until his ruling on the count (544 item 3): not the writer, not the anchor, not a graded row.

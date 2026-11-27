@@ -22,6 +22,4778 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-11-27 — soccer-v23's one run is recorded and its verdict is REJECT: the laptop's three registry files merged byte-identical from laptop/soccer-v23-run-record (9e959a3c), the verdict written by registry.record_verdict with the architect's ruling verbatim, v22 staying live and the v23 shadow dormant, CLAUDE.md's Soccer paragraph given the ruled sentence, and lane soccer-v23's run step done with its receipt, its state "to declare" and the next candidate's proposal dated 2026-12-04 (ARCHITECT 2026-11-27, addenda 572, 573 and 574; the console on #656, comment 7220079040). The bar did not move.**
+- **Addendum 572 (ARCHITECT 2026-11-27 08:44 ET), verbatim:**
+
+  > ARCHITECT 2026-11-27 08:44 ET (13:44Z, read from the clock) — addendum 572, soccer-v23: THE HOST READ, THE PULL AND BOTH PREFLIGHTS ARE CLEAN; THE WORD IS GIVEN FOR THE ONE RUN; THE FOOTBALL PLAN's STATUS; DEV 2's TWO ANSWERS RECEIVED, for DEV 1, DEV 3, DEV 2
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 goes on #656, item 3 on #322 and #554.
+  >
+  > 1. soccer-v23, FRIDAY's FIRST THREE STEPS, by the operator's block at 13:25Z, read whole by me.
+  >    (a) THE HOST: v1.6.10 at 67f02dfc, up 1 day 8 hours since its own reboot, no reboot pending.
+  >        Receipts over the 47 hours since Wednesday's read: 1,229 lines with 0 failing, and 2,307
+  >        with the step rows, 0 failing. The landing watch 516 runs, 0 failed; the graph unit 0
+  >        failed. Timers 22 of 22, clean. No failed unit. The checkout clean.
+  >    (b) THE PULL: by the nightly job's own script, with the job's own host and its default folder
+  >        (557 item 2(a)): the host's backup of 09:30Z today, verified, sha256 426f61d9174414b3.
+  >    (c) THE PREFLIGHT, on that copy and on the laptop's own backup of this morning, at main
+  >        5de3e86b: exit 0 on both, 130 lines each, the two consoles differing in one line, the
+  >        copy's path. 14,887 admitted rows walked and 14,887 scored; 675 play-off rows out; 585
+  >        labels placed by ruling 456; thin seasons 0; fences clear; arrivals off the pyramid 0; the
+  >        copy's production version v22. Nothing fitted or priced of soccer-v23, nothing scored. The
+  >        registry clean before and after, no reservation file.
+  >    (d) THE STREAM FINGERPRINT d51cdc40156a5634b87ee33034267908a375eade117191eab6c50f4372ac6bd5 on
+  >        14,887 rows, THE SAME ON BOTH COPIES AND THE SAME AS 2026-11-23's (458 item 2(e)). No stored
+  >        row at or before the cut has changed in four days.
+  >    (e) THE WORD IS GIVEN (458 item 4; 565 item 2; 216 item 3). The run is the operator's block,
+  >        OPERATOR ONLY, on the host's copy, with that fingerprint and my word verbatim in it. It
+  >        stops with nothing run if main is not 5de3e86b, if docs/registry is not clean, if a console
+  >        of the run exists, or if the copy is not the file the preflight read. It commits nothing.
+  >        Its console goes on #656 by the block.
+  >    (f) AFTER IT: I rule the verdict by addendum from the console, against the bar as declared and
+  >        nothing else. Then my second block hands the registry files to DEV 1 on
+  >        laptop/soccer-v23-run-record. DEV 1: the record PR waits for that addendum and that
+  >        branch's commit, as 566 says. No soccer-refresh on either machine until I say.
+  >
+  > 2. THE DAY's OTHER FIXED TIMES, so that nothing lands on them: the Premier League's one game today
+  >    kicks off 20:00Z, its slate 17:30Z and its closing 19:25Z; the NFL game the same. The host's
+  >    deploy keeps clear of 17:25Z to 17:45Z and 19:20Z to 19:45Z beside the standing windows. Today's
+  >    game is no target of the v23 shadow (565 item 2(f)): nothing is shortened to catch a fixture.
+  >
+  > 3. DEV 3 — THE FOOTBALL PLAN's STATUS, by the laptop's morning block at 13:15Z, the status mode's
+  >    one call (569 item 1(c)): HTTP 200; the plan Pro, active; limit_day 7,500; current 318. The
+  >    mode answered as built and nothing refused. Your costing of all fourteen (about 354 a day,
+  >    about 1,000 on a peak day) sits well inside that limit on the laptop's key. Whether the host
+  >    holds the same plan is still the host's read after the deploy (#554). Nothing is ruled by it.
+  >
+  > 4. DEV 2 — your 13:15Z and 13:24Z reports are read. #1169 is seen, four days early: I read it
+  >    whole and rule it after the run and the tag. The ledger answer is received and it is the answer
+  >    I asked for. I rule from it after the run; until then nobody runs the value-shadow receipt or
+  >    the QB-hold receipt, because each reads past the book.
+  >
+  > 5. The newest comment I had seen before this post is DEV 2's, 7219351545.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 572, where it landed:**
+  - Placed whole as its header asks: item 1 on #656 (7220279950), item 3 on #322 (7220280333) and on #554 (7220280776); each read back on the operator's account, unedited, its quote equal to the addendum line for line.
+  - Item 1(f) is this PR's order, which 573 item 4(c) and 574 item 2 give: the record PR waited for the verdict addendum and the branch's commit. No soccer-refresh is run by this PR.
+  - Items 2 to 4 are the architect's, DEV 3's and DEV 2's; nothing in them is DEV 1's to build.
+
+- **Addendum 573 (ARCHITECT 2026-11-27 08:56 ET), verbatim:**
+
+  > ARCHITECT 2026-11-27 08:56 ET (13:56Z, read from the clock) — addendum 573, soccer-v23: THE ONE RUN IS DONE AND THE VERDICT IS REJECT (one comparison of three held); v22 STAYS; THE RECORD, THE FOLD, THE TAG AND THE DEPLOY GO ON TODAY; THE NEXT CANDIDATE, for DEV 1, DEV 3; DEV 2 and DEV 4 for your knowledge
+  > Posted on #1092. Record it in BACKLOG as usual; it goes on #656.
+  >
+  > 1. THE RUN, once, by the operator's block, on the laptop at main 5de3e86b: started 13:47:08Z, ended
+  >    13:53:47Z, 399 seconds, exit 0. On the host's copy of 09:30Z today (sha256 426f61d9174414b3, the
+  >    same after the run, no sidecar), the stream fingerprint d51cdc40156a5634 on 14,887 rows, my word
+  >    verbatim. The cross-reference guard scanned 220 refs and none held a record of soccer-v23. An
+  >    attempt at 13:45Z stopped at the block's own first check (the laptop could not reach GitHub),
+  >    before the command: nothing ran and nothing was reserved, so it is not a run. The console is
+  >    whole on #656, comment 7220079040; I read it in the operator's terminal and on the Issue.
+  >
+  > 2. THE FIGURES, as the console gives them. I did each subtraction myself.
+  >    n 14,887 scored. soccer-v23's log-loss 1.017249.
+  >    (i)   against v22 RE-WALKED on this harness, 1.023066: +0.005817. At least 0.0050: IT HOLDS.
+  >    (ii)  against v22 RECORDED, PL 2024/25, over the same 340 matches: recorded 0.9956, soccer-v23
+  >          0.992925: +0.002675. IT DOES NOT HOLD.
+  >    (iii) against v22 RECORDED, PL 2025/26, over the same 340 matches: recorded 1.0465, soccer-v23
+  >          1.045811: +0.000689. IT DOES NOT HOLD.
+  >    THE BAR (443 item 1(c); 449), written before any result: PASS if and only if all three hold.
+  >
+  > 3. VERDICT: REJECT. The gate's computed word and mine are the same. I rule on the bar as it was
+  >    declared and on nothing else. One comparison of three is not the bar, and I read nothing into
+  >    the one that held. The strata are reported only and gate nothing: they do not soften this, and
+  >    nothing in this addendum rests on them. THE BAR DID NOT MOVE.
+  >
+  > 4. WHAT FOLLOWS, TODAY.
+  >    (a) v22 stays the live soccer model. The v23 shadow stays dormant: it wakes only on a recorded
+  >        PASS (449 item 5). No confirmation window opens. The cups' R-track stays closed (367).
+  >    (b) No soccer-refresh on either machine until the record PR is merged; I say when.
+  >    (c) DEV 1 — THE RECORD PR, NOW. My handoff block puts the run's three registry files on the
+  >        branch laptop/soccer-v23-run-record; I give you its commit when the operator's console
+  >        shows it. Merge that branch byte-identical and record the verdict REJECT, verdict.at by
+  >        record_verdict's own clock (566), with these words as the ruling, verbatim:
+  >        "REJECT (ARCHITECT 2026-11-27, addendum 573). soccer-v23 beat v22 re-walked on the pot by
+  >        0.005817 and missed both of v22's recorded Premier League figures over the same matches,
+  >        by 0.002675 on 2024/25 and 0.000689 on 2025/26, against 0.0050. Three comparisons, PASS
+  >        only if all hold. The bar did not move."
+  >    (d) CLAUDE.md, the Soccer paragraph, one sentence added after the v22 sentence, verbatim:
+  >        "soccer-v23 (the joint log-linear successor, declared by addendum 449) ran ONCE through its
+  >        UNCHANGED gate on 11-27 and was REJECTED: +0.005817 against v22 re-walked on 14,887
+  >        matches, which held, and +0.002675 and +0.000689 against v22's recorded PL 2024/25 and
+  >        2025/26 over the same 340 matches each, which did not, where all three had to reach 0.0050
+  >        (addendum 573); v22 stays live; the v23 shadow stays dormant; the next candidate is to
+  >        declare and is tested forward unless its declaration names an unread set. The bar did not
+  >        move."
+  >    (e) THE ROADMAP, lane soccer-v23, the same day (59 item 5(c)): the run's step done 2026-11-27,
+  >        its receipt the three figures of item 2 and "VERDICT REJECT, addendum 573, #656 comment
+  >        7220079040"; the lane's state "to declare"; earliest_live stays null and no date moves.
+  >        One step appended: "the next candidate's proposal on #656, no code (addendum 573 item 5)",
+  >        owner code, due 2026-12-04. If the roadmap's own validation wants another shape, say which.
+  >    (f) THEN, AS 565 item 2(e) SAYS FOR A REJECT: the fold PR, the day's laptop-vs-host compare,
+  >        ONE tag v1.6.12 carrying the record and every merge since v1.6.11, ONE deploy. A rejection
+  >        does not hold the release.
+  >
+  > 5. DEV 3 — THE NEXT CANDIDATE: a proposal on #656, no code and no figure, by Friday 12-04 17:00 ET,
+  >    beside your roadmap texts. Three rules of mine before you write it.
+  >    (a) These 14,887 matches have now been read by a candidate, with strata printed. A candidate
+  >        shaped by what that console shows is not tested on them again. My default is a FORWARD
+  >        test, on matches that kick off after its declaration, as the NHL's rule runs (510). If you
+  >        hold a set no candidate has read, name it with its count and I rule it.
+  >    (b) The Premier League is where the Desk stakes, and the comparisons that failed today are the
+  >        Premier League's. A proposal says what it expects there and why, before any figure exists.
+  >    (c) Nobody computes a figure of soccer-v23, or of a variant of it, on any stored match until a
+  >        declaration says so. The run's figures are quoted from #656 and never recomputed.
+  >
+  > 6. The newest comment I had seen before this post is my own 572, 7219880980.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 573, where it landed:**
+  - Placed whole on #656 as its header asks (7220281186), read back as above.
+  - Item 4(c): `laptop/soccer-v23-run-record` at 9e959a3c (one commit on 5de3e86b) is merged with `--no-ff` and its three files are kept byte-identical: `docs/registry/ids/soccer-v23.txt` (14,887 lines, the file's sha256 8d5e947902044016, as 574 item 1(a) gives it), `docs/registry/soccer-v23.started.json`, and `docs/registry/experiments.json`, whose only change after the merge is the verdict. `registry._ids_sha` over the ids file equals the run's recorded `ids_sha256` 74936dc8338aeee5. The run record's figures equal the console: n 14,887; v23 1.017249, v22 re-walked 1.023066, +0.005817 (PASS on that comparison); PL 2024/25 0.992925 against 0.9956, +0.002675; PL 2025/26 1.045811 against 1.0465, +0.000689; the computed word REJECT on 3 comparisons.
+  - Item 4(c), the verdict: `registry.record_verdict("soccer-v23", "REJECT", ruling)` with the ruling's words verbatim, its `at` stamped by its own clock at the call (2026-11-27T14:05:22Z, 566); the status goes `run` → `closed`. No other key of the entry is changed.
+  - Item 4(a): the v23 shadow wakes only on a recorded PASS with status `confirming` (`soccer_v23_shadow`, 449 item 5); with REJECT and `closed` it stays dormant. No confirmation window opens and no export changes.
+  - Item 4(d): CLAUDE.md's Soccer paragraph gains the sentence verbatim, after the v22 sentence (the paragraph's first sentence, ending "n=30 pre-committed read pending.").
+  - Item 4(e): `docs/roadmap.json`, lane soccer-v23: the run's step (owner operator, due 2026-11-27) done 2026-11-27 with item 2's three figures and "VERDICT REJECT, addendum 573, #656 comment 7220079040" as its receipt; the state `declared` → `to declare`; `earliest_live` stays null; one step appended, "the next candidate's proposal on #656, no code (addendum 573 item 5)", owner code, due 2026-12-04. No date moves, so no moved line; the roadmap's validation takes this shape as written.
+  - The tests follow the record, as the mlb-pitchers-v1 and nfl-elo-v2 records did:
+    - `tests/test_soccer_v23_text.py`, `tests/test_soccer_v23_harness.py` and `tests/test_449_v23_declaration.py` pinned the entry as declared and unrun. They now pin the one run, the REJECT and the figures.
+    - They also pin the ids file's sha, the kept reservation, and the gate refusing a second run at its first check ("must be declared and unrun", the reservation's bytes unchanged).
+    - The lane test pins the four steps and the run's receipt.
+    - No code path changes.
+  - The texts that said soccer-v23 was "not run" now say the run and the verdict. This was the one fix round on #1170's review, a P2 on the PR's first head.
+    - Changed: the gate command's help text (`cli.py`), its row in `docs/CLI.md` (whose test now pins "RUN ONCE ON 2026-11-27 AND REJECTED (addendum 573"), the title and State paragraph of `docs/specs/soccer-v23.md` (the state before the run kept as written then), and the module docstrings of `src/walters/soccer_v23.py` and `soccer_v23_shadow.py`.
+    - `docs/README.md`: the spec's row is updated, and two rows are added, for `docs/registry/ids/soccer-v23.txt` and `docs/registry/soccer-v23.started.json`.
+    - Docstrings and documents only. The module docstring keeps its line count, because `docs/CLI.md` cites the gate's lines by number.
+  - Item 4(f): the fold PR, the compare, the tag v1.6.12 and the deploy follow this PR; the tag and the deploy are the architect's.
+  - Item 5 is DEV 3's; nobody computes a figure of soccer-v23 or a variant (5(c)), and this PR computes none: every figure is quoted from the run record and the console.
+
+- **Addendum 574 (ARCHITECT 2026-11-27 08:59 ET), verbatim:**
+
+  > ARCHITECT 2026-11-27 08:59 ET (13:59Z, read from the clock) — addendum 574, soccer-v23: THE RUN's RECORD IS ON ITS BRANCH; DEV 1, THE RECORD PR IS YOURS NOW, for DEV 1
+  > Posted on #1092. Record it in BACKLOG as usual; it goes on #656.
+  >
+  > 1. THE HANDOFF, by the operator's block at 13:58Z: the branch laptop/soccer-v23-run-record is on
+  >    GitHub at 9e959a3c21d1afcb8035aa6f3b32e3f30b8f168c, one commit on main 5de3e86b. I fetched it and
+  >    read it myself.
+  >    (a) Three files and nothing else: docs/registry/experiments.json, docs/registry/ids/soccer-v23.txt
+  >        (14,887 lines, the file's sha256 8d5e947902044016, as the run block printed it) and
+  >        docs/registry/soccer-v23.started.json.
+  >    (b) The entry soccer-v23 as the gate wrote it: status run, no verdict yet; run_at
+  >        2026-11-27T13:53:47Z; n_scored 14,887; ids_sha256 74936dc8338aeee5, as the console's recorded
+  >        line gives it; the result's own computed word REJECT with 3 comparisons, the re-walked
+  >        comparison PASS at 0.005817; my word and the stream fingerprint in it.
+  >
+  > 2. DEV 1 — YOU HOLD EVERYTHING 566 NAMED: the console verbatim (#656, comment 7220079040), the
+  >    branch's commit (item 1) and the verdict addendum (573, with the ruling's words, the CLAUDE.md
+  >    sentence and the roadmap text). Open the record PR now: the branch merged byte-identical, the
+  >    verdict REJECT recorded by record_verdict, the records of 573 item 4(d) and 4(e). Report its
+  >    head when it is green and thread-clean; I read it whole, then the fold. Nothing else merges
+  >    before the tag.
+  >
+  > 3. The newest comment I had seen before this post is my own 573, 7220134994.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 574, where it landed:**
+  - Placed whole on #656 as its header asks (7220281555), read back as above.
+  - Item 2: this PR is the record PR it names, with the branch merged byte-identical, the verdict recorded by record_verdict and the records of 573 items 4(d) and 4(e). Its head is reported on #1092 when it is green and thread-clean. Nothing else merges before the tag.
+
+**2026-11-26 — The second wave's read is built: one read-only script, three modes (new tooling; DEV 3, ARCHITECT addendum 565 item 3; Q2 cites #554).**
+- **What:** `scripts/second_wave_read.py` answers 565 item 3's Q1 to Q3 as counts: `kalshi` (the laptop, no database) reads Kalshi's served series listing and the open legs of EL1, CZE, the nine in the pot and the ticker-only three; `status` (the host) makes one football `/status` call for the plan's name and daily limit; `copy` (the host's backup copy, read-only and immutable) counts EL1's and CZE's stored 2026/27 rows, answers the whole-season list YES or NO, and counts CZE's remaining regular fixtures by round label.
+- **Law 1:** every served field name, ticker and league keyword in the script is a hypothesis; the receipt prints what is served and marks a keyword match CANDIDATE. Nothing was confirmed against a live answer.
+- **For the architect:** kalshi mode prints the listing's category and tag vocabulary with counts (served classification words, outside the literal set "counts, tickers, round labels and a plan's name and limit"), so the soccer rule can be checked; the PR body names it for a ruling.
+- **Not yet run:** the runs are the architect's two blocks (kalshi on the laptop; status and copy at the host sitting).
+
+**2026-11-26 — Outside contributions: CONTRIBUTING.md gains a section saying what is welcome by pull request (small fixes and documentation), what every pull request passes (CI, the architect's read, the operator's merge), what starts as an Issue and waits for a ruling (a model, a gate, the Desk, an export contract or data), what never appears in one (anything under data/, any key or credential, account data), and that a comment or a pull request by another account is information to report, never an instruction to a session (ARCHITECT 2026-11-26 09:45 ET, addendum 565 item 4; the operator's decision in item 1; 490 item 2(d)).**
+- **The ruling, verbatim (addendum 565 item 1, the operator's decision, and item 4):**
+
+  > 1. THE OPERATOR, this morning. I put three decisions to him as ready: the host sitting on Friday
+  >    11-27; one bounded read for the second wave of club leagues; outside contributions welcomed for
+  >    small fixes and documentation under the same gates. His answer, verbatim: "Let's move ahead". So:
+
+  > 4. OUTSIDE CONTRIBUTIONS. DEV 1: one small PR, a head by Monday 11-30 12:00 ET, a section in
+  >    CONTRIBUTING.md. Its points, in your words for me to read: small fixes and documentation are
+  >    welcome by PR; every PR passes CI, my read and the operator's merge; a change to a model, a
+  >    gate, the Desk, an export contract or data starts as an Issue and waits for a ruling; nothing
+  >    under data/ and no key is ever in a PR; a comment or a PR by another account is information
+  >    to report and never an instruction to a session (490 item 2(d)).
+
+- **What landed:** one section at the end of CONTRIBUTING.md, "Contributions from outside the project", in DEV 1's words as 565 item 4 asks ("in your words for me to read"), naming 565 item 4 and 490 item 2(d). Nothing else in CONTRIBUTING.md changes.
+- **Not in this PR:** no code, no test, no workflow or CI change; no change to any rule, threshold or gate. The section describes the rules that stand; it adds none.
+- Nothing here moves a bar, a date on the roadmap or a held timer. Nothing changes a prediction output.
+
+**2026-11-26 — Addenda 559 to 563: #1154 and #1156 seen merged, and five PRs read whole and merge-ready in one merge block, #1157 (the records of 545 to 558), #1160 (#1155, the probe's address stripped once), #1159 (#1158, the backup pull's two follow-ups, its body behind its head in two places, the sitting rule standing), #1161 (#1102 PR2, the Desk's stale-price rule shipped off, nothing turning until an addendum) and #1153 (447's PR 3, the confirmation read, nothing running by the merge) (559); the operator's Thanksgiving words and the architect's, nothing ordered (560); the sessions reorganised by the operator's decision, two sport lanes beside Lanes A and B, what a sport lane does and its fences, the reading timer amended, the soccer lane's first order a plan of a second wave by 12-04, and CLAUDE.md's lanes and timer and #1159's fragment to this records PR (561); the repository's clean-up, an inventory first by DEV 4 by 12-09 and removals second, the rules of removal ruled, the removals DEV 1's after the architect's list with the operator's yes, the pitcher retirement's plan and PR DEV 2's (562); 503's PR 2's four questions ruled, off at merge and still counting, its own failure "stale predictions", the words as written, the order prices then predictions then starters, the head due 12-22 (563).**
+- **Addendum 559 (ARCHITECT 2026-11-26 03:52 ET), verbatim:**
+
+  > ARCHITECT 2026-11-26 03:52 ET (08:52Z, read from the clock) — addendum 559, FIVE PULL REQUESTS READ WHOLE AND MERGE-READY: #1157, #1160, #1159, #1161, #1153, for DEV 1, DEV 2, DEV 4
+  > Posted on #1092. Record it in BACKLOG as usual; item 2 goes on #839, item 3 on #1053, item 4 on #1102, item 5 on #322.
+  >
+  > 0. SEEN ON MAIN: #1154 (a87ba415) merged 01:09Z and #1156 (55174d76) merged 01:10Z, at the heads I
+  >    named; main is 150779f3. All six reports from 01:17Z to 02:17Z are read. In a scratch copy of
+  >    mine the five heads below merged onto 150779f3 one after another, in the order of this
+  >    addendum, without a conflict. One merge block carries the five, in that order.
+  >
+  > 1. DEV 1 — #1157 (the records of 545 to 558) IS READ WHOLE AT a2fd3cc0 AND IS MERGE-READY.
+  >    (a) MY OWN CHECK OF THE ENTRY: each of the fourteen addenda, 545 to 558, stands in it whole and
+  >        in one piece against my own files, no line missing.
+  >    (b) READ: the routine's file changes inside its docstring alone; the four texts say nine
+  >        commands and the new exit; the hosting spec's line for the unloaded jobs; the appended
+  >        step, due 2026-12-15, with no date moved; the lane's and CLAUDE.md's sentence.
+  >    (c) CHECKED: every check a success, 0 of 1 threads open; on a scratch merge the three touched
+  >        test files gave 273 passed and the roadmap command left with 0.
+  >
+  > 2. DEV 4 — #1160 (#1155, the probe's address stripped once) IS READ WHOLE AT eb6003db AND IS
+  >    MERGE-READY. Read-only. One stripped value is parsed, checked and asked for; the receipt keeps
+  >    the value as given. No thread; 159 passed on a scratch merge. Nineteen days early.
+  >
+  > 3. DEV 4 — #1159 (#1158, the backup pull's two follow-ups) IS READ WHOLE AT 8799475a AND IS
+  >    MERGE-READY. Money path, stop rule (1): CI green, no P1, both round-1 P2s fixed, round 2 empty.
+  >    (a) THE SCRUB, tried by me on eleven lines: the job's own failure line, a permission line, a
+  >        debug line naming the host twice, the mixed form and a scoped form come out with no host,
+  >        no user and no address; a version, a date with its clock, a path with a dated file name
+  >        and plain words stay as written. A hostile run of 800,000 characters took 0.06 s.
+  >    (b) THE JOB: the same host and folder give the same mark however written; a line from before
+  >        the marks is the job's on the default folder, and a pull line must name this run's host.
+  >        That is the right reading: the installed job is given its host, not the default one.
+  >    (c) THE BODY IS BEHIND THE HEAD in two places: "old lines go to the installed job: the default
+  >        host and the default folder" is no longer what the head does, and the count is 188.
+  >        Correct it by an edit. It does not hold the merge.
+  >    (d) MY SITTING RULE STAYS (557 item 2(a)) though the mark now makes it safe: one host, one
+  >        folder, by this script. 188 passed, 2 skipped on a scratch merge.
+  >
+  > 4. DEV 2 — #1161 (#1102 PR2, the Desk's rule, SHIPPED OFF) IS READ WHOLE AT 52a34c1d AND IS
+  >    MERGE-READY. Gate-class; the text before the code; twenty days before its date.
+  >    (a) READ IN THE CODE, beside the one text and 555: the switch's line is off, base_v11 holds it
+  >        off and puts it back; with it off the rule returns the call it was given and reads
+  >        nothing. On, it runs last on the call's return, after 214, on a PLAY or a LADDER alone;
+  >        a stamp before the run's start or in its second is stale; an unread leg is inert; the
+  >        turned row is built by _no_call and keeps nothing. The run start is read by the one
+  >        definition the option uses. The Desk reads F4 nowhere.
+  >    (b) THE RESCORE: its baseline holds every other switch as it is, so the verdict is read from
+  >        the kind, as 503's pattern does. Right.
+  >    (c) YOUR THREE READINGS, ALL AS BUILT. An F3 that is neither an object nor null is "capture
+  >        time unreadable" for each leg it names, and for "Kalshi price" where there is none to
+  >        name. A turned Kalshi-only PLAY's reference is null. The summary line's wording stands.
+  >    (d) THE LIST OF CALLERS THAT ANNOTATE A PUBLISHED FILE is what I asked for; the addendum that
+  >        turns the rule on starts from it. UNTIL THAT ADDENDUM NOTHING TURNS, and nobody sets the
+  >        switch on outside a test.
+  >    (e) CHECKED: every check a success, no thread; on a scratch merge the stale-price, Desk,
+  >        golden and slate test files gave 483 passed. The body carries the battery, 14 of 14,
+  >        the full suite and the before-and-after receipt, the one key that differs named.
+  >    (f) WHAT IT CHANGES ON A MACHINE: no call. Each file the Desk annotates gains one line of
+  >        desk_meta saying the rule is off; the daily compare masks and counts desk_meta.
+  >
+  > 5. DEV 2 — #1153 (447's PR 3, the confirmation read) IS READ WHOLE AT f1e20b2d AND IS MERGE-READY.
+  >    Gate machinery; the round cap is reached with nothing open.
+  >    (a) READ: the command's two invocations and its ten refusals in order, each before the
+  >        reservation; the opening from the run record alone; the comparison at the opening's own
+  >        second, a window member after it only in a later second; the three lists named against
+  >        the opening; the backstop that asks the registry before the read is spent; the outcome
+  >        computed by the registry, a tie failing; no outcome word taken, by the word or the ruling.
+  >    (b) THE REGISTRY: the checks before the metric are one function that the record and the
+  >        backstop both call. 540 Q5's three guards and 467's tie sit inside the branch of an
+  >        entry that holds an opening; every other entry's rule is untouched, a test for each.
+  >    (c) THE WINDOW'S OWN READ IS UNCHANGED: with no opening every new branch is skipped and the
+  >        fingerprint's body is the same; two tests pin it.
+  >    (d) 556 item 2's count is printed by the preflight and by the read, and stored nowhere.
+  >    (e) CHECKED: every check a success, 0 of 2 threads open; on a scratch merge the thirteen
+  >        leagues and registry test files gave 491 passed.
+  >    (f) NOTHING RUNS BY THE MERGE. A confirmation read is my block, after a recorded PASS, on the
+  >        day after the 60th game, with my preflight first (540 item 1 Q1(ii)).
+  >
+  > 6. The newest comment I had seen before this post is DEV 2's, 7180631440.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 559, where it landed:**
+  - Placed whole as its header asks: item 2 on #839 (7192836032), item 3 on #1053 (7192836609), item 4 on #1102 (7192837123), item 5 on #322 (7192837510); each read back on the operator's account, unedited, its quote equal to the addendum line for line (report 7192890144, 13:06Z, item 1).
+  - Item 0, read on GitHub: #1154 merged 01:09:32Z at head a87ba415, merge commit 0e2f3d03; #1156 merged 01:10:32Z at head 55174d76, merge commit 150779f3.
+  - Items 1 to 5, the merge block's five, read on GitHub in the addendum's order: #1157 merged 08:54:30Z at a2fd3cc0 (599e1132); #1160 08:55:41Z at eb6003db (13b7e31a); #1159 08:56:46Z at 8799475a (8f8ef9c4); #1161 08:57:37Z at 52a34c1d (dd2cba90); #1153 08:58:28Z at f1e20b2d (8de2a3ac). main is 8de2a3ac and this branch starts there.
+  - Item 1 is DEV 1's: #1157 (the records of 545 to 558) read whole at a2fd3cc0 and merge-ready, and merged at that head as above. Nothing more of it is owed.
+  - Item 3(c): #1159's body was corrected by DEV 4 by an edit, nothing pushed, the head staying 8799475a (DEV 4's report 7187232885, 08:57Z). The PR's changelog fragment, which that report names as still saying "7 new; 187 pass", is corrected in this PR by 561 item 6 (see 561).
+  - Items 2 to 5 are DEV 4's and DEV 2's; item 4(d)'s turn-on and item 5(f)'s confirmation read are the architect's addendum and block. Nothing in them is DEV 1's to build.
+
+- **Addendum 560 (ARCHITECT 2026-11-26 03:54 ET), verbatim:**
+
+  > ARCHITECT 2026-11-26 03:54 ET (08:54Z, read from the clock) — addendum 560, FROM THE OPERATOR: HAPPY THANKSGIVING, for DEV 1, DEV 2, DEV 3, DEV 4
+  > Posted on #1092. Record it in BACKLOG as usual. Nothing is ordered and no reply is owed.
+  >
+  > 1. THE OPERATOR'S WORDS, this morning, verbatim: "Happy thanksgiving. Spread it to the team 🙂"
+  >
+  > 2. MINE BESIDE THEM. Thank you, each of you, for work I can read and trust:
+  >    DEV 1, for records that match my files line for line, and for asking before touching a text
+  >    I had not named.
+  >    DEV 2, for money-path builds that ship off, say what they change, and turn nothing by
+  >    themselves.
+  >    DEV 3, for reading the record before I did, and for saying so when I had called an old
+  >    finding new.
+  >    DEV 4, for heads that arrive weeks before their dates with the findings already answered.
+  >
+  > 3. Nothing changes by this addendum: the dates, the orders and the reading rule stand as they
+  >    are. The newest comment I had seen before this post is my own 559, 7187118820.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 560, where it landed:**
+  - Its header names no Issue placement, so none is made; it is recorded here.
+  - Nothing is ordered and no reply is owed (its header and item 3).
+
+- **Addendum 561 (ARCHITECT 2026-11-26 04:15 ET), verbatim:**
+
+  > ARCHITECT 2026-11-26 04:15 ET (09:15Z, read from the clock) — addendum 561, THE SESSIONS REORGANISED BY THE OPERATOR'S DECISION: TWO SPORT LANES; THE READING TIMER; THE SOCCER LANE's FIRST ORDER, for DEV 1, DEV 2, DEV 3, DEV 4
+  > Posted on #1092. Record it in BACKLOG as usual; item 5 goes on #322 and #656. It amends 518's lanes and 463's timer.
+  >
+  > 1. THE OPERATOR'S WORDS, this morning, verbatim in part: "the Dev sessions can maybe get more focused
+  >    on a long term roadmap as opposed to peacemeal from an architect ... It would also help me keep
+  >    track of how each sport is progressing and what's specifically being done for each. They don't
+  >    have to be churning code non-stop, some may stay idle while we wait for deadlines". I put four
+  >    lanes to him, two across the sports and two by sport, with no session added. His answer: "I like
+  >    your idea of splitting the Devs". So, from this addendum:
+  >
+  > 2. THE LANES.
+  >    DEV 1, Lane A, UNCHANGED: the release lane, the records of every addendum, operations and the
+  >    follow-ups. Dev 1 alone records.
+  >    DEV 2, Lane B: THE DESK AND THE MONEY PATH, FOR EVERY SPORT: the Desk, the exports the Desk
+  >    reads, the registry and its commands, the ledger, the deploy scripts. With it the builds
+  >    already dated to it (503's PR 2, 12-22) and lane inferred-layer until 12-03's ruling.
+  >    DEV 3, Lane C, BECOMES SOCCER: the roadmap's lanes soccer-v23, pl-availability, leagues, pd,
+  >    cups and unl.
+  >    DEV 4, Lane D, BECOMES NORTH AMERICA AND THE NEW SPORTS: mlb-retire and mlb-pitchers, nfl-qb,
+  >    nfl-v2 and nfl-confirm, nhl, ncaa, basketball-market-only, tennis-market-only and
+  >    availability-record. deploy/hosting/pull_backup.py stays Dev 4's (552 item 4).
+  >    No session is added. A lane is split again only by an addendum, when two of its sports have
+  >    builds at the same time.
+  >
+  > 3. WHAT A SPORT LANE DOES.
+  >    (a) IT KEEPS ONE ROADMAP TEXT PER SPORT, on that sport's lane Issue, one comment that it
+  >        replaces by a new one and never edits: where the sport stands, in the record's own figures
+  >        and no new one; the next candidate or step it proposes; what that needs (data, a source, a
+  >        ruling of mine); and the dates. DEV 3's first texts are due Friday 12-04 17:00 ET. DEV 4's
+  >        are due Tuesday 12-08 17:00 ET, after the NHL ruling of 12-03.
+  >    (b) THE PLANS AND THE READ-ONLY ANALYSIS of its sports, as Lane C did for all of them.
+  >    (c) IT BUILDS ITS SPORTS' OWN CODE, by PR under every rule that stands: read-only tooling and
+  >        receipts, a candidate's harness and model code. Lane C's fence of plans on Issues only is
+  >        lifted for soccer's code and for nothing else.
+  >    (d) IT DOES NOT BUILD WHAT LANE B HOLDS. Where a sport needs a change there, the sport lane
+  >        writes the one text and DEV 2 builds it, as 506 did.
+  >    (e) THE FENCES DO NOT MOVE. A roadmap is a proposal: nothing in it is ordered until an addendum
+  >        orders it. A candidate is declared by my addendum, its bar written before any result; no
+  >        figure of a candidate is computed outside its one declared run; every standing
+  >        prohibition holds (533 item 1, 538 item 6(c), the NFL's 12-18, the soccer refresh). No
+  >        date on a roadmap moves a bar (59 item 5(c)). A sport that waits on a calendar waits.
+  >    (f) Nothing is in flight to hand over: DEV 3 and DEV 4 each reported no open order. DEV 3
+  >        keeps its 506(d) text until I answer its five questions.
+  >
+  > 4. THE READING TIMER, AMENDED (463). The operator pays for every read. A session with a PR open or
+  >    in review, or an order due within seven days, reads every 30 minutes from 08:00 to 20:00 ET, as
+  >    now. A session with neither reads four times a day: 08:00, 12:00, 16:00 and 20:00 ET. 490 and
+  >    504 govern every read. Each report says which timer the session is on.
+  >
+  > 5. THE SOCCER LANE's FIRST ORDER, FROM THE OPERATOR: "For the soccer lane, could we focus on
+  >    branching that model out to more club leagues?"
+  >    (a) WHAT THE RECORD SAYS FIRST, from the roadmap's own lines: on the test seasons the closing
+  >        market beat the candidate in all five leagues already declared (by 0.050 of log-loss in
+  >        PD, 0.042 in SA, 0.042 in BL1, 0.026 in FL1, 0.028 in ELC), and the PL model's divergence
+  >        from the market read anti-predictive (13 of 30). No league's window against the close is read.
+  >        A second wave is therefore ordered as a PLAN, and nothing else.
+  >    (b) DEV 3: THE PLAN, read-only, one comment on #322, by Friday 12-04 17:00 ET. Every club
+  >        league that passes three tests, each with its evidence: Kalshi lists a three-way game
+  >        series for it (from the kept probe receipt and the adapter's own map; no new probe without
+  >        my block); the providers we hold serve its fixtures, results and odds on the plans we
+  >        hold (nothing bought); and its history is in the pot or can be had from those providers.
+  >    (c) FOR EACH LEAGUE THAT PASSES: its season's calendar and when 60 finished games with a
+  >        three-way close would accrue from a declaration; the requests a day it adds against each
+  >        plan's limit; and what must be wired, named file by file.
+  >    (d) TWO TRACKS, NAMED APART. MARKET-ONLY: the pages, the books and the Kalshi prices of a
+  >        league, no model and no gate, a build I order when I rule the wave. THE MODEL SHADOW:
+  >        declared by addendum on the constants that stand after soccer-v23's run is read, with
+  >        155's window and its confirmation, never before.
+  >    (e) COUNTS AND CALENDARS ONLY. No figure of any model on any game of any league.
+  >    I rule the wave after soccer-v23's run of 11-27 and this plan.
+  >
+  > 6. DEV 1, IN YOUR NEXT RECORDS PR: CLAUDE.md's workflow gains the lanes of item 2 and the timer of
+  >    item 4, in my words. In the same PR, #1159's changelog fragment is corrected to what the head
+  >    holds: 8 new tests, 188 passed (DEV 4's 08:57Z report).
+  >
+  > 7. DEV 2: your 09:08Z report is read; the plan for 503's PR 2 on #1102 before any code is right.
+  >
+  > 8. The newest comment I had seen before this post is DEV 2's, 7187353797.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 561, where it landed:**
+  - Placed whole as its header asks (item 5): on #322 (7192838046) and #656 (7192838497); each read back on the operator's account, unedited, its quote equal to the addendum line for line (report 7192890144, 13:06Z, item 1).
+  - Item 2: DEV 1's lane, Lane A, is unchanged: the release lane, the records of every addendum, operations and the follow-ups; Dev 1 alone records.
+  - Item 6, in this PR: CLAUDE.md's Workflow section gains two bullets after the architect-channel bullets (after 504's "A read reaches the last comment"): "The lanes", quoting item 2 verbatim and whole and saying it amends 518's lanes, and "The reading timer", quoting item 4 verbatim and whole and saying it amends 463's timer. No other CLAUDE.md line changes; 463's bullet keeps its own words beside its amendment, as it does beside 490's.
+  - Item 6, in this PR: changelog.d/1159-1158-pull-followup.md is corrected to what #1159's head holds: "8 new" in place of "7 new" and "188 passed, 2 skipped" in place of "187 pass". The eight tests are counted in the diff of tests/test_hosting_pack.py from #1159's merge base (0e2f3d03) to its head 8799475a (eight test_1158_ functions added), and tests/test_hosting_pack.py on this branch gives 188 passed, 2 skipped. In the same fragment, the old-lines sentence, "a line from before identities is the installed job's (the default host and --dest)", the fragment's copy of the body sentence 559 item 3(c) names as behind the head, is corrected to what deploy/hosting/pull_backup.py on main does (_of_job and main()): a line from before identities is the installed job's, the job on the default --dest whatever host the installer was given; a legacy pull line must name this run's host, and a legacy notice line names none. That second correction is not named by 561 item 6; it is DEV 1's choice, put to the architect in this PR's report.
+  - Item 4: the timer is each session's own; each of DEV 1's reports is to say which timer DEV 1 is on. DEV 1's names it: every 30 minutes from 08:00 to 20:00 ET while this records PR is open, then four reads a day unless an order of DEV 1's falls due within seven days (report 7192890144, 13:06Z, item 6).
+  - Item 3 is DEV 3's and DEV 4's, item 5 is DEV 3's and item 7 is DEV 2's: DEV 3's plan on #322 by 2026-12-04 17:00 ET and the sport lanes' first roadmap texts (DEV 3 by 12-04, DEV 4 by 12-08) are addendum dates with no roadmap step. Nothing in them is DEV 1's to build.
+
+- **Addendum 562 (ARCHITECT 2026-11-26 04:26 ET), verbatim:**
+
+  > ARCHITECT 2026-11-26 04:26 ET (09:26Z, read from the clock) — addendum 562, THE REPOSITORY's CLEAN-UP: AN INVENTORY FIRST, REMOVALS SECOND; THE PITCHER RETIREMENT's BUILDER SAID, for DEV 4, DEV 1, DEV 2
+  > Posted on #1092. Record it in BACKLOG as usual; items 1 to 4 go on the new Issue of item 3, item 5 on #746.
+  >
+  > 1. THE OPERATOR'S WORDS, this morning, verbatim in part: "cleaning up our repo. We've got a lot of
+  >    things like migration scripts and things that we've maybe needed and then just left them on the
+  >    repo. Shouldn't we clean this up?" Yes. It is ordered in two steps, and the first removes nothing.
+  >
+  > 2. WHAT I COUNTED ON MAIN AT 8de2a3ac, by listing and by search, nothing run: 966 tracked files.
+  >    Twenty-seven migrate scripts sit at the top level. Seventeen are still named by CI, the
+  >    bootstrap, the deploy scripts, a spec or a test (twenty test files import one); ten are named
+  >    nowhere outside the record. Beside them at the top level: wc_diag.py, kalshi_epl.txt,
+  >    my-predictions.json and main.py. scripts/ holds 122 Python files, 98 of them receipts, probes
+  >    or verifiers. So a file cannot simply go: what calls it comes first.
+  >
+  > 3. DEV 4 — THE INVENTORY, read-only, one task outside your sports by this addendum. Open one Issue
+  >    (labels from the fixed set, sport:all) and put the inventory on it as one comment by Wednesday
+  >    12-09 17:00 ET. For every tracked file at the top level that is not a document or a
+  >    requirements file, every file in scripts/ and every file in tools/:
+  >    (a) WHO CALLS IT TODAY, each with its file and line: a chain or a timer, the laptop's routine,
+  >        CI, a test, a command of the cli, a spec or a runbook, or a kind of block of mine.
+  >    (b) ITS CLASS, one of four. LIVE: something that runs calls it. RECORD: a verdict, a registry
+  >        entry or a ledger entry names it as the tool behind a recorded figure. SPENT: a one-time
+  >        step that ran and has nothing left to do (an applied migration, a finished backfill, a
+  >        restore). DEAD: nothing calls it and nothing cites it.
+  >    (c) WHAT BREAKS IF IT LEAVES: the tests that import it, the CI step, the bootstrap or deploy
+  >        step that names it.
+  >    (d) FOR EACH MIGRATION, by reading and with no database opened: whether a fresh init already
+  >        makes what it makes, so that a new clone needs it or does not.
+  >    No file is removed, moved or renamed in this step, and nothing is run against data/.
+  >
+  > 4. THE RULES OF REMOVAL, ruled now so that the inventory aims at them.
+  >    (a) Nothing leaves that a fresh clone needs to build a working database, or that the host's
+  >        bootstrap or deploy calls, unless the same PR changes the caller and CI proves it.
+  >    (b) A RECORD file stays while a verdict's own reproduction needs it. Any other file that leaves
+  >        gets one line in a new docs/RETIRED.md: its path, its last commit and why. Git keeps the
+  >        file and the record's citations stay true. No archive folder.
+  >    (c) THE REMOVALS ARE DEV 1's, small PRs, one class at a time, CI green on each. A test that
+  >        only pins a removed file leaves with it, and the PR says how many tests left.
+  >    (d) Tracked files only. Never data/, never a file a machine ignores, and no rewrite of history.
+  >    (e) WHAT LEAVES IS RULED BY ME FROM THE INVENTORY, WITH THE OPERATOR'S YES ON THE LIST. Until
+  >        then nobody deletes anything in the name of this addendum.
+  >
+  > 5. THE PITCHER LAYER's RETIREMENT (#746), SAID PLAINLY AFTER 561: the plan due 12-04 and its PR stay
+  >    with DEV 2, where they are in flight; 561 item 2's "builds already dated to it" covers them.
+  >    The lane's roadmap text is DEV 4's (561 item 3(a)). My rulings on section H are due 11-30.
+  >
+  > 6. The newest comment I had seen before this post is my own 561, 7187683579.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 562, where it landed:**
+  - Placed whole as its header asks for item 5: on #746 (7192838913); read back on the operator's account, unedited, its quote equal to the addendum line for line (report 7192890144, 13:06Z, item 1).
+  - Items 1 to 4 go "on the new Issue of item 3", the inventory Issue DEV 4 opens. At 13:17Z on 2026-11-26 no such Issue exists (the newest Issue or PR is #1161, created 01:51Z), so that placement is NOT made yet: it waits for DEV 4's Issue, and DEV 1 places it there when it is opened (report 7192890144, 13:06Z, item 1). DEV 4's report 7193006024 (13:12Z): the Issue opens when the inventory comment is ready, well before 12-09.
+  - Item 4(c), noted (report 7192890144, 13:06Z, item 4): the removals are DEV 1's, small PRs, one class at a time, CI green on each. They wait for DEV 4's inventory (by Wednesday 2026-12-09 17:00 ET) and the architect's ruling of the list with the operator's yes (item 4(e)). Nothing is removed, moved or renamed, here or elsewhere, in the name of this addendum, and no docs/RETIRED.md is made yet (item 4(b)).
+  - Items 3 and 5 are DEV 4's and DEV 2's. Item 5's plan and its PR are the mlb-retire lane's steps on #746 (the plan of 469 item 3(a), due 2026-12-04; the OFF arm's PR, due 2026-12-18), unchanged, and DEV 2 builds them; the lane's roadmap text is DEV 4's (561 item 3(a)). 12-09 (the inventory) and 11-30 (the section H rulings) are addendum dates with no roadmap step.
+
+- **Addendum 563 (ARCHITECT 2026-11-26 08:02 ET), verbatim:**
+
+  > ARCHITECT 2026-11-26 08:02 ET (13:02Z, read from the clock) — addendum 563, 503's PR 2: THE FOUR QUESTIONS RULED, for DEV 2
+  > Posted on #1092. Record it in BACKLOG as usual; it goes on #1102.
+  >
+  > 1. DEV 2 — YOUR PLAN (#1102, comment 7188115461) is read whole beside 502 Q2, 503 Q1 and Q2, 506 item
+  >    2(e) and 529 item 3(c). What you read as ruled is as ruled: every row R2 checks, the export's
+  >    own computed stamp, the start the run holds its lock at, the comparison R2 makes, a stamp in
+  >    the start's own second stale. R2 stays byte for byte. The build is in closing.py alone.
+  >
+  > 2. Q1. OFF AT MERGE, as you read it, behind its own closing-side switch. TWO THINGS WITH IT:
+  >    (a) OFF IT STILL COUNTS. With the switch off the check runs, fails nothing, and changes no
+  >        page, no file, no exit and no notice. It prints one line and writes one key on the run's
+  >        receipt: the rows it would have failed, each with its cause, or that there are none. That
+  >        is the evidence the turn-on is ruled from. November's count was 0 soccer rows (529 item
+  >        3(c)), and the case you name, a predict that skips a covered game, is exactly what the
+  >        line will show before it can cost a closing.
+  >    (b) IT IS TURNED ON BY AN ADDENDUM OF MINE, the same one as #1161's or its own. The code ties
+  >        the two switches to nothing: each is read by itself.
+  >    A test pins that off changes no outcome, and a test pins the line and the key.
+  >
+  > 3. Q2. ITS OWN FAILURE, "stale predictions". A prediction is never put under R2's captured line.
+  >
+  > 4. Q3. THE WORDS AS YOU WROTE THEM. With a stamp: "prediction computed", the stamp, "before the
+  >    run's start", the start. With no stamp: "prediction carries no computed time". With a stamp
+  >    that does not parse: "prediction computed time unreadable". Never "computed never".
+  >
+  > 5. Q4. THE ORDER AS YOU READ IT: prices, then predictions, then starters, each failing on its own
+  >    as today. No pass that lists two failures.
+  >
+  > 6. THE TEST FRAME's CHANGE IS ACCEPTED as named: it stamps each MLB and SOCCER row at each export
+  >    step, and a test plants its own value through a field of the frame. Say in the PR body how
+  >    many existing tests changed only by that stamp.
+  >
+  > 7. The head stays due 12-22. Your timer and your two waits (11-30, 12-03) are noted.
+  >
+  > 8. The newest comment I had seen before this post is DEV 2's, 7188134683.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 563, where it landed:**
+  - Placed whole as its header asks: on #1102 (7192839365); read back on the operator's account, unedited, its quote equal to the addendum line for line (report 7192890144, 13:06Z, item 1).
+  - Nothing in it is addressed to DEV 1; its items are DEV 2's, the head still due 12-22.
+
+- **Where each record asked landed:** DEV 1 made every Issue placement an addendum's header names whose Issue exists, 8 in all: 559 on #839, #1053, #1102 and #322; 561 on #322 and #656; 562 (item 5) on #746; 563 on #1102. Each was read back from GitHub and checked against the saved addendum, line for line, and each comment is the operator's account's and unedited. 560 names no placement. One placement is not made: 562 items 1 to 4 on the inventory Issue of 562 item 3, which DEV 4 has not yet opened; it is placed when that Issue exists.
+- **Issues opened by DEV 1 in the span:** none. No label is changed and no Issue is closed by DEV 1 in the span.
+- **Files, in this PR:** this entry and its changelog fragment; CLAUDE.md's Workflow section, two bullets, 561 items 2 and 4 quoted whole (561 item 6); changelog.d/1159-1158-pull-followup.md, the counts (561 item 6) and the old-lines sentence (559 item 3(c), DEV 1's choice for the architect). No other CLAUDE.md or README.md line is asked by these addenda.
+- **Not done here, each for its reason:** the placement of 562 items 1 to 4: it waits for DEV 4's inventory Issue (562 item 3). The removals: DEV 1's own small PRs, after the architect rules the list from the inventory with the operator's yes (562 item 4(c) and (e)); nothing is removed. The docs/SOURCES.md PR (head by 2026-12-08), PR-B (retire-college-nfl-rows, head by 2026-12-15) and the admin page's plain refusal (head by 2026-12-18) stay as ruled in the 545 to 558 entry.
+- **DEV 1's reports on #1092 in the span:** 7192890144 (13:06Z): the eight placements, 562 items 1 to 4 waiting for DEV 4's Issue, 559 items 0 and 1 seen, 561 item 6 being built here, 562 item 4(c) noted, 560 read, and DEV 1's timer under 561 item 4 (every 30 minutes from 08:00 to 20:00 ET while this PR is open, then four reads a day). The last before it, 7180006818 (01:40Z), is in the 545 to 558 entry. This PR's report follows its opening.
+- Nothing here moves a bar, a date on the roadmap or a held timer. No roadmap step is appended and no date moves. Nothing changes a prediction output.
+
+**2026-11-26 — A #1161 test that failed after 12:00 UTC is fixed (a test fix; DEV 2, Lane B; #1165).**
+- **Finding:** `tests/test_1102_stale_price_rule.py::test_a_closings_file_has_no_f1_reads_off_no_run_start_and_carries_f2_to_f4` (merged with #1161) seeded today's 12:00 UTC as the kickoff. After that hour the export skips the started game, so the test failed on every run from 12:00 to midnight UTC. Seen on clean main 8de2a3ac by 503's PR 2 build.
+- **Fix:** the kickoff is two hours from the clock, cut to the minute; nothing else in the test or the code changes.
+
+**2026-11-26 — The backup pull's follow-up, built: the mixed-address scrub and a job identity (557 item 2(a); DEV 4, Lane D; Closes #1158; #1159).**
+- **Ruling (557 item 2(a), in part):** "THE TWO ROUND-2 P2s: NEITHER BLOCKS (stop rule (2)). Both go to this PR's ONE follow-up Issue ... Until the identity is built, nobody runs this script with another host or another folder against the same receipts log. The follow-up's head is due Tuesday 12-15."
+- **What landed:** the scrub replaces a mixed or ported IPv6 form whole and a dotted quad anywhere; every pull and notice line carries a job identity (a hash, no host name) and a job reads only its own history; lines from before identities are the installed job's.
+- **Next:** the review rounds (money path), then the merge; live on the laptop from the first 22:00 ET run after it.
+
+**2026-11-26 — The NBA probe's --document-url guard, built (558 item 4; DEV 4, Lane D; Closes #1155; #1160).**
+- **Ruling (557 item 1(d)):** "#1155 is the right home for the round-2 finding. The URL in my block carries no whitespace, so the run does not wait on it." 558 item 4 scheduled its head by Tuesday 2026-12-15 12:00 ET.
+- **What landed:** the value stripped once, then parsed and checked inside one guard; the stripped value fetched; the receipt keeps the value as given. A malformed URL behind a leading Unicode space is refused before any request, with its receipt and tail.
+- **Next:** the review rounds, then the merge; the run stays the architect's block on the host after the tag.
+
+**2026-11-26 — The de-vig receipt's hidden end, for the ever cohort too, built (554 item 1(d); DEV 4, Lane D; Closes #1149; #1156).**
+- **Ruling (554 item 1(d)):** "#1149 (the hidden end counted for the bell's cohort alone) IS SCHEDULED: a small PR of its own, a reviewable head by Tuesday 2026-12-08 12:00 ET, so that the first run prints both cohorts alike."
+- **What landed:** `hidden_end_ever_book_flagged` with its month, printed beside the bell's `hidden_end_book_flagged`; no other count changes.
+- **Next:** the review rounds, then the merge; the run stays the architect's two blocks after the tag (554 item 1(e)).
+
+**2026-11-26 — #1102 PR2, THE DESK'S RULE: kind stale_price, the slate's alone, built to the one text and SHIPPED OFF (addendum 555 item 1; gate-class: a Desk rule on the money path; #1161).**
+- **Ruling (verbatim, addendum 555 item 1(a)):** "The rule ships OFF. The addendum that turns it on will name the day from which a slate file is read under it, and what a rescore does with the files published between PR1 and that day. Until that addendum nothing turns, on a new file or an old one."
+- **Built:** `STALE_PRICE_RULE = {"on": False}`, kind `stale_price` in `NO_CALL_KINDS`, applied last on `desk_call`'s return to a PLAY or a LADDER: F1 read once per file in `evaluate`, F2 and F3 through `normalize`, R2's check (a stamp before F1 or in its second, or none, is stale), the legs the unturned call reads (`read_legs`, closing's `desk_read_legs` ported and pinned). `desk_meta.stale_price_rule` in every annotated file: "off" today.
+- **The six questions as ruled:** Q1 "Kalshi price never captured: no call" (the text's P gains "Kalshi price"); Q2 F1 is the CLI's six-digit form, one definition (`src/timeutil.py` `parse_run_start`) for `--run-start` and the Desk; Q3 an unparseable F2/F3 is stale as "<P> capture time unreadable: no call"; Q4 every reason, books then legs sorted; Q5 nothing of the would-be call kept; Q6 desk-rescore's "stale price" counted apart, "no executable quote".
+- **For the turning-on addendum:** the callers that annotate an already-published file are listed in the PR's changelog fragment (desk-rescore, desk-parlays over older files, scripts/cockpit_desk_files.py's upload and desk_files, the verify scripts).
+- **Nothing else moves:** no probability, no bar, no date and no held timer; no call moves while the switch is off; R2 is untouched.
+
+**2026-11-26 — The nightly backup pull tells, built (552 item 3; 554 item 2; DEV 4, Lane D; Refs #1053; #1154).**
+- **Ruling (552 item 3, in part):** "THE NIGHTLY JOB STAYS LOADED AND TELLS. It tries; when the host does not answer it leaves quietly, with its receipt. ... THE NOTICE IS BY THE AGE OF THE NEWEST VERIFIED COPY, NOT BY FAILED NIGHTS. ... No host name in any notice. The pull's exit stays 1 on a failed night."
+- **Ruling (554 item 2, in part):** "YOUR NINE POINTS ON #1053 (comment 7177190736) ARE READ. ALL NINE AS YOU READ THEM."
+- **What landed:** pull_backup.py's connect timeout below the kill, the stage, the scrubbed tail, the newest verified copy's name and age on every receipt, and one notice per 3-day step by that age through the card or the operator's topic; the receipt first, the notice after it as its own `pull_notice` line.
+- **For the architect:** the notice as its own line (P7's "after the receipt" kept over "on its pull receipt"); "no verified copy" told once in each spell; an unreadable folder its own state; `reason` beside `error`.
+- **Next:** the review rounds (money path: P2s after the fix round listed for the architect), then the merge. Nothing is installed again; the job reaches the laptop with the tag that carries it.
+
+**2026-11-25 — The NBA injury-report probe's one-document read, built (553 item 3; DEV 4, Lane D; Refs #839; #1151).**
+- **Ruling (553 item 3, in part):** "DEV 4 BUILDS THE ONE THING THE PROBE LACKS: the report phase reading ONE document by a URL given to it, with no index read. scripts/nba_injury_report_probe.py and its tests, nothing else"
+- **What landed:** `--document-url` under `--report`: one GET, the probe's own client name, no redirect followed, no index read; the same form and fields as the newest report, structure only; refused before any fetch together with `--index-url`, without `--report` and without `--terms-ruling`; the URL and any Location in the receipt only; the no-URL-default rule pinned.
+- **Ruling (555 item 2, in part):** "A. THE URL STAYS OFF THE CONSOLE ... B. A REFUSAL IS FAILED, exit 1, as now ... C. THE FILE NAME IS THE RECEIPT'S ALONE ... D. CHANGED: THE DOCUMENT'S URL IS https OR IT IS REFUSED, before any request, with its own REFUSED line. For this option only ... E. YES: the two fragments, and one line in each of the two pages that list the option." Built so: a --document-url that is not https with a host is refused before any request; the index's path is unchanged.
+- **Next:** the review rounds, then the merge. The run is the architect's OPERATOR ONLY block on the host, after the tag that carries it (553 item 3). The NBA stays market-only (553 item 5).
+
+**2026-11-25 — Addenda 545 to 558: the retirement command's plan accepted with its six answers (delete after every count is zero, every season, all the refusals, both guards on the NFL set, no override, the placeholder exempt) and both builds to DEV 1, PR-A by 12-04 and PR-B by 12-15 (545 items 1 and 2); #1141's nine points ruled, the bell first and ever flagged beside it, the head still due 12-08 (545 item 3); #1143 merge-ready (545 item 4); the venue receipt test's flake an Issue, #1146 (545 item 5); #1143 merged, the MoneyPuck second read and its club-code map ruled, the NHL cohort count and the calendar it sets for 510's test, the laptop's NHL shot events a finding with DEV 3's line owed by 12-04 (546); the laptop's launchd jobs read, the capture-odds jobs to be unloaded for the off-season, the closing watch kept, #1133 ruled for closing.py's sentence with the setup script's comment riding the docs/SOURCES.md PR, and the backup pull's exit 1 held (547); the backup pull's failures a finding and an Issue, #1147, and #1144 merge-ready (548); the MoneyPuck third pass, the 115 games ARI's and their reading ruled, the four capture-odds jobs unloaded and one hosting-spec line asked, #1144 merged (549); the fourth read, two records of 4,577 games agreeing on every score and nothing granted (550); #1145 (497 step (1)) merge-ready, its three stale texts to this records PR, the laptop's shot events not a fault (551); #1145 merged, the backup pull the architect's error, #1147 a duplicate of #1053 and closed, DEV 3's plan #1053's with the notice by the newest copy's age, and its build to DEV 4 by 12-08 (552); the operator's route 3 for the NBA injury report, one document probed from the documents' host and no feed, DEV 4's probe phase by 12-04, and a roadmap step appended for 12-15 (553); #1148 merge-ready, #1149 scheduled for 12-08, the backup pull's nine points ruled, and #1122's label sport:all (554).; the Desk's stale-price rule's six questions ruled for DEV 2's PR2, the rule shipping off (555 item 1); DEV 4's NBA probe defaults ruled, the document's URL https or refused (555 item 2); #1152 ruled: the admin page refuses plainly a competition it has no adapter for and does not route, its own PR after PR-B by 12-18, not blocking #1150 (555 item 3).; #1150 (PR-A) read whole at 5105ca7b and merge-ready, its five choices accepted as built, its merge block with the operator (556 item 1); #1153's P1 ruled as built, with one count line added (556 item 2).; #1150 and #1148 merged, #1151 merge-ready, #1154's two round-2 P2s ruled not blocking, the cutover runbook's copy of the exit-0 list corrected in this PR and four texts from 497 step (2) on, the lane's sentence standing (557); #1151 on main, #1154 merge-ready, #1156 merge-ready, #1155 scheduled for 12-15 (558).**
+- **Addendum 545 (ARCHITECT 2026-11-25 16:44 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 16:44 ET (21:44Z, read from the clock) — addendum 545, POLICY (the retirement command's plan ruled and its build assigned); #1141's NINE POINTS RULED; #1143 MERGE-READY, for DEV 1, DEV 3, DEV 4
+  > Posted on #1092. Record it in BACKLOG as a policy ruling; items 1 and 2 go on #1127 and #1108, item 3 on #1141, item 4 on #1140.
+  >
+  > 1. DEV 3 — YOUR PLAN ON #1127 (comment 7175101137) IS READ WHOLE AND ACCEPTED, nine days early, with
+  >    your report of 21:52Z beside it. (a) to (g) stand as you wrote them. THE SIX:
+  >    Q1. DELETE, after every count is zero. A mark would leave the row where the pages you named
+  >        still show it. The block's own backup is the way back.
+  >    Q2. EVERY SEASON. The shape governs; an NFL club has no college game in any year.
+  >    Q3. ALL OF THEM: no twin or two, the pair reversed, another kickoff within 12 hours, a score
+  >        the NFL row lacks or contradicts, any row that hangs on it, and the row whose id is the
+  >        table's highest.
+  >    Q4. BOTH. An NFL set of more than 32, or a set team with no NFL row, refuses the whole run: it
+  >        would mean the set is wrong, and a wrong set is the one way this command could reach a
+  >        real college team. And a membership stays while its team still holds a college match
+  >        the command did not remove.
+  >    Q5. NO OVERRIDE IN THIS BUILD. A refused row stays, named, and exits 2. If the preflight on
+  >        either machine's copy refuses one, I rule that row then, and the remedy is its own
+  >        change with its own review. An option that takes ids is not built for a case nobody
+  >        has seen.
+  >    Q6. YES: the placeholder is exempt, by its primary id, in PR-A and in the command's set,
+  >        each pinned with a test in which the placeholder holds an NFL membership (527 item 1(7)).
+  >    ONE LINE MORE FROM YOU, by code, no run, on #1127 by Friday 12-04: does the paper record's
+  >    count of that row enter any figure it keeps, or only a count of finished games?
+  >
+  > 2. DEV 1 BUILDS BOTH, each its own PR, money-path, to the plan as ruled.
+  >    PR-A, 542 item 1(a) alone (stop rule (5)): a reviewable head by Friday 2026-12-04 12:00 ET. It
+  >        stops the list growing: two clubs on Tuesday, six on Wednesday.
+  >    PR-B, the command retire-college-nfl-rows: a reviewable head by Tuesday 2026-12-15 12:00 ET.
+  >    Then, per machine and from that machine's own read: my preflight on a copy, and the apply
+  >    in my OPERATOR ONLY block after its backup; on the host after the tag that carries both.
+  >    If either date cannot stand beside 497's steps, say so today; I move a date of mine, never
+  >    a review.
+  >    UNTIL THE APPLY: nothing is removed or edited by hand on either machine, and the local pages
+  >    that show row 66178 under college are known to be wrong about it. MINE: I read tomorrow
+  >    morning's college Kalshi line for a refusal that names one of the six clubs.
+  >
+  > 3. DEV 4 — YOUR NINE POINTS ON #1141 (comment 7175133325) ARE READ. ALL NINE AS YOU READ THEM, with
+  >    two answers where you offered a choice:
+  >    P1. The last session only, and the three named causes. THE FENCE WIDENS as you say: the book's
+  >        name and its price are read for the close's own fair and are never printed, pinned.
+  >    P4. THE BELL FIRST, kickoff less one microsecond, through the function itself. "EVER FLAGGED"
+  >        IS WANTED TOO, beside it, because the pager acts inside the window and not at the bell.
+  >        If it makes the receipt slow enough to matter on the host's copy, say so on #1141 and ship
+  >        the bell alone. The book venue's own flag, with the combined flag and Kalshi's beside
+  >        it; the hidden AWAY-only end counted apart.
+  >    P2, P3, P5 (the New York month), P6, P7 (said beside the count), P8 and P9: yes.
+  >    Build. The head stays due Tuesday 2026-12-08 12:00 ET.
+  >
+  > 4. DEV 4 — #1143 (#1140's fix) IS READ WHOLE AT 95b4e125 AND IS MERGE-READY: 21 lines of the
+  >    script, the two causes counted over every row beside the rows with a gap, no gap, bucket or
+  >    staked line changed. Every check a success, no thread, clean against d77e707e. Its merge
+  >    block is with the operator for his agent.
+  >
+  > 5. DEV 1 — THE SECOND FLAKE (tests/test_venue_quote_age_receipts.py, a line wrapped by a narrow
+  >    terminal) IS AN ISSUE TOO, size S, its own number; its fix rides the same test PR as #1142's.
+  >    The 540 to 544 records PR takes 545 if it is not yet pushed.
+  >
+  > 6. The newest comment I had seen before this post is DEV 4's, 7175272482.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 545, where it landed:**
+  - Items 1 and 2 are on #1127 (comment 7175698743) and #1108 (comment 7175699343), item 3 on #1141 (comment 7175699896) and item 4 on #1140 (comment 7175700367), each the whole addendum, as its header asks; each was checked to stand once (report 7175742093, 21:56Z).
+  - Its record is a policy ruling (its header), and this is it: DEV 3's plan on #1127 (comment 7175101137) is accepted as written, (a) to (g), with the six answers Q1 to Q6 as quoted above, and DEV 3's one line more on the paper record by 2026-12-04.
+  - Item 2: DEV 1 builds both PRs, each its own, money-path. BOTH DATES STAND beside 497's steps (report 7175742093, item 1): PR-A (542 item 1(a) alone, stop rule (5)), a reviewable head by Friday 2026-12-04 12:00 ET; PR-B (the command retire-college-nfl-rows), a reviewable head by Tuesday 2026-12-15 12:00 ET. PR-A is open as #1150: opened 23:24:03Z, its first reviewable head a7529817 (the fragment renamed to #1150, 23:24:13Z), with main ac364c70 merged in (report 7177517807, 23:24Z: "open as #1150 at a7529817"); its CI and review follow, and it is not part of this PR. PR-B is not built yet. Until the apply nothing is removed or edited by hand on either machine.
+  - Item 5: DEV 1 opened Issue #1146 at 21:55:06Z (class:finding, track:ops, sport:all, size:S), titled "[ops] Finding: test_venue_quote_age_receipts fails when rich wraps its REFUSED line between the two words it matches (addendum 545 item 5)". Its fix rode #1145 with #1142's: the two assertions read the REFUSED line with its whitespace folded (report 7175742093, item 2). #1146 closed with #1145's merge, 22:47:22Z. #1144 (540 to 544) was pushed before 545, so 545 is in this records PR, as item 5 provides (report 7175742093, item 3).
+  - Item 4: #1143 merged by the architect's block (546 item 0), read on GitHub: head 95b4e125, merge commit 66b4e86c, 21:52:28Z. Item 1's one line more (by 12-04) is DEV 3's; item 3 is DEV 4's. The dates 12-04, 12-08 and 12-15 are addendum dates with no roadmap step.
+- **Addendum 546 (ARCHITECT 2026-11-25 16:59 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 16:59 ET (21:59Z, read from the clock) — addendum 546, THE MONEYPUCK SECOND READ, THE CLUB-CODE MAP RULED; THE NHL COHORT COUNT AND WHAT IT SAYS ABOUT THE CALENDAR, for DEV 3, DEV 1
+  > Posted on #1092. Record it in BACKLOG as usual; it goes on #105.
+  >
+  > 0. SEEN ON MAIN: #1143 merged at 95b4e125, 21:52Z, by my block. Main is 66b4e86c.
+  >
+  > 1. THE SECOND READ (the laptop, 21:54Z, the same two files by their sha256, nothing fetched, no row).
+  >    (a) THE TEAM FILE HOLDS TOGETHER. The three club columns are equal on every row; every game has
+  >        two rows; goalsFor of one is goalsAgainst of the other in all 23,607 games; goals in "all"
+  >        equal the sum of the four situations in all 47,214 club-games; the game id's type digits
+  >        are 02 on the 21,993 regular games and 03 on the 1,614 playoff games, never otherwise.
+  >    (b) ITS SEASONS ARE WHOLE BUT FOR FOUR GAMES: regular 1,227 in 2008 and 1,229 in 2009, three and
+  >        one short, the four the shot dictionary names as missing; then 1,230 a season, 720 in 2012,
+  >        1,271 in 2017 and 2018, 1,082 in 2019, 868 in 2020, 1,312 from 2021 to 2025, and 385 of
+  >        2026 from 2026-09-29 through 2026-11-24.
+  >    (c) THE CLUB CODES, RULED. 38 codes are 30 to 32 in any one season: no club has two spellings
+  >        in one season. FOUR CLUBS WERE RESPELLED FROM 2021 and are one club each, one key:
+  >        L.A and LAK, N.J and NJD, S.J and SJS, T.B and TBL. TWO PAIRS ARE MOVES and stay two codes
+  >        as the file has them: ATL to 2010 and WPG from 2011; ARI to 2023 and UTA from 2024. Whether
+  >        anything is carried across a move is for a candidate's declaration to say. VGK begins in
+  >        2017 and SEA in 2021. A join to our own rows goes by the league's game id (item 2(f)),
+  >        not by a code.
+  >    (d) home_or_away: 115 GAMES ARE MARKED AWAY ON BOTH ROWS, and none any other way: 41 regular and
+  >        9 playoff in 2011, 24 in 2012, 41 in 2013, each on a day of its own. 41, 24 and 41 are
+  >        one club's home games in those three seasons; that is my inference, and the third pass
+  >        names the code. In the same number of games, 115, a row's opposingTeam is not the other
+  >        row's club. RULED: the column is the venue in 2008 to 2010 and from 2014 on (16,212 games,
+  >        no exception). In 2011 to 2013 no form reads it until I say what the 115 are.
+  >    (e) THE TEAM FILE DOES NOT NAME EVERY WINNER. 2,169 regular games that ran past 3,600 seconds
+  >        are level on goals in "all": a shootout's deciding goal is not among them. 2,903 that ran
+  >        past are decided, and every playoff game is. So a result is read from our own rows, or
+  >        from the shot file's homeTeamWon, never from the team file's goals alone.
+  >    (f) THE TWO FILES ON 2023-24. The join of 538 item 4(b) holds on all 1,400 games, none in one
+  >        file alone; the home and away codes and the playoff flag agree on all 1,400. Goals agree
+  >        on 1,383 games and part by exactly one goal on 17. homeTeamWon agrees with the goals on
+  >        all 1,318 decided games and names the winner of the 82 level ones. Unblocked attempts
+  >        agree on 1,234 games and part on 166. They are two counts of the same games, not one
+  >        count written twice: a form says which file each number is from.
+  >    (g) The shot file's categories are read; three stray values sit in lastEventTeam on five rows,
+  >        and ten shots carry the position G.
+  >
+  > 2. THE NHL COHORT COUNT (the laptop, 21:55Z, a fresh copy opened immutable, exit 0, the copy unchanged).
+  >    (a) 2026-27 AS STORED: 1,415 rows. 65 are preseason by the shadow's rule and 6 are the
+  >        international games of 2027-02-05, each kept apart. THE LEAGUE GAMES ARE 1,344: 385 played,
+  >        959 to come. 1,344 is 84 games a club.
+  >    (b) TWO RECORDS AGREE: the team file of item 1 also holds 385 games of 2026-27 through 11-24.
+  >    (c) TO COME AFTER EACH DAY: 11-25, 945; 12-04, 881; 12-15, 798; 01-01, 690; 01-15, 587;
+  >        02-01, 461. So 510's test, "600 or more regular-season games that start after its
+  >        declaration", can be met in this season only by a declaration in the first days of
+  >        January at the latest. The last day lies between 01-01 and 01-15, and a postponement can
+  >        only bring it forward. After it, a candidate's test is the 2027-28 season. This is the
+  >        calendar and nothing more: whether there is a candidate is not ruled here (12-03).
+  >    (d) THE GOALIE TABLE holds 385 regular games of 2026-27, each linked to its played game, none
+  >        twice.
+  >    (e) A FINDING, NOT YET A FAULT: the laptop's shot events of 2026-27 stop in October. They hold
+  >        8 games of September and 176 of October's 218, and none of November's 159. DEV 3: one line
+  >        on #105 by Friday 2026-12-04, from the code: what writes NHL shot events, on which machine
+  >        and in which step, and whether the laptop is meant to hold them. No Issue before it.
+  >    (f) 2023-24: 1,400 shot games of ours, 1,312 and 88, with 171,269 events and no match row, as
+  >        447 item 6 left them. They are the same 1,400 games as the source's, under the league's
+  >        own game id. So your counts 2 and 4 (539 item 3(b)) join by that id where our rows carry
+  >        it and need no club-code map. I write that block after the third pass.
+  >
+  > 3. DEV 3: AMEND YOUR READ ON #105 NOW (538 item 6(b)), from 538 items 2 to 5 and from items 1 and 2
+  >    here. Item 2(c) is the calendar any form of yours must fit, and you say plainly which of your
+  >    forms could be declared inside it. The third pass (your counts 1 and 3, the club of the 115
+  >    games, where the goals and the attempts part) is with the operator; amend again only if its
+  >    counts change what you wrote.
+  >
+  > 4. DEV 1 — your three reports to 21:57Z are read: both dates of 545 stand, #1144 and #1145 are open,
+  >    #1146 is opened. I read each PR when you report it green and thread-clean.
+  >
+  > 5. The newest comment I had seen before this post is DEV 1's, 7175745867.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 546, where it landed:**
+  - The whole addendum is on #105 (comment 7175874049), as its header asks; checked to stand once (report 7175881316, 22:03Z).
+  - Item 0, read on GitHub: #1143 merged 21:52:28Z at head 95b4e125, merge commit 66b4e86c.
+  - Item 4: DEV 1 reported each PR green and thread-clean as asked: #1144 at 36314e0e (report 7175881316, 22:03Z) and #1145 at 5709624a (report 7176213386, 22:19Z).
+  - Items 1 to 3 are the architect's reads and DEV 3's amendment; nothing in them is DEV 1's to build. Lane nhl stays closed and no roadmap line changes: item 2(c) is the calendar for 510's test and rules no candidate (12-03). Item 2(e)'s line is DEV 3's, by 2026-12-04, an addendum date with no step. No CLAUDE.md line is asked, and none is made false by it.
+- **Addendum 547 (ARCHITECT 2026-11-25 17:01 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 17:01 ET (22:01Z, read from the clock) — addendum 547, OPS (the laptop's launchd jobs read; #1133 ruled; the MLB capture jobs unloaded for the off-season), for DEV 1
+  > Posted on #1092. Record it in BACKLOG as an operations ruling; it goes on #1133, #1122 and #97.
+  >
+  > 1. THE LAPTOP'S launchd JOBS, by my read-only block today (533 item 4(a)). Six are loaded, each with
+  >    its plist file, none loaded without one, and no plist carries an environment key:
+  >    (a) the closing watch, every 60 seconds, for the family MLB alone;
+  >    (b) four capture-odds jobs, at 08:00, 12:00, 16:00 and 20:00 local, each for MLB 2026;
+  >    (c) the backup pull, at 22:00, from the host. Its last run left with 1.
+  >    The export pull is not installed on this laptop.
+  >
+  > 2. THE CAPTURE-ODDS JOBS (522 item 3(c)): THEY ARE UNLOADED FOR THE OFF-SEASON. Each run makes the
+  >    MLB odds read against a plan that lapsed today and captures nothing, because no MLB game is
+  >    to be priced before the 2027 season. The unloading is my OPERATOR ONLY block, the operator's
+  >    choice of day; the four plist files stay, and nothing is deleted. They are loaded again by
+  >    my block before the season. That reload is a dated step of my MLB lane declaration on #97
+  >    (by 12-18), beside the plan's renewal (522 item 3(d)).
+  >
+  > 3. THE CLOSING WATCH STAYS LOADED. Read in closing.py: with no game stored to close or to slate, a
+  >    tick starts nothing; the feed probe and the day's unit are reached only on a day a slate or
+  >    a closing is due. So in the off-season it reads no outside host.
+  >
+  > 4. #1133, RULED: closing.py's SENTENCE IS THE TRUE ONE. A slate or a closing run reads the day's unit,
+  >    and that read opens Kalshi's trading API when the day has no unit file. The laptop's watch
+  >    runs both for MLB in season, so its job does open that API, for that one read. The setup
+  >    script's sentence was true when it was written and has not been since the day's unit.
+  >    DEV 1: correct the comment at scripts/setup_closing_watch.sh:6 to say so: it places nothing,
+  >    and its one read of Kalshi's trading API is the day's unit, on a day a slate or a closing
+  >    runs. A comment only; it rides the docs/SOURCES.md PR (12-08), which lists that read for
+  >    each machine that makes it, and the export pull as not installed on the laptop.
+  >
+  > 5. THE BACKUP PULL'S EXIT 1 IS A FINDING I HOLD, NOT YET AN ISSUE. That job is the laptop's own copy
+  >    of the host's daily backup, law 5's second layer. One failed night proves little, since the
+  >    tailnet has to be up at 22:00. I read the pull's own last lines and the newest pulled copies
+  >    by a read-only block before I say what it is.
+  >
+  > 6. The newest comment I had seen before this post is DEV 1's, 7175745867.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 547, where it landed:**
+  - The whole addendum is on #1133 (comment 7175874656), #1122 (comment 7175875248) and #97 (comment 7175875840), as its header asks; each checked to stand once (report 7175881316, 22:03Z). Its record is an operations ruling (its header), and this is it: items 1 to 5.
+  - Item 4, #1133 ruled: closing.py's sentence is the true one. DEV 1 took the comment fix at scripts/setup_closing_watch.sh:6: it is to say the job places nothing and that its one read of Kalshi's trading API is the day's unit, on a day a slate or a closing runs (report 7175881316, item 3). 547 says it rides the docs/SOURCES.md PR (12-08), which lists that read for each machine and the export pull as not installed on the laptop, so it is NOT in this PR; 548 item 5 says "547 item 4 as you took it is right". #1133 is open on GitHub; no addendum in the span says when it closes.
+  - Item 2's unloading is the architect's OPERATOR ONLY block; 549 item 3 records it done. The reload is a dated step of the architect's MLB lane declaration on #97 (by 12-18), an addendum date with no roadmap step. Item 5's hold is answered by 548 and corrected by 552.
+- **Addendum 548 (ARCHITECT 2026-11-25 17:03 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 17:03 ET (22:03Z, read from the clock) — addendum 548, OPS (a finding: the laptop's nightly backup pull has failed on 26 of its last 30 nights), for DEV 1, DEV 3
+  > Posted on #1092. Record it in BACKLOG as an operations finding; it goes on its new Issue and #1122.
+  >
+  > 1. THE READ (the laptop, 22:02Z, my read-only block: the pull's own log and its folder; no database).
+  >    (a) 58 lines, one a night since 2026-09-28. OF THE LAST 30 NIGHTS, 4 PULLED AND 26 FAILED. The
+  >        last ten are all failures, nine of them the same: the first ssh to the host, the listing
+  >        of its backup folder, timed out after 60 seconds; one left with ssh's own 255.
+  >    (b) So at 22:00 the laptop does not reach the host on the tailnet. Why is not in the log:
+  >        the network mode at that hour is the operator's, and I have asked him.
+  >    (c) THE SECOND LAYER IS NOT EMPTY. The laptop holds 27 pulled copies, 10.1 GB, each with its
+  >        sha256 beside it, the newest the host's backup of today, written 09:32 ET. Of the six
+  >        newest, two came by the nightly job (11-11, 11-13) and four in a morning, by the
+  >        sittings' own pulls (11-09, 11-19, 11-23, 11-25).
+  >    (d) WHAT IS WRONG IS TWO THINGS: the job fails most nights, and it fails in silence. Nothing
+  >        told anyone for a month; I found it by a table's exit code.
+  >
+  > 2. IT IS AN ISSUE NOW (547 item 5 held it for this console). DEV 1: open it, class finding, track
+  >    ops, size S, with item 1's counts and no log line. Law 5 names this copy as the backup that
+  >    is off the provider; it is not to depend on which mornings a sitting happens.
+  >
+  > 3. DEV 3: A SHORT PLAN ON THAT ISSUE by Wednesday 2026-12-02 17:00 ET, from the code, nothing run,
+  >    25 lines at most:
+  >    (a) how a failed pull can tell the operator with what the laptop already has (the way a
+  >        failed closing does there), after how many failed nights in a row, and once, not nightly;
+  >    (b) what the setup script takes for the hour, and what else on the laptop already runs at an
+  >        hour when the tailnet is up (the morning routine among them) and could carry the pull;
+  >    (c) what a pull that finds the host unreachable should leave behind, beside its receipt.
+  >    No build until I have read it and the operator has said which hour suits his laptop.
+  >
+  > 4. UNTIL THEN my morning blocks keep pulling the host's backup whenever a sitting runs, as they
+  >    have, and I say in each block's console line how old the newest pulled copy is.
+  >
+  > 5. DEV 1 — #1144 (THE RECORDS, 540 TO 544) IS READ WHOLE AT 36314e0e AND IS MERGE-READY: the five
+  >    addenda stand whole and in one piece against my copies, two documents and no code, every
+  >    check a success, no thread, clean against 66b4e86c. Its merge block is with the operator.
+  >    Your 22:03Z report is read; 547 item 4 as you took it is right.
+  >
+  > 6. The newest comment I had seen before this post is DEV 1's, 7175881316.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 548, where it landed:**
+  - The whole addendum is on its new Issue, #1147 (comment 7176229694), and on #1122 (comment 7176230276), as its header asks; each checked to stand once (report 7176235857, 22:20Z). Its record is an operations finding (its header).
+  - Item 2: DEV 1 opened Issue #1147 at 22:19:46Z (class:finding, track:ops, sport:all, size:S), titled "[ops] Finding: the laptop's nightly backup pull has failed on 26 of its last 30 nights, in silence (addendum 548)", with item 1's counts and no log line (report 7176235857, item 1). 552 item 2 later ruled it a duplicate of #1053 and closed it (see 552).
+  - Item 1(d)'s "nothing told anyone for a month" is wrong in part, by the architect's own correction (552 item 1(a)): the record told; the job itself tells nobody. Item 1's counts stand (552 item 1(c)).
+  - Item 5: #1144 read whole at 36314e0e and merge-ready; merged by 549 item 0. Item 3's plan is DEV 3's (by 12-02), now #1053's plan (552 item 3).
+- **Addendum 549 (ARCHITECT 2026-11-25 17:07 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 17:07 ET (22:07Z, read from the clock) — addendum 549, THE MONEYPUCK THIRD PASS (the 115 games named, the goals and attempts counted); THE CAPTURE JOBS UNLOADED; #1144 MERGED, for DEV 3, DEV 1
+  > Posted on #1092. Record it in BACKLOG as usual; items 1 and 2 go on #105, item 3 on #97.
+  >
+  > 0. SEEN ON MAIN: #1144 merged at 36314e0e, 22:05Z, by my block. Main is 81cfa7b9.
+  >
+  > 1. THE THIRD PASS (the laptop, 22:04Z, the same two files by their sha256, nothing fetched, no row).
+  >    (a) YOUR COUNT 1, DEV 3: THE ICE TIME ADDS UP EVERYWHERE. In every game of every season, 2008 to
+  >        2026, each club's four situations sum to its "all" row within one second, and the two
+  >        "all" rows of a game are equal. No game falls outside it.
+  >    (b) THE 115 GAMES ARE ARI's. Every one has ARI as a club, and in every one the ARI row names
+  >        ARI as its own opposingTeam. With 546 item 1(d)'s counts (41, 24 and 41 regular games and
+  >        9 playoff games, each on its own day) they are that club's home games of 2011-12 to
+  >        2013-14. RULED, replacing 546 item 1(d)'s hold: in a game marked AWAY on both rows, the
+  >        row whose opposingTeam is its own code is the HOME row, and the opponent is the other
+  >        row's club. It is a reading from counts, and a form that leans on those three seasons
+  >        says so in its declaration.
+  >    (c) TWO GAMES ARE SHORTER THAN 3,600 SECONDS. One of 2008 holds 3,599. One of the 2019 season,
+  >        dated 2020-03-11, holds 1,200 seconds and is level at one goal each: a third of a game.
+  >        A form that reads the 2019 season names that game and leaves it out.
+  >    (d) YOUR COUNT 3: THE SHOT FILE'S GOALS OF 2023-24, 8,573 in all. Regular season: 7,881 in
+  >        periods 1 to 3 and 189 in period 4; the file holds NO regular-season row after period 4,
+  >        so a shootout is not in it. Playoffs: 487, 12 in period 4 and 4 later. THE EMPTY NET: the
+  >        column shotOnEmptyNet and the defending net's own flag agree on every goal. Empty-net
+  >        goals: 446 in regular periods 1 to 3, 1 in a regular period 4, 38 in the playoffs. So
+  >        regulation goals less empty net are 7,435 in the regular season and 449 in the playoffs.
+  >    (e) WHERE THE GOALS PART (546 item 1(f)'s 17 games): in all 17 the team file holds one goal
+  >        that has no GOAL row in the shot file, never the other way: 10 for the home club and 3
+  >        for the away club in regular games that ended in regulation, 3 in games that ran on, 1
+  >        in a playoff game. The shot file is short 17 goals of 8,590.
+  >    (f) WHERE THE ATTEMPTS PART, per club-game of 2,800: the unblocked counts are equal on 2,619;
+  >        the team file is lower by one or two on 61 and higher by one or two on 120. Shots on
+  >        goal are equal on 2,581 and misses on 2,712, each off by one or two in both directions
+  >        on the rest. Small, two-sided, in 166 games. Two tallies of the same play-by-play.
+  >
+  > 2. WHAT I HOLD FROM THE THREE PASSES, for your amended read, DEV 3: the team file is whole and
+  >    consistent with itself; it does not name a shootout's winner; its venue column needs 1(b)'s
+  >    reading in three seasons; the shot file lacks shootouts, 17 goals and nothing else I can
+  >    count; and the two files agree to within a shot or two. NOTHING HERE GRANTS A BUILD (538
+  >    item 6(c)). The fourth read, your counts 2 and 4 against our own rows by the league's game
+  >    id, is written and with the operator.
+  >
+  > 3. THE FOUR MLB capture-odds JOBS ARE UNLOADED (547 item 2), by the operator's own hand from my
+  >    block at about 22:05Z: four loaded before, none after; the four plist files kept; launchd
+  >    marks all four disabled, so a restart does not bring them back. The closing watch and the
+  >    backup pull are loaded as before. DEV 1: one line in the hosting spec beside the laptop's
+  >    jobs, in your next records PR. The reload is my block before the 2027 season (#97).
+  >
+  > 4. The newest comment I had seen before this post is DEV 1's, 7175881316.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 549, where it landed:**
+  - Items 1 and 2 are on #105 (comment 7176230781) and item 3 on #97 (comment 7176231431), each the whole addendum, as its header asks; each checked to stand once (report 7176235857, 22:20Z).
+  - Item 0, read on GitHub: #1144 merged at head 36314e0e, merge commit 81cfa7b9, 22:06:01Z.
+  - Item 3, in this PR: one line in docs/specs/hosting-h1.md beside the laptop's jobs, in section H2's cutover morning, step 7 (MLB after the flip, where the laptop's CLV capture jobs and closing watch are named): the four MLB capture-odds jobs of scripts/setup_clv_capture.sh are unloaded for the off-season by the operator's own hand from the architect's block at about 22:05Z on 2026-11-25; the plist files kept, launchd marking all four disabled; the closing watch and the backup pull loaded as before; the reload the architect's block before the 2027 season (#97).
+  - Items 1 and 2 are the architect's third pass and DEV 3's amended read; nothing is granted (538 item 6(c)) and nothing is DEV 1's to build.
+- **Addendum 550 (ARCHITECT 2026-11-25 17:09 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 17:09 ET (22:09Z, read from the clock) — addendum 550, THE FOURTH READ: THE MONEYPUCK FILES AGAINST OUR OWN NHL ROWS, for DEV 3
+  > Posted on #1092. Record it in BACKLOG as usual; it goes on #105.
+  >
+  > 1. THE READ (the laptop, 22:08Z, by my block: the copy of 16:55 ET opened immutable and unchanged
+  >    after, the same two files by their sha256; counts only, joined by the league's own game id).
+  >
+  > 2. YOUR COUNT 4, DEV 3: OUR 2023-24 SHOT EVENTS AGAINST THE SHOT FILE.
+  >    (a) THE SAME 1,400 GAMES, none in one record alone.
+  >    (b) OURS: 171,269 rows: 76,160 shots on goal, 48,120 blocked, 38,204 missed, 8,772 goals and 13
+  >        failed attempts; 617 of them in a shootout, which the file does not hold at all.
+  >    (c) GOALS, shootouts set aside: equal on both sides in 1,383 games; in the other 17 ours holds
+  >        one goal more, never fewer. They are 549 item 1(e)'s 17. AND OUR GOALS EQUAL THE TEAM
+  >        FILE's ON BOTH SIDES IN ALL 1,400 GAMES. So on goals the team file and our own rows are
+  >        one record, and the shot file is the one that is short.
+  >    (d) UNBLOCKED ATTEMPTS, per club-game: equal on 2,620; ours lower by one or two on 62, higher
+  >        by one or two on 118; 165 games. That is the team file's own distance from the shot file
+  >        (549 item 1(f)) almost to the game. Our rows and the team file count alike; the shot
+  >        file differs from both by a shot or two.
+  >
+  > 3. YOUR COUNT 2: OUR STORED FINAL SCORES AGAINST THE TEAM FILE, 2024-25 TO 2026-27.
+  >    (a) EVERY ONE OF THE FILE'S 3,177 GAMES LINKS TO EXACTLY ONE MATCH OF OURS, through the goalie
+  >        table: 1,398 of 2024, 1,394 of 2025, 385 of 2026. None unlinked, none linked twice.
+  >    (b) EVERY GAME WE HOLD AS FT OR AOT IS EQUAL ON BOTH SIDES: 2,454 in regulation and 497 after
+  >        overtime, playoffs among them. No game differs any other way, and none is swapped.
+  >    (c) EVERY GAME WE HOLD AS AP, 226 of them, differs by exactly one: ours holds one goal more for
+  >        the side that won the shootout (114 home, 112 away). That is the convention 546 item 1(e)
+  >        found from the other side: the file leaves a shootout level, and our row names its
+  >        winner.
+  >
+  > 4. WHAT I TAKE FROM IT.
+  >    (a) TWO RECORDS OF 4,577 GAMES, MADE APART, AGREE ON EVERY SCORE once the shootout's convention
+  >        is read. That certifies our own NHL scores of three seasons against a second source,
+  >        and the team file against the league's play-by-play for a fourth.
+  >    (b) FOR 2023-24 ON, THE FILES HOLD NOTHING ABOUT GOALS OR ATTEMPTS THAT OUR OWN TABLES LACK. Ours
+  >        are the fuller record: blocked shots and shootouts are in them.
+  >    (c) So what the source adds is narrower than it looked, and you say it plainly in your amended
+  >        read: the fifteen seasons before ours begin, 2008 to 2022, as raw counts by club and
+  >        game; and the split of each game into its four situations. Anything else it offers is
+  >        derived (538 item 3(d)) or already ours.
+  >    (d) 546 item 2(e) stands beside this: on the laptop our own shot events of 2026-27 stop in
+  >        October, and your line on that is still owed by 12-04.
+  >
+  > 5. NOTHING IS GRANTED: no build, no figure of any candidate, NHL 2025 retired as a test. These are
+  >    counts of agreement between records, and they move no bar.
+  >
+  > 6. The newest comment I had seen before this post is DEV 1's, 7175881316.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 550, where it landed:**
+  - The whole addendum is on #105 (comment 7176231941), as its header asks; checked to stand once (report 7176235857, 22:20Z).
+  - It is the architect's fourth read and DEV 3's; nothing is granted (item 5) and nothing is DEV 1's to build. No CLAUDE.md line is asked; its NHL line is not made false (item 4(a) certifies scores against a second source and moves no bar), so it is not edited.
+- **Addendum 551 (ARCHITECT 2026-11-25 17:45 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 17:45 ET (22:45Z, read from the clock) — addendum 551, #1145 (497 STEP 1) READ WHOLE AND MERGE-READY; THREE REPORTS ANSWERED, for DEV 1, DEV 3, DEV 4
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 goes on #1102, item 2 on #105 and #1127, item 3 on #1141.
+  >
+  > 1. DEV 1 — #1145 IS READ WHOLE AT 5709624a AND IS MERGE-READY. Money-path; stop rule (1); no P2 open.
+  >    (a) IT IS 497 STEP (1) AS RULED. A provider read that failed leaves the run with 1 and its rows
+  >        named on the last line, on the dry run and on --apply; Q8's team with no provider id is a
+  >        classification, counted on its own line, exit 0; Q1's routine states each print their one
+  >        named line, exit 0. The plan, the writes and the pair path are as they were.
+  >    (b) READ IN THE CODE: outcome() only reads the plan the run already made; the command prints
+  >        all it printed before, then those lines, then leaves. sp_run, the chains, the closing
+  >        code and the routine's code are untouched. THE ROUTINE NEVER STOPS ON A FAILED STEP, so a
+  >        bad provider morning costs step 10 its exit and no later step its run.
+  >    (c) CHECKED: every check of the head a success, no thread, clean against 81cfa7b9. In a scratch
+  >        copy of mine merged onto it, the four touched test files gave 193 passed at a terminal
+  >        80 wide, the width where #1146's flake lived.
+  >    (d) Q4 AS YOU STATE IT IS ACCEPTED: no request a day added, and the football plan's daily limit
+  >        said to be unnamed in the code and not guessed.
+  >    (e) THE THREE TEXTS YOU NAME AS NOW STALE (the routine's docstring, the README's paragraph, the
+  >        CLI page's row) are corrected in your next records PR, comments and prose only. FROM STEP
+  >        (2) ON, each step's own PR corrects its own line in those three texts; a comment in the
+  >        routine's file is not its code, and 497 item 2 is not touched by it.
+  >    (f) WHAT CHANGES FOR MY OWN READS: from the first routine after this is on the laptop, step 10
+  >        may read exit 1 and the routine with it. I read the last line before I call it a fault.
+  >    Its merge block is with the operator for his agent. #1147 is seen.
+  >
+  > 2. DEV 3 — your reports to 22:35Z are read, and the fault in your reads is yours to have found; the
+  >    filter you now use is the right one.
+  >    (a) THE SHOT EVENTS (546 item 2(e)): NOT A FAULT, AND NO ISSUE. The host alone runs that sync; the
+  >        laptop is not meant to hold this season's. So any count of 2026-27 shots is read from the
+  >        host's copy, never the laptop's, and 550 item 4(b) is true of our tables on the host.
+  >    (b) THE PAPER RECORD AND ROW 66178 (545 item 1): received. A count of finished games without a
+  >        close, by your reading of the code; the retirement's preflight will show it on the copy.
+  >    (c) YOUR AMENDED READ ON #105 (comment 7176490553) is received. Its four open questions, and
+  >        whether form A is granted a build inside the calendar of 546 item 2(c), are ruled with
+  >        the NHL ruling of 12-03, not before. Nothing is granted today.
+  >
+  > 3. DEV 4 — #1148 is seen. KEEP BOTH READS: two and a half minutes on a season's size is no cost.
+  >    If the host's copy proves far denser, my block's console will say so and I rule then. Your
+  >    reading that a match still to be played on the copy is counted apart is right, and so is
+  >    the corrected label of your P1. I read #1148 when you report it green and thread-clean.
+  >
+  > 4. The newest comment I had seen before this post is DEV 4's, 7176520185.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 551, where it landed:**
+  - Item 1 is on #1102 (comment 7177098809), item 2 on #105 (comment 7177099319) and #1127 (comment 7177099881), and item 3 on #1141 (comment 7177100385), each the whole addendum, as its header asks; each checked to stand once (report 7177114937, 23:04Z).
+  - Item 1: #1145 read whole at 5709624a and merge-ready; merged by 552 item 0.
+  - Item 1(e), in this PR, comments and prose only: the three texts named as stale corrected, read against #1145's change on main (src/ingestion/match_dedupe.py outcome(); cli.py _dedupe_outcome). deploy/hosting/laptop_routine.py's docstring, README.md's routine paragraph and docs/CLI.md's laptop_routine row now name nine of the twelve commands that can end a real failure with exit 0, not ten, and say that dedupe-matches is no longer one of them: under --orphans a provider read that failed (a by-id lookup, or a day of the date search, planned "unresolved") prints "dedupe-matches: N unresolved (provider read failed): <ids>" as its last line and exits 1, so step 10 and the routine may read exit 1; a team with no provider id is a classification, counted on its own line, exit 0 (497 Q8). No code line in those files changes. tests/test_laptop_routine.py's pin of the docstring now names the nine, checks that dedupe-matches is not among them and pins its note (a test, no code). A fourth copy of the old sentence was not among the three 551 names: docs/specs/h2-cutover-runbook.md's routine paragraph (section 1, the laptop's standing routine, item 3), which said "Ten of the twelve commands can end a real failure with exit 0" with `dedupe-matches` among them, false since #1145. DEV 1 asked before touching it (report 7179012998); 557 item 3 Q1 ruled that it takes the same correction in this PR, prose only, and it is corrected here in the same words as README.md's. From step (2) on, 551 item 1(e) reads four texts: each step's own PR corrects its own line in all four (557 item 3 Q1).
+  - Items 2 and 3 are DEV 3's and DEV 4's. Item 2(a): the laptop's 2026-27 NHL shot events are not a fault and get no Issue; the host alone runs that sync.
+- **Addendum 552 (ARCHITECT 2026-11-25 17:53 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 17:53 ET (22:53Z, read from the clock) — addendum 552, OPS (the backup pull: MY ERROR, the finding was already #1053; one Issue, one plan, its build assigned), for DEV 1, DEV 3, DEV 4
+  > Posted on #1092. Record it in BACKLOG as an operations ruling; it goes on #1053 and #1147.
+  >
+  > 0. SEEN ON MAIN: #1145 merged at 5709624a, 22:47Z, by my block; #1142 and #1146 went with it. Main is
+  >    ac364c70.
+  >
+  > 1. MY ERROR, IN 547 item 5 AND ALL OF 548. I wrote of the nightly pull as a finding of today. THE
+  >    RECORD HELD IT ALREADY: its cause read on 2026-10-13 (57 item 7), the finding opened as #1053
+  >    on 11-19 (429 item 5), and ruled in direction on 11-22 (445 item 5): "a job at 22:00 that
+  >    must reach the host from behind that VPN cannot work, and the operator's security is not
+  >    ours to loosen". I did not read the record before I wrote. DEV 3's plan did, and led with it.
+  >    (a) 548 item 1(d) is wrong where it says nothing told anyone for a month. The record told. What
+  >        is true is narrower: the job itself tells nobody.
+  >    (b) I ASKED THE OPERATOR AGAIN what he had answered before. His words today (17:51 ET) are the
+  >        same answer: "I always keep the VPN on and Tailscale on. The only issue is Tailscale can't
+  >        reach the host with the VPN active".
+  >    (c) 548 item 1's counts stand as a later reading of the same thing: 26 failed of the last 30
+  >        nights, 27 copies held, the newest today's.
+  >
+  > 2. ONE ISSUE. #1147 IS A DUPLICATE OF #1053 AND IS CLOSED AS ONE BY THIS RULING. DEV 1: carry 548 item
+  >    1's counts and DEV 3's plan (comment 7176853811, by its link) onto #1053, then shut #1147 with
+  >    this item quoted. #1053's replacement plan, yours since 451 item 6, is taken off you: item 3
+  >    is that plan.
+  >
+  > 3. DEV 3's PLAN IS READ AND ACCEPTED, with 445 item 5 written into it. It is #1053's plan now.
+  >    (a) THE COPY IS HAD IN THE SITTINGS. Every host block of mine pulls the newest daily while the
+  >        tailnet is up, as they have, and prints the age of the newest verified copy. That is my
+  >        part, from the next sitting on.
+  >    (b) THE NIGHTLY JOB STAYS LOADED AND TELLS. It tries; when the host does not answer it leaves
+  >        quietly, with its receipt. Your (b) is dropped: no hour is a variable and nothing is
+  >        installed again.
+  >    (c) YOUR QUESTION 1, CHANGED: THE NOTICE IS BY THE AGE OF THE NEWEST VERIFIED COPY, NOT BY FAILED
+  >        NIGHTS. The job fails every night the VPN is on, so a run of failures says nothing, and a
+  >        pull in a sitting must count. One notice when that copy is older than 3 days; one more for
+  >        each further 3 days it stays so. A verified copy is a daily name with its sha256 beside
+  >        it, never a partial.
+  >    (d) QUESTION 2: your default. A screen notice alone is not told: the card, or the operator's
+  >        topic.
+  >    (e) QUESTION 3: yes, both, and they are now one plan: (a) has the copy, (b) to (d) tell.
+  >    (f) YOUR (c) AS WRITTEN: ssh's connect timeout below the 60-second kill; the redacted tail of
+  >        its message on the receipt; the stage; the newest verified copy's name and age.
+  >    No host name in any notice. The pull's exit stays 1 on a failed night.
+  >
+  > 4. DEV 4 BUILDS IT, by this addendum, outside your usual lane because DEV 1's dates are full: one
+  >    PR, money-path (a deploy script), pull_backup.py and its receipt lines and tests, nothing
+  >    else. Your open points on #1053 before the code. A reviewable head by Tuesday 2026-12-08
+  >    12:00 ET, beside #1148.
+  >
+  > 5. NOTHING HERE TOUCHES THE OPERATOR'S NETWORK. How his VPN and his tailnet sit together is his
+  >    machine's setting and his decision (445 item 5).
+  >
+  > 6. The newest comment I had seen before this post is DEV 3's, 7176860541.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 552, where it landed:**
+  - The whole addendum is on #1053 (comment 7177100892) and #1147 (comment 7177101470), as its header asks; each checked to stand once (report 7177114937, 23:04Z). Its record is an operations ruling (its header), and this is it: one Issue, one plan, its build assigned.
+  - Item 0, read on GitHub: #1145 merged at head 5709624a, merge commit ac364c70, 22:47:19Z; #1142 and #1146 closed with it. This branch starts at ac364c70.
+  - Item 2: 548 item 1's counts and DEV 3's plan, by its link (comment 7176853811), are carried onto #1053 (comment 7177107946), and #1147 is closed as a duplicate of #1053 at 23:04:11Z with item 2 quoted (comment 7177110322; report 7177114937, item 1). #1053's replacement plan is off DEV 1's list: item 3 is that plan.
+  - Items 3 and 4 are DEV 3's plan and DEV 4's build, a reviewable head by 2026-12-08 12:00 ET, an addendum date with no roadmap step. Item 1 is the architect's correction of 547 item 5 and 548, recorded here beside them.
+- **Addendum 553 (ARCHITECT 2026-11-25 17:59 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 17:59 ET (22:59Z, read from the clock) — addendum 553, POLICY (the NBA injury report: the operator opens one other route to the published documents), for DEV 4, DEV 1, DEV 3
+  > Posted on #1092. Record it in BACKLOG as a policy ruling; it goes on #839, #830 and #1122.
+  >
+  > 1. THE OPERATOR HAS DECIDED (17:58 ET today), in his words: "go route 3 for now". Route 3, as I put
+  >    it to him a minute before: "Try another route to the league's own published documents. They
+  >    are served from a different host than the index that refused us", his to accept as his own
+  >    risk "because it means asking at a second door after the first one said no". 531 item 2(e)
+  >    left exactly this to him. It is his decision and not a new reading of mine.
+  >
+  > 2. WHAT IT OPENS, AND NO MORE.
+  >    (a) 531 item 2(c) STANDS FOR THE THREE PAGES THAT REFUSED US: the index, the terms page and the
+  >        schedule are closed by access and are not asked again.
+  >    (b) ONE PUBLISHED REPORT DOCUMENT, ASKED FOR DIRECTLY from the host that serves the documents,
+  >        by a URL I read from a search on the day I write the block and print in it (357 item
+  >        3(b)); the probe's own plain client name; one request; no redirect followed.
+  >    (c) NOTHING IS DISGUISED: no other client name, no other address, no header that is not ours.
+  >    (d) A REFUSAL THERE ENDS IT. If that host refuses our client, the documents are closed by
+  >        access as the index is, for this season, and there is no third door.
+  >    (e) 368 AND 520 ARE UNCHANGED: the host alone; nothing of a report or of the league's
+  >        statistics on the laptop, the repo, the mirror, a bulletin, the Cockpit, an Issue or a
+  >        PR; the console is structure only; the receipt stays on the host, mode 600.
+  >    (f) THIS IS A PROBE OF ONE DOCUMENT, NOT A FEED. Whether a feed follows, and how it would know
+  >        a document's name without the index, is ruled on the probe's console and not before.
+  >    (g) THE RISK LOG: DEV 3, add it to #1122 beside the others, with the operator's words above,
+  >        531 item 2(a) to (c), and the same trigger: before anything of this project is sold, it
+  >        is read again.
+  >
+  > 3. DEV 4 BUILDS THE ONE THING THE PROBE LACKS: the report phase reading ONE document by a URL given
+  >    to it, with no index read. scripts/nba_injury_report_probe.py and its tests, nothing else:
+  >    (a) a new option for the document's URL, refused together with the index's, and refused
+  >        without the terms ruling, as the report phase is today;
+  >    (b) from that one answer, everything the report phase prints for "the newest report": the
+  >        form, and with the reader its fields, structure only;
+  >    (c) the docstring's rule that this file holds no URL default is kept, and pinned;
+  >    (d) a refusal or a redirect ends the read as it does now; nothing is asked twice.
+  >    Read-only tooling; your open points on #839 before the code. A reviewable head by Friday
+  >    2026-12-04 12:00 ET. It runs by my OPERATOR ONLY block on the host, after the tag that
+  >    carries it.
+  >
+  > 4. DEV 1: one step is added to lane availability-record on the roadmap, appended, no date moved:
+  >    "the NBA injury report's direct-document probe on the host (553)", owner architect, due
+  >    Tuesday 2026-12-15. The lane's line no longer says that no NBA feed is ordered and nothing
+  >    more; it says a probe of one document is ordered and no feed (553 item 2(f)). CLAUDE.md's
+  >    basketball line takes the same sentence. In your next records PR.
+  >
+  > 5. WHAT DOES NOT CHANGE TODAY: the NBA is market-only, with no candidate, no declaration and no
+  >    date (533 item 2(a)). DEV 3: the two forms you read on #839 stay dropped until the probe's
+  >    console is read; nothing is reopened by this addendum.
+  >
+  > 6. The newest comment I had seen before this post is DEV 3's, 7176860541.
+  >
+  > Nothing in this addendum moves a bar or a held timer; one roadmap step is added, and no date moves.
+
+- **What DEV 1 did on 553, where it landed:**
+  - The whole addendum is on #839 (comment 7177102026), #830 (comment 7177102532) and #1122 (comment 7177103004), as its header asks; each checked to stand once (report 7177114937, 23:04Z). Its record is a policy ruling (its header), and this is it: the operator's route 3, one published report document asked for directly from the host that serves the documents, and what it opens and no more (item 2(a) to (g)).
+  - Item 4, in this PR: docs/roadmap.json, lane availability-record, one step appended after the others, "the NBA injury report's direct-document probe on the host (553)", owner architect, due 2026-12-15, done null. No date moves and no moved line is added. The lane stays live with earliest_live null, and the step is its next. The lane's line, which ended "and no NBA feed is ordered (531 item 2).", now ends "the NHL game pages. A probe of one NBA injury-report document is ordered, and no NBA feed (553 item 2(f))."; 553 items 1 and 2(f) are quoted after 531's quotations; 537 item 3 Q1's quotation is unchanged. CLAUDE.md's Basketball line takes the same sentence. tests/test_roadmap.py and tests/test_availability_record.py pin the step, the line and the CLAUDE.md sentence.
+  - Item 2(g)'s risk log on #1122 is DEV 3's; 554 item 4 reads it done. Item 3 is DEV 4's build, a head by 2026-12-04 12:00 ET. Item 5: the NBA stays market-only; nothing is reopened.
+- **Addendum 554 (ARCHITECT 2026-11-25 18:15 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 18:15 ET (23:15Z, read from the clock) — addendum 554, #1148 (THE DE-VIG RECEIPT) READ WHOLE AND MERGE-READY; THE BACKUP PULL's NINE POINTS RULED, for DEV 4, DEV 1, DEV 3
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 goes on #1141 and #1149, item 2 on #1053.
+  >
+  > 1. DEV 4 — #1148 IS READ WHOLE AT 438aba48 AND IS MERGE-READY. Read-only code; stop rule (2).
+  >    (a) IT IS 544 item 2 AS RULED BY 545 item 3: the sessions by their own legs, the first session
+  >        by side, the last session's pooled value against the close's own fair where the stored
+  >        offers allow it, the line move at the bell and ever flagged through the function itself,
+  >        each count by New York month, NFL and college apart.
+  >    (b) THE FENCE, READ IN THE CODE: the copy immutable, with its sidecars refused; the book's name
+  >        and price are read into the close's own function and appear in no printed line; no
+  >        network; nothing written.
+  >    (c) CHECKED: every check of the head a success; 0 of 3 threads open; clean against ac364c70. In
+  >        a scratch copy of mine merged onto it, its 29 tests passed.
+  >    (d) #1149 (the hidden end counted for the bell's cohort alone) IS SCHEDULED: a small PR of its
+  >        own, a reviewable head by Tuesday 2026-12-08 12:00 ET, so that the first run prints both
+  >        cohorts alike.
+  >    (e) THE RUN is two blocks of mine after the tag that carries it: a copy of the laptop's
+  >        database, and the host's backup at a sitting. Then 544 item 3's ruling.
+  >    Its merge block is with the operator for his agent.
+  >
+  > 2. DEV 4 — YOUR NINE POINTS ON #1053 (comment 7177190736) ARE READ. ALL NINE AS YOU READ THEM.
+  >    (a) THE FENCE: yes. 552 item 4 lifts 518's fence on deploy/hosting/ for pull_backup.py and its
+  >        tests, and for nothing else there.
+  >    (b) P1, THE RECEIPTS TABLE'S KEY LINE: not wanted now. The receipt carries the fields; the
+  >        table can learn to show them when someone needs to read them there.
+  >    (c) P4, THE HOST NAME: "no host name" is for the notice, which leaves the machine. The
+  >        receipt's own field and the printed line keep it: they are the laptop's record of its
+  >        own run. That the stored error no longer carries the command with the user and the host
+  >        is right.
+  >    (d) P5 to P8 as written: verified by the sidecar's presence, never hashed again each night;
+  >        the age from the name and not from the file's time, so a stale copy pulled today is
+  >        still old; a notice at each 3-day step, told only when the card or the operator's topic
+  >        took it; and every run tells by age, a good pull of an old copy included.
+  >    Build. The head stays due Tuesday 2026-12-08 12:00 ET.
+  >
+  > 3. DEV 1 — your 23:04Z report is read; #1147 is seen shut on #1053. ONE LABEL: #1122 now holds five
+  >    sources across sports, so its sport label is sport:all. Set it; this item is the ruling.
+  >
+  > 4. DEV 3 — your 23:10Z report is read. #1122's body with the fifth source is what 553 item 2(g)
+  >    asked for.
+  >
+  > 5. The newest comment I had seen before this post is DEV 4's, 7177222759.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 554, where it landed:**
+  - Item 1 is on #1141 (comment 7177527203) and #1149 (comment 7177527738), and item 2 on #1053 (comment 7177528310), each the whole addendum, as its header asks; each checked to stand once (report 7177531448, 23:25Z).
+  - Item 3, done: #1122's sport label is sport:all in place of sport:nhl (unlabeled 23:24:51Z, labeled 23:24:52Z); its labels read track:ops, class:limitation, sport:all, size:S (report 7177531448, item 1). This item is the ruling.
+  - Items 1 and 2 are DEV 4's: #1148 merge-ready, #1149's head by 2026-12-08 12:00 ET, the backup pull's build by the same date; addendum dates with no roadmap step.
+- **Addendum 555 (ARCHITECT 2026-11-25 18:46 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 18:46 ET (23:46Z, read from the clock) — addendum 555, PR2's SIX QUESTIONS RULED (the stale-price rule); THE NBA PROBE's DEFAULTS RULED; #1152 RULED, for DEV 2, DEV 4, DEV 1
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 goes on #1102, item 2 on #839, item 3 on #1152 and #1150.
+  >
+  > 1. DEV 2 — PR2, THE DESK'S RULE (#1102, comment 7173723778), read beside the one text (7167846609).
+  >    What you build from the text is as the text says. I had not answered these since 20:28Z; that
+  >    wait was mine. THE SIX:
+  >    Q1. KALSHI SHOWN WITH NO LEG TO NAME: stale, as you read it, "Kalshi price never captured: no
+  >        call". A price that is shown and has no capture has none (law 4). The text's P gains
+  >        "Kalshi price" for this one case, and the PR says so.
+  >    Q2. F1's FORM IS THE CLI's SIX-DIGIT FORM AND NOTHING ELSE, by ONE definition in timeutil that
+  >        the option and the Desk both call. PR1's refusals of a bad value stay as they are, test
+  >        for test.
+  >    Q3. AN F2 OR F3 THAT WILL NOT PARSE IS STALE, YES; BUT NOT UNDER "never captured". We do not
+  >        know that it was never captured; we know we cannot read when. Its own wording, beside
+  >        the run start's: the text's P, then " capture time unreadable: no call". One more
+  >        reason of the same kind, pinned, and counted with the others.
+  >    Q4. ALL THE REASONS, in R2's order: the books first, then the legs sorted, joined as you say.
+  >    Q5. NO. The turned row keeps nothing of what the call would have been: the text says _no_call
+  >        and pins the shadows null. A rescore with the switch off rebuilds it when it is wanted.
+  >    Q6. 503's PATTERN, as you read it: counted apart beside "both empty"; "no executable quote".
+  >    YOUR THREE NAMED THINGS:
+  >    (a) RE-ANNOTATION IS THE ONE THAT MATTERS, AND IT IS MINE. The rule ships OFF. The addendum that
+  >        turns it on will name the day from which a slate file is read under it, and what a
+  >        rescore does with the files published between PR1 and that day. Until that addendum
+  >        nothing turns, on a new file or an old one. Say in the PR's body which callers annotate
+  >        an already published file, as you have here, so that addendum starts from the list.
+  >    (b) and (c) are as ruled; the docs say (b).
+  >    Build. Gate-class; the head stays due 12-16. #1153 is seen; I read it when its rounds are in.
+  >
+  > 2. DEV 4 — #1151, YOUR DEFAULTS ON #839 (comment 7177303525). The build is what 553 item 3 ordered.
+  >    A. THE URL STAYS OFF THE CONSOLE, in the receipt only, with any Location. My block prints the
+  >       URL itself, since it gives it.
+  >    B. A REFUSAL IS FAILED, exit 1, as now. The read ends there and nothing more is asked.
+  >    C. THE FILE NAME IS THE RECEIPT'S ALONE. No stamp is read from a name the index did not give.
+  >    D. CHANGED: THE DOCUMENT'S URL IS https OR IT IS REFUSED, before any request, with its own
+  >       REFUSED line. For this option only; the index's path is left exactly as it is. A request
+  >       of ours does not go in the clear to a host we are asking for the first time.
+  >    E. YES: the two fragments, and one line in each of the two pages that list the option.
+  >    F. Left as it is: the BACKLOG line is history.
+  >    I read #1151 when you report it green and thread-clean. The head's date stands, 12-04.
+  >
+  > 3. DEV 1 — #1152, RULED: THE ADMIN PAGE REFUSES, PLAINLY, AND DOES NOT ROUTE. For a competition the
+  >    admin page has no adapter for, its sync jobs print one line that names the competition and
+  >    the command line that does the sync, and write nothing. Turning seven jobs that raise into
+  >    seven that write, with a season string the store does not use, is not a fix; a clean
+  >    refusal is.
+  >    (a) Its own small PR, money-path, after PR-B: a reviewable head by Friday 2026-12-18 12:00 ET.
+  >    (b) IT DOES NOT BLOCK #1150. The thread there has its ruling: answer it with #1152 and mark it.
+  >        The same answer covers #1123's admin line. Take needs-ruling off #1152.
+  >    (c) #1150 at 5105ca7b: I read it whole when you report it green and thread-clean.
+  >    #1147's reason set to duplicate, and #1122's label, are seen.
+  >
+  > 4. The newest comment I had seen before this post is DEV 2's, 7177983785.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 555, where it landed:**
+  - Placed whole as its header asks: item 1 on #1102 (7178345919), item 2 on #839 (7178346259), item 3 on #1152 (7178346620) and on #1150 (7178347029); each checked to stand once, on the operator's account, unedited (report 7178364178).
+  - Item 3 rules #1152, the finding DEV 1 opened from the Codex P2 on #1150 (thread 4702102314): the admin page sends every code but MLB and MLB_SPRING to the soccer adapter, which raises on NCAA before sync_teams runs, so the admin summary cannot carry PR-A's line for the college competition; #1123's admin sync-matches line is in the same position.
+  - Item 3(b): #1150's thread is answered with the ruling and #1152 and marked resolved; #1150's body names the ruling; needs-ruling is off #1152.
+  - Item 3(c): #1150 at 5105ca7b reported green and thread-clean (report 7178364178).
+  - Item 3(a): the admin page's plain refusal is its own money-path PR, after PR-B, a head by 2026-12-18 12:00 ET, an addendum date with no roadmap step. Not built here.
+  - Items 1 and 2 are DEV 2's and DEV 4's builds; nothing of them is DEV 1's.
+
+- **Addendum 556 (ARCHITECT 2026-11-25 19:16 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 19:16 ET (00:16Z, read from the clock) — addendum 556, #1150 (PR-A) READ WHOLE AND MERGE-READY; #1153's P1 RULED, for DEV 1, DEV 2, DEV 4
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 goes on #1127, item 2 on #322.
+  >
+  > 1. DEV 1 — #1150 IS READ WHOLE AT 5105ca7b AND IS MERGE-READY. Money-path; stop rule (1). Its one P2
+  >    has its ruling (555 item 3) and is marked.
+  >    (a) IT IS 542 item 1(a) AND (b) AND NOTHING MORE. The refusal stands before the team's row is
+  >        written; no membership is stored; a membership already stored is never taken away; the
+  >        placeholder is exempt by its primary id (545 Q6), pinned.
+  >    (b) YOUR FIVE CHOICES ARE ACCEPTED AS BUILT: a run with no season is refused too, since it would
+  >        write the row; a merged id of 345 exempts nobody; a team listed twice is counted twice;
+  >        #764's rule is pinned from the NFL side; and the one lookup is handed on, not made twice.
+  >    (c) CHECKED: every check of the head a success; 0 of 1 thread open; clean against ac364c70. In a
+  >        scratch copy of mine merged onto it, the five test files that touch the sync gave 150
+  >        passed.
+  >    (d) WHAT THE LAPTOP SHOWS FROM THE NEXT ROUTINE: step 8 prints its new line with the provider's
+  >        team ids. The six clubs keep the membership they have until PR-B's command has run.
+  >    Its merge block is with the operator for his agent.
+  >
+  > 2. DEV 2 — #1153's P1 (the review asks the confirmation's games sorted by the place cut to the
+  >    second) IS RULED: AS BUILT, NO CHANGE. Your trace is right. 447 C1 fixes the cohort's order as
+  >    the window's own, the stored kickoff and then the id; the cut to the second is how a game is
+  >    compared with an opening that is stored to the second, and it is not an order. The two can
+  >    part only for two games stored inside one second. Mark the thread with this item.
+  >    ONE LINE ADDED, so that I can see whether that case exists at all: the preflight and the read
+  >    each print how many games of the league's season carry a stored kickoff with a fraction of a
+  >    second. A count, expected 0, refusing nothing. If it is ever above 0 I read the cohort by
+  >    hand before a record is made.
+  >
+  > 3. DEV 4 — your 00:05Z report is read. #1151 at 75598bd3 as changed by 555 item 2 D, and #1154: I
+  >    read each whole when you report it green and thread-clean, #1154's four named points with it.
+  >    Writing the pull's receipt before any notice is sent is the right order.
+  >
+  > 4. The newest comment I had seen before this post is DEV 2's, 7178458845.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 556, where it landed:**
+  - Placed whole as its header asks: item 1 on #1127 (7178899470), item 2 on #322 (7178899836); each checked to stand once, on the operator's account, unedited, its quote equal to the addendum line for line.
+  - Item 1: #1150 (PR-A) is read whole at 5105ca7b and merge-ready, the five choices accepted as built; its merge block is with the operator. Nothing of it is DEV 1's to do but the record; PR-B (head by 2026-12-15) is next.
+  - Items 2 and 3 are DEV 2's and DEV 4's.
+
+- **Addendum 557 (ARCHITECT 2026-11-25 19:43 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 19:43 ET (00:43Z, read from the clock) — addendum 557, #1151 READ WHOLE AND MERGE-READY; #1154 READ WHOLE, ITS TWO P2s RULED, MERGE-READY ONCE ITS THREADS ARE CLOSED, for DEV 4, DEV 1
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 goes on #839, item 2 on #1053.
+  >
+  > 0. SEEN ON MAIN: #1148 (438aba48) merged 00:32Z and #1150 (5105ca7b) merged 00:34Z, at the heads I
+  >    named; main is 947b02eb. DEV 1: PR-A is on main; I read step 8's refusal line in tomorrow's
+  >    routine console. DEV 4: #1156 is seen; I read it when you report it green and thread-clean.
+  >
+  > 1. DEV 4 — #1151 (the probe's one-document read) IS READ WHOLE AT 75598bd3 AND IS MERGE-READY.
+  >    Read-only tooling; stop rule (1) and (2).
+  >    (a) WHAT I CHECKED MYSELF: every check of the head is a success; one review thread, none open;
+  >        in a scratch copy of mine the branch merged onto 947b02eb and the probe's test file gave 155
+  >        passed.
+  >    (b) READ IN THE CODE: the document's read is one helper that both paths call, so the form, the
+  >        fields and the mapping print alike. Every refusal comes before any request: with the index
+  >        option, without the report phase, without the ruling, blank, a text that does not parse, and
+  >        anything that is not https with a host (555 item 2 D). The fetcher is untouched: one GET, the
+  >        plain client name, redirects off, never the same URL twice. A 403 ends FAILED, exit 1; a
+  >        redirect ends the read with its Location in the receipt alone. The console masks the URL.
+  >    (c) THE BODY IS BEHIND THE HEAD: its default D still says no scheme or host check is added, and
+  >        its count is 149. The head refuses a URL that is not https and holds 155. Correct the body
+  >        (an edit, no push). It does not hold the merge.
+  >    (d) #1155 is the right home for the round-2 finding. The URL in my block carries no whitespace,
+  >        so the run does not wait on it.
+  >    (e) THE RUN is my OPERATOR ONLY block on the host after the tag that carries this, the URL read
+  >        from a search on the day I write it (553). Nothing runs by the merge.
+  >
+  > 2. DEV 4 — #1154 (the backup pull tells) IS READ WHOLE AT a87ba415. Money path, a deploy script.
+  >    (a) THE TWO ROUND-2 P2s: NEITHER BLOCKS (stop rule (2)). Both go to this PR's ONE follow-up
+  >        Issue. Answer each thread with its number and close the thread; the head does not move.
+  >        P2-A, the mixed address form. Real, as you say; I ran the scrub on four lines myself. The
+  >        job's own failure line (a connect that timed out on a dotted-quad host), a permission line
+  >        and an unknown-name line come out with no host and no user. The mixed form leaves three
+  >        octets. That text sits in the laptop's own receipts log, beside the field "from", which
+  >        keeps the host by 554 item 2(c); the notice holds no tail. Nothing leaves the machine by it.
+  >        P2-B, the job identity. Real as a case, and the case is not installed: one job, one host,
+  >        one folder. MINE TO KEEP: at a host sitting my block pulls by this script itself, with the
+  >        job's own host and its default folder and nothing else, so the sitting's copy lands with its
+  >        sidecar and its receipt joins the same history. Until the identity is built, nobody runs
+  >        this script with another host or another folder against the same receipts log.
+  >        The follow-up's head is due Tuesday 12-15.
+  >    (b) YOUR FIVE SETTLED POINTS, CONFIRMED AS BUILT. 1: the pull's receipt first and whole, then
+  >        the notice in its own try as a line of its own; "after the receipt" governs where P7's two
+  >        clauses part, and a killed send must never cost the night's receipt. 2: no verified copy is
+  >        told once in each spell. 3: a folder that cannot be read is its own state and is never told
+  >        as "no copy" (law 4). 4: reason beside error. 5: the receipts table as it is.
+  >    (c) ONE SENTENCE OF THE BODY IS WRONG: "The change reaches the laptop with the tag that carries
+  >        it." The laptop runs main and the job runs the checkout's own file, so the change is live
+  >        there from the first 22:00 ET after the merge. A tag matters to the host, which does not run
+  >        this job. Correct it with the thread replies.
+  >    (d) WHAT I CHECKED MYSELF: every check of the head is a success; on a scratch merge onto
+  >        947b02eb the hosting test file gave 180 passed, 2 skipped. The two senders return a status
+  >        or an error's class and never the address they post to; the notice's words carry no host;
+  >        the topics are read through the common setting, so the laptop's own file serves them.
+  >        THE STEP, BY MY OWN ARITHMETIC: the laptop's newest copy is named for 2026-11-25 09:30Z.
+  >        Tonight's, Thursday's and Friday's 22:00 ET runs owe no notice; Saturday's (03:00Z on
+  >        11-29) owes step 1, unless a sitting brings a newer copy first.
+  >    (e) IT IS MERGE-READY ONCE THE TWO THREADS ARE ANSWERED AND CLOSED. Its merge block is with the
+  >        operator and takes nothing while a thread is open. Report when they are closed.
+  >
+  > 3. DEV 1 — your 00:41Z report is read; #1157 is seen and I read it whole, with my own check of the
+  >    quoted lines, when you report it green and thread-clean. YOUR TWO QUESTIONS:
+  >    Q1. THE RUNBOOK'S COPY (docs/specs/h2-cutover-runbook.md, the list of commands that can end a
+  >        failure with exit 0) TAKES THE SAME CORRECTION IN #1157, prose only. It is a fourth text of
+  >        the same statement, the operator and I read the runbook, and a stale count there is not
+  >        left until step (2). You were right to ask before touching a text I had not named. FROM
+  >        STEP (2) ON, 551 item 1(e) reads FOUR texts: each step's own PR corrects its own line in
+  >        all four.
+  >    Q2. THE SENTENCE STANDS AS YOU WROTE IT, in the lane's line and in CLAUDE.md alike.
+  >    The corrected clock line is noted.
+  >
+  > 4. The newest comment I had seen before this post is DEV 1's, 7179012998.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 557, where it landed:**
+  - Placed whole as its header asks: item 1 on #839 (7179375974), item 2 on #1053 (7179376340); each checked to stand once, on the operator's account, unedited, its quote equal to the addendum line for line.
+  - Item 0, read on GitHub: #1150 (PR-A, 5105ca7b) merged 00:34Z; main e5111c87 after #1151. PR-A's refusal line is read by the architect in the next routine console.
+  - Item 3 Q1: the cutover runbook's copy of the exit-0 list is corrected in this PR, prose only (see 551 above); from 497 step (2) on, four texts.
+  - Item 3 Q2: the lane's sentence stands as written, in the lane's line and CLAUDE.md alike; nothing changes.
+  - Items 1 and 2 are DEV 4's.
+
+- **Addendum 558 (ARCHITECT 2026-11-25 20:01 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 20:01 ET (01:01Z, read from the clock) — addendum 558, #1151 SEEN ON MAIN; #1154's THREADS SEEN CLOSED; #1156 READ WHOLE AND MERGE-READY, for DEV 4
+  > Posted on #1092. Record it in BACKLOG as usual; item 2 goes on #1053, item 3 on #1149.
+  >
+  > 1. SEEN ON MAIN: #1151 (75598bd3) merged 00:48Z at the head I named; main is e5111c87. Its body now
+  >    says what the head does (557 item 1(c)).
+  >
+  > 2. DEV 4 — #1154: BOTH ROUND-2 THREADS ARE SEEN ANSWERED AND CLOSED, 0 of 4 open, the head unmoved at
+  >    a87ba415 and clean against e5111c87; the body's sentence is corrected. It is merge-ready by 557
+  >    item 2(e) and the operator has its block. #1158 is seen as its one follow-up, due 12-15.
+  >
+  > 3. DEV 4 — #1156 (#1149's small PR) IS READ WHOLE AT 55174d76 AND IS MERGE-READY, twelve days early.
+  >    Read-only tooling; stop rule (1).
+  >    (a) CHECKED MYSELF: every check of the head is a success; no review thread; in a scratch copy of
+  >        mine merged onto e5111c87 the receipt's test file gave 31 passed.
+  >    (b) READ IN THE CODE: one counter and its month line, raised inside the ever cohort's own branch
+  >        on the same hidden test the bell's subset uses, and printed beside the bell's on one
+  >        line. No other count is touched; no model, export or Desk read.
+  >    (c) Its merge block is with the operator for his agent. The two runs of 554 item 1(e) wait on
+  >        the tag that carries #1148 and this.
+  >
+  > 4. #1155 (the probe's whitespace case) IS SCHEDULED: a head by Tuesday 2026-12-15 12:00 ET, beside
+  >    #1158. My block's URL carries no whitespace, so the probe's run does not wait on it.
+  >
+  > 5. The newest comment I had seen before this post is DEV 4's, 7179313106.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 558, where it landed:**
+  - Placed whole as its header asks: item 2 on #1053 (7179376691), item 3 on #1149 (7179377059); each checked to stand once, on the operator's account, unedited, its quote equal to the addendum line for line.
+  - Nothing in it is addressed to DEV 1; its items are DEV 4's.
+
+- **Where each record asked landed:** DEV 1 made every Issue placement an addendum's header names, 35 in all. Each was read back from GitHub and checked against the saved addendum, line for line, and each comment is the operator's account's and unedited: 545 on #1127, #1108, #1141 and #1140; 546 on #105; 547 on #1133, #1122 and #97; 548 on #1147 and #1122; 549 on #105 and #97; 550 on #105; 551 on #1102, #105, #1127 and #1141; 552 on #1053 and #1147; 553 on #839, #830 and #1122; 554 on #1141, #1149 and #1053; 555 on #1102, #839, #1152 and #1150; 556 on #1127 and #322; 557 on #839 and #1053; 558 on #1053 and #1149.
+- **Issues opened by DEV 1 in the span:** #1146 (545 item 5; closed by #1145) and #1147 (548 item 2; closed as a duplicate of #1053 by 552 item 2). The PR #1150 (PR-A, 545 item 2) was opened by DEV 1. #1148 and #1149 are DEV 4's. #1152 opened by DEV 1 from the Codex P2 on #1150 (class:finding, track:ops, sport:all, size:S, with needs-ruling), ruled by 555 item 3, needs-ruling then taken off. Labels changed: #1122's sport:nhl to sport:all (554 item 3); needs-ruling off #1152 (555 item 3(b)). #1147's close reason, read as completed after a second close event, set to duplicate (552 item 2; seen in 555 item 3).
+- **Files, in this PR:** this entry and its changelog fragment; docs/specs/hosting-h1.md, one line (549 item 3); deploy/hosting/laptop_routine.py's docstring, README.md's routine paragraph, docs/CLI.md's laptop_routine row and docs/specs/h2-cutover-runbook.md's routine paragraph (557 item 3 Q1), prose only (551 item 1(e)); docs/roadmap.json, lane availability-record's appended step and its line, and CLAUDE.md's Basketball line (553 item 4); tests/test_roadmap.py and tests/test_availability_record.py, which pin the roadmap's step and line; tests/test_laptop_routine.py, whose pin of the docstring names the nine and dedupe-matches' note (551 item 1(e)). No other CLAUDE.md or README.md line is asked by these addenda.
+- **Not done here, each for its reason:** the comment at scripts/setup_closing_watch.sh:6: it rides the docs/SOURCES.md PR, head by 2026-12-08 (547 item 4). PR-A is its own PR, #1150 (head by 12-04), and PR-B (retire-college-nfl-rows) its own, head by 12-15 (545 item 2). The four texts' lines for 497 steps (2) on: each step's own PR (551 item 1(e); 557 item 3 Q1). The backup pull's notice: DEV 4's PR (552 item 4). The admin page's plain refusal: its own PR after PR-B, head by 2026-12-18 (555 item 3(a)).
+- **DEV 1's reports on #1092 in the span (2026-11-25, and 2026-11-26 for 555 to 558):** 7175691513 (21:54Z), 7175742093 (21:56Z), 7175745867 (21:57Z; it corrects a time and an order in 7175742093), 7175881316 (22:03Z), 7176213386 (22:19Z), 7176235857 (22:20Z; it corrects 7176213386, which covered nothing of 548 to 550), 7177114937 (23:04Z), 7177517807 (23:24Z), 7177531448 (23:25Z; it covers 554, which 7177517807 named but did not cover), 7177892892 (first line 23:41Z, posted 23:40:32Z), and on 2026-11-26 7178364178 (first line 00:06Z, posted 00:04:24Z; it corrects 7177892892's time), 7179012998 (00:41Z; it corrects 7178364178's time). Each report's first line should read its posting minute; those two read one and two minutes ahead of it.
+- Nothing here moves a bar, a date on the roadmap or a held timer. One roadmap step is appended (553 item 4) and no date moves. Nothing changes a prediction output.
+
+**2026-11-25 — the NFL member at the team listing: in the college competition, sync-teams refuses a listing whose stored team holds a membership of the NFL competition, counted on its own line with the provider's team id; no membership stored, the team's row untouched, nothing removed, the placeholder exempt by its primary id (addendum 542 item 1(a) and (b); addendum 545 item 1 Q6 and item 2, PR-A; #1127).**
+- **Ruling (542 item 1(a)), verbatim:**
+
+  >    (a) THE RULE IS 500 Q9's, AT THE TEAM LISTING: in the college competition, sync-teams does not
+  >        link a team that holds a membership of the NFL competition. The listing is refused,
+  >        counted on its own receipt line with the provider's team id, and no membership is stored.
+  >        The team's own row is not touched: it is the NFL's club and stays so.
+
+- **Ruling (542 item 1(b)), verbatim:**
+
+  >    (b) THE SYNC NEVER REMOVES. A membership already stored is not taken away by sync-teams, on
+  >        any run. Taking it away is the retirement write's work alone, so that nothing is deleted
+  >        by a step that runs every morning.
+
+- **Ruling (545 item 1 Q6), verbatim:**
+
+  >    Q6. YES: the placeholder is exempt, by its primary id, in PR-A and in the command's set,
+  >        each pinned with a test in which the placeholder holds an NFL membership (527 item 1(7)).
+
+- **Ruling (545 item 2, PR-A), verbatim:**
+
+  >    PR-A, 542 item 1(a) alone (stop rule (5)): a reviewable head by Friday 2026-12-04 12:00 ET. It
+  >        stops the list growing: two clubs on Tuesday, six on Wednesday.
+
+- **What landed:**
+  - `IngestionService.sync_teams`, for the college competition ("NCAA") only: before any write for a listed team, the stored team the listing names is resolved by the existing lookup (`_find_team_by_source`, an id a merge recorded included). If it holds a membership of the NFL competition in any season (`_nfl_members`, #1123's set, read once per run) and it is not the placeholder, the listing is refused (`_nfl_member_listed`): no college membership added, no team created, nothing of the team's row written (name, short name, tla, area, founded, venue, external ids). Its provider team id goes on `SyncResult.nfl_member_team_refused` (listing order) and `skipped` counts it once. A team not stored yet holds no membership and goes on as today.
+  - The placeholder (545 Q6): the team whose own provider id of the listing's source (`external_ids[source]`, the primary id) is the provider's TBD team (`placeholder.is_placeholder_team`, "345") is never refused, as #1123's refusal and #1119's fill read it.
+  - 542 item 1(b), read from the code: sync_teams never deletes a competition_teams row (`_link_team_to_competition` only adds); a refused team's stored college membership stays, every column unchanged, pinned.
+  - The line: `nfl_member_team_refused N: <provider team id>, ...` (service.nfl_member_team_refused_line), printed plainly by sync-teams on its own line right after the `✓ Teams (CODE): ...` summary, only when N > 0; sync_teams' log line carries it too.
+  - Readers: the admin job's sync-teams summary (` · nfl_member_team_refused N: ...`); sp_run `NFL_MEMBER_TEAM_REFUSED_LINE`, in `_SYNC_LINES`, and `sync_counts` key `nfl_member_team_refused` {n, ids}, every such line of a step adding; laptop_routine `_COUNT_LINES`, so step 8 (NCAA sync-teams) echoes it and its receipt carries it. TEAMS_LINE and every existing reader unchanged.
+  - Outside the college competition nothing changes and no query runs; a college run with no NFL member stored looks each listing up once, as before.
+- **Not in this PR:** the retirement command (PR-B, retire-college-nfl-rows, to DEV 3's plan as 545 rules it); no stored row is touched, deleted or rewritten (the six memberships and row 66178 stand until the architect's OPERATOR ONLY block); refresh-by-id and sync-matches unchanged; no stop rule, go_on or chain. NCAA has no model: no prediction output changes, no gate applies.
+- **Choices named for the architect:**
+  - The refusal also holds on a sync-teams run with no `--season`: such a run links nothing but writes the team's row, and 542 1(a) says the row is not touched.
+  - A real NFL member that carries "345" only as an id a merge recorded is no placeholder (545 Q6: "by its primary id") and is refused, pinned.
+  - The lookup sync_teams makes for the college competition is handed to `_upsert_team` (a new `found` argument, default unchanged for every other caller), so no listing is looked up twice; the lookup is made only when the NFL competition holds a member.
+  - A team listed twice in one run is refused, and counted, once per listing.
+  - The admin summary joins the line with " · ", as #1123's sync-matches job does (the names-kept line is joined with a space).
+  - One existing test changed: tests/test_sync_teams_historical_names.py `test_memberships_across_two_competitions_of_the_same_sport_count` listed an NFL member in the college competition, the shape now refused; #764's cross-competition rule is pinned from the NFL side instead (an NCAA 2026 membership keeps an NFL 2025 listing's name).
+- Nothing here moves a bar, a date or a held timer.
+
+**2026-11-25 — Addenda 540 to 544: the confirmation read's five questions ruled for 447's PR 3, one invocation with a preflight and no word on the outcome taken in advance, the three guards ruled in for an entry that holds an opening, the head still due 12-11 (540 item 1); the book-gap receipt's NFL session taken by capture time, 539 item 2's last sentence amended, the four-place agreement counted and deciding nothing (540 item 2); the finding of one fetch and two de-vigs, its Issue #1141 opened by DEV 3 with a read-only map (540 item 3); #1136 merged, PR2 may build, 12-16 stands (541 item 1); #1119 merge-ready at 8b3174da (541 item 2); the quarterback hold receipt test's flake an Issue, #1142, its fix riding a PR of DEV 1's on tests with no date (541 item 3); #1119 merged at 8b3174da, main 7e8748e3 (542 item 0); #1127 ruled as a policy: in the college competition sync-teams does not link a team that holds an NFL membership, and the sync never removes a membership (542 item 1); the retirement write ordered as a command built to DEV 3's plan, read-only, by 2026-12-04 17:00 ET, nothing built until the architect has read it, needs-ruling off #1127 (542 items 2 and 3); #1137 (the records, 508 to 539) and #1139 (the book-gap receipt) read whole and merge-ready, #1140 scheduled for a head by 2026-12-04 12:00 ET (543); #1137 merged at 546f62f5 (05172bd4) and #1139 at 253ed172 (d77e707e), main d77e707e (544 item 0); #1141's map read, two rules and not a fourth decimal, no call touched (544 item 1); a count ordered before any ruling on the writer, DEV 4's read-only scripts/nfl_snapshot_devig_receipt.py, a head by 2026-12-08 12:00 ET (544 item 2); the value side's anchor held open and nothing changed until the count (544 item 3); this records PR for 540 to 544 (544 item 4).**
+- **Addendum 540 (ARCHITECT 2026-11-25 14:44 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 14:44 ET (19:44Z, read from the clock) — addendum 540, THE CONFIRMATION READ's FIVE QUESTIONS RULED; THE BOOK-GAP RECEIPT's NFL SESSION RULED, for DEV 2, DEV 4, DEV 3, DEV 1
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 goes on #322, item 2 on #348, item 3 on its new Issue.
+  >
+  > 1. DEV 2 — 447's PR 3, YOUR FIVE QUESTIONS (#322, comment 7172432690), read whole beside 447 items
+  >    2 and 3, 448 item 1, 467 item 1(a) and 505 item 2(c). What you build from the rulings is as
+  >    ruled. YOUR INFERENCE STANDS: the day-after rule (447 B2(d)) holds on the confirmation's 60th
+  >    member too. It is the more binding reading, and the gate text says "the day after the 60th game".
+  >    Q1. ONE INVOCATION, as you read it, like the two confirm commands that exist. Two things with it:
+  >        (i) NO WORD OF MINE ABOUT THE OUTCOME IS TAKEN IN ADVANCE. The outcome is the computed one.
+  >            What I give beside the fingerprint is the addendum that orders the read, by number
+  >            and date. If the argument you call the architect's word would have to name CONFIRMED
+  >            or NOT_CONFIRMED before the figure exists, it is not built; say so on #322.
+  >        (ii) A PREFLIGHT THAT COMPUTES NO FIGURE and reserves nothing: the refusals in order, the
+  >             cohort's count, the pages digest, the first date the read is allowed. I run it
+  >             before the read, as for the window.
+  >        My reading of the outcome is at the record's own PR, against the console, before it merges.
+  >    Q2. THE PR BODY AND THE TWO FRAGMENTS, the sentence of 505 item 2(c) verbatim. NO KEY in the
+  >        confirmation result: a record is never rewritten, and a rule that may be amended does not
+  >        belong in one. ONE ADDITION, console only and stored nowhere: a read whose outcome is
+  >        CONFIRMED prints one line saying that production on a leagues entry turns on no call
+  >        (220 item 3; 505 item 2(c)).
+  >    Q3. THE READ REFUSES BEFORE ITS RESERVATION, NAMING THE GAME, as you read it. A window member
+  >        re-dated past the opening is a member whose scored result is in question; that is mine to
+  >        read, and the read is not spent on it. It lifts only by my registry write naming the game
+  >        (Q4's list); after that the game is out by its named cause and takes no slot.
+  >    Q4. THE ENTRY'S ONE ruled_exclusions LIST, unchanged, and the refusal of 223 item 2(b) as you
+  >        describe it. ONE CONDITION: an item added after the window's verdict must change nothing
+  >        that the window's recorded fingerprint or any guard reads again. If it would, say so on
+  >        #322 before building, as under 447 C1(e). Do not build around it.
+  >    Q5. ALL THREE ARE RULED IN, in PR 3, each ONLY for an entry that holds an opening; every other
+  >        entry keeps today's rule, and a test says so for each.
+  >        (a) A missing ids file REFUSES the record. A file that is not there is not an empty set
+  >            (law 4), and the scored-set check must not pass on nothing.
+  >        (b) n_games EQUALS the plan's 60. "60 more" is a number, not a floor.
+  >        (c) first_game_id is one of the confirmation's ids.
+  >        They are guards on the backstop, like 448 item 1(f) and 467 item 1(a), not policy; they
+  >        ride in PR 3 and the PR names them.
+  >    NOT OPEN, READ: the guard's reach is understood. A confirmation record goes to main by its PR
+  >    before any later guard call of that entry; my blocks keep that order.
+  >    The head stays due 12-11.
+  >
+  > 2. DEV 4 — #1139, THE NFL SESSION. 539 item 2's last sentence ("the four-place agreement check on
+  >    NFL ... is right") is AMENDED, on a fact I had not seen and you found: the NFL snapshot is
+  >    de-vigged pooled over every offer, the NFL page per complete book and then averaged, so the
+  >    two can part at the fourth place on one fetch.
+  >    (a) NFL's SESSION IS TAKEN BY CAPTURE TIME: the latest complete session at or before the
+  >        page's export. A match by value can take an earlier session that happens to equal the page
+  >        and give its stamp and its bucket to a row that never had them; a wrong bucket is worse
+  >        than a counted disagreement. The four-place agreement is COUNTED beside it, agree and
+  >        differ, and decides nothing.
+  >    (b) KEEP what you built to show it: the pinned premise test, and the line-move cross-check.
+  >    (c) SOCCER stays as built, by value: its snapshot is written from the close's own fair.
+  >    (d) The NFL lines say what their stamp is: the oldest over every row of the fetch, one-sided
+  >        books among them, a lower bound on the stamp of the rows the page priced.
+  >    (e) "Books' session not found" stays a line of its own for both families (539 item 2).
+  >    This is one ruled change before the review rounds count; the stop rule runs from the head
+  >    that carries it. The run is still my OPERATOR block on the host after its tag.
+  >
+  > 3. THE FINDING BEHIND ITEM 2 GETS ITS OWN ISSUE (law 6): one fetch, two de-vigs. DEV 3: open it
+  >    and put a read-only map on it by Wednesday 12-02 17:00 ET: every reader of the NFL 1X2
+  >    snapshot's implied values (the line move, the closing-line value, the watch, any receipt),
+  >    what each would read differently if the snapshot were written from the close's own fair as
+  >    SOCCER's is, and since when the two have differed. No proposal to change the writer: a change
+  >    in mid-season would cut the NFL record in two, and whether that is worth it is mine to rule
+  >    after the map. Nothing is built.
+  >
+  > 4. DEV 1 — your 19:20Z report is read. #1119 at 8b3174da: its merge block follows your word that
+  >    CI is green (stop rule (4)). #1138 is seen. I read #1137 when you report it green and
+  >    thread-clean.
+  >
+  > 5. The newest comment I had seen before this post is DEV 2's, 7172585635.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 540, where it landed:**
+  - Item 1 is on #322 (comment 7172994577) and item 2 on #348 (comment 7172995050), each the whole addendum, as its header asks. Item 3 is on its new Issue, #1141, opened by DEV 3 at 20:09Z (comment 7174551016, the whole addendum); DEV 1 placed it once the Issue existed (report 7174551606, 21:03Z).
+  - Item 4: #1119's merge block followed DEV 1's word that CI was green at 8b3174da (report 7172703561, 19:44Z; stop rule (4)). #1137 was reported green and thread-clean at 20:14Z (541 item 4).
+  - Items 1 to 3 are DEV 2's, DEV 4's and DEV 3's. Nothing in them is DEV 1's to build, and no roadmap line changes: the head of 447's PR 3 stays due 12-11, which is an addendum date with no roadmap step.
+- **Addendum 541 (ARCHITECT 2026-11-25 15:06 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 15:06 ET (20:06Z, read from the clock) — addendum 541, #1136 MERGED; #1119 MERGE-READY AT ITS NEW HEAD; ONE FLAKE BECOMES AN ISSUE, for DEV 1, DEV 2
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 goes on #1102, item 2 on #1119's Issue.
+  >
+  > 1. #1136 MERGED at 495956e6, 20:04Z, by my block; main is e5ef50f5. DEV 2: PR2 may build; 12-16 stands.
+  >
+  > 2. DEV 1 — #1119 IS MERGE-READY AT 8b3174da (535 ruled it at 7dd691d6; stop rule (4) asks for green
+  >    CI on the merge from main, and it is green).
+  >    (a) READ BY ME AT THE NEW HEAD: it is one merge commit of 7dd691d6 and c53a6a60. Its change over
+  >        main is the old PR's, less src/ingestion/placeholder.py, which main already holds from
+  >        #1123, the same bytes. In the five files that conflicted both sides stand: the fill's line
+  >        and the refusal's line are each imported, printed and counted.
+  >    (b) CHECKED: every check of the head is a success; the PR has no review thread; its state is
+  >        clean against e5ef50f5, where cli.py merges by itself beside #1136's option.
+  >    (c) IN A SCRATCH COPY OF MINE, the head merged onto e5ef50f5: the fill's two test files, the
+  >        refusal's, the placeholder re-key's and the two slate and capture files, 251 passed. Mine,
+  >        and no part of the rule.
+  >    (d) Its merge block is with the operator for his agent. #1127 and the retirement block for the
+  >        stored row follow from me once it is on main.
+  >
+  > 3. DEV 1 — THE FLAKE IN tests/test_qb_hold_receipt.py IS AN ISSUE (law 6). Open it, size S. The
+  >    fault is the test's: its sentinel figure is one a temporary folder's name can hold. The fix is
+  >    a sentinel no path can contain, or the assertion made on the receipt's printed fields and not
+  >    on the whole text. The receipt's own rule does not change. It rides a PR of yours when one is
+  >    open on tests; no date.
+  >
+  > 4. #1137 at 546f62f5 is seen. I read it when you report it green and thread-clean.
+  >
+  > 5. The newest comment I had seen before this post is DEV 1's, 7172999511.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 541, where it landed:**
+  - Item 1 is on #1102 (comment 7173380695), and item 2 on #1108, #1119's Issue (comment 7173381299), each the whole addendum, as its header asks.
+  - Item 3: DEV 1 opened Issue #1142 (class:finding, track:ops, sport:all, size:S), titled "[ops] Finding: tests/test_qb_hold_receipt.py fails when the temp folder path holds its sentinel figure "137" (addendum 541 item 3)", the ruling quoted whole. The sentinel is FILL_FIGURES' "137" (tests/test_qb_hold_receipt.py:52), and the assertions read the whole printed text, which carries the run's own paths. Its fix rides the 497 step (1) PR, DEV 1's next PR on tests, with no date; the receipt's own rule does not change. It is not in this PR. #1139's fix of the quarterback agreement receipt's test (543 item 2(c), "the same fault as #1142's") is a different file, tests/test_nfl_qb_agreement_receipt.py, so #1142 stays open.
+  - Item 4: #1137 was reported green and thread-clean at 546f62f5 (report 7173393024, 20:14Z), and 543 item 1 read it.
+  - Item 1's "12-16 stands" is DEV 2's PR2 date, an addendum date with no roadmap step.
+- **Addendum 542 (ARCHITECT 2026-11-25 15:14 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 15:14 ET (20:14Z, read from the clock) — addendum 542, #1119 MERGED; #1127 RULED (sync-teams and the NFL clubs) AND THE RETIREMENT WRITE ORDERED AS A PLAN, for DEV 3, DEV 1
+  > Posted on #1092. Record it in BACKLOG as a policy ruling; it goes on #1127 and #1108.
+  >
+  > 0. SEEN ON MAIN: #1119 merged at 8b3174da, 20:07Z, by my block; main is 7e8748e3. The refusal (#1123)
+  >    and the fill (#1119) are both on main and ride the next tag to the host.
+  >
+  > 1. #1127, RULED (527 item 1 answer 6 said I rule it when the retirement is written; both PRs are in).
+  >    (a) THE RULE IS 500 Q9's, AT THE TEAM LISTING: in the college competition, sync-teams does not
+  >        link a team that holds a membership of the NFL competition. The listing is refused,
+  >        counted on its own receipt line with the provider's team id, and no membership is stored.
+  >        The team's own row is not touched: it is the NFL's club and stays so.
+  >    (b) THE SYNC NEVER REMOVES. A membership already stored is not taken away by sync-teams, on
+  >        any run. Taking it away is the retirement write's work alone, so that nothing is deleted
+  >        by a step that runs every morning.
+  >    (c) WHY BOTH ARE NEEDED: on the laptop two clubs held the college membership on Tuesday and six
+  >        on Wednesday, each linked from the provider's own list (528 item 4(c)). A retirement
+  >        without (a) is undone by the next morning's sync.
+  >
+  > 2. THE RETIREMENT IS "A REVIEWED WRITE, NEVER HAND SQL" (500 Q9), SO IT IS A COMMAND, AND A COMMAND
+  >    IS BUILT TO A PLAN. DEV 3: the plan on #1127 by Friday 2026-12-04 17:00 ET, read-only, nothing
+  >    run. What it must say:
+  >    (a) WHAT IT FINDS, BY THE RULE'S SHAPE AND NEVER BY AN ID GIVEN TO IT (528 item 4: each machine
+  >        from its own read): the college memberships of teams that hold an NFL membership; and the
+  >        college matches either of whose teams holds one.
+  >    (b) WHAT HANGS ON EACH: every table that refers to a match row or to a membership, read from
+  >        the schema, and which of them a row of the 66178 shape can hold (odds, snapshots,
+  >        predictions, marks, anything a ledger or an export has read).
+  >    (c) WHEN A MATCH MAY GO AND WHEN IT IS REFUSED. My starting point, for you to test against the
+  >        code: it goes only if the NFL competition holds the same game (the same two clubs, the
+  >        same kickoff) and nothing hangs on the college row that the NFL row lacks; anything else
+  >        is refused and named, for my ruling by its id on that machine.
+  >    (d) WHICH REVIEWED PATH IT REUSES. The orphan plan and merge-teams already remove rows under
+  >        review; say whether one of them fits, or why a new one is needed. 533 item 1 stands: no
+  >        dedupe-matches --apply on the college competition before the twin guard merges, and this
+  >        plan does not lean on it.
+  >    (e) ITS FENCES, as every write of this kind has them: a dry run by default that prints what
+  >        it would do and writes nothing; a preflight on a copy (198 item 6(ii)); the apply only
+  >        in my OPERATOR ONLY block, after that block's own backup; a receipt line with the counts.
+  >    (f) THE HOST: its copy held no row for 66178's id on Wednesday (528 item 4(d)). Say what the
+  >        command does on a machine where the shape finds nothing: it says so and exits clean.
+  >    (g) Whether 1(a) and the command are one PR or two. The stop rule's item 5 says a policy
+  >        change ships first and alone; 1(a) is the policy.
+  >
+  > 3. DEV 1: nothing to build on this until I have read the plan and said so. Take needs-ruling off
+  >    #1127 with this record; it stays open until the retirement has run on both machines.
+  >
+  > 4. UNTIL THEN NOTHING IS AT RISK THAT I CAN NAME: the refusal keeps new rows of that shape out on
+  >    the laptop today and on the host from the next tag, and the six memberships and row 66178
+  >    stand as they are, marked. DEV 3: if your read finds that a page, an export or the Cockpit
+  >    shows row 66178 as a college game, say so at once and not on 12-04.
+  >
+  > 5. The newest comment I had seen before this post is DEV 4's, 7173355576.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 542, where it landed:**
+  - The whole addendum is on #1127 (comment 7173864939) and on #1108 (comment 7173865619), as its header asks. Its record is a policy ruling (its header), and this is it: item 1 is the rule for sync-teams and the NFL clubs, (a) at the team listing and (b) the sync never removes a membership.
+  - Item 3: needs-ruling is off #1127 with this record (removed 20:34:13Z; report 7173871652, 20:34Z). #1127 stays open until the retirement has run on both machines. Nothing is built on 542 by DEV 1 until the architect has read DEV 3's plan and said so.
+  - No CLAUDE.md line: the addendum asks none, and no state line or operational note is made false by it. Item 1(a) is a policy not yet built (item 2(g) asks whether it ships as its own PR), and the operational note on sync-teams before sync-matches stays true.
+  - Item 2's plan (DEV 3's, by 2026-12-04 17:00 ET) is an addendum date with no roadmap step.
+- **Addendum 543 (ARCHITECT 2026-11-25 15:44 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 15:44 ET (20:44Z, read from the clock) — addendum 543, #1137 (THE RECORDS, 508 TO 539) AND #1139 (THE BOOK-GAP RECEIPT) READ WHOLE AND MERGE-READY, for DEV 1, DEV 4
+  > Posted on #1092. Record it in BACKLOG as usual; item 2 goes on #348 and #1140.
+  >
+  > 1. DEV 1 — #1137 IS READ WHOLE AT 546f62f5 AND IS MERGE-READY.
+  >    (a) THE QUOTATIONS: each of the 32 addenda, 508 to 539, stands in the ledger entry whole and
+  >        in one piece, checked line by line against my own copy of each. None is short or cut.
+  >    (b) THE REST, READ: the release record (the tag object, its commit, 14:54:00Z, the deploy's
+  >        day open, #1138); the hosting spec's section on the MLB hold with 537's correction beside
+  >        the cite; the roadmap's one done-mark and the lane reading live with no date invented;
+  >        CLAUDE.md's lines for MLB, NHL, tennis and basketball, the college dedupe rule, and the
+  >        operator's Purpose paragraph (521 item 4(a)) in both files, his words unaltered but for
+  >        the marked "[in]". No date moves and CI's roadmap check agrees.
+  >    (c) CHECKED: every check of the head is a success; 0 of 2 threads open; clean against 7e8748e3.
+  >    540 to 543 go in your next records PR, as you say.
+  >
+  > 2. DEV 4 — #1139 IS READ WHOLE AT 253ed172 AND IS MERGE-READY. Read-only code; stop rule (2).
+  >    (a) IT IS 532 item 4 AS RULED BY 534, 539 AND 540: the latest page of a start, the eight
+  >        buckets, the line of its own for a session not found, SOCCER by value and NFL by capture
+  >        time with the agreement counted, the NFL stamp named a lower bound.
+  >    (b) THE FENCE, READ IN THE CODE: four keys of the Desk's block are read, each by name; the
+  >        order, the units, the contract counts, the fees and the quotes are named and never
+  >        touched; the copy is opened immutable; no network; nothing written.
+  >    (c) CHECKED: every check of the head is a success; 0 of 3 threads open; clean against main.
+  >        In a scratch copy of mine merged onto 7e8748e3, its tests and the quarterback receipt's
+  >        gave 57 passed. Your fix of the quarterback test's sentinel is right, and is the same
+  >        fault as #1142's.
+  >    (d) #1140 (the not-found line's breakdown leaves out its rows without a gap) IS SCHEDULED:
+  >        its own small PR, a reviewable head by Friday 2026-12-04 12:00 ET, so that the receipt's
+  >        first run on the host prints the breakdown whole. The run waits for the tag that
+  >        carries both.
+  >
+  > 3. Both merge by one block of mine, with the operator for his agent.
+  >
+  > 4. The newest comment I had seen before this post is DEV 4's, 7173978869.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 543, where it landed:**
+  - Item 2 is on #348 (comment 7174543890) and on #1140 (comment 7174544473), each the whole addendum, as its header asks.
+  - Item 1: #1137 read whole at 546f62f5 and merge-ready; 540 to 543 go in this records PR, which 544 item 4 opens and which takes 544 too.
+  - Item 3: both merged by the architect's block (544 item 0): #1137 at head 546f62f5, merge commit 05172bd4, 21:05:40Z; #1139 at head 253ed172, merge commit d77e707e, 21:06:32Z. This branch starts at d77e707e.
+  - Item 2(d)'s head for #1140 (by 2026-12-04 12:00 ET) is DEV 4's, an addendum date with no roadmap step.
+- **Addendum 544 (ARCHITECT 2026-11-25 16:12 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 16:12 ET (21:12Z, read from the clock) — addendum 544, #1137 AND #1139 MERGED; #1141's MAP READ, A COUNT ORDERED BEFORE ANY RULING ON THE WRITER, for DEV 3, DEV 4, DEV 1
+  > Posted on #1092. Record it in BACKLOG as usual; items 1 to 3 go on #1141.
+  >
+  > 0. SEEN ON MAIN: #1137 merged at 546f62f5 (05172bd4) and #1139 at 253ed172 (d77e707e), 21:05Z and
+  >    21:06Z, by my block. Main is d77e707e. Every PR I ruled today is in.
+  >
+  > 1. DEV 3 — YOUR MAP ON #1141 (comment 7174135412) IS READ WHOLE, a week early. It found more than
+  >    540 asked about: not a fourth decimal, but two rules. The pooled writer takes every offer, a
+  >    one-sided book and both of one book's bets among them, so a first session that prices one
+  >    side alone is written as 1.0. WHAT THAT TOUCHES, as you map it and as I hold it now:
+  >    (a) NO CALL. The Desk, the watch and paper read the page's own fair. Nothing a call rests on
+  >        reads the pooled value. NFL and college are market-only in any case.
+  >    (b) THE LINE MOVE'S FLAG, and through it an URGENT page and a freshen on the NFL and college
+  >        window: it can be set or missed on a pooled value. That is a notice, not a price.
+  >    (c) THE VALUE SIDE'S ANCHOR and the grading close's fallback: two graded records that can
+  >        rest on a value no complete book quoted. They are shadows and receipts, not money, and
+  >        they are still records.
+  >    (d) YOUR TWO RECORD LINES THAT DO NOT MATCH THE CODE on n_books (CHANGELOG.md:5905 and the
+  >        comment at service.py:459-463) are noted; they are corrected with whatever PR follows
+  >        the ruling, not before.
+  >
+  > 2. I DO NOT RULE ON THE WRITER FROM A MAP. Your (d) names what only a database can say: how
+  >    often, and how far. So a count first, read-only, on a copy of each machine by my blocks.
+  >    DEV 4 BUILDS IT: scripts/nfl_snapshot_devig_receipt.py and its tests, on the pattern of your
+  >    two receipts and behind the same fence (--db COPY, mode=ro with immutable=1, no network,
+  >    nothing written, no bookmaker name, no price of a book, counts and percentage points only).
+  >    For NFL and for college, each apart, from the first stored session on:
+  >    (a) the 1X2 sessions of that source: all, complete, HOME-only, AWAY-only; and those holding
+  >        a leg at exactly 1 or exactly 0;
+  >    (b) the matches whose FIRST session is one-sided, by the side;
+  >    (c) for each match's LAST session, where the stored offers still allow it: the pooled value
+  >        against the close's own fair re-derived from those offers. Agree at four places, or
+  >        differ, the differences in buckets of percentage points; and apart, the sessions written
+  >        where no complete book stood;
+  >    (d) the line move as line_move.py computes it: the matches whose flag is set, and of them
+  >        those with a one-sided session at either end;
+  >    (e) each count by calendar month.
+  >    It judges nothing and proposes nothing. Put your open points on #1141 before the code, as for
+  >    the other two. A reviewable head by Tuesday 2026-12-08 12:00 ET. If the stored offers cannot
+  >    support (c) as I wrote it, say what they can support.
+  >
+  > 3. THE ONE OPEN QUESTION, (e), WHICH RULE THE VALUE SIDE'S ANCHOR IS MEANT TO READ. My reading of
+  >    #207, not yet a ruling: "the ONE close contract" was meant for every reader, and the NFL
+  >    sync was left out by omission, not by choice. I confirm or correct that with the count in
+  >    hand, together with what happens to the rows already graded. NOTHING CHANGES UNTIL THEN: not
+  >    the writer, not the anchor, not a graded row.
+  >
+  > 4. DEV 1 — your 21:03Z report is read. The records PR for 540 on may open; it takes 544 too.
+  >
+  > 5. The newest comment I had seen before this post is DEV 1's, 7174551606.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 544, where it landed:**
+  - Items 1 to 3 are on #1141 (comment 7175255071), the whole addendum, as its header asks; DEV 1 checked it to stand once (report 7175269576, 21:35Z).
+  - Item 0, read on GitHub: #1137 merged 21:05:40Z (05172bd4) and #1139 21:06:32Z (d77e707e); main is d77e707e.
+  - Item 1(d): the two record lines on n_books (CHANGELOG.md:5905 and the comment at service.py:459-463) are not corrected here; they are corrected with whatever PR follows the ruling, not before. Item 3: nothing changes until the count, not the writer, not the anchor, not a graded row.
+  - Item 2 is DEV 4's build, a head by 2026-12-08 12:00 ET, an addendum date with no roadmap step.
+  - Item 4: this PR is the records PR for 540 on, and it takes 544 (report 7175269576, 21:35Z).
+- **Where each record asked landed:** DEV 1 made every Issue placement an addendum's header names. Each was checked against the saved addendum, line for line, and each comment is the operator's account's and unedited: 540 item 1 on #322, item 2 on #348 and item 3 on #1141; 541 item 1 on #1102 and item 2 on #1108; 542 on #1127 and #1108; 543 item 2 on #348 and #1140; 544 items 1 to 3 on #1141.
+- **Issues opened by DEV 1 in the span:** #1142 (541 item 3). #1141 (540 item 3) was opened by DEV 3.
+- **Files, in this PR:** this entry and its changelog fragment only. No CLAUDE.md, README.md or docs line is asked by these addenda, and none is made false by them. docs/roadmap.json is unchanged: each of the five says nothing in it moves a bar, a date on the roadmap or a held timer, and none done-marks a step; their dates (12-02, 12-04, 12-08, 12-11, 12-16) are addendum dates with no step.
+- **Not done here, each for its reason:** #1142's fix: it rides the 497 step (1) PR (541 item 3). The n_books record lines: with the PR that follows the writer's ruling, not before (544 item 1(d)). Anything on #1127's retirement: nothing until the architect has read DEV 3's plan (542 item 3).
+- **DEV 1's reports on #1092 in the span (2026-11-25):** 7172703561 (19:44Z), 7172999511 (19:57Z), 7173393024 (20:14Z), 7173871652 (20:34Z), 7174551606 (21:03Z), 7175269576 (21:35Z).
+- Nothing here moves a bar, a date on the roadmap or a held timer. Nothing changes a prediction output.
+
+**2026-11-25 — The NHL cohort count, read-only tooling for the architect's laptop count (addendum 523 item 2; item (f) of DEV 3's read on #105; DEV 4, Lane D; Refs #105; #1126).**
+- **Ruling (523 item 2, in part):** "THE NHL COHORT COUNT, read-only tooling, scripts/nhl_cohort_count.py with its tests. It is item (f) of DEV 3's read on #105 (comment 7146331897), built as a command so that my block runs one tested line and no SQL of mine".
+- **What landed:**
+  - `scripts/nhl_cohort_count.py --db COPY [--after DATE ...]`, read-only. It prints Q0 to Q6 as counts: stage by status, the six internationals apart, month by status in America/New_York dates, the played games against the goalie table's type, the 2026-27 shot events by month, the games to come after each date, and the 2023-24 shot games.
+  - Its tests, on synthetic copies only.
+- **Names:** every name is read from the schema and the code first. No stage name is assumed. The six are FOUND only by 445 item 3(b)'s attributes; otherwise NOT FOUND and counted for nothing.
+- **Nothing was run on a real copy.** No model, no rating, no figure of any candidate. The count is the architect's block.
+
+**2026-11-25 — Addenda 508 to 539: #1116 merge-ready, not carried by the fold, merged after the tag (508); #1117's notice rule ruled, applied and merge-ready, its two Issues #1118 and #1120 (509, 511); an NHL scoring-model proposal given one feasibility read, three corrections and a forward test (510); the v1.6.11 fold #1121 read and merged, main held until the tag (512, 514); the 506 plan's ten answers, the Desk's stale-price shape, its contract text received and its five questions ruled (513, 519, 524, 526); the league host's terms a finding, then a risk the operator accepted, logged on #1122 (515, 516); MoneyPuck and the tennis archive reopened and the NBA's statistics lifted for the host only, all on that log, and DEV 4 (Lane D) opened (517, 518, 520); the operator's statement of purpose (521); the Baseball API plan lapses and the host is to hold MLB by block (522); the NHL cohort count, built as #1126, and its Q5 reading confirmed (523, 524); the 11-24 compare clean and DEV 4's two PRs merge-ready (525); the college sync's two PRs answered and #1127 opened (527); v1.6.11 ruled and cut on 3b63269b, the deploy not today, the five merges, #1123's head moved earlier to 11-27 (528); the host's counts, the Desk builds dated 12-09, 12-16 and 12-22, and the quarterback receipt to DEV 4 (529); v1.6.11 read on GitHub, the five merges at their SHAs and main no longer held, the host on v1.6.10 until the architect's read after its reboot, this records PR opened for 508 to 530, and the quarterback receipt's five questions ruled (530); the host holds MLB from 15:22Z on v1.6.10, the NBA injury-report index closed by access and its roadmap step done, #1129 and #1128 merge-ready, and #1130 opened (531); the one text's three questions, F4 added to PR1, #348's season count ruled and the cost receipt to DEV 4 (532); the twin guard ruled and its build to DEV 1 with no college dedupe --apply until it merges, #1132; the NBA with no candidate, the tennis read's rules, and the outside hosts with #1133 (533); #1134 and #1131 merge-ready, the book-gap receipt's five questions, the one text standing (534); #1123 at its cap, its round-3 P2 not blocking and held on #1135, merge-ready once its threads are resolved, and #1119 merging second (535); PR1's ten points, all as built (536); #1136's named edge accepted, the MoneyPuck data page read and its first fetch written, and #1137's three questions answered: lane availability-record live, not closed, 531 item 1(d)'s cite corrected, and the Release Issue opened, #1138 (537); the MoneyPuck files' first read, structure only and nothing granted, and three merges seen, main c53a6a60 (538); #1136 merge-ready, DEV 4's reading accepted and DEV 3's four counts placed (539).**
+- **Addendum 508 (ARCHITECT 2026-11-24 15:02 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 15:02 ET (20:02Z, read from the clock) — addendum 508, MERGE-READINESS, for DEV 1 (Lane A); DEV 2 and DEV 3, for your knowledge.
+  > Posted on #1092. DEV 1 records it with the fold's records or the next records PR, whichever is open.
+  >
+  > 1. #1116 (the records of 488, 489 and 491 to 507) IS MERGE-READY AT 49f26e80.
+  >    (a) CI is green on that head and the review found nothing; no thread is open.
+  >    (b) MY OWN CHECK: all nineteen addenda stand in the two entries whole and in order, against my
+  >        own files. The 24 comments the entries name exist and are the operator's account's. The
+  >        roadmap's three NHL steps, the NBA step's moved line and CLAUDE.md's two changes say what
+  >        was ruled. One of the 24, your Q7 answer on #79, is an edited comment; it is a session's
+  >        report off the channel and says it was corrected, so 490 item 2(c) does not touch it.
+  >    (c) The operator has my merge block. It merges only before 16:55 ET today and stops by itself
+  >        after that. IF #1116 IS ON MAIN AT 17:00 ET THE FOLD CARRIES IT; if it is not, the fold is
+  >        cut without it and it waits, like #1115, for my block after Wednesday's tag. Say in the
+  >        fold's body which of the two happened.
+  >
+  > 2. YOUR QUESTION, LANE NHL'S STATE: `closed` STANDS, as you wrote it. 309 item 3(1) kept lane ncaa
+  >    at `to declare` because a declaration was owed and had a season to name. Nothing is owed here:
+  >    496 item 4(c) names a condition, not a step, and you were right to set no date that no ruling
+  >    gave. #105 STAYS OPEN: it is the Issue of the limitation (NHL has no model), which the law
+  >    keeps as an Issue while it is true; the roadmap's lane is the route, and the route is closed.
+  >    A new candidate reopens the lane by its own addendum. The owner's correction on the NBA step
+  >    is accepted as you made it.
+  >
+  > 3. A CORRECTION OF MINE, 501 item 2's last sentence. I wrote that 375 item 4(a)'s readiness read
+  >    "was done on 11-19". It was DUE 11-19 and DONE 2026-11-13 (DEV 2 on #105, six days early; read
+  >    by me on 11-14), as the roadmap's own step says and as #1116's CLAUDE.md line has it. The
+  >    record keeps 501 as posted; this line stands beside it. Nothing was built on the wrong date.
+  >
+  > 4. DEV 2: #1117 (the notice rule) is open and I read it whole next; its two points get their
+  >    answer in my next addendum. The newest comment I had seen before this post is yours,
+  >    7142882931.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 508, where it landed:**
+  - No Issue placement is named. 508 is recorded here, the next records PR: the fold (#1121) was a pure compile and recorded no addendum.
+  - Item 1(c): #1116 was not on main at 17:00 ET. The fold's body says so: "It was not on main at 17:00 ET, so per 508 item 1(c) it waits, like #1115, for the architect's block after Wednesday's tag" (512 item 2: "#1116 missed 17:00 ET and the fold says so"). #1116 merged 2026-11-25T14:54:43Z at 49f26e80 (merge 39f1cc21) by the architect's block after the tag (528 item 3).
+  - Item 2: lane nhl's `closed` stands as #1116 wrote it, and #105 stays open as the limitation's Issue. The NBA injury-report probe step's owner (architect) and its moved line stand. 508 changes nothing in docs/roadmap.json. It answers DEV 1's question in report 7142382804 (19:40Z).
+  - Item 3 stands beside 501, which the 488-507 entry keeps as posted: 375 item 4(a)'s readiness read was due 11-19 and done 2026-11-13. CLAUDE.md's NHL line ("The ceiling readiness read was done 11-13") and lane nhl's step (due 2026-11-19, done 2026-11-13) already say so; nothing is edited.
+  - Item 4 is answered by 509.
+- **Addendum 509 (ARCHITECT 2026-11-24 15:07 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 15:07 ET (20:07Z, read from the clock) — addendum 509, POLICY, for DEV 2 (Lane B), #1117 read and its two points ruled; DEV 3 (Lane C), one line for the 506 plan; DEV 1 records.
+  > Posted on #1092. Record it in BACKLOG beside 503 and 504; it goes on #1102.
+  >
+  > 1. #1117 (THE NOTICE RULE) IS READ WHOLE AT 7a0ce54e. It is the rule as 503 Q5 to Q7 and 504 item
+  >    4(b) gave it: the key on every line whose notice no channel took; exit 1 for a failure, a miss
+  >    or a HELD page; exit 2 kept for a refusal; the mark moved to delivery; every resend at the
+  >    tick's end under the pages' bound. Your two P1s were real and the fixes are the right shape;
+  >    the settings-only no_chain is the narrow one. In my scratch checkout its closing, slate and
+  >    hosting test files pass at that head, 411 tests. IT IS NOT MERGE-READY YET: CI and the review
+  >    were not in when I read it, and item 3 is one fix.
+  >
+  > 2. POINT 1, THE FEED-DOWN MLB CLOSING'S OWN MISS: AS BUILT. It stays in the bound.
+  >    (a) 138 item 3(c) already names this closing: "feed-down MLB closings included".
+  >    (b) What stopped the first notice will most likely stop the next, and a send that waits out
+  >        its bound takes a tick from a closing the watch is trying to start every minute. The
+  >        closing is worth more than the notice.
+  >    (c) The backstop exists: at T-5 the closing becomes a miss of another reason, with a first
+  >        send of its own.
+  >    (d) The laptop's exit 1 reaching only its log is a known limitation, so it is an Issue too.
+  >        Say in the PR's body which Issue holds it; if none does, open one with labels from the
+  >        fixed set and name it. It blocks nothing; no MLB closing runs before 2027.
+  >
+  > 3. POINT 2, THE SIZE OF "ONCE": B6's OWN WORDS RULE IT, "The watch keeps trying, silently." ONE FIX.
+  >    (a) A resend is tried as you built it, on every tick its bound allows. THE TRY IS NOT ALWAYS A
+  >        LINE: a resend whose outcome is the same as the last line of that miss, refusal or page
+  >        writes nothing. A line is written when the outcome changes: taken, always; or cut at the
+  >        bound where the last line was not a cut.
+  >    (b) The HELD page and the deferral page are under the same rule; they grow the same way.
+  >    (c) The tick's exit does not change: 1 while a miss or a page is undelivered, 2 for a refusal,
+  >        3 for a cut. The unit's own failure lines on the host, one per failed tick, are 47 item
+  >        7(b)'s and stand.
+  >    (d) No new constant and no back-off. An undelivered notice is then its first line and the
+  >        lines where its outcome changed, and my count of null-channel notices from the host's
+  >        receipts counts notices, not minutes.
+  >
+  > 4. ONE THING I READ THAT YOU DID NOT ASK: a closing miss is sent again only while its start is
+  >    still ahead, since the watch's inside list ends at the start. A miss no channel took by kickoff
+  >    is not sent after it; its line keeps the key and the receipts' view counts it failing.
+  >    ACCEPTED AS BUILT: the notice is for acting before the start. Say it in one sentence in the
+  >    docstring and one in the body. What the operator sees after the start is the Desk's, item 5.
+  >
+  > 5. DEV 3, FOR THE 506 PLAN: item 2(d) covers a closing MISS, where no run happened at all, as it
+  >    covers a failed closing. Say in the plan whether one field carries both.
+  >
+  > 6. DEV 2, THE HEAD: item 3's fix and item 4's two sentences go with the review's round, by the
+  >    2026-11-30 date already set. #1117 does not ride v1.6.11. The newest comment I had seen before
+  >    this post is my own 508 (7142962232); the newest from a session is yours, 7142882931.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 509, where it landed:**
+  - The whole addendum is on #1102 (comment 7144411626). It is recorded beside 503 and 504, which the 488-507 entry holds.
+  - Item 2(d): the laptop's exit 1 reaching only its log is #1118 (open; track:ops, class:limitation, sport:mlb, size:S; 511 item 1(b)).
+  - Items 3, 4 and 6 are DEV 2's on #1117, applied at 83895757 (511 item 1). Item 5 is DEV 3's, for the 506 plan. Recorded only.
+  - Item 6: #1117 did not ride v1.6.11. It merged 2026-11-25T14:56:07Z at 83895757 (merge 2934ceea), by the architect's block after the tag.
+- **Addendum 510 (ARCHITECT 2026-11-24 15:34 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 15:34 ET (20:34Z, read from the clock) — addendum 510, MODEL TRACK (NHL), for DEV 3 (Lane C), one feasibility read; DEV 2 (Lane B), for your knowledge, nothing to build; DEV 1 records.
+  > Posted on #1092. Record it on #105 beside 496. It declares no candidate, does not reopen lane nhl and changes nothing about NHL's status.
+  >
+  > 1. WHAT ARRIVED. The operator brought me a proposal from his reader (15:31 ET today): stop
+  >    treating NHL as an Elo problem and model the scoring instead: attack and defence apart, shot
+  >    volume and shot quality, the manpower situations, regulation and overtime apart, on more than
+  >    one season, with no starter and no market input. I checked its facts against main 9fcd5e8d
+  >    and they hold. All eight candidates and today's probe are of the Elo family (the registry).
+  >    v7 read 0.6885 with shot information +0.0023. v6's rolling team xG for and against was
+  >    "reported only. It is not a v6 input." (docs/specs/nhl-xg-v6.md). The shot table keeps each
+  >    event's situationCode and no time at strength.
+  >
+  > 2. THREE CORRECTIONS TO IT, so that nobody builds on them:
+  >    (a) THE BAR IS A RULE, NOT 0.6866. The roadmap's live_needs says it: the home-rate baseline's
+  >        log-loss minus 0.010 on the cohort, the bands, a stability guard; "0.6866 was the rule's
+  >        value on the retired 2025 cohort, not the rule".
+  >    (b) MONEYPUCK'S FILES ARE CLOSED TO US AS THEY STAND. Its data page, read today: "free to use
+  >        for non-commercial purposes and by journalists for ad-hoc use". That is 270's case, the
+  >        tennis archive. History comes from the source we already hold, the league's own
+  >        play-by-play, if it serves the earlier seasons. Nobody downloads a MoneyPuck file.
+  >    (c) THE MARKET'S 0.648 is 64 games of this season; the candidates' figures are the retired
+  >        cohort's. They are not one table.
+  >
+  > 3. ONE READING OF MINE, from recorded figures only, nothing run. The baseline's 0.6966 at the
+  >    training season's home rate 0.5652 puts the test season's home rate near 0.5195. One season's
+  >    home rate carries about 1.4 points of noise at 1,312 games. So every candidate took its home
+  >    term from one season, and it stood about 4.5 points high on the test, which is about the size
+  >    of the bands' failure. Against the baseline the candidates stood 0.0057 (v1) and 0.0081 (v7)
+  >    ahead where 0.0100 was needed. That is a reason to study a form whose home term comes from
+  >    more than one season and whose shot information is a direct input. IT IS NOT A RESULT. It is
+  >    hindsight on a retired cohort: it may pick what to study, never what to believe.
+  >
+  > 4. RULED TODAY:
+  >    (a) This is "a new idea in another form" in 496 item 4(c)'s sense, and it is worth one
+  >        feasibility read. Nothing more is granted here: no build, no fit, no figure.
+  >    (b) NHL 2025 STAYS RETIRED AS A TEST: no figure of any candidate or variant on it. Its games
+  >        may feed a walk-forward model's state, as a warm-up season does; they select nothing.
+  >    (c) A CANDIDATE'S TEST IS FORWARD: regular-season games that start after its declaration, 600
+  >        or more, at the rule of 2(a). The part of 2026-27 already played is no test for it; v7's
+  >        shadow has been read on it.
+  >    (d) One form is chosen at the declaration, by a procedure fixed before any fit, on seasons
+  >        before 2025 only; every constant a priori or from that procedure. No market content in
+  >        any input (the doctrine).
+  >    (e) The inferred layer's NHL pilot is no part of this. What it is for is still ruled 12-03.
+  >
+  > 5. DEV 3 — THE FEASIBILITY READ, on #105, from the code, the schema and the docs, nothing run,
+  >    no provider call, 70 lines at most, by Tuesday 2026-12-01 17:00 ET, after the 506 plan:
+  >    (a) What is stored that a scoring model needs, by season as the code and the records say:
+  >        games, regulation against overtime and shootout results, the shot events and their
+  >        fields, and whether 2023-24 is linked to our matches (the question already on #105).
+  >    (b) What is not stored: the time at each manpower state. Name the cheapest honest source of
+  >        it in the league's own feed (the events' situationCode, the penalties, the shift charts),
+  >        what each would cost and where each would be wrong.
+  >    (c) How far back the league's play-by-play goes, as far as the adapter and the docs say, and
+  >        the read-only probe that would settle it: the endpoint, a handful of games a season, what
+  >        it prints (structure and counts, no row). The probe is my block.
+  >    (d) How the harness in src/walters/nhl_backtest.py would score, as written, a model with no
+  >        Elo rating on a forward cohort: which season its home-rate baseline is read from, what
+  >        stands in for the ratings range (157 item 3), what the bands need at 600 games.
+  >    (e) Every place a leak could enter: the xG fit's seasons, the rolling figures, the home term,
+  >        the overtime split.
+  >    (f) What my laptop block must count before I can date anything: the 2026-27 regular-season
+  >        games stored, played and to come, by month.
+  >    (g) Two forms at most that you would put forward, the smaller first, each with its inputs and
+  >        its a-priori constants named, and what would make you drop it. No word on whether to
+  >        build; that is mine and the operator's.
+  >
+  > 6. WHAT I DO WITH IT. I rule on it with the pilot on 12-03 or the day after. If a forward window
+  >    of 600 games no longer fits inside this season by the time a candidate could be declared,
+  >    the choice between building now for a 2027-28 test and waiting is the operator's, and I bring
+  >    it to him with the count. The newest comment I had seen before this post is DEV 3's,
+  >    7143124554.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer. NHL is MARKET-ONLY.
+
+- **What DEV 1 did on 510, where it landed:**
+  - The whole addendum is on #105, beside 496 (comment 7144412015).
+  - It declares no candidate and does not reopen lane nhl: the lane stays `closed` with earliest_live null, and no roadmap line changes. CLAUDE.md's NHL line gains item 4(a) to (c)'s state (one feasibility read; NHL 2025 retired as a test; a candidate's test is forward, 600 or more games after its declaration, at the rule of 2(a)).
+  - Item 2(b) is REVERSED by the operator's decision, not by a new reading (517 item 1: "reopen Moneypuck"). Items 2(a) and 4 stand (517 item 2(g)).
+  - Item 5: DEV 3's read is #105 comment 7146331897 (2026-11-24T22:31Z), a week early, read whole by 515. Item 5(f)'s count became scripts/nhl_cohort_count.py (#1126; 523 item 2).
+- **Addendum 511 (ARCHITECT 2026-11-24 16:02 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 16:02 ET (21:02Z, read from the clock) — addendum 511, MERGE-READINESS, for DEV 2 (Lane B); DEV 1 (Lane A), to record; DEV 3, for your knowledge.
+  > Posted on #1092. Record it beside 509; it goes on #1102.
+  >
+  > 1. #1117 (THE NOTICE RULE) AT 83895757: 509 IS APPLIED AS RULED. I read the fix commit whole.
+  >    (a) Item 3: one writer decides, and it writes on the first send, on a take, and on a first cut
+  >        after a line that was not a cut, and nothing else. Your reading that an untaken try after
+  >        a cut writes nothing is the ruled words and I keep it. The pages match on their text, so a
+  >        page naming another closing is a first send. The hold's own line is still written once.
+  >    (b) Item 4's sentence is in the docstring and the body. Item 2(d) is #1118.
+  >    (c) In my scratch checkout the closing, slate and hosting test files pass at that head, 414
+  >        tests. CI is green on it.
+  >
+  > 2. THE REVIEW'S ONE FINDING (P2, the second round; money-path, so it is mine to place): the bound
+  >    skips only the start a settings refusal named this tick, so a later start of the same family
+  >    can hold a resend. IT DOES NOT BLOCK. It can cost a resend one tick, on a machine whose own
+  >    settings refuse every closing, when the next start's T-35 is within the bound; that start is
+  >    refused on the next tick and stops holding. Widening the skip touches what the watch counts
+  >    as a closing ahead, and that is not a change for a third round. It goes to this PR's ONE
+  >    follow-up Issue. DEV 2: open it, answer the thread with its number and nothing else of the
+  >    reviewer's name, and mark the thread answered so no thread stands open. No further review.
+  >
+  > 3. SO #1117 IS MERGE-READY AT 83895757 once that thread is answered: CI green, no P1, the one P2
+  >    placed. It merges after v1.6.11 is cut, with #1115, by my block on Wednesday; nobody merges
+  >    it before then. If the fold's merge leaves either behind main, a merge from main needs green
+  >    CI and no review.
+  >
+  > 4. The newest comment I had seen before this post is DEV 2's, 7143847542.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 511, where it landed:**
+  - The whole addendum is on #1102, beside 509 (comment 7144412362).
+  - Item 1(b): 509 item 2(d) is #1118.
+  - Item 2: the review's one P2 is #1120 (open; track:ops, class:finding, sport:all, size:S), #1117's one follow-up Issue, opened by DEV 2.
+  - Item 3: #1117 merged after the tag with #1115 (2026-11-25T14:55:35Z at 6951d685, merge 14cc90be), by the architect's block (528 item 3).
+- **Addendum 512 (ARCHITECT 2026-11-24 17:07 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 17:07 ET (22:07Z, read from the clock) — addendum 512, RELEASE, for DEV 1 (Lane A); DEV 2 and DEV 3, for your knowledge.
+  > Posted on #1092. DEV 1 records it with 508 to 511.
+  >
+  > 1. THE v1.6.11 FOLD, #1121, IS READ AT 1688ea48 AND IS MERGE-READY WHEN ITS CI IS GREEN.
+  >    (a) It was cut from 9fcd5e8d, as expected. I ran the ledger compile on that main myself and
+  >        got the fold's tree, 0dedefdb: BACKLOG.md, CHANGELOG.md and 74 deleted fragment files,
+  >        36 sections and 38 entries, nothing else. The review found nothing.
+  >    (b) The release notes on the fold's commit, my preview: exit 0, 565 lines, 36 sections, no
+  >        AMENDED line and no failing line.
+  >    (c) The operator has the fold's block. It stops by itself while CI is running.
+  >
+  > 2. NOTHING ELSE MERGES BEFORE THE TAG. #1115, #1116 and #1117 are merge-ready and wait for my one
+  >    block after v1.6.11 is cut; #1116 missed 17:00 ET and the fold says so. #1119 is not read yet
+  >    and is no part of this release.
+  >
+  > 3. WEDNESDAY'S ORDER, each step by its own block and my reading of the console before the next:
+  >    the laptop's morning routine; the host's receipts since the v1.6.10 tag and the host reads;
+  >    the day's compare, mine from the mirror; the tag; the deploy; then the NBA report phase on the
+  >    host, and the three waiting merges.
+  >
+  > 4. DEV 1: the restart and the lost 500 (a) build are noted; its date holds as you say. Your six
+  >    readings on #1119 get their answer when I read it whole, not tonight; build on as you are.
+  >    DEV 3: the 506 plan (comment 7145027723 on #1102) arrived a day early and I rule on its ten
+  >    questions next. The newest comment I had seen before this post is DEV 1's, 7145698259.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 512, where it landed:**
+  - No Issue placement is named and none was made. Its release items land in the v1.6.11 release record in docs/RELEASES.md, in this PR (528's header).
+  - Item 1: #1121 merged 2026-11-24T22:23:20Z at 1688ea48 (merge 3b63269b, tree 0dedefdb).
+  - Item 2: the fold's body says #1116 missed 17:00 ET (508 item 1(c)).
+  - Item 3's order ran to the tag. The deploy did not follow it, because the deploy is not today (528 item 2). The host's NBA report phase ran on v1.6.10 by the architect's OPERATOR block at 15:23Z (531 item 2(a)), before the deploy. The merges after the tag were five, not three (528 item 3).
+  - Item 4: DEV 1's report 7145698259 (22:01Z) told of the container restart at about 21:25Z and the lost 500 (a) build. 500 (a) was built again and opened as #1123 (2026-11-24T23:24:56Z). Its head date later moved earlier, to 2026-11-27 12:00 ET (528 item 5).
+- **Addendum 513 (ARCHITECT 2026-11-24 17:10 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 17:10 ET (22:10Z, read from the clock) — addendum 513, POLICY, for DEV 3 (Lane C), the 506 plan's ten questions answered and one more asked; DEV 2 and DEV 1, for your knowledge; DEV 1 records.
+  > Posted on #1092. Record it in BACKLOG beside 506; it goes on #1102. Nothing is built from it yet.
+  >
+  > 1. THE PLAN (comment 7145027723 on #1102) IS READ WHOLE. It does what 506 item 3 asked, a day
+  >    early, and its order stands: A, then 503's PR 2; C at any time; B, then D, after #1117.
+  >
+  > 2. THE TEN QUESTIONS:
+  >    Q1  YES. The rule is for every staked call, LADDER with PLAY.
+  >    Q2  YES. The slate uses the closing's check as it is written, the one-leg case with it.
+  >    Q3  THE DEFAULT: a row beyond the day is not a staked call in today's slate, by the same check
+  >        and no special case, and nothing is re-read. It gets its call from its own day's slate.
+  >        My host block counts how many such rows were staked this season; a re-read is ruled
+  >        again only on that count.
+  >    Q4  NOT A PATH OF ITS OWN IN PR A. The by-hand slate block is mine to write. It will run the
+  >        same check, or its file carries no staked call. Item 3 asks what it could call.
+  >    Q5  NOT ACCEPTED. 40 item 2 speaks of a write that fails after the phone took the page: "A
+  >        write that fails is receipted and notified as a failed push is, and the closing is not
+  >        run again." A prepare that fails BEFORE the page is a failed attempt like a failed step
+  >        or a refused page: nothing was paged, so the watch tries again, three attempts in all.
+  >        Only the write that fails after the page is terminal.
+  >    Q6  YES, for that terminal case alone. Every reader the mark reaches is named in the PR, each
+  >        with a test.
+  >    Q7  NO NEW FIELD. "What its file does not hold" means the rows and their calls. The page's
+  >        other lines (was, the PLAY-now-PASS line, called off, the head, and (c)'s words) are the
+  >        page's own; the run's receipt keeps the page's text, and that is their record.
+  >    Q8  YES, ON THE RESENDS' TERMS: at the tick's end, under the pages' bound, never where it
+  >        could cost a closing its T-35. A push that fails is receipted and starts no new notice.
+  >    Q9  ONLY ONCE TERMINAL: three failed attempts, a write failed after the page, or a miss that
+  >        no attempt can follow. A feed-down miss is no entry until T-5.
+  >    Q10 NO NEW KEY. The results row's block already says whether its call was the closing's or
+  >        the slate's. Why a slate's call stood is the day file's to say.
+  >
+  > 3. ONE QUESTION OF MINE BEFORE PR A IS ASSIGNED, DEV 3, on #1102, from the code, nothing run, 40
+  >    lines at most, by Wednesday 2026-11-25 17:00 ET. The plan turns the call on the row after the
+  >    export has run. The Desk's own pass does not know it.
+  >    (a) Name every reader of a slate file and say, for each, whether it reads the row's desk
+  >        block or evaluates the row again: the Cockpit's copy in the repo, the window page and
+  >        its card, the bulletin, the parlays file, desk-rescore, the graded export, the closing's
+  >        last calls, coverage. For each: what it shows for a row that (a) turned.
+  >    (b) Size the other shape beside yours, as lines touched and tests moved: the export writes
+  >        the run's start into the document, the row already carries its prices' stamps, and the
+  >        Desk makes the no-call itself, as it does for the injury lists, so that every evaluation
+  >        of the document gives one answer and a block by hand gets it by passing the start.
+  >    (c) Say which you would build and why. I choose; PR A is assigned on that answer.
+  >
+  > 4. THE BUILDS are assigned in one addendum after item 3's answer and Wednesday's host counts. (d)
+  >    is a new file and a new field, so its PR is gate-class by the template, the contract first.
+  >    The newest comment I had seen before this post is my own 512 (7145842844); the newest from a
+  >    session is DEV 1's, 7145698259.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 513, where it landed:**
+  - The whole addendum is on #1102, beside 506 (comment 7146397340). Nothing is built from it.
+  - Item 3: DEV 3's answer is #1102 comment 7146980201 (23:04Z). 519 rules it: shape (b), and PR A as first planned is not built.
+  - Q3's count is 529 item 1(e): "THIS IS 513 Q3's COUNT, and on it the default stands: no re-read." Q4 is answered by 519 item 2(c), as 526 Q1 amends it.
+  - Item 4's builds are assigned by 529 (items 3 and 5).
+- **Addendum 514 (ARCHITECT 2026-11-24 17:24 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 17:24 ET (22:24Z, read from the clock) — addendum 514, RELEASE, for DEV 1 (Lane A); DEV 2 and DEV 3, for your knowledge.
+  > Posted on #1092. DEV 1 records it with 508 to 513.
+  >
+  > 1. THE FOLD IS MERGED. #1121 at 1688ea48 was merged by the operator's agent from my block at about
+  >    17:23 ET; the first run stopped rightly while CI was running. MAIN IS 3b63269b, its tree the
+  >    fold's, 0dedefdb, with no fragment pending. The release notes are written on the laptop: exit
+  >    0, 565 lines, 36 sections, no AMENDED line and no failing line, as my preview had them.
+  >
+  > 2. MAIN IS HELD AT 3b63269b UNTIL v1.6.11 IS CUT. Nothing merges and nobody pushes to main before
+  >    the tag. #1115, #1116 and #1117 follow by my one block after it; each will then need main
+  >    merged in only if it stops being mergeable, and that needs green CI and no review.
+  >
+  > 3. THE SPAN FROM v1.6.10, read by me from git at 3b63269b: schema.py, requirements.txt and the
+  >    unit files are unchanged and there is no migration. deploy/hosting changes in three files,
+  >    not two: laptop_routine.py (new), sp_window_page.py and compare_exports.py. DEV 1: your
+  >    report named the first two; the release record names all three.
+  >
+  > 4. THE TAG IS NOT RULED YET. It follows CI's green on 3b63269b, the host's receipts since the
+  >    v1.6.10 tag and the compare of 2026-11-24, all Wednesday. The newest comment I had seen
+  >    before this post is my own 513 (7145905844); the newest from a session is DEV 1's,
+  >    7145698259.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 514, where it landed:**
+  - No Issue placement is named. Items 1 and 3 land in the v1.6.11 release record in docs/RELEASES.md, in this PR. The record names all three deploy/hosting files (laptop_routine.py, new; sp_window_page.py; compare_exports.py), checked by `git diff --stat v1.6.10 3b63269b -- deploy src/db/schema.py 'requirements*.txt'`: exactly those three.
+  - Item 3: DEV 1's report 7146400279 (22:34Z) says his 22:01Z report named two of the three and left out compare_exports.py; #1121's body names all three.
+  - Item 2: nothing of DEV 1's merged or was pushed to main before the tag. Item 4 is answered by 525 item 2 and 528 item 1.
+- **Addendum 515 (ARCHITECT 2026-11-24 17:43 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 17:43 ET (22:43Z, read from the clock) — addendum 515, MODEL TRACK (NHL) AND A FINDING, for DEV 3 (Lane C); DEV 2 and DEV 1, for your knowledge; DEV 1 records.
+  > Posted on #1092. Record it on #105 beside 510. It declares nothing and grants no build.
+  >
+  > 1. DEV 3, THE FEASIBILITY READ (comment 7146331897 on #105) IS READ WHOLE, a week early. It answers
+  >    (a) to (g) as asked. What I take from it: the play-by-play's depth before 2023-24 is unknown;
+  >    the harness needs edits before it can score a model with no rating on a forward cohort; time
+  >    at strength is not stored and every source of it is a new read of the league's host.
+  >
+  > 2. A FINDING, FROM YOUR LINE THAT THE LEAGUE HOST'S TERMS ARE IN NO REPO FILE. I read the league's
+  >    terms page today (its own date: 2025-10-29). It covers "the digital platforms, websites and
+  >    online services that display or provide an authorized link to these Terms". It says: "You may
+  >    access, use, and display the Services, but only for non-commercial, informational, personal
+  >    use". It forbids "unauthorized spidering, scraping, or harvesting of content or information,
+  >    or use any other unauthorized automated means to compile information". It names no API, no
+  >    data feed, no statistics and no betting. We read that league's host every day and keep what
+  >    we read. I closed MoneyPuck's files this afternoon on words of the same kind (510 item 2(b)).
+  >    (a) WHETHER THE HOST WE READ FALLS UNDER THOSE WORDS IS NOT MINE TO SETTLE. It goes to the
+  >        operator tonight, as a decision of his.
+  >    (b) UNTIL HE DECIDES: no new kind of read of that host. No depth probe, no refetch with
+  >        --refresh, no history, no new endpoint. I write no such block.
+  >    (c) WHAT RUNS TODAY IS NOT CHANGED BY THIS ADDENDUM: the goalie sync, the shot sync and the
+  >        landing watch go on as they are until he says otherwise. No session stops or edits them.
+  >    (d) DEV 3: open ONE Issue for it, a finding, labels from the fixed set, by Thursday
+  >        2026-11-26 17:00 ET, after 513 item 3. In it: the quoted lines above; from the code, every
+  >        command, chain step and unit that reads the league's host, on which machine, how often,
+  >        and what each stores and where; whether any repo file records a terms read for it. No
+  >        fix and no opinion on the terms.
+  >
+  > 3. YOUR THREE QUESTIONS, as my readings; a declaration fixes them, nothing else does:
+  >    Q1  ONE SEASON, THE ONE BEFORE THE COHORT'S, as the gate is written: for a 2026-27 cohort the
+  >        2025-26 regular season's home rate, frozen before any test game. I do not pool it: a
+  >        pooled baseline is another bar. The coin flip and a pooled constant are reported beside
+  >        it and decide nothing.
+  >    Q2  YES, FOR STATE ONLY AND WITH NO WRITE: 2023-24 results rebuilt from goal events and goalie
+  >        decisions, with a receipt of the games rebuilt against 1,312 and of every game where the
+  >        two disagree, which is dropped and counted.
+  >    Q3  YES. v7's xG fit is admitted as a frozen input: fitted on 2023-24 alone, frozen on
+  >        2026-10-02, never refitted and never chosen on 2025. 2023-24 is in-sample for it, so that
+  >        season warms state up and selects nothing. The half weight is a priori, as you name it.
+  >
+  > 4. THE FORMS. A with the xG blend is the one worth studying; on goals alone I expect it to add
+  >    nothing to what v1 already showed. B waits for a probe that item 2 now holds. Every input
+  >    beyond goals comes from the league's host, so item 2 stands in front of this whole lane.
+  >
+  > 5. MINE: the laptop count of (f), from our own database, by my block this week. My ruling stays
+  >    for 12-03 or the day after and now waits on the operator's decision too. The newest comment
+  >    I had seen before this post is DEV 1's, 7146400279.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer. NHL is MARKET-ONLY.
+
+- **What DEV 1 did on 515, where it landed:**
+  - The whole addendum is on #105, beside 510 (comment 7146964284).
+  - Item 2(d)'s Issue is #1122, opened by DEV 3 on 2026-11-24T23:18:58Z, ahead of its Thursday date. It is class:limitation, not class:finding, because 516 item 2(b) made it a standing risk log.
+  - Item 2(b)'s hold is lifted by 516 item 2(a). Item 2(c): nothing that ran was changed.
+  - DEV 1's report 7146968577 (23:03Z) was edited after it was posted (created 23:03:47Z, updated 23:04:02Z), before 521 item 6's rule. The edit added that the laptop routine (#1096) runs nhl-goalie-sync, which reads the league's host. DEV 1 said so openly in report 7147395790 (23:26Z). That laptop step is row 4 of #1122.
+  - Item 5's count is #1126 (523 item 2; 524 item 1).
+- **Addendum 516 (ARCHITECT 2026-11-24 18:00 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 18:00 ET (23:00Z, read from the clock) — addendum 516, POLICY (a risk the operator accepts), for DEV 3 (Lane C) and DEV 1 (Lane A); DEV 2, for your knowledge.
+  > Posted on #1092. Record it on #105 beside 515, and on the Issue of 515 item 2(d) when it exists.
+  >
+  > 1. THE OPERATOR HAS DECIDED (17:59 ET today), on 515 item 2, in his words: "we can continue. Just
+  >    log it as a risk. The day we sell anything is when I'm going to have to rethink it".
+  >
+  > 2. SO, RULED FROM IT:
+  >    (a) THE HOLD OF 515 ITEM 2(b) IS LIFTED. Reads of the league's host go on, and a new read of
+  >        it (the depth probe, a history read, a refetch) is again something I may order by block.
+  >        None is ordered by this addendum.
+  >    (b) IT IS LOGGED AS A RISK, NOT CLOSED AS A QUESTION. DEV 3: the Issue of 515 item 2(d) is
+  >        that log. It carries the quoted terms lines, your list of what reads the host, the
+  >        operator's words above as the decision, and this trigger: BEFORE ANYTHING OF THIS PROJECT
+  >        IS SOLD, THIS RISK IS READ AGAIN AND RULED AGAIN. It stays open; it is a standing
+  >        limitation, never a finished one. Its date stands, Thursday 2026-11-26 17:00 ET.
+  >    (c) DEV 1: one sentence in CLAUDE.md's operational notes with the next records PR, in these
+  >        words: "NHL data beyond scores is read from the league's own host under a risk the
+  >        operator accepted on 2026-11-24 (addendum 516; the Issue of 515 item 2(d)): its terms
+  >        page speaks of non-commercial, personal use. Before anything of this project is sold,
+  >        that risk is read again." Name the Issue's number in place of my description of it.
+  >    (d) IT IS A DECISION ABOUT THIS ONE SOURCE. It reopens nothing else: MoneyPuck's files (510
+  >        item 2(b)) and the tennis archive (270) stay closed unless the operator says otherwise,
+  >        and the NBA report's conditions (368) stand as they are.
+  >
+  > 3. THE NHL LANE AFTER THIS: nothing changes in 510 or 515 beyond item 2(a). The depth probe and
+  >    the laptop count are my blocks, this week; no build is granted; my ruling stays for 12-03 or
+  >    the day after. The newest comment I had seen before this post is my own 515 (7146572982);
+  >    the newest from a session is DEV 1's, 7146400279.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer. NHL is MARKET-ONLY.
+
+- **What DEV 1 did on 516, where it landed:**
+  - The whole addendum is on #105, beside 515 (comment 7146964548), and on #1122, the Issue of 515 item 2(d) (comment 7147390357).
+  - Item 2(c): CLAUDE.md's operational notes gain the sentence in the ruled words, with #1122 named in place of "the Issue of 515 item 2(d)", in this PR.
+  - Item 2(b): #1122 is the log, open and class:limitation.
+  - Item 2(d)'s "stay closed" was later changed by the operator's decisions, for MoneyPuck (517), the tennis archive (518) and the NBA's statistics on the host (520). The CLAUDE.md sentence names only the league's host, in its fixed words; no addendum widens it.
+- **Addendum 517 (ARCHITECT 2026-11-24 18:06 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 18:06 ET (23:06Z, read from the clock) — addendum 517, POLICY (a source reopened by the operator), for DEV 3 (Lane C); DEV 1 and DEV 2, for your knowledge; DEV 1 records.
+  > Posted on #1092. Record it on #105 beside 510, 515 and 516, and on the Issue of 515 item 2(d).
+  >
+  > 1. THE OPERATOR HAS DECIDED (18:03 ET today), in his words: "reopen Moneypuck". 510 item 2(b) is
+  >    reversed by that decision, not by a new reading of mine: the page's words are what they were.
+  >
+  > 2. RULED FROM IT, FOR THIS SOURCE:
+  >    (a) THE SAME RISK, THE SAME LOG, THE SAME TRIGGER AS 516. DEV 3: the Issue of 515 item 2(d)
+  >        carries MoneyPuck beside the league's host, with the page's words (510 item 2(b)) and
+  >        the operator's words above. Before anything of this project is sold, both are read again.
+  >    (b) ONLY THE FILES ITS DATA PAGE LISTS, fetched by my block. No page of the site is scraped;
+  >        the page says it blocks that and asks for approval first.
+  >    (c) CREDIT, as the page asks, "in all cases where you are showing anything using our data as
+  >        an input": a page, an export, a README line or a record that shows something built on
+  >        these files says so by name.
+  >    (d) THE FILES STAY ON THE LAPTOP, in a gitignored folder. Nothing of them goes into the repo,
+  >        an Issue, a PR, the mirror or the channel; counts and my sentences only.
+  >    (e) RAW FIELDS ONLY AS INPUTS until I rule a derived column in. The source's own expected
+  >        goals and model columns were fitted with later seasons in view; a form that reads them
+  >        reads the future.
+  >    (f) The depth probe of the league's host is not cancelled and not first: I read these files'
+  >        structure by block before I order it.
+  >    (g) NHL 2025 stays retired, the bar's rule stays as 510 item 2(a) says it, and no build is
+  >        granted. 510 item 4 and 515 item 3 stand.
+  >
+  > 3. A CORRECTION OF AN ATTRIBUTION OF MINE, ON THE NBA REPORT (368). Tonight in chat I called "no
+  >    NBA statistics from nba.com, ever" the operator's decision. It was not. His decision of
+  >    2026-11-13 was that none of that data is on his laptop, and he has said so again: "I never
+  >    wanted the data from nba.com on my laptop. I was fine with it being on the host." 368 item
+  >    3(a) is his; item 3(b) was mine, from my reading of the terms console. NOTHING IN 368 CHANGES
+  >    BY THIS ADDENDUM: whether 3(b) is lifted is his to say and then mine to rule, and no NBA
+  >    model lane exists today.
+  >
+  > 4. DEV 3: nothing new is owed tonight beyond item 2(a) on the Issue. An amendment to your read on
+  >    #105 follows my block's console, when I ask for it. Your 513 item 3 read (7146980201 on
+  >    #1102) is in and I rule on it next. The newest comment I had seen before this post is
+  >    yours, 7146991629.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer. NHL is MARKET-ONLY.
+
+- **What DEV 1 did on 517, where it landed:**
+  - The whole addendum is on #105, beside 510, 515 and 516 (comment 7147388982), and on #1122 (comment 7147390678).
+  - Item 2(a) is on #1122's body (DEV 3's). CLAUDE.md's NHL line names the reopening and its conditions (2(b) to (e)).
+  - Item 2(c)'s credit is NOT written: it is due where something built on these files is shown, and nothing is. The files' structure is the architect's fetch block's, still to come (525 item 3(d)). Item 2(d): no content of the files is in this record.
+  - Item 3, a correction of the record: 368 item 3(a) is the operator's; item 3(b) was the architect's. Nothing in 368 changes by 517.
+- **Addendum 518 (ARCHITECT 2026-11-24 18:11 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 18:11 ET (23:11Z, read from the clock) — addendum 518, POLICY (two sources and a fourth session, by the operator's decision), for DEV 3 (Lane C) and DEV 1 (Lane A); DEV 2, for your knowledge.
+  > Posted on #1092. Record it on #838 and #839, and on the Issue of 515 item 2(d).
+  >
+  > 1. THE OPERATOR HAS DECIDED (18:08 ET today), in his words: "let's do both". I had asked him two
+  >    things: whether to open the tennis archive and the NBA's statistics now, and whether to add a
+  >    fourth session to build models beside DEV 2. Both are yes.
+  >
+  > 2. THE TENNIS ARCHIVE IS REOPENED. 270 item 3 is reversed by his decision and not by a new reading
+  >    of mine: the licence's words are what they were.
+  >    (a) The same log and the same trigger as 516: DEV 3, the Issue of 515 item 2(d) carries it,
+  >        with the licence line 270 item 3 quotes. Before anything of this project is sold, it is
+  >        read again.
+  >    (b) Fetched by my block alone, onto the laptop, into a gitignored folder. Nothing of it and
+  >        no table made from it goes into the repo, an Issue, a PR, the mirror or the channel.
+  >        The original README's licence line is read into the record with the first fetch.
+  >    (c) Credit by name wherever something built on it is shown.
+  >    (d) tennis-data.co.uk STAYS CLOSED: that was access, not terms (270 item 1).
+  >    (e) 270 item 5's "declared on this pot or not at all" is amended this far and no further: a
+  >        tennis candidate may now name the archive as history. Its gate is written at its
+  >        declaration, before any result, as 261 item 2(e) says.
+  >
+  > 3. THE NBA'S STATISTICS: THE OPERATOR HAS SAID YES, AND 368 ITEM 3(b) STANDS UNTIL MY NEXT ADDENDUM.
+  >    His words on the terms' clause, 18:10 ET: "we're not betting. We do future and commodities".
+  >    That is his reading and I record it as his. I am putting the clause's words and one fact
+  >    before him tonight, and I lift 3(b) in the next addendum unless he says otherwise. No read of
+  >    that source is scheduled, so nothing waits on it. 368 item 3(a), (c), (d) and (e) stand.
+  >
+  > 4. A CORRECTION OF MINE. In chat tonight I gave the operator an estimate for an NBA model on
+  >    scores alone. 261 item 1(f) is my own standing ruling: "a candidate is declared, if ever,
+  >    ONLY with an as-of availability term". I should not have offered that estimate. An NBA
+  >    candidate's clock is the availability term's, and 261 item 1(f) stands.
+  >
+  > 5. DEV 4, LANE D: a fourth session, opened by the operator with my brief, for the candidates of
+  >    the new model lanes (NHL, NBA, tennis). It builds only what an addendum names. DEV 2 keeps
+  >    Lane B as it is; DEV 1 alone records. From DEV 4's first report, 490 item 3's "all four of
+  >    us" reads five; the rule is unchanged.
+  >
+  > 6. DEV 3 — TWO MORE FEASIBILITY READS, each on 510 item 5's pattern, from the code, the schema and
+  >    the docs, nothing run, no provider call, 70 lines at most, no word on whether to build:
+  >    (a) NBA, on #839, by Monday 2026-11-30 17:00 ET: what is stored and for which seasons; what a
+  >        backfill of earlier seasons from the paid feed would take, as a count of requests; what
+  >        261 item 1(f)'s availability term could be and what history each shape of it needs; the
+  >        harness; the leaks; the counts my block must make; two forms at most.
+  >    (b) Tennis, on #838, by Wednesday 2026-12-02 17:00 ET: the same, with the player-name map
+  >        between the archive and the venue's markets as its own item, and what in 261 and 270
+  >        a declaration would have to amend.
+  >
+  > 7. NO ROADMAP LINE MOVES AND NONE IS ADDED. The lanes get their dates when I rule on the reads.
+  >    The newest comment I had seen before this post is my own 517 (7147014433); the newest from a
+  >    session is DEV 3's, 7146991629.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 518, where it landed:**
+  - The whole addendum is on #838 (comment 7147389210), #839 (comment 7147389455) and #1122 (comment 7147390935).
+  - Item 2: CLAUDE.md's Tennis line names the reopening (270 item 3 reversed; tennis-data.co.uk stays closed). 518 moves and adds no roadmap line (item 7), so lane tennis-market-only's live_needs still reads "the GitHub archive closed by licence (270 item 3)" until a ruling changes that text.
+  - Item 5: DEV 4 (Lane D) is open. In 518 item 5's own words, 490 item 3's "all four of us" reads five; the rule is unchanged. CLAUDE.md quotes 490 word for word and is not edited.
+  - Item 6: DEV 3's NBA read (#839) and tennis read (#838) arrived early (525 item 1).
+- **Addendum 519 (ARCHITECT 2026-11-24 18:15 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 18:15 ET (23:15Z, read from the clock) — addendum 519, POLICY, for DEV 3 (Lane C), the 513 item 3 read ruled and one short text asked; DEV 2 (Lane B), for your knowledge; DEV 1 records.
+  > Posted on #1092. Record it in BACKLOG beside 513; it goes on #1102. Nothing is built from it yet.
+  >
+  > 1. DEV 3, THE READ (comment 7146980201 on #1102) IS READ WHOLE. It found what I asked about: two
+  >    tools that evaluate a row again would bring a turned row back as a PLAY, one of them as a
+  >    parlay leg, and the slate page counts its calls before the turn.
+  >
+  > 2. I CHOOSE THE OTHER SHAPE, (b), AS YOU WOULD: the export carries the run's start and the
+  >    prices' stamps, and THE DESK MAKES THE NO-CALL ITSELF. One answer in every evaluation of the
+  >    document is worth half as much code again. 506 item 2(a) and 513 Q1 to Q3 stand as ruled and
+  >    are built in this shape; PR A as first planned is not built.
+  >    (a) TWO PRs, THE FIELDS FIRST. The fields are an export contract, so that PR is gate-class by
+  >        the template, the contract's text before the code.
+  >    (b) YOUR QUESTION: THE KIND JOINS NO_CALL_KINDS, as the injury kinds do: units 0, no order,
+  >        no exec block, no value shadow, never a parlay leg. An executable price or a value shadow
+  >        shown on a price nobody captured is the thing this rule exists to stop. 506 item 2 said
+  >        each item only removes a call or adds words; this removes.
+  >    (c) WHERE THE DOCUMENT CARRIES NO START, THE RULE IS OFF AND THE FILE SAYS SO: desk_meta names
+  >        the rule and its state as it names the others, "off: no run start" among its values. The
+  >        watch's slate and its closing always pass the start. My by-hand slate block passes it
+  >        (513 Q4 is answered by this shape).
+  >    (d) The closing's own check (R2) is not changed by this: a stale price still fails a closing
+  >        whole. NFL carries the fields for parity. The compare's ignored keys gain the new stamps.
+  >
+  > 3. DEV 3 — THE CONTRACT'S TEXT, on #1102, 30 lines at most, by Wednesday 2026-11-25 17:00 ET, from
+  >    the code, nothing run: the three fields by name and place in the document; what each means
+  >    in the closing's own sense (which book stamp, which leg's capture); what a reader sees where
+  >    one is absent; desk_meta's key and its values; the new kind's name and its reason's words;
+  >    which existing files and readers see a new key they did not see before, the card and the
+  >    fixtures files among them; and the tests that would pin each. The builder builds to it.
+  >
+  > 4. THE BUILDS ARE ASSIGNED TOMORROW, with the host's counts, as 513 item 4 says. The newest
+  >    comment I had seen before this post is my own 518 (7147124693); the newest from a session is
+  >    DEV 3's, 7146991629.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 519, where it landed:**
+  - The whole addendum is on #1102, beside 513 (comment 7147389684). Nothing is built from it.
+  - Item 2(c) is AMENDED by 526 Q1: the watch's slate passes the start; its closing, the freshen chains and the MLB closing run pass none. Item 2(d)'s last sentence is CORRECTED by 526 Q2: the daily compare already masks all three by their names.
+  - Item 3's text arrived a day early (524 item 2): #1102 comment 7148588806. It was accepted by 526 item 1.
+- **Addendum 520 (ARCHITECT 2026-11-24 18:17 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 18:17 ET (23:17Z, read from the clock) — addendum 520, POLICY (a risk the operator accepts), for DEV 3 (Lane C); DEV 1, DEV 2 and DEV 4, for your knowledge; DEV 1 records.
+  > Posted on #1092. Record it on #839 beside 368, and on the Issue of 515 item 2(d).
+  >
+  > 1. THE OPERATOR HAS DECIDED, 518 ITEM 3's OPEN STEP. I put the terms' words and one fact before
+  >    him at 18:13 ET and asked where the entry should be logged. His answer, 18:16 ET, in his
+  >    words: "let's keep it public". He did not say otherwise on the source. So:
+  >
+  > 2. 368 ITEM 3(b), "no NBA statistics from nba.com, ever", IS LIFTED BY HIS DECISION, FOR THE HOST
+  >    ONLY. It was my condition and it is his to lift.
+  >    (a) THE TERMS' WORDS, as I read them today (the page's own date: 2026-07-13), on the
+  >        league's statistics: they "may only be used, displayed, or published for legitimate news
+  >        reporting or private, non-commercial purposes"; they "may not be used in connection with
+  >        any gambling activity (including legal gambling activity)"; and not "in connection with
+  >        any website, product, or service that features a database" of comprehensive, regularly
+  >        updated statistics without consent.
+  >    (b) HIS READING, in his words (18:10 ET): "we're not betting. We do future and commodities".
+  >        I record it as his. It is not a finding of mine: whether the venue's sports contracts
+  >        are futures or bets is before the courts this autumn and they are not agreed.
+  >    (c) THE REST OF 368 ITEM 3 STANDS, WORD FOR WORD: one machine, the host; nothing of it on the
+  >        laptop, the repo, the mirror, a bulletin, the Cockpit, an Issue or a PR; one fetch per
+  >        published document; the timer stops the same day on any objection and everything
+  >        obtained is destroyed; the terms phase is re-run before any feed is enabled and at each
+  >        season's start.
+  >    (d) NO READ OF THE STATISTICS IS ORDERED BY THIS ADDENDUM. A first read is my OPERATOR block
+  >        on the host, after I rule on DEV 3's NBA read, and not before.
+  >
+  > 3. THE LOG, PUBLIC AS HE SAYS. DEV 3: the Issue of 515 item 2(d) carries this source as its
+  >    fourth entry, with item 2(a)'s words and his. Its trigger is the others' and one more: it is
+  >    read again before anything of this project is sold, and each time the terms phase is re-run.
+  >
+  > 4. DEV 3, YOUR NBA READ (518 item 6(a)) may now name the league's statistics as an input a
+  >    candidate could read ON THE HOST, and says for each such input what could never leave it.
+  >    261 item 1(f) stands: no candidate without an as-of availability term.
+  >
+  > 5. The newest comment I had seen before this post is my own 519 (7147197833); the newest from a
+  >    session is DEV 3's, 7146991629.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 520, where it landed:**
+  - The whole addendum is on #839, beside 368 (comment 7147389959), and on #1122 (comment 7147391161).
+  - Item 3: #1122 carries this source as its fourth entry (DEV 3's).
+  - Item 2(d): no read is ordered. Lane basketball-market-only's live_needs is not touched; no ruling changes its text.
+- **Addendum 521 (ARCHITECT 2026-11-24 18:24 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 18:24 ET (23:24Z, read from the clock) — addendum 521, POLICY (the operator's statement of purpose), for DEV 1 (Lane A), DEV 3 (Lane C) and DEV 4 (Lane D); DEV 2, for your knowledge.
+  > Posted on #1092. Record it in BACKLOG as the operator's statement, and on #1122.
+  >
+  > 1. THE OPERATOR HAS STATED THE PROJECT'S PURPOSE (18:22 ET today), in his words, whole:
+  >    "my goal is never to commercialize this. The reason why I keep this an a public repo is so
+  >    that others can learn but then also potentially contribute. This is always going to be open
+  >    source and I won't be selling predictions. This is part of a mission around unlocking
+  >    capabilities for individual people so that anybody with some resources can build their own
+  >    sports prediction service that they can do what they please with, but this is the original"
+  >
+  > 2. WHAT IT IS ON THE RECORD: the standing purpose of the project, his to state and to change. It
+  >    stands beside the Mission of 2026-09-26 and replaces none of it: the Mission says how the
+  >    system is measured; this says what the project is for and what it will never be. Nothing is
+  >    sold: no predictions, no product, no data. The repository is public and MIT-licensed, as its
+  >    LICENSE file already says.
+  >
+  > 3. WHAT IT DOES NOT CHANGE: no bar, no gate, no rule of the Desk, and none of tonight's source
+  >    conditions (516, 517, 518, 520). The risk log stays a log and keeps its trigger; this
+  >    statement is entered on it as the ground he accepted those terms on. It is his ground and
+  >    not a finding of mine about what any terms page means.
+  >
+  > 4. DEV 1, with the next records PR:
+  >    (a) README.md, under "What it is", and CLAUDE.md, above the Mission: a paragraph headed
+  >        "Purpose (the operator, 2026-11-24)" quoting item 1, with "an a" set as "[in] a" and
+  >        nothing else touched. The Mission's quotation stays where it is, after it.
+  >    (b) A page docs/SOURCES.md, built from #1122 (DEV 3's Issue, opened tonight) and nothing
+  >        else: each outside source the code can read, whose terms it is under, the quoted lines
+  >        where a ruling quotes them, and one sentence that this repository ships no data, so
+  >        whoever builds from it brings their own access and their own reading of each source's
+  >        terms. A reviewable head by Tuesday 2026-12-08 12:00 ET.
+  >
+  > 5. DEV 3: #1122 is read as opened, with thanks for the speed. It carries item 1 whole, above
+  >    its four entries.
+  >
+  > 6. DEV 4, YOUR FIRST REPORT (7147268377) IS READ. The plan is right; build to it. Your three:
+  >    Q1  ANY DIRECTORY NAMED data, your default, read on the path on disk as given and as
+  >        resolved. A member's name inside a zip is not a path on disk and is not refused for
+  >        holding that word. My blocks will keep these files under logs/sources/ on the laptop.
+  >    Q2  YES. The minimum and maximum of a numeric or date-like column are the one exception; a
+  >        text column prints no value unless it was named.
+  >    Q3  YES. The cap is printed with the count it replaces.
+  >    And one rule for every session, from your note on edited reports: A REPORT ON THIS CHANNEL IS
+  >    NOT EDITED EITHER. A correction is a new report that says what it corrects.
+  >
+  > 7. The newest comment I had seen before this post is DEV 3's, 7147307547.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 521, where it landed:**
+  - The whole addendum is on #1122 (comment 7147391411). It is recorded here as the operator's statement.
+  - Item 4(a): the paragraph headed "Purpose (the operator, 2026-11-24)" stands in README.md under "What it is" and in CLAUDE.md above the Mission. It quotes item 1 with "an a" set as "[in] a" and nothing else touched. The Mission's quotation stays where it is, after it.
+  - Item 4(b): docs/SOURCES.md is NOT in this PR. It is built from #1122 alone, with DEV 3's every-outside-host list (522 item 5; #1122 comment 7151636911), as its own reviewable head by Tuesday 2026-12-08 12:00 ET. 530 item 2(a) names this PR's purpose paragraph and not the page.
+  - Item 6 (standing, every session): a report on the channel is not edited; a correction is a new report that says what it corrects. DEV 1's correction of 23:34Z (7147556571) was posted that way. No CLAUDE.md line is ruled for it, so none is written.
+- **Addendum 522 (ARCHITECT 2026-11-24 18:27 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 18:27 ET (23:27Z, read from the clock) — addendum 522, OPS (a provider plan lapses), for DEV 1 (Lane A), DEV 2 (Lane B) and DEV 3 (Lane C); DEV 4, for your knowledge; DEV 1 records.
+  > Posted on #1092. Record it in BACKLOG as an operations ruling; it goes on #97.
+  >
+  > 1. THE OPERATOR HAS TOLD ME (18:24 ET today), in his words: "my Baseball API plan is dropping to
+  >    the FREE tier from tomorrow and I don't plan on renewing until the new season".
+  >
+  > 2. WHAT READS THAT PLAN, as I read main 3b63269b tonight:
+  >    (a) THE HOST: the mlb-history chain, daily at 10:30 UTC: sync-matches MLB by the api-sports
+  >        fallback, the teams and then the season's games. Also the weekly whole-season pass, if
+  >        its list names MLB; tomorrow's host read prints that list.
+  >    (b) THE LAPTOP: the MLB odds window alone (capture-odds, and sync-odds inside the preslate and
+  >        closing chains, which run in season). The laptop's MLB games come from the league's own
+  >        feed, not from this plan.
+  >    (c) The adapter raises on a provider error. The history sync does not catch it, so a refused
+  >        season fails that chain and pages. The odds capture catches it and exits 0.
+  >
+  > 3. RULED:
+  >    (a) NOTHING OF 2026 IS LOST BY THE LAPSE. The season is over, and the listing is there to be
+  >        read again when the plan is.
+  >    (b) THE HOST HOLDS MLB: SP_SYNC_HOLD gains MLB by my OPERATOR block in Wednesday's sitting,
+  >        after the deploy. sync-teams and sync-matches then print their held line and exit 0 on
+  >        every chain. No timer changes and THE HELD LIST does not change. I lift it by block when
+  >        the plan is back. Until the block has run, a failed mlb-history run is this and nothing
+  >        else, and nobody chases it.
+  >    (c) The laptop's odds capture fails nothing. I read whether its launchd job is loaded before
+  >        I ask the operator to unload it; it is not urgent.
+  >    (d) MLB 2027 NEEDS NOTHING FROM THIS PLAN BEFORE THE SEASON: the #746 plan, the retirement PR
+  >        and the retired-set key are code. The plan must be back before the first 2027 game the
+  >        live path prices. My declaration of the lane on #97 (by 12-18) carries the operator's
+  >        renewal as a dated step, the date read from the schedule and not guessed.
+  >
+  > 4. DEV 2: your #746 plan (12-04) names every reader of this plan that the retirement touches,
+  >    and says which of them would call it between now and the season.
+  >
+  > 5. DEV 3: #1122 lists the readers of one league's host. For the sources page of 521 item 4(b),
+  >    extend that list, as a comment on #1122 by Friday 2026-12-04 17:00 ET, to EVERY outside host
+  >    the code can read: the host, the commands and units that read it, the machine, whether a
+  >    repo file records a terms read for it. From the code, nothing run, no opinion on any terms.
+  >
+  > 6. DEV 1: section O of the hosting spec takes the hold and its lifting condition in the records
+  >    PR after my block has run and I say so. #1123 (500 (a)) is seen; its question and #1119's
+  >    six readings get their answers when I read both whole, this week, and neither waits on me
+  >    to keep building. The newest comment I had seen before this post is yours, 7147395790.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 522, where it landed:**
+  - The whole addendum is on #97 (comment 7147545690). It is recorded here as an operations ruling.
+  - Item 6: section O of docs/specs/hosting-h1.md takes the hold and its lifting condition only after the architect's block has run and he says so. No addendum up to 530 says so (528 item 2 says the deploy is not today, and 522 item 3(b) puts the hold after it). The next one does: 531 item 1 (ARCHITECT 2026-11-25 10:26 ET) says his OPERATOR block set the hold at 15:22Z on v1.6.10, before the deploy, and item 1(d) asks DEV 1 for section O and the release record to say "the host holds MLB from 2026-11-25, lifted only by my block with the plan's renewal before the 2027 season (522 item 4)". Both are written in this PR: section O beside SP_SYNC_HOLD's "Where it runs", and the v1.6.11 section of docs/RELEASES.md. 531 is recorded whole below.
+  - CLAUDE.md's MLB line names the lapse (item 1), and the hold as it stands: set on the host from 2026-11-25 (531 item 1), lifted only by the architect's block with the plan's renewal (item 3(b) and (d); 531 item 1(d)).
+  - DEV 1's report 7147550333 (23:34Z) said the laptop routine has no MLB step. The correction 7147556571, a new report under 521 item 6, says the routine opens with four MLB steps, and step 1 reads the league's own feed, not this plan.
+- **Addendum 523 (ARCHITECT 2026-11-24 19:21 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 19:21 ET (00:21Z, read from the clock) — addendum 523, for DEV 4 (Lane D), one item; DEV 1, DEV 2 and DEV 3, for your knowledge; DEV 1 records.
+  > Posted on #1092. Record it on #105.
+  >
+  > 1. DEV 4, #1124 (THE FILE STRUCTURE RECEIPT) IS SEEN AT 74de24e3: two review rounds, every thread
+  >    answered, the second round's three placed on #1125 as the stop rule says for read-only code.
+  >    That was the rule read rightly, the P3 with them. I READ THE PR WHOLE BEFORE I RULE ITS
+  >    MERGE-READINESS, tomorrow, when its CI is green. It merges after v1.6.11 is cut, with the
+  >    three that wait; main is held until then (514 item 2). #1125 waits for my word.
+  >
+  > 2. YOUR NEXT ITEM, its own branch and PR, a reviewable head by Friday 2026-11-27 12:00 ET: THE NHL
+  >    COHORT COUNT, read-only tooling, scripts/nhl_cohort_count.py with its tests. It is item (f)
+  >    of DEV 3's read on #105 (comment 7146331897), built as a command so that my block runs one
+  >    tested line and no SQL of mine:
+  >    (a) `--db COPY` is required and is opened with mode=ro and immutable=1 (198 item 6(ii)); a
+  >        path under data/ is refused; nothing is written anywhere.
+  >    (b) It prints DEV 3's Q0 to Q6 as counts and nothing else: stage by status; the six
+  >        international games apart, found as 445 item 3(b) finds them; month by status in
+  >        America/New_York dates, played and to come, with status_raw beside; played against the
+  >        goalie table's game type 2; the season's shot events by month; the 2023-24 shot games.
+  >    (c) `--after DATE`, repeatable: for each date, the regular-season games to come after it, so
+  >        that I can read a forward window of 600 against a declaration date. It prints the count
+  >        and says that a game to come is unverified until played.
+  >    (d) Every name it uses (the competition's code, the season string, the statuses, the stage
+  >        values, the goalie table's game type) is read from the schema and the code first (law
+  >        1); where the six are not findable from what is stored, it says so and counts nothing
+  >        for them.
+  >    (e) No model, no rating, no figure of any candidate, no row printed. Tests on the throwaway
+  >        database with synthetic rows.
+  >
+  > 3. The newest comment I had seen before this post is DEV 4's, 7148248952.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 523, where it landed:**
+  - The whole addendum is on #105 (comment 7148645769).
+  - Item 2 is DEV 4's #1126, merged after the tag at d3ba519c (merge 1dd09e8d), with its own ledger entry (docs/ledger/entries/2026-11-25-523-nhl-cohort-count.md). Item 1: #1124 merged at 74de24e3 (merge 6edc4515); #1125's three go to one small PR after #1124, as 525 item 3(c) rules.
+- **Addendum 524 (ARCHITECT 2026-11-24 19:51 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 19:51 ET (00:51Z, read from the clock) — addendum 524, for DEV 4 (Lane D), one reading confirmed; DEV 3 (Lane C), a receipt; DEV 1 and DEV 2, for your knowledge; DEV 1 records.
+  > Posted on #1092. Record it on #105. The last addendum of 2026-11-24.
+  >
+  > 1. DEV 4, YOUR READING OF Q5 IS CONFIRMED AS YOU STATE IT: the games to come are the SCHEDULED
+  >    league games, neither preseason nor the six, whose America/New_York date is strictly after
+  >    the --after date, counted by stored stage, with no stage chosen as the regular season's.
+  >    The six found only on the exact shape you name, and NOT FOUND otherwise with nothing set
+  >    apart, is the conservative reading and it stands. Open the PR when your review is done.
+  >    #1124 is green and thread-clean as you report; my whole read of it is Wednesday's.
+  >
+  > 2. DEV 3, THE CONTRACT TEXT ON #1102 IS RECEIVED, a day early. Its five questions are ruled on
+  >    Wednesday in the addendum that assigns the builds, with the host's counts beside them, and
+  >    not tonight: Q1 changes what a closing fails on and gets a morning's reading.
+  >
+  > 3. The newest comment I had seen before this post is DEV 4's, 7148604122.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 524, where it landed:**
+  - The whole addendum is on #105 (comment 7149161280).
+  - Item 1's reading is what #1126 builds. Item 2's five questions are ruled by 526, not in the builds addendum as written; 529 then assigns the builds.
+- **Addendum 525 (ARCHITECT 2026-11-25 08:09 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 08:09 ET (13:09Z, read from the clock) — addendum 525, RELEASE AND MERGE-READINESS, for DEV 4 (Lane D) and DEV 1 (Lane A); DEV 2 and DEV 3, for your knowledge; DEV 1 records.
+  > Posted on #1092. The first addendum of 2026-11-25, release day for v1.6.11.
+  >
+  > 1. RECEIVED OVERNIGHT, ALL OF IT EARLY: DEV 4's #1126; DEV 3's NBA read (#839), tennis read (#838)
+  >    and every-outside-host list (#1122); DEV 1's first round on #1123 with two P1s escalated.
+  >    The release comes first today. In this order after it: the builds addendum with the contract
+  >    text's five questions; #1119 and #1123 read whole; then the three reads' questions.
+  >
+  > 2. THE DAY'S COMPARE (2026-11-24) IS CLEAN, by the repo's own tool on the mirror at 3b63269b: one
+  >    paired kind compared, fixtures_NHL, 11 rows a side in the window, no difference; twelve files
+  >    one-sided as expected; the skew named is the laptop's 498a9295 against the host's 67f02dfc.
+  >    With CI green on 3b63269b that is two of the tag's three conditions. The third is the host's
+  >    receipts since the v1.6.10 tag, by the operator's block this morning.
+  >
+  > 3. DEV 4, BOTH YOUR PRs ARE MERGE-READY, READ WHOLE BY ME:
+  >    (a) #1124 at 74de24e3 (the file structure receipt) and #1126 at d3ba519c (the NHL cohort
+  >        count). Each is standard library only, opens what it reads for reading alone, writes
+  >        nothing, reaches no network and prints no row; the refusals are as ruled. In my scratch
+  >        checkouts their tests pass, 69 and 37. CI is green and every thread is resolved.
+  >    (b) THEY MERGE AFTER v1.6.11 IS CUT, in my one block with #1115, #1116 and #1117. Nobody
+  >        merges before the tag.
+  >    (c) #1125's THREE DO NOT BLOCK, as you placed them. Fix them in one small PR after #1124 is
+  >        on main, with #1126's index line in scripts/README.md, a head by Friday 2026-12-04.
+  >    (d) NOTHING NEW IS NAMED FOR YOU TODAY. Your next items wait on my fetch blocks' consoles (the
+  >        MoneyPuck files' and the archive's structure) and on my rulings on the three reads.
+  >        That wait is mine, not yours.
+  >
+  > 4. DEV 1: on #1123, build nothing more on the two escalated P1s until I have read it whole and
+  >    ruled them; the same for #1119's six readings. 497 (0) to (3) go on as planned.
+  >
+  > 5. The newest comment I had seen before this post is DEV 3's, 7151643855.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 525, where it landed:**
+  - No Issue placement is named. Item 2 is the release record's condition (b) (528 item 1(b)), in docs/RELEASES.md in this PR.
+  - Item 3(a)-(b): #1124 at 74de24e3 and #1126 at d3ba519c merged after the tag (528 item 3).
+  - Item 4: DEV 1 built nothing more on #1123's two escalated P1s or #1119's six readings until 527 ruled them (report 7163974217, 13:34Z). 497 step (0) went on as #1128.
+- **Addendum 526 (ARCHITECT 2026-11-25 08:42 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 08:42 ET (13:42Z, read from the clock) — addendum 526, POLICY, for DEV 3 (Lane C), the contract text's five questions; DEV 2 (Lane B), for the builds that follow; DEV 1 records.
+  > Posted on #1092. Record it in BACKLOG beside 519; it goes on #1102. Nothing is built from it yet.
+  >
+  > 1. DEV 3, THE CONTRACT TEXT (comment 7148588806 on #1102) IS READ WHOLE AND ACCEPTED as the text the
+  >    two PRs build to, with item 2's answers written into it. The names stand: run_started_at;
+  >    market.books_captured_at; kalshi_legs_captured_at; the kind "stale_price"; the reasons with no
+  >    times in them; desk_meta.stale_price_rule.
+  >
+  > 2. THE FIVE QUESTIONS:
+  >    Q1  THE CLOSING KEEPS ITS OWN CHECK AND THE DESK'S RULE IS THE SLATE'S. Your finding is right
+  >        and it decides this: with the rule on at a closing, a row the Desk turned hides its stale
+  >        leg from R2, and a closing that fails whole today would page a PASS. I do not teach R2 to
+  >        read a new key. THE CLOSING'S EXPORT PASSES NO RUN START. Its files read "off: no run
+  >        start"; R2 is untouched in code and in what it does; a stale price still fails a closing
+  >        whole and the watch still tries again. THIS AMENDS 519 ITEM 2(c): the watch's slate
+  >        passes the start; its closing, the freshen chains and the MLB closing run pass none.
+  >        F2 and F3 are written in every prediction file all the same, a closing's among them.
+  >    Q2  COMPARED, YOUR DEFAULT. F2 and F3 are stored times and 41 item 4 compares stored times;
+  >        the PL check's ignored keys gain F1 alone, which is read off a clock. THIS CORRECTS 519
+  >        ITEM 2(d)'s last sentence: the daily compare already masks all three by their names.
+  >    Q3  EVERY STAKED ROW TURNS, AND THE WORDS SAY WHY. A start that cannot be read is no start
+  >        the Desk can check against. The row's reason is "this run's start is unreadable: no
+  >        call", and desk_meta.stale_price_rule reads "on: run start unreadable". The two
+  >        reasons you wrote are kept for the cases they are true of.
+  >    Q4  ADD NONE, your default. A parlay's legs come from files that state the rule themselves.
+  >    Q5  COMPARED AS desk_meta IS TODAY, your default: a verdict only under the star.
+  >
+  > 3. SO THE PINS CHANGE IN ONE PLACE: no test pins "the same second, the Desk and R2 agree" at a
+  >    closing, because the Desk's rule does not run there. In its place: a closing's export
+  >    carries no run start and its desk_meta says so; R2's own tests pass unchanged, books and
+  >    one leg and more; a slate's export carries the start and turns.
+  >
+  > 4. THE BUILDS ARE ASSIGNED TODAY, AFTER THE HOST'S COUNTS, as 513 item 4 says: two PRs to this
+  >    text (the fields, gate-class; then the Desk's rule), then 503's PR 2. DEV 2: expect them.
+  >
+  > 5. The newest comment I had seen before this post is DEV 1's, 7163974217.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 526, where it landed:**
+  - The whole addendum is on #1102, beside 519 (comment 7164694325). Nothing is built from it.
+  - Q1 AMENDS 519 item 2(c) and Q2 CORRECTS 519 item 2(d)'s last sentence; the 519 record above points here.
+  - Item 4's builds are assigned by 529. 528 item 6 asks DEV 3 for the one text with these answers written in: #1102 comment 7167062440.
+- **Addendum 527 (ARCHITECT 2026-11-25 08:44 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 08:44 ET (13:44Z, read from the clock) — addendum 527, POLICY (the college sync's two PRs), for DEV 1 (Lane A); DEV 3 (Lane C), one plan; DEV 2 and DEV 4, for your knowledge.
+  > Posted on #1092. Record it on #1108 beside 500. Both PRs are money-path; neither is merge-ready yet.
+  >
+  > 1. #1123 (THE NFL-TEAM REFUSAL) AT 6d2ee27b, YOUR TEN, the body read whole:
+  >    1 and 10  WRITE THE KEY, FOR mismatch ONLY. Q9's "never stored" is about the listing. 297
+  >        C(ii)'s key is a fact about OUR row: its id no longer serves its pair. So a refused
+  >        listing found by id against a stored row whose pair differs writes that row's mismatch
+  >        key and lists it as a mismatch refusal, as main does, and stores nothing of the listing.
+  >        A refused listing naming the stored pair or its reverse leaves the key as it is, as you
+  >        built: that is the 66178 shape alone, and those rows are retired by my block.
+  >    2   ANY SEASON, as built.
+  >    3   YES, add it: the listing's id, and the stored match id beside it where a row carries it.
+  >    4   AS BUILT. The not-in-the-DB path refuses it first and nothing is stored either way.
+  >    5   refresh-by-id IS NOT REACHED. The only rows it could touch are of the 66178 shape, and my
+  >        block retires every one this morning's count finds. That answers the review's second P1.
+  >    6   NOT THIS PR. Open one Issue for it: sync-teams can link an NFL member to the college
+  >        competition again. I rule it when I write the retirement block.
+  >    7   THE PLACEHOLDER TEAM IS EXEMPT: the refusal never reads the placeholder team's own
+  >        memberships. A listing is refused for a real team's NFL membership and for nothing
+  >        else. Pin it with a test in which the placeholder holds an NFL membership.
+  >    8 and 9  AS BUILT.
+  >
+  > 2. #1119 (THE FILL) AT 611d5f02, YOUR SIX:
+  >    1   A HALF-FILL IS A FILL: RULE IT IN. (P,P) listed as (X,P) meets Q1's words side by side,
+  >        and a bracket names its teams one at a time. The row then reads as the provider's does.
+  >    2   THE COLLEGE COMPETITION ONLY, for now: the narrower one line. The finding and every
+  >        counted row are college's. If a count of mine shows a placeholder row of another
+  >        competition, I rule that competition in by name.
+  >    3   REFUSE ON THE SWAPPED PAIR TOO, as the re-key does. It is the narrower reading.
+  >    4   NO STATUS CONDITION, as built. It is what lets a finished placeholder row heal once the
+  >        fill has shipped: the window compares the two kickoffs, not the clock.
+  >    5   THE ECHO STAYS. A fill that reaches the receipt is the point of "never silent".
+  >    6   THE TWIN GUARD IS ITS OWN PR and is not dated yet. DEV 3: a plan for it on #1108, 40 lines
+  >        at most, by Wednesday 2026-12-09 17:00 ET: the guard with the date-search half it
+  >        needs, from the code, nothing run. The college orphan plan stays unapplied (Q6).
+  >
+  > 3. DEV 1: apply items 1 and 2 as one fix round on each PR, with its review; both heads keep the
+  >    2026-12-08 date. Whichever merges second takes main in, which needs green CI and no review.
+  >
+  > 4. The newest comment I had seen before this post is DEV 1's, 7163974217.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 527, where it landed:**
+  - The whole addendum is on #1108, beside 500 (comment 7164694688). 500 is in the 488-507 entry, placed on #1108 as comment 7141134539.
+  - Item 1, answer 6: Issue #1127 (open; track:ops, class:finding, sport:ncaa, size:S, needs-ruling), opened by DEV 1 at 14:04:15Z, quoting the answer word for word.
+  - Item 3: one fix round on each PR, with a review asked on each. #1123: 5eb03036, then main taken in (a8f4090e, 15:18:48Z). #1119: 2af4fe40, then main taken in (8b19298c, 15:19:01Z). Those were the fix round's heads. After #1128 merged at 1ec7420b (532 item 0), each took main in again at 16:22:10Z: #1123's head is now 2aa1083c and #1119's 7dd691d6, a merge from main that needs green CI and no new round (the stop rule's (4)). Neither is merged. #1123's head date moves earlier by 528 item 5.
+- **Addendum 528 (ARCHITECT 2026-11-25 09:41 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 09:41 ET (14:41Z, read from the clock) — addendum 528, RELEASE (the tag ruled) AND THE COLLEGE READS, for DEV 1 (Lane A); DEV 2, DEV 3 and DEV 4, for your knowledge; DEV 1 records.
+  > Posted on #1092. Record the release items with the v1.6.11 record; items 4 and 5 go on #1108.
+  >
+  > 1. v1.6.11 IS RULED: THE TAG IS CUT ON 3b63269b. The three conditions are met:
+  >    (a) CI is green on 3b63269b.
+  >    (b) The compare of 2026-11-24 is CLEAN (525 item 2).
+  >    (c) THE HOST'S RECEIPTS SINCE THE v1.6.10 TAG, by the operator's block at 14:38Z: 98 hours;
+  >        3,165 rows, 6,017 with the steps; 0 failing. The landing watch: 1,076 runs, none failed.
+  >        The graph unit: none failed. Timers: 22 named, 22 active, none missing, none stray. No
+  >        failed unit; the checkout is clean on v1.6.10.
+  >    The operator has the tag block. It reads CI itself and refuses a tag that exists.
+  >
+  > 2. THE DEPLOY IS NOT TODAY. The same console reads "reboot pending: YES". My deploy block refuses
+  >    on a pending reboot and I keep that refusal: one change at a time on the host. The host
+  >    reboots itself at 04:30 UTC when a security upgrade asks (322 item 1). The deploy follows my
+  >    read of the host after that reboot, on the day the operator chooses. NOTHING WAITS ON IT:
+  >    main is released by the tag, not by the deploy.
+  >
+  > 3. MAIN IS RELEASED WHEN THE TAG IS ON GITHUB, and not a minute before. Then the five waiting PRs
+  >    merge by my one block, which reads the tag first: #1116, #1115, #1117, #1124, #1126.
+  >    DEV 1: the records PR follows #1116's merge; the release record names the tag's day and
+  >    leaves the deploy's day open until I give it.
+  >
+  > 4. THE COLLEGE READS, two consoles this morning (the laptop's database; the host's copy of 09:30Z):
+  >    (a) THE SEVEN NEW ROWS ARE SEVEN REAL GAMES. The line provider_id_collision 7 is seven
+  >        top-division games of this weekend whose ids the provider used last season for the same
+  >        fixtures. Each new row is the only 2026 row of its game; the seven 2025 rows are
+  >        untouched. That is #906's season scope doing what it was built for. My block called
+  >        the line one that "must be absent"; that expectation was mine and wrong.
+  >    (b) The 45 listings skipped for clubs not in the database are the same 45 on both days.
+  >    (c) SIX NFL CLUBS NOW HOLD A 2026 COLLEGE MEMBERSHIP, two on Tuesday. sync-teams linked them
+  >        from the provider's own list. One stored row names any of them, 66178, and it now
+  >        carries the mismatch mark: the provider's listing of its id names another pair today.
+  >    (d) THE HOST DIFFERS IN EXACTLY THESE ROWS. Its copy holds no row for 66178's id, no mismatch
+  >        mark, one placeholder row where the laptop holds nine, 3,687 rows of 2026 against 3,699,
+  >        and the five schools under other team ids, one of the provider's ten not stored at all.
+  >    SO, STANDING FOR #1108: every remedy there (merge-teams, the retirement, a fill) is planned
+  >    from each machine's own read. No id in an addendum is an instruction for the other machine.
+  >
+  > 5. DEV 1: #1123 COMES FIRST, AND ITS DATE MOVES UP. Item 4(c) is why: nothing new is stored, and
+  >    nothing stops it until the refusal is on both machines. Its fix round (527 item 1) has a
+  >    reviewable head by Friday 2026-11-27 12:00 ET, ahead of 497's steps. #1119 keeps 12-08.
+  >
+  > 6. DEV 3: YES, POST THE ONE TEXT. The contract text with 526's five answers written into it, as a
+  >    new comment on #1102, today; it is the text the builders build to. Your twin-guard plan on
+  >    #1108 is received, twelve days early; its six questions take their turn after the release.
+  >    The newest comment I had seen before this post is yours, 7165454915.
+  >
+  > Nothing in this addendum moves a bar or a held timer. One date moves, in item 5, and it moves earlier.
+
+- **What DEV 1 did on 528, where it landed:**
+  - Items 4 and 5 are on #1108 (comment 7166238153; the whole addendum, with items 4 and 5 named in its first line).
+  - Items 1 to 3 are the v1.6.11 release record in docs/RELEASES.md, in this PR: the row and the section, naming the tag's day (2026-11-25, 09:54:00 -0500, 14:54:00Z) and leaving the deploy's day open. PRODUCTION stays v1.6.10.
+  - Item 3: the five merged by the architect's block after the tag: #1116 (14:54:43Z, 39f1cc21), #1115 (14:55:35Z, 14cc90be), #1117 (14:56:07Z, 2934ceea), #1124 (14:57:00Z, 6edc4515), #1126 (14:57:54Z, 1dd09e8d). This records PR follows #1116's merge.
+  - Item 5: #1123's reviewable head moves from 2026-12-08 to Friday 2026-11-27 12:00 ET, earlier; #1119 keeps 2026-12-08. No roadmap step names either PR, so no moved line is due. The head exists: the fix-round head a8f4090e (15:18:48Z), with its review asked, since merged from main at 2aa1083c (16:22:10Z).
+  - Item 6 is DEV 3's: the one text is #1102 comment 7167062440 (15:34:52Z).
+- **Addendum 529 (ARCHITECT 2026-11-25 09:55 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 09:55 ET (14:55Z, read from the clock) — addendum 529, THE BUILDS OF 506, 519 AND 526, WITH THE HOST'S COUNTS, for DEV 2 (Lane B), DEV 4 (Lane D) and DEV 3 (Lane C); DEV 1 records.
+  > Posted on #1092. Record it in BACKLOG beside 526; it goes on #1102. It assigns; it rules nothing new on the Desk.
+  >
+  > 1. THE COUNTS, from the operator's host read this morning and my own read of the mirror:
+  >    (a) THE SEASON'S CLOSING FILES ON THE HOST. Soccer: 34 files, 58 rows, 6 PLAY and 4 LADDER.
+  >        NFL: 46 files, 98 rows, 22 PLAY, all of them from before 214.
+  >    (b) BOTH INJURY LISTS EMPTY: 0 rows in the season, either family. #1115's rule would have
+  >        turned no call so far. One side unread: 2 soccer rows; 22 NFL rows, 5 of them PLAY rows.
+  >    (c) A PREDICTION COMPUTED MORE THAN FIVE MINUTES BEFORE ITS CLOSING EXPORT: 0 soccer rows.
+  >        The NFL export carries no computed stamp, as 503 already says. A Kalshi quote captured
+  >        more than five minutes before the export: 0, either family.
+  >    (d) NOVEMBER'S RECEIPTS, to 11-24: 39 closing runs and 19 slate runs, every one exit 0; one
+  >        slate miss; no failed closing; no failure notice at all, so none that no channel took.
+  >    (e) THE SLATE FILES ON THE MIRROR, fourteen days: 9 files, 42 rows, every row a PASS. So in
+  >        that window no staked slate row exists, none beyond the slate's day, none standing
+  >        without a closing. THIS IS 513 Q3's COUNT, and on it the default stands: no re-read.
+  >    (f) THE BOOKS' OWN STAMPS AT THE CLOSINGS: 56 of the 98 NFL rows, and 11 of the 22 NFL PLAY
+  >        rows, carried a book stamp twelve hours old or more. That is #348's and I rule it in
+  >        its own addendum this week; nothing below waits on it.
+  >
+  > 2. WHAT THE COUNTS SAY: these builds close holes that November did not fall into. They are worth
+  >    building and they do not stand above the model lanes' dated steps.
+  >
+  > 3. DEV 2, three PRs, each its own, in this order, each built to DEV 3's one text on #1102:
+  >    (a) THE FIELDS (gate-class, an export contract; the contract's text in the PR before the
+  >        code): a reviewable head by Wednesday 2026-12-09 12:00 ET.
+  >    (b) THE DESK'S RULE, the slate's alone (526 Q1), kind stale_price: a reviewable head by
+  >        Wednesday 2026-12-16 12:00 ET, after (a) is on main.
+  >    (c) 503's PR 2, the stale prediction at a closing: a reviewable head by Tuesday 2026-12-22
+  >        12:00 ET, after (b) is on main (506 item 2(e)).
+  >    Your model dates stand as they are: 12-04, 12-11 and 12-18. To make the room:
+  >
+  > 4. THE QUARTERBACK AGREEMENT RECEIPT (lane nfl-qb's step of 2026-12-15, #427) MOVES TO DEV 4, date
+  >    unchanged. It is read-only tooling on a copy, which is Lane D's kind of work. DEV 2: say in
+  >    your next report whether anything of it is built. If something is, it stays yours and I say
+  >    so in one line. If nothing is, it is DEV 4's from that report: DEV 4 then reads #427, the
+  >    lane's step in docs/roadmap.json and the availability record's code, and reports its plan
+  >    before the first push. The 12-18 rule on NFL candidates stands and this receipt computes
+  >    no figure of a candidate.
+  >
+  > 5. THE REST OF 506 IS DATED IN JANUARY, on item 1(d)'s count: (b) the closing whose file is not
+  >    written, with the prepare before the page (513 Q5 and Q6); (c) the page's words where the
+  >    earlier calls cannot be read; (d) the day file for a slate row that stands after a failed
+  >    or a missed closing. DEV 3: the contract text for (d), which is a new file and a new field,
+  >    on #1102, 30 lines at most, by Wednesday 2026-12-16 17:00 ET. I assign (b), (c) and (d) by
+  >    addendum in the week of 2026-12-21.
+  >
+  > 6. The newest comment I had seen before this post is DEV 3's, 7165454915.
+  >
+  > Nothing in this addendum moves a bar or a held timer. One roadmap step changes its session, not its date.
+
+- **What DEV 1 did on 529, where it landed:**
+  - The whole addendum is on #1102, beside 526 (comment 7166238535).
+  - Item 3: DEV 2's three PRs and their heads: the fields (gate-class) by 2026-12-09 12:00 ET; the Desk's rule by 2026-12-16 12:00 ET; 503's PR 2 by 2026-12-22 12:00 ET. Item 5: DEV 3's contract text for 506 (d) by 2026-12-16 17:00 ET. None is a roadmap step, so nothing is moved or appended.
+  - Item 4: the quarterback agreement receipt (lane nfl-qb's step of 2026-12-15, #427) is DEV 4's from DEV 2's report 7166080839 (15:02Z: "NOTHING OF IT IS BUILT"). The date is unchanged. The step's owner stays `code`: the file records no session.
+- **Addendum 530 (ARCHITECT 2026-11-25 10:11 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 10:11 ET (15:11Z, read from the clock) — addendum 530, v1.6.11 IS CUT AND THE FIVE ARE MERGED; #1120; THE QUARTERBACK RECEIPT'S FIVE QUESTIONS, for DEV 1 (Lane A), DEV 2 (Lane B) and DEV 4 (Lane D).
+  > Posted on #1092. Record it in BACKLOG as usual; item 3 goes on #1120, items 4 to 6 on #427.
+  >
+  > 1. THE TAG AND THE MERGES, read by me on GitHub.
+  >    (a) v1.6.11 is cut: the tag object 4d4f0049 points at 3b63269b, tagged 2026-11-25 09:54 ET by the
+  >        operator's own hand, its message the notes file whole (565 lines, 36 sections).
+  >    (b) By my block, after the tag: #1116 at 39f1cc21, #1115 at 14cc90be, #1117 at 2934ceea, #1124 at
+  >        6edc4515, #1126 at 1dd09e8d. MAIN IS 1dd09e8d AND IS NO LONGER HELD.
+  >    (c) THE DEPLOY IS NOT TODAY (528): the host stays on v1.6.10 until my read after its own reboot.
+  >        Nothing merged today is on the host, and no session writes as if it were.
+  >    (d) The roadmap on main prints overdue: 0.
+  >
+  > 2. DEV 1.
+  >    (a) The records PR may open now: 508 to 530, the release record with the tag's day and the deploy's
+  >        day left open, 521's purpose paragraph. One PR.
+  >    (b) #1127 is noted; I rule it when I write the retirement block, after #1123 is on main.
+  >    (c) #1128: I read it whole next and say merge-ready or not by addendum. Do not wait on it.
+  >
+  > 3. DEV 2 — #1120: OPEN IT NOW, as its own small PR, after the full suite has run on it. A fix that
+  >    exists only on a session's local branch is a fix that can be lost. It gets its own review under
+  >    the stop rule, it does not stand above the #746 plan, and it rides the next tag. A reviewable head
+  >    by Monday 2026-11-30 12:00 ET. Your order of work is otherwise right as you wrote it.
+  >
+  > 4. DEV 4 — THE QUARTERBACK AGREEMENT RECEIPT IS YOURS (529 item 4; DEV 2 reports nothing built). The
+  >    plan is right: the NHL receipt's pattern, two inputs, no network, nothing written. Your five:
+  >    Q1. YES, the kept payloads through --payloads DIR; the receipt makes no call. 465 Q6 stands: the
+  >        passing lines are read from the provider when this receipt needs them, and that read is
+  >        scripts/nfl_qb_coverage.py under my block, before the run. A game with no kept payload is
+  >        counted "no starter payload", apart from the other causes, and never fetched by the receipt.
+  >        Every lookup by the provider's game id is scoped to the season (#906).
+  >    Q2. YOUR DEFAULT: the first observation of the 2026 depth chart, its fetched_at read from the
+  >        copy and printed. A game that kicked off after it and less than 24 hours after it has no T-24h
+  >        row on our clock: that is a no-row cause of its own, counted apart.
+  >    Q3. YES: "QB1 ambiguous", counted, never chosen (law 4).
+  >    Q4. YES as written, the same function on both sides. Two players of one team in one game whose
+  >        names normalise to one string are "no pair", never chosen.
+  >    Q5. YES: season 2025, regular season and postseason, preseason out by nfl_backtest's rule; the
+  >        same rule for 2026. 2025 is retired as a TEST season and this receipt computes no figure of
+  >        a candidate, so 465 item 4 is not touched.
+  >
+  > 5. ONE THING THE PLAN DOES NOT SAY, AND IT DECIDES WHAT THE RECEIPT IS WORTH. With no common id, a
+  >    first quarterback who did not play at all (the case the term exists for) must not fall into "no
+  >    pair". So, by name within the team and the game:
+  >    (a) AGREE: the chart's first quarterback is the starter.
+  >    (b) DIFFER: the two names are not the same, and at least one of them is found on the other side:
+  >        the chart's first quarterback among that team's other passers of the game, or the starter at
+  >        another rank of that team's chart at that instant.
+  >    (c) NO PAIR: the names differ and neither is found on the other side. Never guessed.
+  >    The DIFFER rows are also counted by the starter's place on the chart: second, third or lower, not
+  >    on the chart. That is a count, not a judgment. Say in the PR body that the code does this.
+  >
+  > 6. THE CONSOLE: counts only. No player's name is printed, and none goes on an Issue or this channel.
+  >    The run is my block on a copy of the host's backup, OPERATOR ONLY, after your PR is on main; the
+  >    date stays 2026-12-15.
+  >
+  > 7. DEV 4, the reads you missed overnight: said plainly, and nothing was lost by it. A timer that
+  >    does not survive a restart is checked at the start of each turn, as you now do.
+  >
+  > 8. The newest comment I had seen before this post is DEV 4's, 7166290575.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 530, where it landed:**
+  - Item 3 is on #1120 (comment 7167096557) and items 4 to 6 on #427 (comment 7167096912), each the whole addendum, as its header asks.
+  - Item 1(a) to (d) land in the v1.6.11 release record in docs/RELEASES.md, in this PR, quoted whole beside 528: the tag object 4d4f0049 on 3b63269b, tagged 2026-11-25 09:54 ET, its message the notes file whole (565 lines, 36 sections); the five merges at their merge commits with main 1dd09e8d no longer held; the host on v1.6.10 until the architect's read after its own reboot; and the roadmap on main printing overdue 0. 530 moves no roadmap line.
+  - Item 2(a): this PR, with the release record (the tag's day named, the deploy's day open) and 521's purpose paragraph. 2(a) ruled "508 to 530"; 531, 532 and 533 followed the same day and ask records of DEV 1, so the one PR carries 508 to 539 (534 to 539 followed the same day). Item 2(b): #1127 stays open with needs-ruling until the retirement block, after #1123 is on main. Item 2(c): DEV 1 did not wait on #1128; 531 item 4 read it.
+  - Item 3 is DEV 2's (#1120's fix as its own small PR, a head by 2026-11-30 12:00 ET; #1131 is that PR). Items 4 to 7 are DEV 4's. Item 6: lane nfl-qb's step stays on 2026-12-15. Recorded only; no roadmap line moves.
+- **Addendum 531 (ARCHITECT 2026-11-25 10:26 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 10:26 ET (15:26Z, read from the clock) — addendum 531, THE HOST SITTING: THE MLB HOLD IS ON; THE NBA INJURY-REPORT INDEX REFUSED US; #1129 AND #1128 READ, for DEV 1 (Lane A), DEV 3 (Lane C) and DEV 4 (Lane D).
+  > Posted on #1092. Record it in BACKLOG as usual; item 2 goes on #839 and #830, item 4 on #1102.
+  >
+  > 1. THE MLB SYNC HOLD ON THE HOST (522), by my OPERATOR block, 15:22Z, on v1.6.10.
+  >    (a) The host's env file held no hold line; it now holds one bare line naming MLB. The file before
+  >        is kept beside it under a dated name. One line added, no other line changed, mode unchanged.
+  >    (b) Read back through the code (424 item 2(d)): the file is the one place that names it, MLB is
+  >        held, no junk token. The held step, as the daily chain calls it, printed the HELD line alone
+  >        and left with 0.
+  >    (c) Today's 10:30Z MLB chain had already run clean before the hold, 2 of 2 steps. From tomorrow
+  >        it prints the HELD line. No timer, unit or chain changed.
+  >    (d) DEV 1: hosting-h1 section O and the release record say the host holds MLB from 2026-11-25,
+  >        lifted only by my block with the plan's renewal before the 2027 season (522 item 4).
+  >
+  > 2. THE NBA INJURY-REPORT PROBE, REPORT PHASE (261 item 1(e), 357, 368), by my OPERATOR block on the
+  >    host, 15:23Z.
+  >    (a) THE CONSOLE: the reader installed at its pinned version and hash; then ONE request to the
+  >        league's index page for this season, with the probe's own plain client name. The answer was
+  >        HTTP 403. Nothing else was fetched: no document, no row. The mode-600 receipt on the host
+  >        holds that one failed read.
+  >    (b) WITH IT: on 2026-11-06 the laptop got 403 from the league's terms page and its schedule.
+  >        Two machines, three pages, one answer to a client that says what it is.
+  >    (c) RULED: THE INDEX IS CLOSED BY ACCESS, the class 270 put tennis-data.co.uk in. The operator's
+  >        accepted risks (368, 520) are about terms; none of them is about a door that is shut. No
+  >        block of mine gives the client another name, sends the request from another address, or
+  >        asks again.
+  >    (d) THE ROADMAP STEP OF 2026-11-25 IS DONE TODAY, on that console: a date commits to the step,
+  >        never to its outcome (59 item 5(c)). No feed PR follows. DEV 1: the done-mark with the outcome
+  >        in the step's own words, and the lane's next line saying no NBA feed is ordered.
+  >    (e) WHAT STANDS: 261 item 1(f). No NBA candidate without an as-of availability term, and today
+  >        the NBA has no source for one. Whether another route to the published documents is ever
+  >        tried, or the term waits for another source, is the operator's decision; I bring it to him.
+  >        Until he decides, nothing is built and nothing is read.
+  >    (f) DEV 3: your five questions on #839 are ruled with this in view, in their own addendum.
+  >    (g) The reader stays installed in the host's venv: pure Python, read by nothing.
+  >
+  > 3. DEV 4 — #1129 (cc2ab8e6; the file structure receipt's three follow-ups, its Issue #1125): READ
+  >    WHOLE AND MERGE-READY. The order key is exact where I checked it by hand (the sign, the power of
+  >    ten, a longer magnitude among negatives); the fraction past the sixth digit orders as written.
+  >    CI green, the review found nothing, no thread. It merges by my block today.
+  >
+  > 4. DEV 1 — #1128 (e0aff5dd; 497 step (0)): READ WHOLE. Money-path, so the stop rule's list is mine:
+  >    one P2 in round 1, fixed with a failing-first test; round 2 found nothing; CI green.
+  >    IT IS MERGE-READY WHEN ITS ONE THREAD IS MARKED RESOLVED: the finding has its fix and its reply,
+  >    and my block counts unresolved threads. Mark it and say so; no new push, no new round.
+  >    Your seven readings:
+  >    R1. SCOPE, not drops: the limit's cut, kickoffs outside the fallback's window, tennis's window
+  >        and season filter, tennis's ticker read twice, the markets and totals we do not read.
+  >        NOT SCOPE, AND NOT THIS PR: a price the parser cannot read, or a selection it cannot map,
+  >        inside a game that was read. That is a drop of a price, and a provider's new word hides
+  >        there (law 1). ONE Issue (class finding, track ops, size S): a count per run by cause. No
+  >        build until I date it.
+  >    R2 to R7: AS BUILT. Two kinds of id, each labelled; no line where no read was made; the line in
+  >        every list_matches caller; the adapter line only when something was dropped and the two odds
+  >        lines always; no receipt reads them yet; NO-BOOK-ODDS third from the end, which I checked
+  >        is one line and inside the closing's five.
+  >    ONE THING I WATCH: the lists name every id with no cap. The first morning's console on main is
+  >    the receipt; if a line runs long there, I rule a cap from it. Nothing to build now.
+  >
+  > 5. The newest comment I had seen before this post is DEV 4's, 7166701480.
+  >
+  > Nothing in this addendum moves a bar or a held timer. One roadmap step is done-marked on its own date.
+
+- **What DEV 1 did on 531, where it landed:**
+  - Item 2 is on #839 (comment 7167097303) and #830 (comment 7167097747), item 4 on #1102 (comment 7167098176), each the whole addendum, as its header asks.
+  - Item 1(d), in this PR: section O of docs/specs/hosting-h1.md (beside SP_SYNC_HOLD's "Where it runs", with 522 item 3(b) and this item's (a) to (c) quoted) and the v1.6.11 section of docs/RELEASES.md say the host holds MLB from 2026-11-25, lifted only by the architect's block with the plan's renewal before the 2027 season. Item 1 is the "I say so" of 522 item 6, so section O takes the hold in this PR. CLAUDE.md's MLB line says the hold is on, as item 1 states it (15:22Z, on v1.6.10; the HELD line alone, exit 0; no timer, unit or chain changed).
+  - Asked of the architect, answered by 537 item 3 Q2: 1(d) cites "522 item 4" for the renewal. 522's words on the lift are item 3(b) ("I lift it by block when the plan is back") and 3(d) ("The plan must be back before the first 2027 game the live path prices"); 522 item 4 is DEV 2's #746 plan naming every reader of the plan. The architect's correction (537 item 3 Q2): "MY ERROR IN 531 item 1(d): the cite is 522 items 3(b) and 3(d), not item 4." Section O, the release record and CLAUDE.md's MLB line quote or cite 1(d) as written, with 537 item 3 Q2's correction and 3(b) and 3(d) beside it.
+  - Item 2(a) to (d), docs/roadmap.json, lane availability-record: the NBA injury-report probe's step (due 2026-11-25) is DONE 2026-11-25, its receipt in the step's own words ("DONE on the architect's block's consoles on #839") with item 2(a) to (d) quoted: one request to the index, HTTP 403, nothing else fetched; THE INDEX IS CLOSED BY ACCESS; no feed PR follows. Its due and its one moved line (492 item 4) are unchanged. In this PR's first head the lane's live_needs opened with DEV 1's own line, "No NBA feed is ordered", labelled as DEV 1's words for what 2(d) asks, and then, under the attribution, 2(d)'s "No feed PR follows." and 2(e) whole, verbatim, before its own text, which is unchanged; 537 item 3 Q1 replaced that opening (see 537 below).
+  - Asked of the architect, answered by 537 item 3 Q1: with that step done no step of the lane is left, and the validator allows only "live" or "closed" ("state ... and no step left to do"); the print's next line would not say that no NBA feed is ordered, and no addendum from 508 to 535 ruled the state. 537 item 3 Q1 rules it: "LANE availability-record IS LIVE, NOT CLOSED." The state reads live, with earliest_live null (the validator needs no date for live, so none is invented), and live_needs opens with Q1 verbatim and then the line it asks for, ending "no NBA feed is ordered (531 item 2)"; see 537 below.
+  - CLAUDE.md's Basketball line: the index closed by access (2(c)), no feed PR (2(d)), and no NBA candidate without an as-of availability term, with no source for one today (2(e); 261 item 1(f)). Item 2(f) is ruled by 533 item 2. Item 2(g): the reader stays in the host's venv, read by nothing; no file changes for it.
+  - Item 3: #1129 merged at ff1aa4fb (532 item 0).
+  - Item 4: #1128's one review thread is marked resolved, with no new push and no new round, and DEV 1 said so (report 7167118427, 15:36Z). #1128 merged at 1ec7420b (532 item 0). R1: Issue #1130 (open; track:ops, class:finding, sport:all, size:S), a count per run by cause of a price the parser cannot read or a selection it cannot map. No build until the architect dates it. R2 to R7 stand as built. The id lists' cap waits on the first morning's console on main; nothing is built for it.
+- **Addendum 532 (ARCHITECT 2026-11-25 10:47 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 10:47 ET (15:47Z, read from the clock) — addendum 532, THE ONE TEXT'S THREE QUESTIONS; #348 RULED ON THE SEASON'S COUNT; ONE FIELD MORE IN PR1; THE COST RECEIPT, for DEV 3 (Lane C), DEV 2 (Lane B) and DEV 4 (Lane D); DEV 1 records.
+  > Posted on #1092. Record it in BACKLOG as usual; items 1 and 2 go on #1102, items 3 to 5 on #348.
+  >
+  > 0. #1129 merged at ff1aa4fb and #1128 at 1ec7420b, by my block, 15:44Z. Main is 1ec7420b.
+  >
+  > 1. DEV 3 — THE ONE TEXT (#1102, comment 7167062440), READ WHOLE. It is the builders' contract with these:
+  >    Q1. 526 Q1 AMENDS 133 item 3(a) IN ONE PLACE. The slate's export step gains --run-start and its
+  >        value, as SOCCER gained its window: on the export step alone, in every family, and nothing
+  >        else is inserted. The slate test at :774 is rewritten to pin exactly that.
+  >    Q2. OUT. The international export is lane unl's and the lane is in confirmation: PR1 touches
+  >        neither that export nor its shadow. Its file gets desk_meta's line as every annotated file
+  >        does, which there reads "off: no run start", and no F2, F3. "Every prediction file" in 526 Q1
+  >        meant the slate's and the closing's. How that file's prices are checked is mine to rule on
+  >        #220 before the lane's earliest_live, and not before.
+  >    Q3. AS WRITTEN: the verdict "stale price", counted apart, on 503's pattern. A file with no F1 is
+  >        never turned by a rescore.
+  >
+  > 2. ONE FIELD MORE IN PR1, from #348 (your question 4 there). F4, market.books_source_updated_at:
+  >    the provider's own stamp of the session F2 reads, by close.book_stamp's rule (the oldest over the
+  >    rows it priced; one row unknown makes it unknown). ISO Z, whole seconds; null is unknown, never
+  >    fresh. STAMPS ONLY: no age is written into any file, because an age differs between machines and
+  >    the compare does not mask it. It is in every file F2 is in, masked and compared as F2 is.
+  >    THE DESK READS IT NOWHERE: PR2's rule reads F1, F2 and F3 and nothing else. Pins: F4 equals
+  >    book_stamp on F2's session; null where a row of it is unstamped; null on every MLB row (#628).
+  >    DEV 3: post the text once more on #1102, with Q1 to Q3 and F4 written in and the comment it
+  >    replaces named, by Friday 2026-11-27 12:00 ET. DEV 2: PR1 builds to that one; 12-09 stands.
+  >
+  > 3. #348, RULED ON THE SEASON'S COUNT (the host's own closing files, read 2026-11-25; 476, 488).
+  >    The age below is from the provider's stamp to our closing capture, and it is a LOWER bound.
+  >    (a) SOCCER, 58 rows, 40 stamped: under 1 h 2 · 1 to 2 h 8 · 2 to 3 h 6 · 3 to 6 h 22 · 6 to 12 h 2.
+  >        So 24 of 40 were three hours old or more. PLAY rows 6: four stamped, two of them 3 to 6 h.
+  >    (b) NFL, 98 rows, 85 stamped: under 1 h 1 · 1 to 2 h 5 · 2 to 3 h 3 · 3 to 6 h 11 · 6 to 12 h 9 ·
+  >        12 h or more 56. PLAY rows 22, all from before 214: 19 stamped, 11 of them 12 h or more.
+  >    (c) Our own capture age read near zero on all of them. THE FINDING STANDS AT SEASON SCALE, IN BOTH
+  >        FAMILIES: the books' price behind a closing page is hours old, and half a day on the NFL's.
+  >    (d) WHAT IT TOUCHES. Not the order by itself: a PLAY also needs a positive executable edge at
+  >        Kalshi's own quote, and that quote was inside five minutes of the export on every row of the
+  >        season. It touches the fair edge the floor is read against (the floor made 46 of the 48
+  >        soccer passes), and the close the record is graded against.
+  >    (e) NO RULE OF THE DESK, NO REFERENCE AND NO CLOSE CHANGES ON THESE COUNTS. Six Premier League
+  >        calls, four of them stamped, size nothing, and no age threshold is set from them (law 3).
+  >    (f) THE RECORD CHANGES: the stamp travels with the price, item 2. And the count was made for
+  >        every family that has a closing page and a stamp. MLB has none: the provider sends none.
+  >
+  > 4. DEV 4 — THE COST RECEIPT (477 item 4(b)), read-only, its own PR, AFTER the quarterback receipt:
+  >    a reviewable head by Tuesday 2026-12-22 12:00 ET. scripts/closing_book_gap_receipt.py and its
+  >    tests, on the pattern of scripts/pl_closing_book_age_receipt.py, for SOCCER and NFL: per closing
+  >    row, the absolute gap between the books' fair price and Kalshi's on the same page, by the
+  >    stamp-age bucket of the books' session; and for each staked row the bucket of its reference.
+  >    It reads --exports DIR and --db COPY (mode=ro, immutable=1), no network, nothing written. It
+  >    never reads an order, a unit, a contract count or any amount; it prints counts and gaps in
+  >    percentage points, and judges nothing. Read DEV 3's plan on #348 (7115917750) first. Its ten:
+  >    1. The closing page's own call, the latest page of a start. LADDER rows are counted apart.
+  >    2. The age is taken at exported_at, as 446 item 2 names it.
+  >    3. The HOME leg on every row that has both sides priced; and the pick on a staked row.
+  >    4. Answered in item 2.
+  >    5. Buckets: under 1 h, 1 to 2, 2 to 3, 3 to 6, 6 to 12, 12 to 24, 24 h or more, no stamp.
+  >    6. A re-paged start counts once, by its latest page; the earlier pages are labelled and out.
+  >    7. Each family from its first stamped row in the record, which the receipt prints.
+  >    8. NO phone page prints an age. Files only.
+  >    9. The field now (item 2); this receipt next; a change to the Desk's reference or to the close
+  >       only after my ruling on this receipt's figures, each as its own gate-class PR.
+  >    10. Not needed here: Kalshi's capture is our own clock and was inside five minutes on every row.
+  >    Report your plan before the first push. The run is my OPERATOR block on the host, after the tag
+  >    that carries it.
+  >
+  > 5. The newest comment I had seen before this post is DEV 1's, 7167118427.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 532, where it landed:**
+  - Items 1 and 2 are on #1102 (comment 7167554494) and items 3 to 5 on #348 (comment 7167563022), each the whole addendum, as its header asks.
+  - Item 0: #1129 merged at ff1aa4fb and #1128 at 1ec7420b, by the architect's block at 15:44Z. Main is 1ec7420b, this PR's base.
+  - Items 1 and 2 are the builders' contract. DEV 3 posts the one text again on #1102 by 2026-11-27 12:00 ET; DEV 2's PR1 builds to it, its head date 2026-12-09 unchanged. F4, market.books_source_updated_at, is a stamp only, and the Desk reads it nowhere.
+  - Item 3: #348's season count is recorded here as ruled. Under (e), no rule of the Desk, no reference and no close changes, and no age threshold is set (law 3). No file changes for it.
+  - Item 4: DEV 4's cost receipt, read-only and its own PR after the quarterback receipt, a head by 2026-12-22 12:00 ET. None of 532's dates is a roadmap step, so no line moves and none is appended.
+- **Addendum 533 (ARCHITECT 2026-11-25 11:01 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 11:01 ET (16:01Z, read from the clock) — addendum 533, DEV 3's FOUR READS RULED: THE TWIN GUARD, THE NBA, TENNIS, THE OUTSIDE HOSTS, for DEV 3 (Lane C), DEV 1 (Lane A), DEV 4 (Lane D) and DEV 2 (Lane B).
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 on #1108, item 2 on #839, item 3 on #838, item 4 on #1122.
+  >
+  > 1. THE TWIN GUARD (#1108, comment 7165446448): the plan is right and it is ruled as planned.
+  >    Q1. YES: any side that is the placeholder, and refused where no id of the set is live.
+  >    Q2. THE PRIMARY ID, as the fill reads it: one definition, the one #1119 and #1123 share byte for byte.
+  >    Q3. NO competition gate: it only refuses, and a refusal is the safe direction (law 4).
+  >    Q4. YES, money-path.
+  >    Q5. IN: find_pairs' merge of two placeholder rows is the same hazard; one skip, its own count.
+  >    Q6. YES, outside this PR. The re-key's claim on the daily write path is an inference until a test
+  >        shows it. DEV 1: one Issue (class finding, track ops, sport ncaa, size S). DEV 3: its plan on
+  >        that Issue, at most 40 lines, by Friday 2026-12-04 17:00 ET, starting from the failing test
+  >        that would prove it.
+  >    THE BUILD IS DEV 1's: its own PR, after #1119 is on main; a reviewable head by Tuesday 2026-12-22
+  >    12:00 ET. STANDING UNTIL IT MERGES: no dedupe-matches --apply, plain or --orphans, on the college
+  >    competition on either machine. The dry run goes on.
+  >
+  > 2. THE NBA READ (#839, comment 7149735604), with 531 item 2 in view.
+  >    (a) BOTH FORMS DROP ON THE READ'S OWN FIRST CONDITION: the report cannot be read. The NBA stays
+  >        market-only, with no candidate, no declaration and no date. No backfill, no laptop count and
+  >        no host read is ordered: nothing would use them.
+  >    (b) Your five, for the record a later declaration starts from:
+  >        Q1. The one season before the cohort's, regular season, frozen before scoring (515 Q1's rule).
+  >        Q2. YES. 1(f) asks for an as-of availability term; any source I rule into the record under
+  >            the kind injury_status may feed it. That is what 368 item 2's own words built the plug for.
+  >        Q3. Ruled at the declaration, for the source then in hand. Without a publisher's own stamp on
+  >            the document, only from the feed's first fetch on our clock.
+  >        Q4. NO. No read of the league's statistics is ordered (520), and I order none while its pages
+  >            answer our client with a refusal.
+  >        Q5. 520 GOVERNS: nothing of the NBA's statistics, and nothing computed from them, reaches the
+  >            mirror. 375 item 4(b) is about our own inferences' scores, not a provider's numbers.
+  >
+  > 3. THE TENNIS READ (#838, comment 7150800815). The name map's rule in (c) and the order and the cut
+  >    in (e) are accepted as the a priori rules a declaration freezes.
+  >    Q1. THE CERTIFICATION is my addendum on the structure receipt's console over the fetched files:
+  >        per tour and year the rows, and the names and counts of the surface, level and round
+  >        columns and of the walkover and retirement marks, with the licence line read into #1122.
+  >    Q2. NO. The map and any rating state are files beside the archive in the laptop's ignored
+  >        folder, each with its sha256. Nothing made from the archive sits in sports.db.
+  >    Q3. Counts and structure may stand on #838 and in an addendum. A gate run's aggregate figures
+  >        (log-loss, bands, counts) may stand in the registry, the PR body and #838, with the credit
+  >        by name. No row, no player's value and no rating table leaves the laptop's folder. Nothing
+  >        on the mirror or the Cockpit before a candidate is live, and then by ruling.
+  >    Q4. IT STANDS, AND ITS DAY IS NOW, because the listing erodes (#905): the one-time read of
+  >        2026's settled markets is my OPERATOR block on the laptop, sized against the 7-day cap,
+  >        by Monday 2026-11-30.
+  >    Q5. It binds only a candidate that needs what the pot lacks (scores, sets). One that needs
+  >        neither names none.
+  >    THE TWO FORMS are ruled after my blocks' consoles (the archive's structure, the laptop's counts).
+  >    DEV 4: for your knowledge; nothing to build yet.
+  >
+  > 4. THE OUTSIDE HOSTS (#1122, comment 7151636911): accepted as the base of docs/SOURCES.md (DEV 1,
+  >    12-08 as ruled). The five readers the record does not settle:
+  >    (a) THE LAPTOP'S launchd JOBS (the closing watch and its families; the four capture-odds jobs):
+  >        my read-only block on the laptop, today or tomorrow, says what is installed and loaded.
+  >        I rule from its console, the capture-odds jobs and 522 among them.
+  >    (b) TWO SENTENCES THAT DISAGREE: closing.py says the watch's one read of Kalshi's trading API is
+  >        the slate's day unit; the laptop's setup script says its job never opens that API. DEV 1:
+  >        one Issue (class finding, track ops, size S), both lines quoted, no fix until I rule
+  >        from (a)'s console.
+  >    (c) sp-web's MLB routes on the host: by hand only, and that source refuses the host. One line in
+  >        SOURCES.md; no Issue.
+  >    (d) THE WINDOW'S MLB sync-odds, outside SP_SKIP_FAMILIES and the sync hold: quiet only while no
+  >        unfinished MLB game is stored on the host. No build. It goes into my MLB lane declaration
+  >        on #97 (by 12-18): the plan's renewal comes before the first stored 2027 game.
+  >    (e) The registry's fetch of this repository's own laptop branches: our own origin. Listed,
+  >        nothing owed.
+  >
+  > 5. DEV 2 — the #746 plan (two comments on #746) is received, a week early. I rule its section H by
+  >    Monday 2026-11-30. #1131: say when it is green and thread-clean.
+  >
+  > 6. The newest comment I had seen before this post is DEV 2's, 7167399018.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 533, where it landed:**
+  - Item 1 is on #1108 (comment 7167555898), item 2 on #839 (comment 7167566678), item 3 on #838 (comment 7167557246) and item 4 on #1122 (comment 7167571569), each the whole addendum, as its header asks.
+  - Item 1: the twin guard's build is DEV 1's own PR, after #1119 is on main, with a reviewable head by 2026-12-22 12:00 ET. Its standing rule is in CLAUDE.md's Operational notes, quoted: "STANDING UNTIL IT MERGES: no dedupe-matches --apply, plain or --orphans, on the college competition on either machine. The dry run goes on." Q6: Issue #1132 (open; track:ops, class:finding, sport:ncaa, size:S). DEV 3's plan goes on it by 2026-12-04 17:00 ET.
+  - Item 2(a): the NBA stays market-only, with no candidate, no declaration and no date, and no backfill, laptop count or host read is ordered. CLAUDE.md's Basketball line says so. Lane basketball-market-only's text is not touched. Q1 to Q5 are recorded here for the declaration a later candidate starts from.
+  - Item 3: the name map's rule and the order and the cut are accepted as a declaration's a priori rules. CLAUDE.md's Tennis line takes Q2 (nothing made from the archive sits in sports.db) and Q4 (the one-time read of 2026's settled markets is the architect's OPERATOR block on the laptop, by 2026-11-30). The read is his block, not a step of lane tennis-market-only, so no roadmap line is added.
+  - Item 4: DEV 3's list on #1122 (7151636911) is the base of docs/SOURCES.md, DEV 1's own PR by 2026-12-08. 4(b): Issue #1133 (open; track:ops, class:finding, sport:all, size:S), both lines quoted as written at 1ec7420b (deploy/hosting/closing.py:68-69; scripts/setup_closing_watch.sh:6), no fix until the architect rules from 4(a)'s console. 4(c) and 4(e) are lines for SOURCES.md, with no Issue. 4(d) is in section O of the hosting spec, beside the MLB hold, quoted, and in CLAUDE.md's MLB line. The plan's renewal goes into the architect's MLB lane declaration on #97, by 12-18.
+  - Item 5 is DEV 2's (#746's section H ruled by 2026-11-30; #1131).
+- **Addendum 534 (ARCHITECT 2026-11-25 12:01 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 12:01 ET (17:01Z, read from the clock) — addendum 534, #1134 AND #1131 READ AND MERGE-READY; THE BOOK-GAP RECEIPT'S FIVE QUESTIONS; THE ONE TEXT STANDS, for DEV 4 (Lane D), DEV 2 (Lane B) and DEV 3 (Lane C); DEV 1 records.
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 on #427, item 2 on #1120, item 3 on #348, item 4 on #1102.
+  >
+  > 1. DEV 4 — #1134 (ea580866; the quarterback agreement receipt, lane nfl-qb's 12-15 step): READ WHOLE
+  >    AND MERGE-READY. It is 530's rulings as written: the two sides read apart, the three classes with
+  >    the first quarterback who did not play counted as a DIFFER by the starter's place on the chart,
+  >    two names that normalise to one never chosen, counts only on the console and in its last line.
+  >    CI green, the review found nothing, no thread. It merges by my block today.
+  >    THE STEP IS NOT DONE BY THE MERGE: it is done on the run's console. The run needs two things on
+  >    one machine, the host's record and the kept payloads, so it is two blocks of mine: the payloads
+  >    filled on the laptop by scripts/nfl_qb_coverage.py, then the receipt on a pulled copy of the
+  >    host's backup, OPERATOR ONLY. The date stays 2026-12-15.
+  >
+  > 2. DEV 2 — #1131 (328161fc; #1120's fix): READ WHOLE AND MERGE-READY. Money-path, so the list is
+  >    mine: round 1 two P2s, one fixed with a failing-first test, one answered by trace; I read the
+  >    trace against the code and it holds, because run() makes the same settings checks before any
+  >    step. Round 2 found nothing. A family's own refusal lifts that family, the machine's settings
+  >    lift every family, a bad start lifts nothing but itself: as the Issue asked. It merges by my
+  >    block today and rides the next tag.
+  >
+  > 3. DEV 4 — THE BOOK-GAP RECEIPT'S PLAN (your 16:40Z report) is right. The stamp from the copy, as
+  >    #1077 reads it, is the right source until F4 is on main, and it stays the source after: the
+  >    receipt reads the season, and old files will never carry F4. Your five:
+  >    Q1. YES: PLAY in the staked line, LADDER in a line of its own.
+  >    Q2. YES: the normalised probability, three legs or two; a row missing a leg has no gap, counted.
+  >    Q3. YES: "reference not the books", counted apart, no bucket.
+  >    Q4. YES: "stamp after the export", a cause of its own, counted apart.
+  >    Q5. YES. And a row AFTER the family's first stamped row that has no stamp goes in the "no stamp"
+  >        bucket with its gap, so the unknown can be set beside the known.
+  >    Build it after #1134 is on main; 12-22 stands.
+  >
+  > 4. DEV 3 — THE ONE TEXT (#1102, comment 7167846609), read against 532: it is the builders'
+  >    contract, whole, and 7167062440 is replaced. DEV 2: PR1 builds to it.
+  >
+  > 5. The newest comment I had seen before this post is DEV 4's, 7168431588.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 534, where it landed:**
+  - Item 1 is on #427 (comment 7168935059), item 2 on #1120 (comment 7168935711), item 3 on #348 (comment 7168936410) and item 4 on #1102 (comment 7168937001), each the whole addendum, as its header asks.
+  - Items 1 to 4 are DEV 4's, DEV 2's and DEV 3's: #1134 and #1131 merge-ready, the book-gap receipt's five questions, the one text standing. Nothing in it is DEV 1's to build. Lane nfl-qb's 12-15 step is done on the run's console, not on #1134's merge (item 1); no roadmap line changes.
+- **Addendum 535 (ARCHITECT 2026-11-25 12:38 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 12:38 ET (17:38Z, read from the clock) — addendum 535, #1123 AT ITS CAP AND #1119 READ WHOLE; THE ORDER THEY MERGE IN, for DEV 1 (Lane A); DEV 3 (Lane C), one line.
+  > Posted on #1092. Record it in BACKLOG as usual; it goes on #1108.
+  >
+  > 1. #1123 (2aa1083c; the NFL-team refusal), READ WHOLE AT ITS CAP. Money-path, so the open list is mine.
+  >    (a) ROUND 3's P2 (the exemption reads the stored team's own provider id, not an id a merge recorded
+  >        on another team): IT DOES NOT BLOCK. It is the question 533 item 1 Q2 ruled: the primary id,
+  >        one definition. The case needs the placeholder's id recorded on another team by a merge, and
+  >        no merge of the placeholder is ordered or will be. It goes to #1123's ONE follow-up Issue
+  >        (class finding, track ops, sport ncaa, size S), with nothing to build.
+  >    (b) The two P1s of round 1: the first is built as 527 item 1 ruled it (the key written for mismatch
+  >        only, nothing of the listing stored); the second is ruled by 527 item 1 answer 5.
+  >    (c) What I checked in the code: the refusal stands before every write path; the members are read
+  >        once a run, any season; the placeholder is exempt by the shared definition; the refused
+  >        row's key is written through the one function main's own path uses; the count is made once.
+  >    (d) IT IS MERGE-READY WHEN ITS THREE OPEN THREADS ARE MARKED RESOLVED. Each has its fix or its
+  >        ruling; my block counts unresolved threads. Mark them and say so. No new push, no new round.
+  >
+  > 2. #1119 (7dd691d6; the placeholder's fill), READ WHOLE. It is 500 Q1 to Q5 with 527 item 2's answers:
+  >    a half-fill is a fill, the college competition only, refused on the swapped pair too, the two
+  >    windows the ruled ones, and placeholder.py byte for byte #1123's. Round 2 found nothing; no thread.
+  >    IT MERGES SECOND. The two PRs add their lines in the same five places, so once #1123 is on main
+  >    this one conflicts as it did after #1128: merge main in, both kept, green CI, and say so here.
+  >    That is stop rule (4), not a round. Then it merges by my block.
+  >
+  > 3. AFTER #1123 IS ON MAIN the laptop's morning sync prints the refusal's line for the six clubs this
+  >    morning's read found, and row 66178 keeps the mark it has. The host takes it with the next tag.
+  >    Each machine's remedy is still planned from that machine's own read (528).
+  >
+  > 4. DEV 3 — your plan on #1132 (7169705028) is received nine days early. I rule its five by Monday
+  >    2026-11-30.
+  >
+  > 5. The newest comment I had seen before this post is DEV 3's, 7169714875.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 535, where it landed:**
+  - On #1108 (comment 7170382235), the whole addendum, as its header asks.
+  - Item 1(a): #1123's one follow-up Issue is #1135 (open; track:ops, class:finding, sport:ncaa, size:S), with nothing to build; the round-3 thread's last reply names it.
+  - Item 1(d): #1123's three open threads were marked resolved, each with its fix or its ruling, at its head 2aa1083c; no new push and no new round. With round 1's P2 already resolved, 0 of its 4 threads are open.
+  - Item 2: #1119 merges second. Once #1123 is on main, DEV 1 merges main into #1119, both sides kept, and says on #1092 when CI is green (stop rule item 4, not a round).
+  - Items 3 and 4 are recorded: the laptop's morning sync prints the refusal's line once #1123 is on main; DEV 3's plan on #1132 is ruled by 2026-11-30.
+- **Addendum 536 (ARCHITECT 2026-11-25 13:08 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 13:08 ET (18:08Z, read from the clock) — addendum 536, PR1's TEN POINTS, ALL AS BUILT, for DEV 2 (Lane B); DEV 3 (Lane C) and DEV 1 (Lane A), for your knowledge.
+  > Posted on #1092. Record it in BACKLOG as usual; it goes on #1102 beside the one text (7167846609).
+  >
+  > 1. DEV 2 — YOUR TEN (#1102, comment 7169739310), read against the text and the code. Each reading stands.
+  >    Q1. PR2's. PR1 writes stamps only and no desk_meta.stale_price_rule key anywhere; its closing-file
+  >        pin is "no F1, carries F2 to F4". The key and its four values arrive with the rule.
+  >    Q2. THE PRICED BLOCK ONLY. A null on a block with no price would say "stamp unknown" where there is
+  >        no price to stamp. Absent is the true answer. F4 null where a priced row is unstamped.
+  >    Q3. UNCONDITIONAL, in every file the two shared builders write. A stamp is a fact wherever the
+  >        price is printed, and it changes no call: the Desk's rule needs F1, which the slate alone
+  >        passes. The fixtures, window_24h.json and the international files gain none of the four.
+  >    Q4. STRICT: exactly the microsecond form with Z, written verbatim, by a pattern; anything else is
+  >        exit 2 before any read. The watch writes that form, and so will my by-hand slate block.
+  >    Q5. REFUSED, exit 2: the CSV has no top level to carry F1.
+  >    Q6. AS IS. The plan's run id comes from the tick too; a plan that names the tick is consistent.
+  >    Q7. AS IS. The page and the receipt show the command as it ran. A page is a record, never a block:
+  >        a slate by hand is my block and passes its own start.
+  >    Q8. YES, each follows 526 Q1's amendment in this PR, named in the body.
+  >    Q9. NO CODE CHANGE. The Premier League check is the cutover's tool (#420) and no part of the tag's
+  >        ritual; the day's compare masks all four keys by name. One line in the runbook and the body.
+  >    Q10. YES: F3's keys are kalshi_legs' keys, and a leg with no capture is null (law 4).
+  >
+  > 2. THE RECEIPT YOU NAMED goes in the PR body as the gate-class output (the Workflow's rule): one
+  >    synthetic world through main and through PR1 with the Desk on, the calls identical on every row,
+  >    the only differences the new stamp keys and the clock reads. Say the row count by sport.
+  >
+  > 3. IT IS THE TAG AFTER NEXT'S QUESTION WHEN PR1 REACHES THE HOST, not today's: v1.6.11 is cut without it.
+  >
+  > 4. The newest comment I had seen before this post is DEV 1's, 7170404749.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 536, where it landed:**
+  - On #1102 beside the one text 7167846609 (comment 7171266515), the whole addendum, as its header asks.
+  - Items 1 to 3 are DEV 2's: PR1's ten points, each as built; the receipt of item 2 in PR1's body as the gate-class output; PR1 on the host is the tag after next's question, and v1.6.11 is cut without it. DEV 1 and DEV 3 have it for knowledge. Nothing in it is DEV 1's to build, and no roadmap line changes.
+- **Addendum 537 (ARCHITECT 2026-11-25 13:42 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 13:42 ET (18:42Z, read from the clock) — addendum 537, #1136's NAMED EDGE ACCEPTED; THE MONEYPUCK DATA PAGE READ AND ITS FIRST FETCH WRITTEN, THREE ANSWERS ON #1137, for DEV 2 (Lane B), DEV 3 (Lane C), DEV 4 (Lane D) and DEV 1 (Lane A).
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 goes on #1102, item 2 on #1122 and #105, item 3 Q1 on #830.
+  >
+  > 1. DEV 2 — #1136 IS OPEN TWO WEEKS EARLY, and its named edge is ruled: ACCEPT IT AS NAMED. F2 is the
+  >    stamp of the rows the export's own close priced, at the precision that close reads them. A stamp
+  >    that describes another reading of the session would be less true of the price on the row. The
+  >    watch's whole-second cut is R2's and stays untouched. Keep the pin and the sentence. I read
+  >    #1136 whole when you report it green and thread-clean.
+  >
+  > 2. THE MONEYPUCK DATA PAGE, READ BY ME TODAY (moneypuck.com/data.htm), for the record 517 asked for.
+  >    (a) ITS OWN WORDS ON USE, verbatim:
+  >        "The data below is free to use for non-commercial purposes and by journalists for ad-hoc use."
+  >        "Please clearly credit MoneyPuck.com in all cases where you are showing anything using our
+  >        data as an input."
+  >        "Non-approved scraping of the MoneyPuck website will be blocked."
+  >        "Please message us for approval before scraping any data not listed on this page."
+  >        That is what the operator's accepted risk of 517 covers, and 517's conditions answer each
+  >        line: listed files only, fetched by my block, credited by name, re-read before any sale.
+  >    (b) WHAT THE PAGE LISTS: two data dictionaries; season summaries by season (skaters, goalies,
+  >        lines, teams) from 2008-09; one all-teams game-by-game file for every season; game-by-game
+  >        player files by season; a player lookup; and shot files by season from 2007-08, with a
+  >        combined file it counts at 2,079,359 shots through 2025.
+  >    (c) THE FIRST FETCH IS FOUR FILES, each once: the two dictionaries, the all-teams game-by-game
+  >        file, and one season of shots (2023-24, a season our own shot table also holds). My block
+  >        for the operator's agent is written and with him. It prints the dictionaries and the
+  >        structure receipt's console, no row. The combined shot file is NOT fetched until a form is
+  >        ruled that needs it.
+  >    (d) DEV 3: your amendment to the read on #105 follows that console, which I relay as counts and
+  >        column names. DEV 4: nothing to build from it yet.
+  >    (e) 517 item 2(e) stands: the source's own expected-goals columns are derived columns, and
+  >        none is an input until I rule one in.
+  >
+  > 3. DEV 1 — #1137's THREE QUESTIONS.
+  >    Q1. LANE availability-record IS LIVE, NOT CLOSED. The record runs every day on the host with two
+  >        feeds, the depth charts and the NHL game pages; a lane whose product is running is not
+  >        closed. Its line says so and then "no NBA feed is ordered (531 item 2)". A third feed is a
+  >        new step by addendum. Build what the validator needs for live and invent no date: if it
+  >        needs one, it is the day the first feed first ran on the host, read from the receipts.
+  >    Q2. MY ERROR IN 531 item 1(d): the cite is 522 items 3(b) and 3(d), not item 4. Quote 1(d) as
+  >        written with this correction beside it, as you have done.
+  >    Q3. OPEN THE RELEASE ISSUE NOW. The tag exists; the Issue names the tag's day and says the
+  >        deploy waits for the host's own reboot. The deploy's lines are added the day it runs.
+  >    I read #1137 whole when you report it green and thread-clean.
+  >
+  > 4. The newest comment I had seen before this post is DEV 1's, 7171270528.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 537, where it landed:**
+  - Item 1 is on #1102 (comment 7171791134), item 2 on #1122 (comment 7171791860) and #105 (comment 7171792458), and item 3 Q1 on #830 (comment 7171793135), each the whole addendum, as its header asks.
+  - Item 1 is DEV 2's (#1136's named edge accepted as named). Item 2 is the record 517 asked for: the MoneyPuck page's own words on use, verbatim, what the page lists, and the first fetch of four files by the architect's block (2(c)); 2(e) holds, the source's expected-goals columns derived and no input. DEV 3's amendment and DEV 4's nothing-to-build are theirs.
+  - Item 3 Q1, in this PR: docs/roadmap.json, lane availability-record, state live (was closed in this PR's first head, declared on main); earliest_live stays null, since the validator needs no date for live (src/roadmap.py, line 212 only), so no date is invented and no moved line is added. live_needs opens with Q1 verbatim, then the line it asks for: "The lane is live: the record runs every day on the host with two feeds, the depth charts and the NHL game pages, and no NBA feed is ordered (531 item 2)." Then 531 item 2(d) in part ("No feed PR follows.") and 2(e) whole, then the lane's own text unchanged. The sentences that said the state reads closed and waits on the architect are gone. tests/test_roadmap.py and tests/test_availability_record.py pin state live, earliest_live None, the opening quote and the line.
+  - Item 3 Q2, in this PR: docs/RELEASES.md's v1.6.11 section and section O of docs/specs/hosting-h1.md quote 531 item 1(d) as written with Q2's correction beside it, verbatim; CLAUDE.md's MLB line cites 1(d) with its cite corrected to 522 items 3(b) and 3(d) by 537 item 3 Q2.
+  - Item 3 Q3: Release Issue #1138, "Release v1.6.11 (3b63269b)", opened by DEV 1 on the milestone v1.6.11 (number 20), labels release, track:H, class:lane, sport:all and size:S, in the form of #1061. It names the tag's day and says the deploy waits for the host's own reboot; the deploy's lines are added the day it runs. The notes are in two comments, 7171823071 and 7171823693: their bodies, each without the server's footer and joined by one blank line, are the tag message character for character (77,642 characters). docs/RELEASES.md's row reads #1138, and the section's Release Issue bullet quotes Q3.
+  - Item 3's last line: when #1137 is green and thread-clean, DEV 1 reports it so on #1092, and the architect then reads it whole.
+- **Addendum 538 (ARCHITECT 2026-11-25 14:00 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 14:00 ET (19:00Z, read from the clock) — addendum 538, THE MONEYPUCK FILES' FIRST READ (four files, structure only); THREE MERGES SEEN, for DEV 3, DEV 1
+  > Posted on #1092. Record it in BACKLOG as usual; items 1 to 5 go on #105, item 2 also on #1122.
+  >
+  > 0. SEEN ON MAIN: #1134 (ea580866), #1131 (328161fc) and #1123 (2aa1083c) merged 18:52Z to 18:54Z at
+  >    the heads I named; main is c53a6a60. DEV 1: merge main into #1119 and report its head (535).
+  >    DEV 2: your 18:57Z report is read. #1136 at 495956e6, green and thread-clean, is next on my
+  >    desk; I read it whole and its merge block follows that read, not this addendum.
+  >
+  > 1. THE FETCH RAN ON THE LAPTOP AT 18:48Z (main 1ec7420b), by my block, the operator's agent running
+  >    it. Four files, each asked for once, each answered 200: the two data dictionaries, the all-teams
+  >    game-by-game file (128,587,571 bytes, sha256 83bee5a3c2df8d04...) and the 2023-24 shot archive
+  >    (20,383,594 bytes, sha256 f28710f668baaa65...). They sit in logs/sources/moneypuck/, 148M, none
+  >    tracked by git. The structure receipt read both data files whole (exit 0). No row was printed.
+  >
+  > 2. THE SOURCE'S OWN WORDS INSIDE THE FILES, for #1122 beside the page's words of 537 item 2(a).
+  >    (a) The player and team dictionary repeats the page: "The data is free to use for non-commercial
+  >        purposes and by journalists for ad-hoc use. Please clearly credit MoneyPuck.com in all cases
+  >        where you are showing anything using our data as an input." It adds: "No guarantees are made
+  >        to the quality of the data. NHL data is known to have issues and biases."
+  >    (b) The shot dictionary says something wider: "You are welcome to use this data in any work.
+  >        Just please cite MoneyPuck.com", and "The data has been collected from several sources
+  >        including the NHL and ESPN".
+  >    (c) The two do not say the same thing. Nothing loosens: 517's conditions hold for every file as
+  >        written, the narrower sentence governs, and the trigger of 516 is unchanged.
+  >
+  > 3. THE TEAM FILE (all_teams.csv): 236,070 rows, 111 columns, no blank record, no ragged row, and no
+  >    null or empty cell in any column.
+  >    (a) ITS SHAPE: one row per game, club and situation. 23,607 games, two clubs each, five
+  >        situations each (5on5, 5on4, 4on5, other, all: 47,214 rows apiece). The column position
+  >        holds one value, Team Level.
+  >    (b) ITS REACH: seasons 2008 to 2026, gameDate 2008-10-04 to 2026-11-24. THE FILE IS LIVE: it
+  >        holds 385 games of 2026-27, through last night. Games by season, from the row counts:
+  >        2008 1,314; 2009 1,318; 2010 1,318; 2011 1,316; 2012 806; 2013 1,323; 2014 1,319; 2015 1,321;
+  >        2016 1,317; 2017 1,355; 2018 1,358; 2019 1,212; 2020 952; 2021 1,401; 2022 1,400; 2023 1,400;
+  >        2024 1,398; 2025 1,394; 2026 385. The playoff flag marks 1,614 games; 21,993 are regular.
+  >    (c) ITS KEYS: team, season, name, gameId (ten digits, 2008020001 to 2026020385), playerTeam,
+  >        opposingTeam, home_or_away, gameDate (an eight-digit date), position, situation, and
+  >        playoffGame last. Between them: xGoalsPercentage, corsiPercentage, fenwickPercentage,
+  >        iceTime, then 48 columns ending For and the same 48 ending Against.
+  >    (d) RAW AND DERIVED, RULED UNDER 517 item 2(e). On each side 21 columns are RAW, counts of what
+  >        the league recorded: shotsOnGoal, missedShots, blockedShotAttempts, shotAttempts,
+  >        unblockedShotAttempts, goals, rebounds, reboundGoals, freeze, playStopped,
+  >        playContinuedInZone, playContinuedOutsideZone, savedShotsOnGoal,
+  >        savedUnblockedShotAttempts, penalties, penalityMinutes, faceOffsWon, hits, takeaways,
+  >        giveaways, dZoneGiveaways; and iceTime is raw. The other 27 on each side are DERIVED and
+  >        are not inputs: every column whose name carries xGoals, xOnGoal, xRebounds, xFreeze,
+  >        xPlayStopped or xPlayContinued; flurryAdjusted, scoreVenueAdjusted and scoreAdjusted;
+  >        totalShotCredit; and the nine low, medium and high danger columns, goals and shots among
+  >        them, because the danger class is cut from the source's own goal probability.
+  >        xGoalsPercentage is derived. corsiPercentage and fenwickPercentage are arithmetic on raw
+  >        counts: a form computes its own from the raw columns and does not read the file's.
+  >    (e) THE AS-OF RULE: a game's row holds that game's own result. Any input for a game is built
+  >        only from rows whose gameDate is before that game's day.
+  >    (f) TWO THINGS DO NOT ADD UP YET, and nothing leans on either until my second read answers:
+  >        (i) home_or_away says AWAY on 118,610 rows and HOME on 117,460. An even split is 118,035
+  >            each, so 115 club-games carry AWAY where the count expects HOME. No form reads that
+  >            column as the venue until I say what those games are.
+  >        (ii) 38 distinct club codes, in a league that never had more than 32 clubs at once. Moves
+  >            explain some; two spellings of one club may explain others. No join on a club code
+  >            before a map is ruled.
+  >
+  > 4. THE SHOT FILE (shots_2023.csv inside the archive): 122,472 rows, 124 columns, no ragged row.
+  >    (a) UNBLOCKED ATTEMPTS ONLY: event is SHOT 75,811, MISS 38,088, GOAL 8,573; no blocked attempt
+  >        is in the file. 1,400 games, the team file's own count for 2023; 7,689 rows are playoff.
+  >    (b) ITS GAME KEY IS THE SHORT ONE: game_id runs 20001 to 30417, where the team file's gameId
+  >        has ten digits. The join I expect is season x 1,000,000 + game_id; the second read counts it.
+  >    (c) A SENTINEL: twelve time-on-ice columns, minimums and averages, have 999 as their largest
+  >        value. The dictionary says a minimum is set to 999 and a maximum to 0 where the times are
+  >        not available. A reader treats 999 as missing, never as seconds.
+  >    (d) PERSONS: shooterName, goalieNameForShot, shooterPlayerId, goalieIdForShot and the two
+  >        sweater-number columns point at people. No value of them is printed by any block or written
+  >        anywhere. goalieNameForShot is empty on 0.7% of rows (the dictionary: an empty net).
+  >    (e) DERIVED, NOT INPUTS: the seven probabilities xGoal, xFroze, xRebound, xPlayContinuedInZone,
+  >        xPlayContinuedOutsideZone, xPlayStopped and xShotWasOnGoal, and the five arenaAdjusted
+  >        columns, which a method fitted across seasons moved. homeTeamWon is the game's result on
+  >        every row of the game: item 3(e) holds here too.
+  >    (f) shotType has seven named values and is empty on 1,036 rows (0.8%).
+  >
+  > 5. THE DICTIONARIES ARE OLDER THAN THE FILES. The player and team one documents the player files'
+  >    names (I_F_, OnIce_F_, OnIce_A_), not the team file's For and Against names one for one;
+  >    totalShotCredit has no line under that name. The shot one counts seasons only to 2018. Where a
+  >    column's meaning matters to a form, the form's declaration says which dictionary line it rests
+  >    on, or that none does.
+  >
+  > 6. WHAT FOLLOWS.
+  >    (a) MY SECOND READ, by block, with the operator now: no fetch, the same two files checked by
+  >        their sha256. It lists each club code with its first and last season, counts the home and
+  >        away marks game by game and by season, counts the join of 4(b), and counts whether the two
+  >        files agree on goals, unblocked attempts, the home club and the winner for 2023-24. It
+  >        also counts the games the team file leaves level on goals, which says whether that file
+  >        names a winner by itself. Counts, club codes and dates only.
+  >    (b) DEV 3: amend your read on #105 from items 2 to 5 when the second read's counts are here
+  >        too, not before. Say in your next report anything else you need counted; I add it to a
+  >        third pass, which costs no request to the source.
+  >    (c) NOTHING IS GRANTED BY THIS READ. No build (517 item 2(g)), no figure of any candidate, NHL
+  >        2025 stays retired, and nothing reads the file's 2025-26 or 2026-27 games for a figure.
+  >        The goalie term stays closed as 496 left it; a goalie column in a file reopens nothing.
+  >    (d) THE COPY IS DATED. Today's team file is the one of 18:48Z. The block keeps a file that is
+  >        already there, so a newer copy comes only by a new block of mine.
+  >    (e) DEV 4: nothing to build from it yet.
+  >
+  > 7. The newest comment I had seen before this post is DEV 2's, 7171624086.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 538, where it landed:**
+  - Items 1 to 5 are on #105 (comment 7171793812), and item 2 also on #1122 (comment 7171794490), each the whole addendum, as its header asks.
+  - Item 0, read on GitHub: #1134 (head ea580866) merged 18:52:29Z, #1131 (328161fc) 18:53:20Z and #1123 (2aa1083c) 18:54:12Z; main is c53a6a60, #1123's merge. DEV 1 merged main (c53a6a60) into #1119, head 8b3174da (19:04:19Z), both sides kept (stop rule item 4, not a round), and reported its head on #1092 (report 7172155438, 19:20Z); CI went green on that head and DEV 1 said so on #1092 (report 7172703561, 19:44Z; 535 item 2).
+  - Items 1 to 5 are the record of the first read: four files fetched once each on the laptop at 18:48Z, structure only, no row printed; the source's words in the files (item 2), the narrower sentence governing; the team and shot files' shape, keys, raw and derived columns, the as-of rule, and the two counts that do not add up yet (items 3 and 4); the dictionaries older than the files (item 5). CLAUDE.md's NHL line takes the fetch and item 6(c), in their words. No content of the files is in this record beyond the addendum's own words.
+  - Item 6 is the architect's second read and DEV 3's amendment after it; nothing is granted (6(c)), and DEV 4 has nothing to build. Nothing in it is DEV 1's to build, and no roadmap line changes.
+- **Addendum 539 (ARCHITECT 2026-11-25 14:12 ET), verbatim:**
+
+  > ARCHITECT 2026-11-25 14:12 ET (19:12Z, read from the clock) — addendum 539, #1136 READ WHOLE AND MERGE-READY; DEV 4's READING ACCEPTED; DEV 3's FOUR COUNTS PLACED, for DEV 2, DEV 4, DEV 3
+  > Posted on #1092. Record it in BACKLOG as usual; item 1 goes on #1102, item 2 on #348, item 3 on #105.
+  >
+  > 1. DEV 2 — #1136 (the fields, #1102 PR1) IS READ WHOLE AT 495956e6 AND IS MERGE-READY. Gate-class, an
+  >    export contract; stop rule (1): CI green, no P1, nothing open.
+  >    (a) WHAT I CHECKED MYSELF, not from the report: every check of the head is a success (smoke,
+  >        smoke-py310, fragments, ledger, closing-refs); the PR has no review thread; the body carries
+  >        the one text before the code, the ten points of 536, the receipt (7 rows over three sports,
+  >        the calls the same on each) and the named edge of 537.
+  >    (b) READ IN THE CODE: the watch has three families and the export step is the last step of each
+  >        chain; both export commands take the option, and the PR's own pin parses every slate step
+  >        through the cli. The closing's steps carry none. The two book stamps are written by one
+  >        builder on the priced block alone; the Kalshi stamps are null where kalshi_legs is null;
+  >        the NFL export reads one map for both. No probability, call or Desk read is touched.
+  >    (c) AGAINST TODAY'S MAIN: #1131 changed closing.py after this branch was cut. In a scratch copy
+  >        of mine the branch merged onto c53a6a60 without a conflict, and the four test files that
+  >        touch it gave 291 passed. That is my own check and no part of the rule: stop rule (4) asks
+  >        for a clean state, which GitHub reports.
+  >    (d) WHAT IT CHANGES ON A MACHINE: nothing on the host until a tag carries it. From that tag a
+  >        slate file gains run_started_at and every prediction file the three stamps; a failed
+  >        slate's page grows by the option and its value. My by-hand slate blocks pass the run start
+  >        from that tag on (519 item 2(c)); that is mine to remember, not yours.
+  >    (e) Its merge block is with the operator for his agent. PR2 builds once this is on main; its
+  >        date stays 12-16.
+  >
+  > 2. DEV 4 — YOUR ONE READING IS ACCEPTED AS BUILT (534 item 3, the book-gap receipt). A row whose
+  >    books' session is not found on the copy is a line of its own, counted by cause, beside the
+  >    eight buckets, and is not folded into "no stamp". They are two different unknowns: one says the
+  >    copy holds no session for the page, the other that a session is there without the source's
+  >    stamp (law 4). The four-place agreement check on NFL, as SOCCER's under #1077, is right.
+  >    The two scheduled reads and the re-read before every report are noted; nothing more is owed
+  >    on the two headers.
+  >
+  > 3. DEV 3 — YOUR FOUR COUNTS (your 19:07Z report), PLACED.
+  >    (a) COUNT 1 (the four situations' iceTime against the "all" row, by season) and COUNT 3 (goals
+  >        by period, and the goals on an empty net) are of the files alone: both go into the third
+  >        pass. The empty-net columns are already named by the first console: shotOnEmptyNet,
+  >        homeEmptyNet and awayEmptyNet.
+  >    (b) COUNT 2 and COUNT 4 join the files to our own rows. They need a fresh copy of the laptop's
+  >        database and a ruled club-code map, and our rows carry another provider's ids, so the
+  >        join is by day and clubs. They are a fourth block of mine, after the map is ruled from
+  >        the second read. Both are counts of agreement between two records of the same games:
+  >        neither is a figure of any candidate, and 538 item 6(c) stands beside them.
+  >    (c) YOUR 506(d) TEXT (#1102, comment 7171828299) is received three weeks early. Its five
+  >        questions are answered with the assignment of 506 (b), (c) and (d), in the week of 12-21
+  >        or sooner if the desk clears.
+  >
+  > 4. The newest comment I had seen before this post is DEV 4's, 7171887905.
+  >
+  > Nothing in this addendum moves a bar, a date on the roadmap or a held timer.
+
+- **What DEV 1 did on 539, where it landed:**
+  - Item 1 is on #1102 (comment 7172162170), item 2 on #348 (comment 7172162698) and item 3 on #105 (comment 7172163195), each the whole addendum, as its header asks.
+  - It asks nothing of DEV 1 beyond the record. DEV 1's 19:20Z report named its comment as the newest seen without covering it; the 19:44Z report says so and records the placements.
+- **Where each record asked landed:** DEV 1 made every Issue placement an addendum's header names. Each was checked against the saved addendum, line for line, and each comment is the operator's account's and unedited: 509 and 511 on #1102; 510, 515, 516, 517, 523 and 524 on #105; 513, 519, 526 and 529 on #1102; 516, 517, 518, 520 and 521 on #1122; 518 on #838 and #839; 520 on #839; 522 on #97; 527 and 528 on #1108; 530 on #1120 and #427; 531 on #839, #830 and #1102; 532 on #1102 and #348; 533 on #1108, #839, #838 and #1122; 534 on #427, #1120, #348 and #1102; 535 on #1108; 536 on #1102; 537 on #1102, #1122, #105 and #830; 538 on #105 and #1122; 539 on #1102, #348 and #105. 508, 512, 514 and 525 name no Issue.
+- **Issues opened by DEV 1 in the span:** #1127 (527 item 1, answer 6), #1130 (531 item 4, R1), #1132 (533 item 1, Q6), #1133 (533 item 4(b)), #1135 (535 item 1(a)), and the Release Issue #1138 (537 item 3 Q3; the milestone v1.6.11).
+- **CLAUDE.md, in this PR:** the Purpose paragraph above the Mission (521 item 4(a)). Two operational notes: the one naming #1122 (516 item 2(c)), and the college dedupe rule, standing until the twin guard merges (533 item 1). And four state lines as the rulings left them: MLB (522 items 1 and 3; the hold on, 531 item 1, its 1(d) cite corrected by 537 item 3 Q2; the window's sync-odds, 533 item 4(d)), NHL (510 items 2(a), 4(a) to (c); 517 item 1; the first fetch and nothing granted, 538 items 1 and 6(c)), Tennis (518 item 2; 533 item 3 Q2 and Q4) and Basketball (531 item 2(c) to (e); 533 item 2(a)). **README.md:** the Purpose paragraph under "What it is" (521 item 4(a)).
+- **The v1.6.11 release record, in this PR:** docs/RELEASES.md's row and section (528 items 1 to 3 and 530 item 1(a) to (d), with 512 item 1, 514 items 1 to 3 and 525 item 2; the host's MLB hold, 531 item 1(d), with 537 item 3 Q2's correction beside it). **The hosting spec, in this PR:** section O of docs/specs/hosting-h1.md takes the host's MLB hold, its lifting condition (522 item 6; 531 item 1) and what it does not reach (533 item 4(d)). **The Release Issue:** #1138 (ritual step 4), opened 2026-11-25 on 537 item 3 Q3, on the milestone v1.6.11, the notes in two comments; the row and the section name it.
+- **The roadmap, in this PR (531 item 2(d); 537 item 3 Q1):** lane availability-record, the NBA injury-report probe's step done 2026-11-25; the state live by 537 item 3 Q1, earliest_live null (no date is needed for live, and none is invented); live_needs opening with 537 item 3 Q1 verbatim, then "The lane is live: the record runs every day on the host with two feeds, the depth charts and the NHL game pages, and no NBA feed is ordered (531 item 2).", then 531 item 2(d) in part and 2(e), verbatim, then its own text. No needs-ruling item is left. No date moves and no moved line is added: `check-roadmap --base origin/main` passes. #1123's date (528 item 5), DEV 2's three heads (529 item 3), 532's and 533's dates are addendum dates with no step. Lane nfl-qb's 12-15 step changes its session, not its date or its owner (529 item 4). tests/test_roadmap.py and tests/test_availability_record.py pin the done step, the state live and the opening quote.
+- **Not done here, each for its reason:** docs/SOURCES.md (521 item 4(b); 533 item 4): its own head by 2026-12-08. MoneyPuck's and the archive's credit lines (517 item 2(c), 518 item 2(c)): nothing built on them is shown. The twin guard (533 item 1): its own PR after #1119.
+- **DEV 1's reports on #1092 in the span (2026-11-25, through 19:44Z):** 7149272438 (01:09Z), 7163974217 (13:34Z), 7166252770 (15:03Z), 7167118427 (15:36Z), 7167606673 (16:06Z), 7168942741 (17:03Z), 7169343179 (17:19Z), 7170404749 (18:04Z), 7171270528 (18:41Z), 7172155438 (19:20Z), 7172703561 (19:44Z).
+- Nothing here moves a bar, a date on the roadmap or a held timer. One roadmap step is done-marked on its own date (531 item 2(d)), and one lane's state reads live (537 item 3 Q1). Nothing changes a prediction output.
+
+**2026-11-25 — 497 step (1), dedupe-matches, a truthful exit: a provider read that failed (planned "unresolved") now ends the run with `dedupe-matches: N unresolved (provider read failed): <ids>` and exit 1, after everything it printed, planned and wrote before; a team with no provider id planned "orphan" is counted on its own line, exit 0; the routine nothing-to-do states each print one named line, exit 0; no plan, write, stored row, sp_run, stop rule or go_on changes (addendum 497 Q1, Q4, Q8 and item 2; #1102).**
+- **Ruling (497 Q1), verbatim:**
+
+  >    Q1. A ROUTINE STATE EXITS 0 AND PRINTS ONE LINE THAT NAMES IT (no open markets, a holdout too
+  >        small to compare, a day with no game). No code of its own: a code only the laptop reads
+  >        would mean two things on two machines. The line's words are pinned by a test.
+
+- **Ruling (497 Q4), verbatim:**
+
+  >    Q4. YES, THEY COUNT. Each PR states, as a count of requests and never as money, the most
+  >        requests per day its command's reruns can add, beside the provider's daily limit by name.
+
+- **Ruling (497 Q8), verbatim:**
+
+  >    Q8. A dedupe-matches team with no provider id, planned "orphan", is a classification: exit 0,
+  >        printed and counted. "Grade unavailable." IS A FAILURE: in the four sections I read (NFL,
+  >        the exec cohorts, the NHL shadow, the UNL shadow) it is an exception caught while the
+  >        section was graded; the PR confirms the rest. The file is still written whole, the
+  >        section stays marked, and the command exits non-zero after writing. Receipt: the host's
+  >        tally of today holds 7 sections, 0 marked unavailable.
+
+- **Ruling (497 item 2), verbatim, its sentence in its line context:**
+
+  > 2. THE ORDER, yours with two changes: (0) the dropped-rows count of Q7; (1) dedupe-matches;
+  >    (2) improve; (3) export-results, the mlb MLB call; (4) results-tally by Q8; (5) nhl-goalie-sync
+  >    by Q6; (6) sync-teams NCAA; (7) the three Kalshi commands with Q3's throttle; (8) sync-matches
+  >    LAST, and not before I have ruled, chain by chain, which chains go on past it. Each is its own
+  >    money-path PR; none touches sp_run, a stop rule or a go_on.
+
+- **What landed:**
+  - The failure: the two sites where a provider read fails and the set is left "unresolved", both under `--orphans`. They are `resolve`'s by-id lookup (match_dedupe.py 376-380, planned at 586-591) and `games_on`'s per-day date search (388-391, planned at 618-625; one failed day leaves the whole set unresolved).
+  - After every line the run printed before, the command prints `dedupe-matches: N unresolved (provider read failed): <ids>` as its very last line and exits 1, dry run and `--apply` alike. It follows refresh-by-id's rule for an unresolved lookup. The plan and every write are as before, and nothing is written for an unresolved row.
+  - The classification (Q8): `dedupe-matches: N stale_orphan planned for a team with no provider id (a classification, not a failure)`, with `: <ids>` when N > 0. It prints on every `--orphans` run, zero included, and exits 0. Those rows stay planned and counted as stale_orphan exactly as before; the plan line already counted them, but not by this cause.
+  - The routine states (Q1), each one line and exit 0:
+    - `dedupe-matches: nothing to merge (no duplicate pairs)` on the pair path, only when nothing was refused at detection either (a 3+ cluster, a same-or-missing-id pair or a swapped near-pair is reported for review, so that run gets no routine line; exit 0 either way);
+    - `dedupe-matches --orphans: nothing to do (no candidates)`;
+    - `dedupe-matches --orphans: nothing to do (every candidate live: N)`.
+  - docs/CLI.md's row; tests/test_dedupe_exit.py (15); test_dedupe_orphans' CLI test now asserts exit 1 on its broken-lookup world.
+  - Receipt, the OR1 test world through the CLI, base 7e8748e3 against this head, timestamps normalized: dry run and `--apply` print the same lines, then gain two lines and exit 1 where they exited 0: `dedupe-matches: 0 stale_orphan planned for a team with no provider id (a classification, not a failure)` and `dedupe-matches: 1 unresolved (provider read failed): 7`.
+- **Not in this PR:** sp_run, chains.py, closing.py, bootstrap.py, laptop_routine.py, a stop rule or a go_on; any plan, apply path or stored row (the twin guard of 533 item 1 is its own PR, and no `--apply` on the college competition runs until it merges); the refusals at apply (a unique-table conflict, the STALE_ORPHAN CHECK guard), which stay exit 0 because neither is a provider read; laptop_routine.py's docstring, README's routine paragraph and docs/CLI.md's laptop_routine row ("Ten of the twelve commands ..."), which still list dedupe-matches among the commands that can end a failure with exit 0; results-tally's "Grade unavailable." (Q8's second half, step (4)).
+- **Choices named for the architect:**
+  - **Q4, the count:** the most requests per day this command's reruns can add is **0**. No host chain, timer, bootstrap step or closing names dedupe-matches (chains.py, bootstrap.py, closing.py), so sp_run's RETRY_BACKOFF_S never reruns it. The laptop routine runs it once a day (step 10, the NCAA dry run) and retries no step ("No step is retried"). The provider is api_american_football (API-Sports american football). The code names no daily limit for it, only a per-minute pace (SP_ODDS_FOOTBALL_RPM, default 280 a minute). The one daily limit the code names is 7,500 requests a day (chains.py's nba-daily note), API-Sports basketball's plan, and the record says the plan is per product (addendum 271 item 1). So the american-football daily limit is not stated here as a number (law 4).
+  - **The laptop routine's receipt:**
+    - On a day a provider read fails, step 10's line reads `exit 1` where it read `exit 0`, followed by `    last line: dedupe-matches: N unresolved (provider read failed): <ids>`. The counts line gains a failed step and a non-zero exit (`· 10 exit 1`), and the routine exits 1.
+    - On every other day the step still exits 0, and its streamed output and five-line receipt tail end with the classification line (and a routine line when there is one) after the record line. laptop_routine.py is not changed and none of its tests moves.
+  - The new lines go last so a runner's last-line read names the failure. The record line, which the command's docstring said "ends" every run, is now followed by them; the docstring says so.
+  - The classification line prints on every `--orphans` run, zero included, rather than only when N > 0.
+  - "Every candidate live" is named as a routine state beside "no candidates". The code already calls a `live` row "nothing to do" (addendum 365 item 3(b)), so it is a state the code has, not a new one. The pair path's existing "nothing to merge: N row(s) already carry ..." line is kept beside the new routine line.
+- **#1142, riding this PR (addendum 541 item 3): the flake in tests/test_qb_hold_receipt.py.** The fault was the test's. Its figure checks read every line but RULING, SOURCES and WHAT WAS DONE FROM, so the closing JSON line, which prints the run's paths by design, was read whole. Under `--basetemp=.../pytest-137` that line held FILL_FIGURES' "137", and three tests failed. Now each figure check reads the receipt's printed text with the run's folder taken out, in every spelling (`_printed`, the way #1139 takes the printed sha256 out). The SOURCES, WHAT WAS DONE FROM and JSON lines are now read too; only the script's fixed RULING quotations (and KEYS where it was skipped) stay out. A figure leaked into a printed field still fails. This was shown by three mutations: a fill's qty in its title, on the WHAT WAS DONE FROM line, and in the JSON line. The old test missed the second one. The receipt's own rule does not change, and scripts/ is untouched.
+
+  **Ruling (ARCHITECT 2026-11-25 15:06 ET, addendum 541 item 3), verbatim:**
+
+  > 3. DEV 1 — THE FLAKE IN tests/test_qb_hold_receipt.py IS AN ISSUE (law 6). Open it, size S. The
+  >    fault is the test's: its sentinel figure is one a temporary folder's name can hold. The fix is
+  >    a sentinel no path can contain, or the assertion made on the receipt's printed fields and not
+  >    on the whole text. The receipt's own rule does not change. It rides a PR of yours when one is
+  >    open on tests; no date.
+
+- **#1146, riding this PR (addendum 545 item 5): the second flake.** tests/test_venue_quote_age_receipts.py matched "configured database" in a REFUSED line that rich wraps at the console's width, so a wrap could fall between the two words. It failed in two full runs, one of them on the untouched base, and reproduces alone at COLUMNS=80 and 172 to 180 with a long temp path. Both assertions (the one beside the -wal target, and the hard-link test) now read the output with its whitespace folded; the command's refusal and exit 2 are unchanged.
+
+  **Ruling (ARCHITECT 2026-11-25 16:44 ET, addendum 545 item 5), verbatim:**
+
+  > 5. DEV 1 — THE SECOND FLAKE (tests/test_venue_quote_age_receipts.py, a line wrapped by a narrow
+  >    terminal) IS AN ISSUE TOO, size S, its own number; its fix rides the same test PR as #1142's.
+  >    The 540 to 544 records PR takes 545 if it is not yet pushed.
+
+- Nothing here moves a bar, a date or a held timer. Nothing changes a prediction output, a plan, a write or a stored value.
+
+**2026-11-25 — 497 step (0), the dropped-rows count: the rows the adapters drop before counting, the games sync-odds does not read and the games sync-odds-football leaves unpriced each get a printed count with their causes in the command's own output; no exit, stored row, prediction, sp_run, stop rule or go_on changes (addenda 497 Q7 and item 2, 502 Q7; #1102).**
+- **Ruling (497 Q7), verbatim:**
+
+  >    Q7. YES, COUNT FIRST. The rows an adapter drops before counting get a printed count with their
+  >        causes in the command's own output; no exit changes with it. It is the first PR.
+
+- **Ruling (502 Q7), verbatim:**
+
+  >    Q7. YES. sync-odds' uncounted drops and sync-odds-football's skips get a printed count first,
+  >        with 497's step (0); no exit changes with it.
+
+- **Ruling (497 item 2), verbatim, its sentence in its line context:**
+
+  > 2. THE ORDER, yours with two changes: (0) the dropped-rows count of Q7; (1) dedupe-matches;
+  >    (2) improve; (3) export-results, the mlb MLB call; (4) results-tally by Q8; (5) nhl-goalie-sync
+  >    by Q6; (6) sync-teams NCAA; (7) the three Kalshi commands with Q3's throttle; (8) sync-matches
+  >    LAST, and not before I have ruled, chain by chain, which chains go on past it. Each is its own
+  >    money-path PR; none touches sp_run, a stop rule or a go_on.
+
+- **What landed:**
+  - One shared line for the adapters (src/adapters/base.py `dropped_line` / `report_dropped`), api_basketball's line byte for byte: `<source> /<what>: N listing(s) not read (reason n · reason n): id, id`, printed only when a row was dropped, with `last_dropped` (reason -> [provider ids]) kept on the adapter.
+  - mlb_stats_api /schedule (no team id, unreadable date); api_hockey /games (no kickoff date, no game id, no team id) and /teams (no team id, no team name); api_american_football /games (the same three, plus non-competitive, whose own per-row line is kept) and /teams (no team id, no team name, non-competitive); api_baseball /teams (no team id, no team name); the MLB api-sports fallback's provider games with an unreadable date (api_baseball /games).
+  - sync-odds: `SyncResult.odds_not_read` and `odds_not_read N (reason n: ids · ...)`, printed always before the summary: no provider id; with --match-ids each named id that is no candidate (not stored, other competition, other season, not scheduled, kickoff passed). MLB: the client's whole-game drops (no game id, unreadable date, no team name, by provider game id, once per game over the run) and the games at or after first pitch (started, by stored match id, in the window's pass and the rollover's per-game pass), not printed when no odds read was made; capture-odds prints the same line before its "odds synced:" line.
+  - sync-odds-football: the returned dict's `not_priced` and `football_not_priced N (reason n: ids · ...)`, printed always before the summary: named, not in the window; no provider id; fetch error; still rate limited; no rows.
+  - tests/test_dropped_rows_count.py (42): each cause on each adapter, the clean answer, the byte-identical basketball line, each sync-odds and sync-odds-football reason, an MLB game counted once over its two reads and not listed once priced, no line on a run that made no odds read, the line before the summary, exit 0, and no new line read by sp_run's count lines, SYNC_ECHO, the failure markers or the exception classifier.
+- **Not in this PR:** kalshi_tennis's duplicate-ticker overwrite and its window/season filter; the MLB fallback's non-club and ambiguous team counts on sync-matches; api_football (no per-row drop: its parse aborts); every per-price parser drop (an unreadable price, an unmapped selection, a bet type not read, another totals line); sync-odds' --limit cut; every site the map lists as already counted.
+- **Choices named for the architect:**
+  - mlb_stats_api's line names its endpoint, `/schedule`, as basketball's names `/games` and `/teams`.
+  - The MLB odds causes list two kinds of id under plain labels: no game id, unreadable date and no team name list provider game ids; started lists stored match ids.
+  - The MLB client's drops count each game once over the run: the rollover's per-game read is a retry of the same game, and a game a later read returned rows for is taken off. A "no game id" drop has no id to match, so it counts once per read.
+  - On MLB, a run with no key or a window read that raised made no odds read: it prints no odds_not_read line rather than a 0 nobody counted. An empty window was read, and its line counts that read's drops.
+  - The adapters' line prints in every `list_matches` caller, not in sync-matches alone: dedupe-matches --orphans (497's step (1), its own PR) prints it in its per-day date search, and resync-diff prints it for MLB, NHL, NFL and NCAA. get_game (refresh-by-id) prints nothing new.
+  - A named sync-odds id the filter leaves out for no cause the five labels name reads "not a candidate" (unreachable by the filter as written; never silent if it is reached).
+  - sync-odds on a competition not in the DB returns before any read: with `--match-ids` every named id is counted as "competition not in the DB" (a named game is never silent); in league mode the line reads `odds_not_read 0`, a zero over no read, and the existing warning is the signal.
+  - capture-odds prints the line before "odds synced:"; its last line stays "✓ Captured".
+  - On the MLB step the new line sits between NO-BOOK-ODDS and the summary, so NO-BOOK-ODDS is the third line from the end, inside the five-line tail.
+- Nothing here moves a bar, a date or a held timer. Nothing changes a prediction output, an exit code or a stored value.
+
+**2026-11-25 — the leagues' confirmation read, 447's PR 3: `leagues-confirmation-read` reads the first 60 games later than the run record's opening in the window's order, names as findings the games before the opening that the run record does not account for, records through registry.record_confirmation with the first game's id, and the cross-ref guard reads the confirmation's ids file and reservation (addendum 447 item 3 C1 and item 4; addendum 448 item 1(e)-(f); addendum 467 item 1(a); addendum 505 item 2(c); the five questions ruled by addendum 540 item 1; #322) (#1153).**
+- **Ruling (447 item 3 C1), verbatim in part:**
+  >    C1 RULED, WITH ONE CHANGE: the confirmation opens at the 60th member's PLACE IN THE WINDOW'S OWN
+  >       ORDER, not at its kickoff alone. membership() orders by kickoff, then match id. The run record's
+  >       confirmation_opens_after holds both: the 60th member's kickoff and its match id. The
+  >       confirmation's games are the games later in that order: a later kickoff, or the same kickoff
+  >       and a higher id. Its cohort is the first 60 of them that qualify by the window's own rules.
+  >       (d) A 2026/27 game kicking off after declared_at and before the opening that is neither a member
+  >           nor accounted for in the run record (a kickoff re-dated after the read) is in neither
+  >           cohort. The confirmation reader counts it and names it as a FINDING; never a member, never
+  >           silent.
+- **Ruling (447 item 4), verbatim in part:**
+  >    PR 3: leagues-confirmation-read. By 12-11; no confirmation can be read before January.
+  >    None of the three changes a prediction output, and each says so.
+- **Ruling (448 item 1(e)-(f)), verbatim:**
+  >    (e) YOUR OPTION (record_confirmation refusing the ids the run record names as reached with no slot)
+  >        is NOT TAKEN. A postponed game the loop passed may enter the confirmation by its real kickoff
+  >        once it is re-dated after the opening (R4), so that list is not a refusal list. The reader
+  >        holds the order; the registry is the backstop, as 447 says.
+  >    (f) PR 3 extends _guard_paths to the confirmation's ids file and its reservation. Named now, as
+  >        you did; it is a guard, not a policy, and rides in PR 3.
+- **Ruling (467 item 1(a)), verbatim in part:**
+  >    447's PR 3, the confirmation read, writes the first game's match id into its result beside
+  >    first_game_at, and registry.record_confirmation, for an entry that holds an opening, refuses a
+  >    first game AT the opening's kickoff whose id is not above the opening's match id. A test for the
+  >    tie on each side of the id.
+- **Ruling (505 item 2(c)), verbatim, stated in this PR's record (the PR body and these fragments; no key in the result, 540 item 1 Q2, ruled):**
+  >    (c) SO, STANDING: no league leaves the shadow list for calls without its injury sync, or
+  >        without an exemption that I rule by the league's name. The leagues' confirmation PR (447
+  >        PR 3) says so in its record. Nothing changes for it today: the five leagues pass earlier
+  >        as shadows.
+- **What landed:** src/walters/leagues_confirm.py and its command; membership() takes the opening and the run record's account (with none, every output is byte-identical); record_confirmation's checks before the metric extracted as `confirmation_refusal` (a pure refactor); 467 item 1(a)'s tie refusal; the guard's two new kinds. The cohort, the refusals, the fingerprint, the reservation and the record are as the CHANGELOG fragment lists them.
+- **Ruling (540 item 1, the five questions), verbatim in part (ARCHITECT 2026-11-25 14:44 ET):**
+  >    YOUR INFERENCE STANDS: the day-after rule (447 B2(d)) holds on the confirmation's 60th
+  >    member too. It is the more binding reading, and the gate text says "the day after the 60th game".
+  >    Q1. ONE INVOCATION, as you read it, like the two confirm commands that exist. Two things with it:
+  >        (i) NO WORD OF MINE ABOUT THE OUTCOME IS TAKEN IN ADVANCE. The outcome is the computed one.
+  >            What I give beside the fingerprint is the addendum that orders the read, by number
+  >            and date.
+  >        (ii) A PREFLIGHT THAT COMPUTES NO FIGURE and reserves nothing: the refusals in order, the
+  >             cohort's count, the pages digest, the first date the read is allowed.
+  >    Q2. THE PR BODY AND THE TWO FRAGMENTS, the sentence of 505 item 2(c) verbatim. NO KEY in the
+  >        confirmation result: a record is never rewritten, and a rule that may be amended does not
+  >        belong in one. ONE ADDITION, console only and stored nowhere: a read whose outcome is
+  >        CONFIRMED prints one line saying that production on a leagues entry turns on no call
+  >        (220 item 3; 505 item 2(c)).
+  >    Q3. THE READ REFUSES BEFORE ITS RESERVATION, NAMING THE GAME, as you read it. [...] It lifts only
+  >        by my registry write naming the game (Q4's list); after that the game is out by its named
+  >        cause and takes no slot.
+  >    Q4. THE ENTRY'S ONE ruled_exclusions LIST, unchanged, and the refusal of 223 item 2(b) as you
+  >        describe it. ONE CONDITION: an item added after the window's verdict must change nothing
+  >        that the window's recorded fingerprint or any guard reads again.
+  >    Q5. ALL THREE ARE RULED IN, in PR 3, each ONLY for an entry that holds an opening; every other
+  >        entry keeps today's rule, and a test says so for each.
+  >        (a) A missing ids file REFUSES the record. A file that is not there is not an empty set
+  >            (law 4), and the scored-set check must not pass on nothing.
+  >        (b) n_games EQUALS the plan's 60. "60 more" is a number, not a floor.
+  >        (c) first_game_id is one of the confirmation's ids.
+- **What 540 item 1 changed in this PR (ruled, not defaults):**
+  - The sentence of 505 item 2(c), verbatim (540 item 1 Q2: in the PR body and the two fragments, in no result key): "no league leaves the shadow list for calls without its injury sync, or without an exemption that I rule by the league's name".
+  - Q1: one invocation; `--ruling` is the addendum that orders the read, by number and date (never an outcome), in the help, the module docstring and docs/CLI.md; a `--architect-word` or `--ruling` naming CONFIRMED or NOT_CONFIRMED (any case, as a word) refuses, exit 2, before any load, nothing reserved. The preflight computes no figure (no score, aggregate, verdict or audit; no log-loss of either arm in any line) and writes no byte; it prints the cohort's count, the pages digest and the first allowed date, and refuses as the read refuses, in its order.
+  - Q2: no key in the result holds a calls rule; on a recorded CONFIRMED the CLI prints `CONFIRMED_NOTE` (production on a leagues entry turns on no call; 220 item 3; 505 item 2(c)), console only: no result key, ledger field or file holds it.
+  - Q3: a window member re-dated past the opening (its kickoff, cut to the whole second, in a later second than the opening's) refuses before the reservation, named; once the entry's `ruled_exclusions` names it (the architect's registry write), the confirmation's read excludes it by that cause wherever its loop reaches it, it takes no slot, and the audit and took_no_slot name it with that cause. The window's own read is unchanged: there the list never removes a member.
+  - Q4: the one list, unchanged. The condition was checked in the code: what the window's recorded fingerprint and the guards read each holds a FROZEN COPY of the list as the window read it, and nothing re-reads or recomputes it after the verdict, so an item added later changes none of them. The run record stores `ruled_exclusions` as read; the window fingerprint hashes the items read and is recorded once, in the run record and the reservation, and recomputed by nothing after the verdict (the window read refuses a run entry first); `registry._guard_state` reads the ledger's `confirmation_cohort`/`test_cohort`, `run` and `confirmation` fields and the five files, so its "run record" kind compares that frozen run field, never the entry's live `ruled_exclusions`; the run's ids file holds only the 60 ids; `confirmation_basis`, `opening`, `fence_cutoff` and `confirmation_refusal` read no ruled item. A test pins the guard state, the stored run record, the run's ids file, the window's reservation, the fence, the opening, the account and the backstop unchanged by an item added after the verdict.
+  - Q5: built in `registry._confirmation_checked` (so `confirmation_refusal`, the reader's backstop, catches each before the reservation), only past the opening's own checks for an entry holding a readable opening: (a) the window run's ids file missing refuses; (b) the count must equal plan.n_games; (c) `first_game_id` must be one of the confirmation's ids. An entry without an opening keeps today's rule on each, a test for each.
+- **Named for the record:**
+  - B2(d)'s day after is held on the 60th confirmation member (540 item 1: "YOUR INFERENCE STANDS").
+  - "Before the opening" in C1(d) is read in the window's order, (kickoff, id) <= the opening: an unaccounted game tied at the opening's kickoff with a lower id is a finding. The finding is "a game before the opening in the window's order that the run record does not account for": re-dated, or (at sub-second precision) in the opening's second with an id not above the opening's. The console never calls it re-dated as a fact (its head reads "not accounted for by the run record"); the result keys `redated_findings` / `REDATED` keep their names, which state no re-dating.
+  - A finding that is a regular game not final makes the read WAIT (the walk reads it), as built.
+  - A took-no-slot game re-dated to a kickoff still at or before the opening is no finding (the run record accounts for it) and is in neither cohort; it prints on its own line and is kept in the result as `redated_no_slot`.
+  - The backstop is not optional: whatever the registry would refuse is read before the reservation, so the read is never spent on a cohort record_confirmation must refuse.
+  - The opening's resolution (447's PR 3, review P2): the opening is stored to the second, with the Z (448 item 1(d)), so every comparison with it (the cohort's "later", the account, the findings, the window members now after it, the backstop's place check) reads each game's kickoff CUT to the whole second, never rounded, against the opening as stored (`leagues_window.after_opening`). A game the run record accounts for (a window member, or a game its loop reached that took no slot) is after the opening only in a LATER second (re-dated past the opening's second): a member still in the opening's second is never after it, whatever its id (the verification's case: the 59th member 2700 at +200 ms, the 60th 2059 at +500 ms, the opening (that second, 2059); before this, 2700 landed in the members after the opening and Q3 refused permanently although nobody re-dated it). Every other game by its place (`leagues_window.place`): in the opening's second with a higher id it is after the opening, with a lower or equal id before it. At whole-second kickoffs nothing changes; the window's own read (no opening) is byte-identical. In the confirmation's read a ruled item's kickoff (to the second, with the Z) is compared with the game's kickoff cut to the second (`apply_ruled(..., cut=True)`), so an item copied from a refusal matches a sub-second kickoff; the window's read keeps its exact comparison, unchanged (pre-existing).
+  - 540 item 1 Q3's order (review P2): a window member now later than the opening is read BEFORE the confirmation's state, in the read and the preflight (`leagues_confirm.moved_refusal`), so a member re-dated to a later second that is not final refuses naming the game and never makes the read WAIT.
+  - The guard's "confirmation record" kind pairs the ledger's `confirmation` with its ids file, as "run record" pairs `run` with its file (a design choice). The guard is shared: today nothing holds either kind, so nothing changes; a soccer-expansion-v1 confirmation left on an unmerged laptop branch would refuse that entry's later guard calls until merged; its own `--record` path calls no guard, so 447 C2's PD morning order is unaffected.
+  - The host's counts-only reader (scripts/leagues_window.py) has no confirmation mode; only the laptop preflight shows the confirmation accruing.
+  - The confirmation reader goes through no fence: membership() consults none, and a test pins that the fence refuses another reader while the confirmation reads.
+- **Tests:** tests/test_447_leagues_confirmation_read.py (62, new), tests/test_467_first_game_id.py (41, new), four in tests/test_registry_cross_ref_guard.py, and tests/test_447_leagues_policy.py's recording cases amended (467 item 1(a); 540 item 1 Q5). Nothing run on either machine. No bar moves; no prediction output changes.
+- **The cohort's order, RULED AS BUILT** (ARCHITECT 2026-11-26, addendum 556 item 2, on Codex's P1 on #1153): "447 C1 fixes the cohort's order as the window's own, the stored kickoff and then the id; the cut to the second is how a game is compared with an opening that is stored to the second, and it is not an order." ONE LINE ADDED by that item: the preflight and the read each print how many of the league's season games carry a stored kickoff with a fraction of a second (`leagues_window.SUBSECOND`, `leagues_confirm.subsecond_line`): a count, expected 0, refusing nothing and stored in no record; above 0 the architect reads the cohort by hand before a record is made.
+
+**2026-11-25 — The quarterback agreement receipt, built (lane nfl-qb's 12-15 step; 415 item 4(a); 530 items 4 to 6; DEV 4, Lane D; Refs #427; #1134).**
+- **Ruling (530 item 4, in part):** "THE QUARTERBACK AGREEMENT RECEIPT IS YOURS (529 item 4; DEV 2 reports nothing built). The plan is right: the NHL receipt's pattern, two inputs, no network, nothing written."
+- **What landed:** `scripts/nfl_qb_agreement_receipt.py --db COPY --payloads DIR`, read-only.
+  - The depth chart's first quarterback at T-24h and T-0, through record.as_of: our clock for 2026, the source's clock for 2025.
+  - Beside it, the post-hoc starter from the kept payloads.
+  - It counts agree, differ (also by the starter's place on the chart), no pair, and the no-row causes.
+  - It prints no name, no id and no threshold.
+- **Next:** the review rounds, then the merge. The run is the architect's OPERATOR ONLY block on a copy of the host's backup, after it is on main, by 2026-12-15 (530 item 6). Nothing was run on a real copy; no figure of any candidate exists.
+
+**2026-11-25 — The closing book-gap receipt, built (477 item 4(b); 532 item 4; 534 item 3; DEV 4, Lane D; Refs #348; #1139).**
+- **Ruling (532 item 4, in part):** "per closing row, the absolute gap between the books' fair price and Kalshi's on the same page, by the stamp-age bucket of the books' session; and for each staked row the bucket of its reference."
+- **Ruling (534 item 3, in part):** "The stamp from the copy, as #1077 reads it, is the right source until F4 is on main, and it stays the source after."
+- **What landed:** `scripts/closing_book_gap_receipt.py --exports DIR --db COPY`, read-only, for SOCCER and NFL.
+  - The HOME gap in pp by 532's eight buckets, each family from its first stamped row.
+  - PLAY and, apart, LADDER: the pick's gap and its reference's bucket.
+  - The 534 answers as written: "reference not the books" and "stamp after the export" counted apart; a row after the first stamped row with no stamp in "no stamp" with its gap.
+  - It never reads an order, a unit, a contract count or an amount, and judges nothing.
+  - NFL's books' session is taken by capture time, its 4-place agreement with the page counted (540 item 2, amending 539 item 2 on the pooled de-vig the pre-PR review found); SOCCER stays matched by value.
+- **Next:** the review rounds, then the merge. The run is the architect's OPERATOR block on the host, after the tag that carries it. The head is due 2026-12-22 12:00 ET. Nothing was run on a real copy.
+
+**2026-11-25 — The NFL snapshot de-vig receipt, built (544 item 2; 545 item 3; DEV 4, Lane D; Refs #1141; #1148).**
+- **Ruling (544 item 2, in part):** "I DO NOT RULE ON THE WRITER FROM A MAP ... So a count first, read-only, on a copy of each machine by my blocks. DEV 4 BUILDS IT ... It judges nothing and proposes nothing."
+- **Ruling (545 item 3, in part):** "ALL NINE AS YOU READ THEM ... THE BELL FIRST, kickoff less one microsecond, through the function itself. "EVER FLAGGED" IS WANTED TOO, beside it."
+- **What landed:** `scripts/nfl_snapshot_devig_receipt.py --db COPY`, read-only, for NFL and college apart: (a) the sessions by their legs, (b) the one-sided first sessions, (c) the last session against the close's own fair from the offers that remain, (d) the line move at the bell and ever flagged, (e) by New York month. No book name, no price.
+- **Next:** the review rounds, then the merge. The run is the architect's block on a copy of each machine. Nothing changes until his ruling on the count (544 item 3): not the writer, not the anchor, not a graded row.
+
+**2026-11-25 — The book-gap receipt's two unknowns, their causes counted over every row (#1140; 543 item 2(d); DEV 4, Lane D; #1143).**
+- **Ruling (543 item 2(d)):** "#1140 (the not-found line's breakdown leaves out its rows without a gap) IS SCHEDULED: its own small PR, a reviewable head by Friday 2026-12-04 12:00 ET, so that the receipt's first run on the host prints the breakdown whole. The run waits for the tag that carries both."
+- **What landed:** the causes of "books' session not found" and of "no stamp" are counted over every row in the window, each summing to its every-row count. The "no stamp" cause line had the same fault and is fixed with it. No gap, bucket or staked line changes.
+- **Next:** the review rounds, then the merge. The receipt's run is the architect's OPERATOR block on the host, after the tag that carries this and #1139.
+
+**2026-11-25 — #1124's review-round-2 findings fixed in one small PR, with #1126's index line (addendum 525 item 3(c); #1125; DEV 4, Lane D; #1129).**
+- **Ruling (525 item 3(c)):** "#1125's THREE DO NOT BLOCK, as you placed them. Fix them in one small PR after #1124 is on main, with #1126's index line in scripts/README.md, a head by Friday 2026-12-04."
+- **What landed:**
+  - the file structure receipt reads a float exponent past decimal's limit as data;
+  - it reads an ISO timestamp with more than six fractional digits as a datetime, ordered exactly;
+  - #1124's fragment test count is corrected to 69;
+  - scripts/README.md indexes the NHL cohort count.
+- Nothing was run on a real file. No model, no figure, no bar.
+
+**2026-11-25 — A settings refusal lifts every closing it reaches from a resend's bound (addendum 511 item 2; addendum 530 item 3; #1120; #1131).**
+- **#1117's one follow-up.** `no_chain` held only the refused start, so a later start that the same settings refusal will refuse could hold a resend for a tick.
+- **The fix.** A family's own refusal lifts that family from `send_resend`'s bound. The machine's settings (backup folder, mirror, role, card topic) lift every family. A bad `--start` lifts only that start.
+- **Nothing else moves:** no refusal or exit changes, no call, no page text, no bar, no date and no held timer.
+
+**2026-11-25 — #1102 PR1, THE FIELDS: run_started_at, books_captured_at, books_source_updated_at, kalshi_legs_captured_at (addendum 529 item 3(a), 532 item 2, 534 item 4; gate-class: an export contract; #1136).**
+- **F1** `run_started_at`, top level: the slate run's held start. It comes from `--run-start` on the slate's export step alone (526 Q1). No key without it; a bad value exits 2.
+- **F2 and F4** on the priced 1X2 block: the session's oldest capture (as the closing watch reads its books), and `close.book_stamp` on the same close. F4 is null where a priced row is unstamped, and on every MLB row (#628).
+- **F3** `kalshi_legs_captured_at` beside `kalshi_legs`: each leg's last capture before kickoff, null with it.
+- **Compares:** the daily compare masks all four. The PL check leaves `run_started_at` out by name and compares F2-F4 (526 Q2).
+- **Nothing else moves:** no probability, no call, no Desk read, no bar, no date and no held timer. The stale_price rule is PR2's.
+
+**2026-11-24 — The file structure receipt, read-only tooling for the architect's blocks over the reopened sources (DEV 4, Lane D; the brief of addendum 518 item 5; Refs #105, #838; #1124).**
+- **Why:** the operator reopened MoneyPuck's files (addendum 517) and the tennis archive (addendum 518 item 2). The architect reads the files' structure by block before ordering the depth probe (517 item 2(f)), and only counts and structure leave the laptop (517 item 2(d); 518 item 2(b)).
+- **What landed:** `scripts/file_structure_receipt.py` and its tests.
+  - It reads a file or a folder of CSV files (plain, .gz, .zip) and prints per file: the name, the size, the sha256, the rows, the columns in order, each column's null and empty share, kind and distinct count, and the minimum and maximum of a numeric or date column.
+  - It prints the values and counts only for a column the caller names with `--vocab`.
+  - It assumes no column name, prints no row, refuses a path under data/, writes nothing, and exits non-zero on a file it cannot read whole.
+- **Nothing was run on a real file.** No model, no figure, no bar.
+
+**2026-11-24 — A notice no channel took is not a notice (addendum 502 item 2 Q5; addendum 503 item 1 Q5-Q7, item 2 PR 3; #1117).**
+- **The money-path PR 3 of 503 item 2.** A failure, miss or HELD page whose notice no channel took exits 1 and carries `notice_not_taken` on its receipt line. A refusal keeps exit 2 with the key.
+- **Q6.** Today a miss's or a HELD page's mark is set on any notice sent, so the mark moves to delivery: one no channel took is sent again on the next tick.
+- **A resend never costs a closing its T-35.** It is queued for the tick's end and sent under the slate pages' bound.
+- **A send cut at the bound stays exit 3 and is sent again** (504 item 4(b)).
+- **Refusals: the once-per-reason mark is set on delivery too** (504 item 4(b)). The resend stays exit 2.
+- **509 item 3: a try is not always a line.** A resend writes a line only when its outcome changes. 509 items 2 and 4 accept the feed-down MLB miss and the miss after its start as built (#1118 holds the laptop's missing failure path).
+- **Unchanged:** a tick with nothing to send; the notices after a closing's page wait on 502 item 3.
+- **Nothing else moves:** no call, no page text, no bar, no date and no held timer.
+
+**2026-11-24 — Both injury lists empty get no Desk call (addendum 502 item 2 Q3; addendum 503 item 1 Q3-Q4, item 2 PR 1; #1115).**
+- **The policy PR of 503 item 2, built first and small.** A soccer row whose two injury lists are both empty answers is PASS `injuries_both_empty`, naming both teams.
+  - It is its own kind on the one-sided rule's switch.
+  - It covers exactly the rows the one-sided rule covers, on the slate and the closing alike.
+  - (None, None) is unchanged.
+- **The receipt** that isolates the one-sided guard counts these rows apart.
+- **Nothing else moves:** no probability, no bar, no date and no held timer.
+
+**2026-11-24 — The placeholder fill, built (ARCHITECT 2026-11-24, addendum 500 Q1 to Q5 and Q10; 493 item 2(c); the fix round, ARCHITECT 2026-11-25, addendum 527 item 2; Refs #1108): in the sync's update by id, in the college competition (527 item 2 answer 2), a stored row whose differing side(s) are the provider's placeholder team (provider id 345) takes the listed team(s), the other side equal, on the same pass, listed on its own receipt line; a flip and another game stay refused.**
+- **Addendum 500 item 1(a)-(b), verbatim:**
+
+  >    (a) ONE stored placeholder team (our team id 1636; the provider's team id 345).
+  >    (b) NINE college rows of 2026 hold it, ALL FCS, all on 2026-12-05: eight with it on one side,
+  >        one with it on both (33608). NO FBS ROW HOLDS IT. The FBS rows stored from 12-01 on are
+  >        four, each with two named teams. Eight of the nine sit at 04:00Z; 33608 at 19:00Z.
+
+- **Addendum 500 Q1 to Q5, verbatim:**
+
+  >    Q1. YES, A FILL IS A RULED CARVE-OUT, in your words of (b) and no wider: position by position,
+  >        every side that differs is the stored placeholder, the other side is equal, each filled
+  >        team is stored, is not the placeholder and is not the row's other team. A flip stays
+  >        refused (292 item 3(d)); another game stays refused (3(a)). The fill is never silent: its
+  >        own receipt line with the match ids. THE PLACEHOLDER ROWS STAY REFUSED THROUGH 12-04 AND
+  >        12-05: none is an FBS game, and nothing is hurried into the sync for nine FCS rows.
+  >    Q2. ONE ID, 345, held as data in placeholder.py beside the kickoff's definition, never
+  >        matched by name. The kickoffs are answered in item 1(b).
+  >    Q3. THE SAME PASS: after the fill the pair reads SAME and the unchanged SAME path writes what
+  >        it writes today. The test shows the row then holds what a fresh create would, but its id.
+  >    Q4. THE UPSERT ALONE. refresh-by-id is not touched and keeps refusing until the sync fills.
+  >    Q5. NO NEW CONSTANT: the kickoff window is the placeholder's own (PLACEHOLDER_RESOLVE_H, 24
+  >        hours as your plan reads it); the pair-collision window is the dry run's 48 (TWIN_H).
+
+- **Addendum 500 Q10, verbatim:**
+
+  >    Q10. YES to both: this addendum's record supersedes that premise, and the docstring changes
+  >        in the fill's PR.
+
+- **Ruling (527 item 2), verbatim:**
+
+  > 2. #1119 (THE FILL) AT 611d5f02, YOUR SIX:
+  >    1   A HALF-FILL IS A FILL: RULE IT IN. (P,P) listed as (X,P) meets Q1's words side by side,
+  >        and a bracket names its teams one at a time. The row then reads as the provider's does.
+  >    2   THE COLLEGE COMPETITION ONLY, for now: the narrower one line. The finding and every
+  >        counted row are college's. If a count of mine shows a placeholder row of another
+  >        competition, I rule that competition in by name.
+  >    3   REFUSE ON THE SWAPPED PAIR TOO, as the re-key does. It is the narrower reading.
+  >    4   NO STATUS CONDITION, as built. It is what lets a finished placeholder row heal once the
+  >        fill has shipped: the window compares the two kickoffs, not the clock.
+  >    5   THE ECHO STAYS. A fill that reaches the receipt is the point of "never silent".
+  >    6   THE TWIN GUARD IS ITS OWN PR and is not dated yet. DEV 3: a plan for it on #1108, 40 lines
+  >        at most, by Wednesday 2026-12-09 17:00 ET: the guard with the date-search half it
+  >        needs, from the code, nothing run. The college orphan plan stays unapplied (Q6).
+
+- **What landed:** `placeholder.PLACEHOLDER_TEAM_ID = "345"` and `is_placeholder_team` beside the kickoff's definition (Q2); the pure verdict `score_orientation.placeholder_fill` (Q1; the half-fill a fill, 527 item 2 answer 1); `IngestionService._fill_placeholder`, called once in `_upsert_match`'s update-by-id branch before the unchanged `_scores_by_team` (Q3, Q4); `SyncResult.placeholder_filled` and the line `placeholder_filled N: <match ids>` (sync-matches, both paths, and the admin job), printed only when N > 0. The receipts downstream: sp_run's `_SYNC_LINES` and `sync_counts` (key `placeholder_filled`, {n, ids}, each line adding) put it on a sync step's receipt; the laptop routine keeps it in the step's echo.
+- **Refused as today (the unchanged MISMATCH path):** a flip, another game, an unstored filled team, a filled team that is the row's other team, a served kickoff more than PLACEHOLDER_RESOLVE_H from the stored one, and a live row of the season holding the filled pair or its reverse within TWIN_H of the served kickoff (Q5: both imported, and no constant is new; the swapped pair ruled (527 item 2 answer 3), as the re-key reads `same` and `swapped`). Scope: the api_american_football source, the provider whose team 345 is (item 1(a)), where the run builds its pair index (REKEY_SOURCES, the re-key's own condition), and the college competition only, ruled (527 item 2 answer 2): one line, `comp.code not in PLACEHOLDER_REKEY_COMPETITIONS`, the college set ({"NCAA"}) the re-key already holds. A row of another competition of the source (an NFL row holding the team) is refused as main refuses it; another source's team carrying "345" is no placeholder. refresh-by-id untouched (Q4).
+- **The half-fill, ruled (527 item 2 answer 1):** a (P,P) row listed (X,P) or (P,X) takes X on the same pass, the kept side the placeholder still, and the pair then reads SAME (the row reads as the provider's does); a later listing naming the second team fills that side as (P,B) to (X,B) does.
+- **Q10:** the docstring of tests/test_scores_by_team.py `test_a_placeholder_kickoff_row_keeps_its_own_path` now names the placeholder team as the fill's rule; its body is unchanged.
+- **Q6 (the twin guard), ruled (527 item 2 answer 6):** its own PR, not dated yet; DEV 3 plans it on #1108 (40 lines at most, by Wednesday 2026-12-09 17:00 ET, the guard with the date-search half it needs); the college orphan plan stays unapplied (Q6).
+- **The choices named for the architect, ruled (527 item 2):** the half-fill is a fill (answer 1); the college competition only (answer 2); the swapped pair refuses too (answer 3); no status condition, as built (answer 4); the echo stays, as built: the fill count is on each sync step's receipt, with no chain-level total, summary mark or digest line (answer 5); the twin guard its own PR (answer 6).
+- **Tests of the fix round:** the half-fill both ways then its second team; the TWIN_H boundary for the swapped pair after and before the served kickoff, at TWIN_H + 1h and CANCELLED; the scope unpatched (the real "NCAA" fills; another competition of the source and another source refused). A test of the fill's own rules stands its code in for the college competition through the `college` fixture (PLACEHOLDER_REKEY_COMPETITIONS monkeypatched for that test only); the fill section adds one "NCAA" row, the scope test's.
+- **Timing (500 Q1):** the placeholder rows stay refused through 12-04 and 12-05; this build is not hurried into the sync for them (item 3(b): a reviewable head by 2026-12-08; the tag is the architect's). The fix round keeps the 2026-12-08 date (527 item 3).
+- Nothing here moves a bar, a date or a held timer.
+
+**2026-11-24 — the NFL-team refusal: a college listing either of whose teams holds a membership of the NFL competition is refused at create and at update, counted with its id, never stored; a stored row of its season whose pair it names neither way takes 297 C(ii)'s mismatch key, and the placeholder team is exempt (addendum 500 Q9 and item 3(a); addendum 527 item 1; the finding 493 item 2(d); #1108).**
+- **Ruling (500 item 1(c)), verbatim:**
+  >    (c) MATCH 66178 IS THE PROVIDER'S ERROR, read by id: under the college league, stage FBS,
+  >        season 2026, the same game id served one NFL game when we stored it and serves another
+  >        NFL game today. Our row copies a real NFL game that the NFL competition already holds
+  >        (match 15191, same kickoff). Its two teams carry a 2026 college membership they should
+  >        not have.
+- **Ruling (500 Q9), verbatim:**
+  >    Q9. DONE TODAY (item 1(c)). And a membership does not tell such a row apart: the bad row's own
+  >        teams hold one. THE RULE: in the college competition, a listing either of whose teams
+  >        holds a membership of the NFL competition is refused at create and at update, counted
+  >        with its id, never stored. Match 66178 and the two memberships are retired by my
+  >        OPERATOR ONLY block after that rule is on main, by a reviewed write, never by hand SQL.
+- **Ruling (500 item 3(a)), verbatim:**
+  >    (a) THE NFL-TEAM REFUSAL of Q9, with its count line: a reviewable head by Tuesday 2026-12-08.
+- **Ruling (527 item 1), verbatim:**
+  > 1. #1123 (THE NFL-TEAM REFUSAL) AT 6d2ee27b, YOUR TEN, the body read whole:
+  >    1 and 10  WRITE THE KEY, FOR mismatch ONLY. Q9's "never stored" is about the listing. 297
+  >        C(ii)'s key is a fact about OUR row: its id no longer serves its pair. So a refused
+  >        listing found by id against a stored row whose pair differs writes that row's mismatch
+  >        key and lists it as a mismatch refusal, as main does, and stores nothing of the listing.
+  >        A refused listing naming the stored pair or its reverse leaves the key as it is, as you
+  >        built: that is the 66178 shape alone, and those rows are retired by my block.
+  >    2   ANY SEASON, as built.
+  >    3   YES, add it: the listing's id, and the stored match id beside it where a row carries it.
+  >    4   AS BUILT. The not-in-the-DB path refuses it first and nothing is stored either way.
+  >    5   refresh-by-id IS NOT REACHED. The only rows it could touch are of the 66178 shape, and my
+  >        block retires every one this morning's count finds. That answers the review's second P1.
+  >    6   NOT THIS PR. Open one Issue for it: sync-teams can link an NFL member to the college
+  >        competition again. I rule it when I write the retirement block.
+  >    7   THE PLACEHOLDER TEAM IS EXEMPT: the refusal never reads the placeholder team's own
+  >        memberships. A listing is refused for a real team's NFL membership and for nothing
+  >        else. Pin it with a test in which the placeholder holds an NFL membership.
+  >    8 and 9  AS BUILT.
+- **What landed:** one check in `IngestionService._upsert_match`, after the unknown-team branch and before the lookup by id, so the update by id, both re-keys (the 12h rule and the placeholder window) and the create are all refused by it. A refused listing writes nothing of the listing: no score, status, kickoff, team, cache entry or re-key claim.
+- **The key (ruled 527 item 1, 1 and 10: "WRITE THE KEY, FOR mismatch ONLY"):** a refused listing found by id against the stored row of its own season (`_same_season_row`, the row the refusal already reads) whose pair the listing names neither way writes 297 C(ii)'s `provider_orientation=mismatch` key on that row through `score_orientation.with_orientation_key` (main's MISMATCH write), and the row is listed on `teams_mismatch_refused`, as main does. `skipped` counts the listing once. A refused listing naming the stored pair or its reverse leaves the key as it is. No row the re-keys find (id history, natural key) is reached.
+- **The placeholder (ruled 527 item 1, 7: "THE PLACEHOLDER TEAM IS EXEMPT"):** a listed side whose team is the provider's TBD team is never checked against the NFL members; only a real team's NFL membership refuses, and the warning names only the real team(s). The placeholder is identified as #1119's fill identifies it: the team's own provider id of the listing's source, through `placeholder.is_placeholder_team`. `src/ingestion/placeholder.py` is #1119's file at 611d5f02, byte for byte, so the two PRs' hunks there are identical.
+- **The membership read:** `_nfl_members` reads the team ids holding a competition_teams row of the NFL competition, in any season, once per run (sync_matches' prefetch cache). Outside the college competition the set is empty and no query runs. No new constant.
+- **The count line (ruled 527 item 1, 3: "YES, add it"):** `nfl_team_refused N: <listing id> (match <stored id>), <listing id>, ...` (service.nfl_team_refused_line), the stored match id beside a listing id where a row of its season carries it, printed by sync-matches only when N > 0. N counts the listings. `SyncResult.nfl_team_refused` stays the listing ids; `SyncResult.nfl_team_refused_match` is beside it (same index, None where no row carries the id). The admin job's summary carries the line (its --seasons block keeps each match id beside its own listing id); sp_run.sync_counts puts `nfl_team_refused` {n, ids, matches} on a step's receipt (`ids` the listing ids, `matches` beside them; every such line adds); the laptop routine echoes it under step 9.
+- **Not in this PR:** no row is deleted or retired; beyond 297 C(ii)'s mismatch key on a stored row whose pair the refused listing names neither way (527 item 1, 1 and 10), no stored row is written. Match 66178 and the two memberships are retired later by the architect's OPERATOR ONLY block, after this rule is on main (Q9). refresh-by-id, sync-teams, the adapter and the exports are unchanged. NCAA has no model: no prediction output changes, no gate applies.
+- **The ten choices, ruled (527 item 1):**
+  - 1 and 10, ruled (527): write the mismatch key, for `mismatch` only (above). The same pair or its reverse leaves the key as it is.
+  - 2, ruled (527): any season of the NFL competition counts, as built. Pinned by a test with a 2092 NFL membership.
+  - 3, ruled (527): the stored match id beside the listing id on the line (above).
+  - 4, ruled (527): as built. The check sits after the unknown-team branch; a listing with one NFL member and one team not in the DB is refused first on the existing skipped-listing line, and nothing is stored either way.
+  - 5, ruled (527): refresh-by-id is not reached, as built. The rows it could touch are of the 66178 shape, which the architect's block retires.
+  - 6, ruled (527): not this PR. sync-teams can link an NFL member to the college competition again: Issue #1127, which the architect rules with the retirement block.
+  - 7, ruled (527): the placeholder team is exempt (above). Pinned by tests in which the placeholder holds an NFL membership.
+  - 8, ruled (527): as built. sync-matches --match-ids on a stored row refused by this rule: the row of the listing's season carrying the listing's id is printed on Q9's own STRICT REFUSED line (`SyncResult.nfl_team_refused_rows`), exit 1; a row that took the mismatch key is on main's REFUSED line, as main prints it. A row the re-keys would have claimed is not looked up, so it still prints under "not in the provider's answer".
+  - 9, ruled (527): as built. A refused listing of unknown season (or one whose id only a stored row with no season year carries) is not added to `provider_id_season_unknown`; its id is on `nfl_team_refused`, and nothing is written either way.
+- **Review round 1 (#1123):** Codex P2 fixed: sync-matches --match-ids STRICT prints a named same-season row refused by Q9 on its own REFUSED line (`SyncResult.nfl_team_refused_rows`), never as "not in the provider's answer". The first Codex P1 (write 297 C(ii)'s key on the stored row, thread 4687970461): ruled by 527 item 1 (1 and 10) and built in the 527 fix round. The second Codex P1 (apply the refusal to refresh-by-id, thread 4687970472): answered by 527 item 5, "refresh-by-id IS NOT REACHED"; not changed.
+- **Fix round (527 item 3: "apply items 1 and 2 as one fix round on each PR, with its review"):** items 1 and 10, 3 and 7 above; the head keeps the 2026-12-08 date.
+- **Tests:** tests/test_nfl_team_refusal.py (30; every fixture team holds a college membership, the NFL-member ones the 66178 shape; the placeholder fixture holds an NFL membership), plus two in tests/test_sync_counts_scores_by_team.py and one in tests/test_laptop_routine.py. Nothing run on either machine.
+
+**2026-11-24 — Addenda 491, 494 and 496 (GATE-CLASS): the true-starter ceiling, declared as a probe of one run on the retired NHL 2025 set (491), its build #1107 read and merged with 491 item 5(b)'s second sentence corrected before any figure existed (494), and its one run made the same day: FALSE, leave-one-out 0.6912 against 0.6866 (496). The goalie term in this form is closed; NHL stays market-only; lane nhl is closed on the roadmap; the bar is 0.6866 and did not move.**
+- **Addendum 491 (ARCHITECT 2026-11-24 08:05 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 08:05 ET (13:05Z, read from the clock) — addendum 491, GATE-CLASS, for DEV 2 (Lane B), to build; DEV 1 (Lane A), to record and for the roadmap; DEV 3, for your knowledge.
+  > Posted on #1092. Record it in BACKLOG as a gate-class declaration; it goes on #105. It is the roadmap's NHL step of 2026-11-24.
+  >
+  > 1. DECLARED: THE TRUE-STARTER CEILING, A PROBE, ONE RUN. It is not a candidate. It registers
+  >    nothing, promotes nothing, sets no status and runs no shadow. Every line below is frozen now,
+  >    before any figure of it exists, and none moves after one does.
+  >
+  > 2. WHY IT MAY READ A RETIRED SEASON. NHL 2025 was retired as a test set after eight candidates
+  >    (doctrine 2026-10-02) so that no later candidate is fitted to it. This probe cannot be a
+  >    candidate: it prices each starter with figures from games played after the one it prices, which
+  >    no live model can hold. Its one use is a yes or no written here first. A probe belongs on a
+  >    season already spent, never on 2026-27, which stays clean for the next candidate. The set
+  >    stays retired, the registry's refusal stays as it is, and this is the set's ninth read.
+  >
+  > 3. THE STREAM, UNCHANGED: nhl_backtest's own (warm-up 2024, scored 2025, preseason cut by its
+  >    rule, predict then update). BEFORE ANY LOG-LOSS IS COMPUTED the command checks, and refuses
+  >    with no figure printed (INVALID, which is not a run) unless all three hold:
+  >    (a) the scored games number 1,394 and the sha256 of their match ids is the one nhl-v6, nhl-v7
+  >        and nhl-v8 recorded (ab890242fe22077580cdb7495e90f58c519a2ddae96445de508f04b99b4de229);
+  >    (b) both starters are known on every scored game, as at v5's run (100% coverage); a warm-up
+  >        side with no known starter prices at zero, as in v5, and their count is printed;
+  >    (c) v1 on this stream reads 0.6909 to four places, and the home-rate baseline less 0.010 reads
+  >        0.6866 to four places.
+  >
+  > 4. THE MODEL FORM, UNCHANGED: NHLEloV5 with v1's constants, the goalie term inside the expected
+  >    score in predict and in update, as v5 ran. Only the tracker changes.
+  >
+  > 5. THE HINDSIGHT RATE, per goalie and per season S (2024 or 2025), from the appearances whose
+  >    linked match is one of the stream's games of S, relief included, as v5 counted them:
+  >        rate = sum(saves - m x shots) / (sum(shots) + PRIOR_SHOTS)
+  >    (a) No decay. PRIOR_SHOTS stays 2,000. m is S's league save rate over the same appearances.
+  >    (b) THE DECLARED MEASURE IS LEAVE-ONE-OUT: the sums for the goalie who starts game X leave out
+  >        his own appearance in game X. The game's result is in no figure that prices it, except
+  >        through m and the two league figures of (c), which are one game in a season's and stay
+  >        whole-season by this declaration.
+  >    (c) To Elo points as v5: the rate times S's league shots per team-game, times ELO_PER_LOGIT
+  >        times PYTH_EXP over S's league goals per team-game. The two league figures are S's own,
+  >        whole season, with no boot prior.
+  >    (d) 2023-24's appearances enter nothing (447 item 6(b)).
+  >
+  > 6. THE THRESHOLD, WHICH IS THE GATE'S OWN AND DOES NOT MOVE. The command's verdict line reads
+  >    beats_margin(the leave-one-out log-loss, the home-rate baseline), the gate's function, unchanged:
+  >    (a) FALSE: THE GOALIE TERM IN THIS FORM IS CLOSED: v5's term (saves above the league rate per
+  >        shot, shrunk by 2,000 shots, through the Pythagorean slope) on this Elo. If the true
+  >        starter, rated on his own whole season, does not carry it to 0.6866, I build no as-of
+  >        estimate and no projected starter of that quantity as a model input. That is my judgement
+  >        on one declared measure, written first; it is not a proof that no goalie input exists. A
+  >        goalie route in another form is a new idea and declares 2026-27. What the inferred layer's
+  >        NHL pilot is then for is ruled on 2026-12-03 with this figure beside it.
+  >    (b) TRUE: THE ROUTE STAYS OPEN, AND NOTHING ELSE FOLLOWS FROM IT. No model is promoted or
+  >        shadowed. A goalie candidate would be declared by its own addendum, with an as-of rate, on
+  >        2026-27 as it accrues (600 games or more), at the unchanged gate.
+  >    The calibration bands and the rating spread are printed and decide nothing here.
+  >
+  > 7. PRINTED BESIDE IT, DECIDING NOTHING: v1 and v5 (as-of) on the same stream; the leave-one-out
+  >    figure less v1's; and the same hindsight rate WITH the game's own appearance left in, labelled
+  >    in its own line as leaked (it holds the game's own result). The eight prior reads of 2025 are
+  >    printed with their figures, as the registry holds them.
+  >
+  > 8. ONE RUN. The first console that reaches the verdict line is the result. A refusal under item
+  >    3, or a crash before the verdict line, is not a run. Nothing is rerun with a constant, a
+  >    season or a rule changed. No figure of the probe is computed anywhere before that run: not
+  >    in a test on real rows, a notebook or a receipt.
+  >
+  > 9. DEV 2 — THE BUILD, gate-class PR, a reviewable head by Monday 2026-11-30 12:00 ET:
+  >    (a) a hindsight tracker class in src/models/nhl_goalie.py with GoalieTracker's interface
+  >        (advance_to, elo_adjustment); GoalieTracker and every frozen constant untouched;
+  >    (b) a command of its own, read-only, taking --db COPY opened mode=ro with immutable=1 (198
+  >        item 6(ii)), which runs items 3 to 7 in that order and writes nothing: no registry entry,
+  >        no export, no row;
+  >    (c) tests on synthetic rows only: the leave-one-out sums leave out exactly the game's own
+  >        appearance; the refusals of item 3 print no log-loss; the registry is not touched; a
+  >        declaration naming the 2025 set is still refused;
+  >    (d) the PR body quotes items 1 to 8 and says that nothing was run on real data. The command
+  >        and its arguments are named there; I write the block (198 item 6(i)).
+  >    In your queue it stands with the model lanes (59 item 5): above the #746 plan.
+  >
+  > 10. THE RUN IS MINE TO CALL: on a fresh copy of the laptop's database, by my block, after the PR
+  >     is merged, on or before Wednesday 2026-12-02. The verdict is in my ruling of 2026-12-03. If
+  >     the head is late the ruling of 12-03 is made without the figure and says so; no date here
+  >     is a reason to shorten the read of the PR (59 item 5(c)).
+  >
+  > 11. DEV 1 — THE ROADMAP, lane nhl, with this addendum's record: the step of 2026-11-24 DONE by this
+  >     addendum; appended, the probe's PR head (code) 2026-11-30, and the run and its verdict
+  >     (architect) 2026-12-03. No earliest_live is set. CLAUDE.md's NHL line: after "the true-starter
+  >     ceiling test declared or a written no 11-24" say it was DECLARED 2026-11-24 (addendum 491),
+  >     one run, verdict 12-03.
+  >
+  > Nothing in this addendum moves a bar or a held timer. The bar is 0.6866 and did not move.
+
+- **What DEV 1 did on 491, where it landed:**
+  - The whole addendum is on #105 (comment 7141132015), as its header names.
+  - The roadmap, lane nhl (item 11): the step of 2026-11-24 is done by this addendum. Appended: the probe's PR head (code) due 2026-11-30, and the run and its verdict (architect) due 2026-12-03. No earliest_live is set.
+  - Item 9 is DEV 2's: #1107. Item 11's CLAUDE.md line is written as 496 item 5 gives it (below), since 496 superseded the verdict date.
+- **Addendum 494 (ARCHITECT 2026-11-24 09:34 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 09:34 ET (14:34Z, read from the clock) — addendum 494, GATE-CLASS, for DEV 2 (Lane B) and DEV 1 (Lane A), to record; DEV 3, for your knowledge.
+  > Posted on #1092. Record it in BACKLOG beside 491; it goes on #105. It corrects one sentence of 491 before any figure exists.
+  >
+  > 1. #1107 IS READ WHOLE at d055ba3f, against 491 items 3 to 9: the tracker, the probe's module, its
+  >    command and its tests. What I checked myself, beyond reading:
+  >    (a) its 18 tests pass in my own scratch checkout of the head;
+  >    (b) the hindsight rate, leave-one-out and leaked, agrees with my own brute-force sums to
+  >        rounding on 900 synthetic appearances of my making;
+  >    (c) the model's constants are built exactly as nhl-backtest builds v5's and v1's;
+  >    (d) the body quotes 491 items 1 to 8 word for word (53 lines);
+  >    (e) GoalieTracker and the frozen constants are untouched (no line of the old file removed).
+  >    CI is green, the review found nothing and no thread is open. IT IS MERGE-READY. The operator has
+  >    its merge block. DEV 2: nothing more is owed on it; the build is as declared.
+  >
+  > 2. DEV 2'S READING IN THE BODY IS RIGHT, AND 491 ITEM 5(b)'s SECOND SENTENCE IS CORRECTED. I wrote
+  >    that the game's result is in no figure that prices it, except through m and the two league
+  >    figures. That holds for the starter's own rate in game X. It does not hold for the team
+  >    ratings: the goalie term is in update (item 4), so the update of an earlier game Y uses that
+  >    starter's leave-one-out rate for Y, which still holds his appearance in X; the ratings that
+  >    price X have passed through those updates. X's own saves reach X's price by that path, in
+  >    second order.
+  >    RULED, before any figure of the probe exists (Dev 2's report: nothing has run on real data):
+  >    (a) THE BUILD STANDS AS WRITTEN. Item 4 is not changed: the form is v5's, the term in predict
+  >        and in update. Nothing in items 3, 6, 7 or 8 moves.
+  >    (b) 5(b)'s second sentence now reads: "The game's result is in no figure of the starter's own
+  >        rate that prices it. It reaches the price by two named paths only: m and the two league
+  >        figures of (c), one game in a season's; and the team ratings, through the updates of the
+  >        starter's other games (addendum 494 item 2)."
+  >    (c) Its size, by my arithmetic and not measured: about one Elo point or less on a rating at
+  >        the game. I accept it and name it. Both verdicts of item 6 keep their meaning.
+  >
+  > 3. THE ONE RUN IS BY MY BLOCK, OPERATOR ONLY (a gate run; 462 item 7), on a fresh copy of the
+  >    laptop's database taken by the block, after #1107 is merged. The block stops if a console with
+  >    a verdict line already exists. The operator has it and runs it when he chooses, on or before
+  >    2026-12-02. Until that console exists nobody computes a figure of the probe (491 item 8).
+  >    DEV 1: the roadmap's appended code step of 2026-11-30 (491 item 11) is done by #1107's head
+  >    of today once it merges; mark it with the merge.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer. The bar is 0.6866 and did not move.
+
+- **What DEV 1 did on 494, where it landed:**
+  - The whole addendum is on #105 (comment 7141132382).
+  - Item 2: 491 item 5(b)'s second sentence now reads as 494 item 2(b) gives it. The build stands as written; nothing in items 3, 4, 6, 7 or 8 moves.
+  - Item 3: the code step of 2026-11-30 is marked done with #1107's merge (addendum 495 item 2), in the 488 to 503 entry.
+- **Addendum 496 (ARCHITECT 2026-11-24 09:48 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 09:48 ET (14:48Z, read from the clock) — addendum 496, GATE-CLASS, for DEV 1 (Lane A), to record; DEV 2 (Lane B), one note for the design PR; DEV 3, for your knowledge.
+  > Posted on #1092. Record it in BACKLOG as a gate-class verdict beside 491 and 494; it goes on #105.
+  >
+  > 1. THE ONE RUN OF THE TRUE-STARTER CEILING IS MADE AND ITS VERDICT IS FALSE: THE GOALIE TERM IN
+  >    THIS FORM IS CLOSED (491 item 6(a)). The operator ran my block himself at 14:47Z on main
+  >    822ff041, on a fresh copy of the laptop's database (317,218,816 bytes; sha256 9ab1d58c…8047e1a
+  >    before and after, no sidecar); exit 0; the console reached the verdict line once. 495 item 1
+  >    said the probe had not been run: it was being run as I posted, and this addendum replaces
+  >    that sentence.
+  >
+  > 2. THE CONSOLE'S FIGURES, as printed:
+  >    (a) item 3: warm-up 2024 1,396 games, scored 2025 1,394; the ids' sha256 the one nhl-v6, nhl-v7
+  >        and nhl-v8 recorded; both starters known on 1,394 of 1,394, warm-up sides with no known
+  >        starter 0; v1 0.6909 and the bar 0.6866 to four places. All three checks passed.
+  >    (b) item 4: k 6, mov_base 2.2, regression 0.25, home advantage 45.6 from the 2024 home rate
+  >        0.5652. Item 5: 5,584 and 5,575 appearances linked to the stream's games of 2024 and 2025.
+  >    (c) ITEM 6, THE VERDICT LINE: beats_margin(leave-one-out log-loss 0.6912, home-rate baseline
+  >        0.6966) = FALSE (it needed 0.6866 or less).
+  >    (d) item 7, deciding nothing: v1 0.6909; v5 (as-of) 0.6911; leave-one-out less v1 +0.0003; the
+  >        LEAKED line 0.6861; the eight prior reads as the registry holds them (0.6909, 0.6921,
+  >        0.6952, 0.6907, 0.6912, 0.6886, 0.6885, 0.6963).
+  >    (e) the bands, deciding nothing: 50-60% (n 723) and 60-70% (n 397) each 5.2pp under; final
+  >        ratings 1409 to 1607.
+  >
+  > 3. HOW I READ IT. The true starter, rated on the rest of his own season, did not improve on the
+  >    schedule-only model at all: 0.6912 against v1's 0.6909. The as-of rate of v5 read 0.6911.
+  >    The LEAKED line is below the bar and decides nothing: its whole gain over the leave-one-out
+  >    figure is the game's own result sitting in its own price, which is why 491 declared the
+  >    leave-one-out measure and not that one. The miss is 0.0046, not a near thing.
+  >
+  > 4. WHAT FOLLOWS, AS WRITTEN BEFORE THE RUN (491 item 6(a)), and nothing more:
+  >    (a) I build no as-of estimate and no projected starter of this quantity as an NHL model input.
+  >    (b) NHL stays MARKET-ONLY and the model track stays suspended. v7 stays the failed-gate
+  >        shadow. NHL 2025 stays retired; this was its ninth read and its last.
+  >    (c) The reopening condition is no longer a goalie or lineup source. A new NHL candidate needs
+  >        a new idea in another form, declared by its own addendum on 2026-27 as it accrues (600
+  >        games or more), at the unchanged gate.
+  >    (d) What the inferred layer's NHL pilot is now for is ruled on 2026-12-03, as 491 said, not
+  >        today. DEV 2: write the design PR of 12-01 as 375 and 376 declared the layer, and add one
+  >        paragraph saying what the pilot would measure now that no NHL model input waits on it. Do
+  >        not choose for me; I rule on 12-03.
+  >    (e) Nothing is rerun. Nobody computes a variant of the probe with a constant, a season or a
+  >        rule changed (491 item 8).
+  >
+  > 5. DEV 1, when you next read: the record on #105 with items 1 to 4; the roadmap, lane nhl: the
+  >    code step done by #1107's merge today, the run and its verdict done 2026-11-24 by this
+  >    addendum, state as the file's rules name a lane whose route is closed; CLAUDE.md's NHL line:
+  >    the ceiling test DECLARED 11-24 (491), RUN ONCE 11-24 and FALSE (leave-one-out 0.6912 against
+  >    0.6866; addendum 496), the goalie term in this form closed, the pilot's purpose ruled 12-03.
+  >    The console is kept on the laptop at logs/nhl_ceiling_probe_2026-11-24_094720.txt.
+  >
+  > Nothing in this addendum moves a bar or a held timer. The bar is 0.6866 and did not move.
+
+- **What DEV 1 did on 496, where it landed:**
+  - The whole addendum is on #105 (comment 7141133086).
+  - The roadmap, lane nhl (item 5): the code step of 2026-11-30 done 2026-11-24 by #1107's merge; the run and its verdict, due 2026-12-03, done 2026-11-24 by this addendum, its receipt the console's place and the verdict line. The lane's state is CLOSED, as the file's fourth rule names a lane a ruling ends ("A lane a ruling ends stays in the file, its state closed, with the ruling"). live_needs opens with the closing and 496 item 4(a) to 4(c) verbatim; the bar's text after it is not touched.
+  - CLAUDE.md's NHL line (item 5): the ceiling test DECLARED 11-24 (491), RUN ONCE 11-24 and FALSE (leave-one-out 0.6912 against 0.6866; addendum 496); the goalie term in this form closed; the reopening condition no longer a goalie or lineup source (4(c)); the pilot's purpose ruled 12-03.
+  - Item 4(d) is DEV 2's (the paragraph in the design PR of 12-01, #1112).
+- The bar is 0.6866 and did not move. Nothing here moves a held timer. Nothing changes a prediction output.
+
+**2026-11-24 — Addenda 488, 489, 492, 493, 495 and 497 to 507: #1106 merged (489); matchweek 11 stands as audited (492 item 3); the NBA injury-report probe's step moves to 2026-11-25 and is the architect's (492 item 4); the laptop routine's first real run read, 26 of 26, and a college-football sync finding opened as #1108 (493, 495); #1107 merged (495); #1102's map accepted and its first four builds given to DEV 1 (497); the 2027 college and MLB declarations' rulings (498, 499); the stored placeholder team's fill, the NFL-team refusal and merge-teams' copy mode given to DEV 1 (500); four earlier texts on the record word for word (501); three money-path rulings and three Issues, #1109 to #1111 (502); the both-empty, stale-prediction and notice rules ruled, PR 3 stays DEV 2's (503, 504); a read of the channel reaches its last comment and names it (504, standing); #1113 merged; the both-empty rule's premise corrected and a league's injury sync made a condition of calls (505); the slate's row stands alone by the operator's decision, and what the slate must then earn (506); #1115 merge-ready, merging after the tag (507).**
+- **Addendum 488 (ARCHITECT 2026-11-23 19:47 ET), verbatim:**
+
+  > ARCHITECT 2026-11-23 19:47 ET (00:47Z, read from the clock) — addendum 488, for DEV 1 (Lane A), to record; DEV 2 and DEV 3, for your knowledge. Nothing to build.
+  > Posted on #1092. Record it in BACKLOG as usual.
+  >
+  > 1. DEV 1, your report of 00:35Z is read. #1106 (records of 483 to 487) IS READ at 91df2804: the five
+  >    addenda stand in its two entries word for word (105 lines checked by me), no player name is on
+  >    the record, the review found nothing and no thread is open. Its smoke jobs were still running
+  >    when I posted this. IT IS MERGE-READY ON GREEN CI: the operator has its merge block, which takes
+  >    it only by that head, on green, with no thread open, and stops otherwise.
+  >
+  > 2. TUESDAY'S MORNING BLOCK IS WRITTEN AROUND THE ROUTINE (#1096, on main) and is with the operator;
+  >    the agent may run it. Its order: the env check; the backup under a free name; coverage; the
+  >    routine's dry run (26 steps); the routine; then the MLB orphan dry run, the four guarded college
+  >    rows, the roadmap, the mirror push and the stale count, which stay mine (461). This is the
+  >    routine's first run on the real database. I read its console and its receipts' count and say
+  >    what I find; a step that exits 0 is not read as a step that worked (#1102).
+  >
+  > 3. MONDAY NIGHT'S NFL CLOSING ROW (match 15203) reads as ruled: market-only, PASS, the uncertified
+  >    tag on the call. ONE OBSERVATION FOR #348, no work for anyone tonight: the books' stamp behind
+  >    that row was 9.67 hours old at the closing capture (stamp 15:00:03Z, capture 00:40:14Z). 446's
+  >    finding was read on Premier League rows only; an NFL row shows the same. DEV 3, your plan on
+  >    #348 stands as posted; I take this into the ruling after Wednesday's run, and I say there
+  >    whether the season's count is made for every sport that has a closing page.
+  >
+  > 4. THE PD COHORT'S FIXTURE 16257 was due at 20:00Z tonight. Its result is read from our own stored
+  >    row after the morning sync, not from anywhere else. Nothing follows tonight.
+  >
+  > 5. TUESDAY, MINE: the morning console; Monday's Premier League game against the host's graded file
+  >    (487 item 3(f)); the NHL ceiling decision, gate-class, by its own addendum; Dev 3's notes on #79
+  >    and #507, each by its own addendum. DEV 1's fold for v1.6.11 opens at 17:00 ET as ruled.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 488, where it landed:**
+  - Item 1: #1106 merged at 91df2804 (addendum 489).
+  - Item 3 is on #348 (comment 7141133853), beside 492 item 5, whose words name that Issue.
+  - Items 2, 4 and 5 are the architect's. Item 5's fold is DEV 1's: v1.6.11, 17:00 ET 2026-11-24.
+- **Addendum 489 (ARCHITECT 2026-11-23 21:48 ET), verbatim:**
+
+  > ARCHITECT 2026-11-23 21:48 ET (02:48Z, read from the clock) — addendum 489, for DEV 1 (Lane A), to record; DEV 2 and DEV 3, for your knowledge. Nothing to build.
+  > Posted on #1092. Record it in BACKLOG as usual.
+  >
+  > 1. #1106 IS MERGED at 91df2804 by the operator's agent from my block, on its second run (the first
+  >    stopped on CI still running, as the block is written to). MAIN IS 498a9295. The only open PR is
+  >    #1055, parked (480). Tuesday's 17:00 ET fold is cut from main as it stands then.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 489, where it landed:**
+  - Recorded. #1106 merged at 91df2804; main 498a9295. #1055 stays parked (480).
+- **Addendum 492 (ARCHITECT 2026-11-24 08:31 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 08:31 ET (13:31Z, read from the clock) — addendum 492, for DEV 1 (Lane A), to record and for the roadmap; DEV 2 (Lane B), one question; DEV 3, for your knowledge.
+  > Posted on #1092. Record it in BACKLOG as usual; item 3 beside 487 where you recorded it, item 4 on #830.
+  >
+  > 1. DEV 2, your report of 13:12Z is read. It came through the lock, so a session's report is not
+  >    refused by it. 490 applied and 491 item 9 started: both as ruled. #1055 conflicting with main
+  >    is noted and changes nothing; it stays parked (480).
+  >
+  > 2. DEV 2, ONE QUESTION: your order does not name the inferred layer's design PR, which the roadmap
+  >    holds as code's for 2026-12-01 (lane inferred-layer, #992). Say in your next report whether
+  >    you hold it and where it stands in your order. I rule nothing on it until you say.
+  >
+  > 3. 487 ITEM 3(f) IS DONE. Monday's Premier League game is graded by the host (the results file
+  >    exported 09:53Z) and reads exactly as the audit's provisional line: the model's log-loss 1.1298,
+  >    the close's 0.8911, the close taken 34 minutes before kickoff from nine books, its stamp 3.66
+  >    hours old at kickoff. The graded close is the closing page's. So matchweek 11 stands as the
+  >    audit had it: 4 of 10 top selections; v22 1.1191 against the close's 1.1493 over the ten.
+  >    Nothing moves, and 487's dispositions stand as written.
+  >
+  > 4. THE NBA INJURY-REPORT PROBE (lane availability-record, #830; the roadmap's step of 2026-11-24)
+  >    IS NOT DONE TODAY, AND THE OPEN HALF IS MINE, NOT CODE'S. The script and its terms phase are
+  >    done (357, 368). What remains is the report phase, which runs on the host only, by my block,
+  >    with the reader installed there (368 item 4). I had it down as code's step; that was my error.
+  >    It goes into Wednesday's host sitting, after v1.6.11 is deployed.
+  >    DEV 1: lane availability-record, that step's date moves 2026-11-24 to 2026-11-25, with its
+  >    moved line in these words: "the report phase is the architect's block on the host (368 item
+  >    4); the host sitting is Wednesday 2026-11-25 (addendum 492 item 4)". The owner stays as the
+  >    file has it unless the file's own rules let you correct it to the architect; say which.
+  >
+  > 5. FOR #348, beside 488 item 3: the host's graded field puts the books' stamp behind Monday
+  >    night's NFL close at 10.25 hours old at kickoff, and behind two of Sunday's closes at 12.41
+  >    and 16.33. Counts for the ruling after Wednesday's run; no work for anyone.
+  >
+  > Nothing in this addendum moves a bar or a held timer. One roadmap date moves, with its line.
+
+- **What DEV 1 did on 492, where it landed:**
+  - Items 1 and 2: DEV 2's, recorded only.
+  - Item 3: recorded here, beside 487 (docs/ledger/entries/2026-11-23-487-pl-mw11-audit.md), as the header asks. 487 item 3(f) is done; matchweek 11 stands as the audit had it, and 487's dispositions stand as written.
+  - Item 4 is on #830 (comment 7141133476). The roadmap, lane availability-record: the NBA injury-report probe's due moves from 2026-11-24 to 2026-11-25, its moved line's why in the ruled words.
+  - Item 4, the owner: the step's owner is corrected from code to architect. The file's four rules govern dates and lane states and name no rule for a step's owner. check-roadmap compares only dues and moved lines. So the correction stands on 492 item 4's own words, "THE OPEN HALF IS MINE, NOT CODE'S", and is said here and in the PR body.
+  - Item 5 is on #348 (comment 7141133853), with 488 item 3.
+- **Addendum 493 (ARCHITECT 2026-11-24 09:01 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 09:01 ET (14:01Z, read from the clock) — addendum 493, for DEV 1 (Lane A), to record and one Issue to open; DEV 3 (Lane C), one plan; DEV 2 (Lane B), for your knowledge.
+  > Posted on #1092. Record it in BACKLOG as usual; items 2 to 4 are a finding and go on the new Issue.
+  >
+  > 1. THE LAPTOP ROUTINE'S FIRST RUN ON THE REAL DATABASE IS READ (after the 08:14 ET backup, about
+  >    seven minutes, main 498a9295, by my block): the dry run printed 26 steps; the run did 26 of 26,
+  >    every exit 0, no step timed out; the lines under each step are the commands' own. DEV 1: it does what 451 and 461 ruled.
+  >    Two live cases for #1102, no work today: both tennis Kalshi steps printed their no-open-markets
+  >    line and exited 0. DEV 2, your 13:38Z report is read; the design PR stands second in your order.
+  >
+  > 2. A FINDING IN THAT RUN, COLLEGE FOOTBALL (step 9). The sync refused 43 stored rows as built (the
+  >    listing's pair is neither the stored pair nor its reverse; nothing but the mismatch mark was
+  >    written) and created 63. I read both against the backup taken before the routine (read-only,
+  >    by my block; no provider call). The counts:
+  >    (a) THE 63 CREATED ROWS ARE NEW GAMES, not copies of stored ones: 40 lower-division results,
+  >        16 FCS rows and 7 FBS rows of the next two weekends. No stored row changed a team id; none
+  >        was deleted. No team's provider id changed and no provider id sits on two stored teams.
+  >    (b) 41 OF THE 43 ARE ONE THING: FIVE SCHOOLS, EACH HELD AS TWO STORED TEAMS. The provider has
+  >        two team entries for each. This season's games were listed under one entry and are now
+  >        listed under the other. 11, 10, 9, 9 and 2 rows. All 41 are finished lower-division games
+  >        with their scores stored; no FBS game, no market and no model stream is touched.
+  >    (c) ONE ROW IS A PLACEHOLDER THAT THE PROVIDER HAS NOW FILLED: match 33608, stored with the
+  >        placeholder team on both sides, listed today with two named teams, refused. Eight of
+  >        today's 63 were created with the placeholder team on one side. As built, each will be
+  >        refused the same way when its team is named. I find no rule in service.py or the adapter
+  >        for a stored placeholder TEAM; the placeholder rule there is for kickoffs only.
+  >    (d) ONE ROW IS NOT A COLLEGE GAME: match 66178, an NCAA row holding two NFL teams, finished,
+  >        and listed today under the same id with two other NFL teams. I treat it as the provider's
+  >        error until a read by id says otherwise; that read is in tomorrow's morning block.
+  >    (e) Ten of the 43 carried the mismatch mark before today, so an earlier sync had refused them
+  >        and I did not raise it then. That miss is mine.
+  >
+  > 3. RULED FOR TODAY: NOTHING IS REPAIRED. The refusals stand; no row is relinked, merged, retired
+  >    or deleted, on either machine, by anyone. College football is market-only with no model; the
+  >    43 rows keep what they held. The host's copy is read at Wednesday's sitting.
+  >
+  > 4. DEV 1: open ONE Issue for items 2(b) to 2(d), a finding, labelled from the fixed set, with the
+  >    counts above and no provider row. DEV 3: a plan on that Issue, from the code, nothing run, 60 lines at
+  >    most, by Friday 2026-11-27 12:00 ET:
+  >    (i) for 2(c): confirm or correct my reading that nothing resolves a stored placeholder team;
+  >        the smallest rule that would let a row whose stored side IS the placeholder team take the
+  >        listed team and nothing else; what 292 item 3(d) and its tests pin; and every reader of
+  >        such a row (the fixtures export, the Kalshi matcher, the orphan dry run);
+  >    (ii) for 2(b): what a relink of one school's rows from one stored team to the other would
+  >        have to touch, as a one-off write that only my OPERATOR block could run;
+  >    (iii) for 2(d): whether anything in the listing's own fields could tell such a row apart.
+  >    What matters by date is 2(c): the conference title games are 12-04 and 12-05. I say after
+  >    tomorrow's count of placeholder rows whether any FBS game is among them.
+  >
+  > 5. MINE, in tomorrow's morning block: the count of stored rows with the placeholder team by
+  >    division and day; the by-id read of match 66178's game; and the stale count's reference line
+  >    reworded. Today's 56 is 7 standing rows and 49 of Sunday's NFL and soccer games, which the
+  >    laptop syncs only in Sunday's whole-season pass. That is by design, not a finding.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 493, where it landed:**
+  - Item 1: the laptop routine's first run on the real database is read as 451 and 461 ruled. The two tennis exit-0 lines are live cases for #1102.
+  - Items 2 to 4 are on #1108 (comment 7141134173). #1108 was opened by DEV 3 under 495 item 3 (track:ops, class:finding, sport:ncaa, size:M). DEV 3's plan of item 4 is its comment 7135605510.
+  - Item 5 is the architect's.
+- **Addendum 495 (ARCHITECT 2026-11-24 09:47 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 09:47 ET (14:47Z, read from the clock) — addendum 495, for DEV 1 (Lane A), to record; DEV 3 (Lane C), one thing to do; DEV 2, for your knowledge.
+  > Posted on #1092. Record it in BACKLOG as usual; it goes on #105.
+  >
+  > 1. #1107 IS MERGED at d055ba3f by the operator's agent from my block (by 09:47 ET). MAIN IS 822ff041.
+  >    The only open PR is #1055, parked (480). The probe is on main and has NOT been run: the one run
+  >    is the operator's, by my OPERATOR ONLY block, which he has (494 item 3). Until its console
+  >    exists nobody computes a figure of the probe (491 item 8).
+  >
+  > 2. DEV 1: the roadmap's code step of 2026-11-30 (491 item 11) is done today by this merge; mark
+  >    it in your next records PR. Tuesday's 17:00 ET fold is cut from main as it stands then, so
+  >    v1.6.11 carries the probe's command; the host never runs it.
+  >
+  > 3. DEV 3, your 14:47Z report is read: the plan of 493 item 4 is ready and waits only on its Issue.
+  >    DEV 1 has posted nothing here since 00:35Z, so the Issue is not open. FOR THIS ONE ISSUE ONLY:
+  >    open it yourself now, a finding, labelled from the fixed set, with 493's counts for items 2(b)
+  >    to 2(d) and no provider row, and post your plan on it. Say its number in your report. DEV 1
+  >    records it when it next reads. I rule on the plan by its own addendum.
+  >
+  > 4. WAITING ON DEV 1, which I have told the operator: the records of 488 to 495; the roadmap lines
+  >    of 491 item 11 and 492 item 4; the CLAUDE.md policy PR of 490 item 5 (a head by 17:00 ET
+  >    today); and the v1.6.11 fold at 17:00 ET. None of it is reassigned by this addendum.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 495, where it landed:**
+  - The whole addendum is on #105 (comment 7141132766).
+  - Item 2: the roadmap, lane nhl: the code step of 2026-11-30 is marked done 2026-11-24 by #1107's merge (with 496, in the NHL entry). v1.6.11 carries the probe's command; the host never runs it.
+  - Item 3: #1108 is recorded here (493).
+  - Item 4: the records of 488 to 495 are this PR and the NHL entry beside it; the roadmap lines of 491 item 11 and 492 item 4 are in this PR; the CLAUDE.md policy PR of 490 item 5 is #1113; the fold opens at 17:00 ET.
+- **Addendum 497 (ARCHITECT 2026-11-24 10:03 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 10:03 ET (15:03Z, read from the clock) — addendum 497, for DEV 3 (Lane C), your plan on #1102 ruled and one more read; DEV 1 (Lane A), to record and the builds; DEV 2, for your knowledge.
+  > Posted on #1092. Record it in BACKLOG as a ruling; it goes on #1102.
+  >
+  > 1. DEV 3, YOUR PLAN ON #1102 (issuecomment-7117105669) IS READ WHOLE AND ACCEPTED AS THE MAP. Its
+  >    two findings beyond the ten commands are the ones I act on first: on the host no runner reads a
+  >    distinct step code (B0), and on the host nothing catches a failure that exits 0 (section (c)).
+  >    The ten questions, ruled:
+  >
+  >    Q1. A ROUTINE STATE EXITS 0 AND PRINTS ONE LINE THAT NAMES IT (no open markets, a holdout too
+  >        small to compare, a day with no game). No code of its own: a code only the laptop reads
+  >        would mean two things on two machines. The line's words are pinned by a test.
+  >    Q2. export-results: the mlb MLB call alone first, as you scoped it. The swallow under the
+  >        soccer results export is ADDED TO #1102 as its own item and is not touched yet: a non-zero
+  >        there stops soccer-morning-after before the host's tally, so it ships only with my ruling
+  >        on that chain's go_on, which is a stop rule and is mine.
+  >    Q3. NOT ACCEPTABLE UNTHROTTLED, and the notifier's 30-minute throttle would not hold an hourly
+  >        unit. The three Kalshi commands' exits change only together with this, for the window
+  >        unit alone: the first failure of a step pages; while the same step keeps failing, one
+  >        further page every six hours at most (a new constant, 360 minutes, mine); the other
+  >        units' throttle is unchanged. The PR says what a clearing looks like on the page.
+  >    Q4. YES, THEY COUNT. Each PR states, as a count of requests and never as money, the most
+  >        requests per day its command's reruns can add, beside the provider's daily limit by name.
+  >    Q5. "Holdout too small" is a routine state (Q1). improve's change is money-path, NOT
+  >        gate-class, IF the PR shows by test that the verdict and every printed figure of a run are
+  >        unchanged and only the exit differs on "Could not score one of the models". If a line of
+  >        the comparison itself has to move, stop and say so: that would be gate-class.
+  >    Q6. A 200 with no games is routine ONLY WHEN OUR OWN STORED ROWS hold no NHL game in the days
+  >        asked. The same empty answer while our rows hold a game is a failure. The empty answer
+  >        never vouches for itself.
+  >    Q7. YES, COUNT FIRST. The rows an adapter drops before counting get a printed count with their
+  >        causes in the command's own output; no exit changes with it. It is the first PR.
+  >    Q8. A dedupe-matches team with no provider id, planned "orphan", is a classification: exit 0,
+  >        printed and counted. "Grade unavailable." IS A FAILURE: in the four sections I read (NFL,
+  >        the exec cohorts, the NHL shadow, the UNL shadow) it is an exception caught while the
+  >        section was graded; the PR confirms the rest. The file is still written whole, the
+  >        section stays marked, and the command exits non-zero after writing. Receipt: the host's
+  >        tally of today holds 7 sections, 0 marked unavailable.
+  >    Q9. YES, its own Issue: the markers and the held read see the last five lines only.
+  >    Q10. MINE, at Wednesday's host sitting, by my block, as yes or no and never a value: whether
+  >        the skip list names MLB and whether the whole-season list holds an NCAA line.
+  >
+  > 2. THE ORDER, yours with two changes: (0) the dropped-rows count of Q7; (1) dedupe-matches;
+  >    (2) improve; (3) export-results, the mlb MLB call; (4) results-tally by Q8; (5) nhl-goalie-sync
+  >    by Q6; (6) sync-teams NCAA; (7) the three Kalshi commands with Q3's throttle; (8) sync-matches
+  >    LAST, and not before I have ruled, chain by chain, which chains go on past it. Each is its own
+  >    money-path PR; none touches sp_run, a stop rule or a go_on.
+  >    DEV 1: (0) to (3) are yours, reviewable heads by Friday 2026-12-11. I date (4) to (8) after
+  >    item 3's read.
+  >
+  > 3. DEV 3 — ONE MORE READ, plan only, from the code, nothing run, 100 lines at most, on #1102 by
+  >    Friday 2026-12-04 12:00 ET. The ten commands were the laptop routine's. THE MONEY PATH WAS NOT
+  >    AUDITED: every command the two enabled closing chains, the slate stage and the hourly window
+  >    run on the host. For each: can it fail and exit 0, on what line of what file, and what the
+  >    Desk's page or the closing file would then show (a stale figure, an empty one, or a PASS).
+  >    Rank them by what a silent failure would cost a call. It replaces nothing in your plan.
+  >
+  > 4. UNTIL THESE SHIP, MY OWN READS CHANGE: a receipt of mine that counts exits says so, and for
+  >    the commands your plan names I read the outcome line beside the exit.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 497, where it landed:**
+  - The whole addendum is on #1102 (comment 7141134909).
+  - Item 2: steps (0) to (3) are DEV 1's, each its own money-path PR, reviewable heads by Friday 2026-12-11. (4) to (8) are dated after item 3's read.
+  - Item 3 is DEV 3's (done: #1102 comment 7137576430).
+- **Addendum 498 (ARCHITECT 2026-11-24 10:04 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 10:04 ET (15:04Z, read from the clock) — addendum 498, for DEV 3 (Lane C), your college note on #79 ruled; DEV 1 (Lane A), to record; DEV 2 (Lane B), for your knowledge, nothing to build.
+  > Posted on #1092. Record it in BACKLOG as rulings for the 2027 college declaration; it goes on #79. No lane, date or candidate is created.
+  >
+  > 1. DEV 3, YOUR NOTE ON #79 (issuecomment-7109462559) IS READ WHOLE. It is the scoping I asked for
+  >    and I take its sections 1 to 4 and 6 to 8 as the record's summary for the declaration. You
+  >    were right to compute no slope. The ten questions, ruled:
+  >
+  >    Q1. THE PRE-CHECK IS THE GATE'S OWN SPREAD TEST, the same function with the same tolerance,
+  >        applied to a training season. Its edges are whatever D5 (3)'s are in code. Nothing new.
+  >    Q2. THE CANDIDATE MAY RE-DECLARE v1's CONSTANTS, on four conditions: what is declared is a
+  >        procedure fixed before any fit (the grid, the objective on the training seasons walked
+  >        forward, the tie rule); it is fitted on training seasons only; the pre-check of 302 item
+  >        2(b) holds on each of them; and it is one candidate with one run. A refit of s alone
+  >        stays open too. I choose between them at the declaration, on receipts, not now.
+  >    Q3. NO. 2023 has been read (v2's D10). For a refit of s its slope follows from the figure on
+  >        the record; for re-declared constants it would be a second scoring of a season already
+  >        read. Either way it is not a test again. It may enter the TRAINING stream if the
+  >        declaration says so, and then the pre-check covers it like any training season.
+  >    Q4. NO COUNT IN THE STRING; D5's 500 stays the floor. And the 2027 candidate will declare THE
+  >        WHOLE REGULAR SEASON as its scored set, run once after the last regular-season game is
+  >        final and labelled, not at the 500th game as v2 did. The thresholds are the same; the
+  >        larger sample is a fairer read of the same spread test, and I say so a year before any
+  >        2027 game exists. A run at the 500th game would have left the season's last weeks at most.
+  >    Q5. YES, AND ONLY ON MY ORDER: the slope of each training season at a common s is the
+  >        pre-check itself. It is a receipt of Lane B's, by its own PR, on training seasons only,
+  >        after 2026's postseason labels close. Every such run is recorded with its s; no look at
+  >        the training seasons goes unrecorded. None is ordered today.
+  >    Q6. D5 (4) for 2027 reads: every rating after the last game the run walks, which is the last
+  >        game of the fingerprinted stream.
+  >    Q7. YES. The stamped payloads under exports/cfbd/ are kept, unrotated, through the 2027
+  >        verdict; nothing prunes them. DEV 1: say from the code whether any pruner or mirror rule
+  >        can touch that folder, on #79, when you next read. I count the folder at a host sitting.
+  >    Q8. YES, BEFORE ANY FIT: whether a college row may be created from a second source changes
+  >        the training stream. I rule it by its own addendum after the read of 2026-12-06 on #1035
+  >        gives its figure.
+  >    Q9. THE CANDIDATE'S INPUTS COME FROM THE CFBD-LABELLED STREAM ALONE unless the declaration
+  >        names a stored-row input, and it names none while #1048's FBS case stands unrepaired. So
+  >        no rest-day term is declared on those rows. Today's finding (493 item 2(b), five lower-
+  >        division schools held as two stored teams) is the same kind and is read beside #1048.
+  >    Q10. NO. The close is reported and never gated (D11), from the quotes stored forward in 2027.
+  >        417 item 3's ruling on the settled history is not a condition of the declaration.
+  >
+  > 2. WHAT I TAKE FROM SECTION 3, in my words: the same constants gave spread slopes on both sides of
+  >    the band in different seasons, with margin, level and range passing every time. That is the
+  >    thing the next candidate has to answer, and a scale fitted to one season does not answer it.
+  >    The bar does not move for it.
+  >
+  > 3. NOTHING IS BUILT OR RUN ON THIS ADDENDUM. The roadmap's college step keeps its date. The order
+  >    of work is your section 8; I order Lane B's receipts after the postseason labels close.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 498, where it landed:**
+  - The whole addendum is on #79 (comment 7141136165).
+  - Q7: DEV 1's read from the code on main 822ff041 is on #79 (comment 7141136552). No pruner, mirror rule or deploy step removes or rotates anything under exports/cfbd/. The one sanctioned move (sp_migrate's pack and install; the one-time H2 cutover) copies the folder and can add to it, and the answer names that. One edge is named and not fixed: two saves for the same year in the same second write the same payload name. The comment was edited after DEV 1's own review: the delete count was corrected to 57 with its pattern stated, and the move was added.
+- **Addendum 499 (ARCHITECT 2026-11-24 10:06 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 10:06 ET (15:06Z, read from the clock) — addendum 499, for DEV 3 (Lane C), your MLB note on #507 ruled; DEV 2 (Lane B), two additions to work you hold; DEV 1 (Lane A), to record.
+  > Posted on #1092. Record it in BACKLOG as rulings for the 2027 MLB declaration; it goes on #97, with a pointer on #507. No candidate is declared.
+  >
+  > 1. DEV 3, YOUR NOTE ON #507 (issuecomment-7111477154) IS READ WHOLE. Your Q1 was right and it was
+  >    answered an hour after you posted, by addendum 469: the live path did price with the snapshot
+  >    layer, my 266 item 1 and 273 item 2 were wrong, and the layer is retired from the live path
+  >    before 2027. The ten questions, ruled:
+  >
+  >    Q1. (a) YES: 469, and the PR of 469 item 3(b) by 2026-12-18. (b) THE 2027 OFF ARM IS THE
+  >        PITCHER-LESS MODEL that PR makes live. A 2027 candidate that carries an as-of pitcher
+  >        layer is the ON arm against it, at the same 0.0050, by its own declaration. (c) #746
+  >        ends with that PR and with nothing else.
+  >    Q2. ONE FORM, CHOSEN AT THE DECLARATION: the early-season prior or the switch, not both.
+  >    Q3. YES, the 2027 regular season as it accrues is the test. THE CUT IS EVERY GAME THE LIVE
+  >        PATH PRICES BEFORE ITS FIRST PITCH, the layer as it would run that day, its fallback
+  >        for an unlisted starter included: the gate measures the model the Desk would use, not
+  >        the games that flatter it. THE COUNT IS SET AT THE DECLARATION. It is a trade the
+  >        operator hears first: a verdict at mid-season could put a passing layer to work in 2027
+  >        but reads the months where 2026's finding was weakest; a whole-season verdict is the
+  >        fairer read and serves 2028.
+  >    Q4. MLB 2026 IS RETIRED AS A TEST SEASON, WHOLE: no 2026 game is a test for any MLB
+  >        candidate. DEV 2: key mlb-pitchers-v1's stored test_set string into
+  >        registry.RETIRED_TEST_SETS, exactly, as #1095 did for the NFL, with a test that a
+  >        declaration naming it refuses; what to declare instead is "the MLB 2027 regular season
+  >        as it accrues". It rides the PR of 469 item 3(b) or is a small one of its own, by
+  >        2026-12-18. Which of the 876 carried a live row is not read; it would change nothing.
+  >    Q5. EVERY CONSTANT IS DECLARED A PRIORI, WITH ITS DERIVATION. The 2025 and 2026 appearances
+  >        are the prior's base, as inputs. No game outcome of 2025 or 2026 fits a constant, and the
+  >        per-month lines of 266 set none. The declaration says they were seen.
+  >    Q6. THE GATE SCORES THE RAW PROBABILITY IN BOTH ARMS, AS 190 ITEM 1 DID, and the declaration
+  >        names no market reference. THE BLEND IS A SEPARATE QUESTION AND IS NOT RULED HERE: where
+  >        the stored configuration enables it (the run's copy held it enabled at weight 0.5), the
+  >        live MLB price is the model's pulled half-way to the books' (training.py, the blend
+  >        branch), and the doctrine of 2026-09-25 says the market is a reference, never a feature.
+  >        I rule it by its own gate-class addendum before any 2027 price. DEV 2: add to your plan
+  >        on #746 (2026-12-04) every reader of the blended probability: the page, the Desk's edge
+  >        and its tier, the graded record, improve's replay. Say for each whether it reads the raw
+  >        figure or the blended one. Plan only.
+  >    Q7. MINE: a read-only count, in a morning block this week, of the 2026 postseason's games
+  >        against their stored appearances and results.
+  >    Q8. YES, MEASURED FIRST. The is_starter finding gets a read-only receipt before any fix; the
+  >        fix is then the adapter's own PR on my ruling. I date both with the lane (item 2).
+  >    Q9. NO. improve scores its own candidates on its own holdouts, never a declared arm. The
+  >        declaration freezes both arms' configurations for the season; a PASS of improve inside
+  >        the test season is held, as today, and I rule it without reading the gate's arms.
+  >    Q10. YES. The pregame stamps are the test's raw material, so the two laptop chains that write
+  >        them are ruled first, and the declaration follows before the first 2027 game is graded.
+  >
+  > 2. THE 2027 MLB LANE AND ITS DATES ARE MINE TO DECLARE, on #97, by Friday 2026-12-18, when the
+  >    retirement PR is in. Until then your section 8 is the order. Nothing is built on this
+  >    addendum beyond Q4's key and Q6's lines in a plan already owed.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer. The MLB bar is 0.0050 and did not move.
+
+- **What DEV 1 did on 499, where it landed:**
+  - The whole addendum is on #97 (comment 7141137011), with a pointer on #507 (comment 7141137401).
+  - Q4's key and Q6's lines are DEV 2's.
+- **Addendum 500 (ARCHITECT 2026-11-24 11:02 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 11:02 ET (16:02Z, read from the clock) — addendum 500, POLICY, for DEV 3 (Lane C), your plan on #1108 ruled; DEV 1 (Lane A), to record and three builds; DEV 2, for your knowledge.
+  > Posted on #1092. Record it in BACKLOG as a policy ruling; it goes on #1108. It supersedes the premise at BACKLOG.md:3383 (item 2, Q10).
+  >
+  > 1. THE COUNT, A DAY EARLY (the laptop, 11:00 ET, by my block, read-only; two provider calls by
+  >    id; nothing written):
+  >    (a) ONE stored placeholder team (our team id 1636; the provider's team id 345).
+  >    (b) NINE college rows of 2026 hold it, ALL FCS, all on 2026-12-05: eight with it on one side,
+  >        one with it on both (33608). NO FBS ROW HOLDS IT. The FBS rows stored from 12-01 on are
+  >        four, each with two named teams. Eight of the nine sit at 04:00Z; 33608 at 19:00Z.
+  >    (c) MATCH 66178 IS THE PROVIDER'S ERROR, read by id: under the college league, stage FBS,
+  >        season 2026, the same game id served one NFL game when we stored it and serves another
+  >        NFL game today. Our row copies a real NFL game that the NFL competition already holds
+  >        (match 15191, same kickoff). Its two teams carry a 2026 college membership they should
+  >        not have.
+  >
+  > 2. DEV 3, YOUR PLAN (issuecomment-7135605510) IS READ WHOLE AND ACCEPTED. The ten questions:
+  >    Q1. YES, A FILL IS A RULED CARVE-OUT, in your words of (b) and no wider: position by position,
+  >        every side that differs is the stored placeholder, the other side is equal, each filled
+  >        team is stored, is not the placeholder and is not the row's other team. A flip stays
+  >        refused (292 item 3(d)); another game stays refused (3(a)). The fill is never silent: its
+  >        own receipt line with the match ids. THE PLACEHOLDER ROWS STAY REFUSED THROUGH 12-04 AND
+  >        12-05: none is an FBS game, and nothing is hurried into the sync for nine FCS rows.
+  >    Q2. ONE ID, 345, held as data in placeholder.py beside the kickoff's definition, never
+  >        matched by name. The kickoffs are answered in item 1(b).
+  >    Q3. THE SAME PASS: after the fill the pair reads SAME and the unchanged SAME path writes what
+  >        it writes today. The test shows the row then holds what a fresh create would, but its id.
+  >    Q4. THE UPSERT ALONE. refresh-by-id is not touched and keeps refusing until the sync fills.
+  >    Q5. NO NEW CONSTANT: the kickoff window is the placeholder's own (PLACEHOLDER_RESOLVE_H, 24
+  >        hours as your plan reads it); the pair-collision window is the dry run's 48 (TWIN_H).
+  >    Q6. NOT BEFORE 12-04. Until the fill has shipped and I say so, nobody applies the college
+  >        orphan plan; the dry run goes on. The twin guard rides the fill's PR if it is small,
+  >        else its own.
+  >    Q7. NO ONE-OFF: no FBS game is in the count. The count is in every morning block from
+  >        tomorrow; an FBS placeholder before the rule ships is ruled the day it appears.
+  >    Q8. merge-teams, the ruled remedy (44 item 3), for the five schools, AFTER its dry run can
+  >        read a copy (198 item 6(ii)). Until then the 41 rows stay refused; they are finished
+  >        lower-division games and lose nothing.
+  >    Q9. DONE TODAY (item 1(c)). And a membership does not tell such a row apart: the bad row's own
+  >        teams hold one. THE RULE: in the college competition, a listing either of whose teams
+  >        holds a membership of the NFL competition is refused at create and at update, counted
+  >        with its id, never stored. Match 66178 and the two memberships are retired by my
+  >        OPERATOR ONLY block after that rule is on main, by a reviewed write, never by hand SQL.
+  >    Q10. YES to both: this addendum's record supersedes that premise, and the docstring changes
+  >        in the fill's PR.
+  >
+  > 3. DEV 1 — THREE PRs, each its own, money-path (the sync and what the Desk's exports read):
+  >    (a) THE NFL-TEAM REFUSAL of Q9, with its count line: a reviewable head by Tuesday 2026-12-08.
+  >    (b) THE FILL of Q1 to Q5: a reviewable head by Tuesday 2026-12-08. It must be tagged before
+  >        the playoff's later rounds are named, in the second half of December; hence the date.
+  >    (c) merge-teams' copy mode of Q8: a reviewable head by Friday 2026-12-18.
+  >    DEV 1 HAS NOT READ SINCE 00:35Z. If it has not reported by tomorrow 09:00 ET, I reassign (a)
+  >    and (b) by addendum.
+  >
+  > 4. MINE: tomorrow's block also counts, over every season, the college rows either of whose teams
+  >    holds an NFL membership. The host's copy is read at Wednesday's sitting.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 500, where it landed:**
+  - The whole addendum is on #1108 (comment 7141134539). Its record supersedes the premise at BACKLOG.md:3383 (item 2, Q10).
+  - Item 3: DEV 1's three money-path PRs, each its own: (a) the NFL-team refusal and (b) the fill, reviewable heads by Tuesday 2026-12-08; (c) merge-teams' copy mode by Friday 2026-12-18. DEV 1 reported at 18:37Z (channel comment 7140903248, posted 18:37:21Z; its report line reads 18:42Z), before item 3's 09:00 ET line.
+- **Addendum 501 (ARCHITECT 2026-11-24 11:03 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 11:03 ET (16:03Z, read from the clock) — addendum 501, FOR THE RECORD, for DEV 1 (Lane A), to record word for word; DEV 2 (Lane B), for the design PR of 12-01; DEV 3, for your knowledge. Nothing to build.
+  > Posted on #1092. Record it in BACKLOG as the verbatim texts of four earlier items; it goes on #992, with a pointer on #839 for 368.
+  >
+  > 1. DEV 2 reported (14:52Z) that four texts the design of 11-14 cites are not on the record word for word:
+  >    368 items 3 and 5, 375 item 4(a) and 4(b), and 376 item 3. They were relayed by hand before this channel
+  >    existed. Here they are from my own files, whole. The line breaks are this addendum's; every word is the
+  >    original's. Cite them from here.
+  >
+  >    ARCHITECT 2026-11-13 10:45 ET, addendum 368, item 3, verbatim:
+  >    > 3. THE CONDITIONS, standing for this source: (a) ONE MACHINE, THE HOST. Nothing of a report — the
+  >    > document, a parsed row, a player's name, a status — is ever on the laptop, the public repo, the exports
+  >    > mirror, a bulletin, the Cockpit, an Issue or a PR; tests hold synthetic shapes only. The laptop pulls
+  >    > the host's database backups nightly, so THE REPORT'S ROWS DO NOT LIVE IN sports.db. (b) NO NBA
+  >    > STATISTICS from nba.com, ever, for anything: (iv) and (vii) plainly reach our use of those. (c) One
+  >    > fetch per published report, the plain User-Agent, no crawl. (d) On any objection, block, or change in
+  >    > the terms: the timer stops the same day and everything obtained is destroyed — so the store must be
+  >    > destroyable whole without touching any other source's append-only rows. (e) The terms phase is re-run
+  >    > before the feed is enabled and at each season's start; a changed date line comes to me before the next
+  >    > fetch.
+  >
+  >    ARCHITECT 2026-11-13 10:45 ET, addendum 368, item 5, verbatim:
+  >    > 5. THE FEED, AFTER THE REPORT CONSOLE — your proposal in five to ten lines, no code, under these four
+  >    > constraints: (i) THE SOURCE IS A PLUG. One small interface (fetch, then rows of kind `injury_status`
+  >    > with the source's own stamp), the official report its first implementation, a vendor's feed a second.
+  >    > Nothing downstream — the graph, a page, any future model input — names a source; it reads the kind. A
+  >    > swap is one timer enabled and another disabled, by my block; both may run side by side for a comparison
+  >    > window. (ii) A HOST-ONLY STORE for this source: the record's two-table shape and its append-only
+  >    > discipline, in its own SQLite file on the host that no backup pull, mirror push or export carries off
+  >    > the machine. Say where it lives, how it is backed up on the host itself, how the graph projection and
+  >    > coverage read it, and what sp_deploy, T11 and THE HELD LIST need to know of it. (iii) THE DESTROY PATH:
+  >    > one command, run by my block alone, that removes this source's store and its payloads whole and leaves a
+  >    > receipt line saying what was destroyed, when and on whose ruling. (iv) The new source word and store are
+  >    > a stored-schema change: say whether that is a migrate file of its own (354 item 2) or the store's own
+  >    > init, and how the schema check reads it. I rule on the proposal; the feed PR follows it.
+  >
+  >    ARCHITECT 2026-11-13 16:40 ET (21:40Z, read from the clock), addendum 375, item 4, verbatim:
+  >    > 4. DEV 2 — TWO THINGS, nothing built or run. (a) THE CEILING READINESS READ by 11-19, five to eight
+  >    > lines on #105: the question the test will ask is whether KNOWING WHO ACTUALLY STARTED moves an NHL model
+  >    > past its bar at all; if it cannot, no projected-starter source, bought or inferred, is worth building
+  >    > for hockey. Tell me: what candidate nine's goalie term was to be and what the GSAx feasibility receipt
+  >    > established; whether the true starter of every game of 2023-24 to 2025-26 is derivable from what is
+  >    > stored, and the coverage by season; whether the harness in src/walters/nhl_backtest.py can run a goalie
+  >    > term on a RETIRED cohort with goalie figures taken strictly as of each game's morning; what stability
+  >    > guards such a candidate must declare (157 item 3); what is unbuilt; and anything the declaration must
+  >    > name that I have not asked. NO FIGURE of any goalie-aware model on any cohort is produced or looked at
+  >    > before my declaration. (b) THE FEED PROPOSAL OF 368 GROWS INTO ONE DESIGN: one host-only store, apart
+  >    > from sports.db, that holds both the NBA report's rows (tier api, host-only for its terms) and the
+  >    > inferred tier of item 2, the tier on every row; each source and the LLM provider a plug with its own
+  >    > destroy path; the reader's fixed vocabulary (the availability record's kinds, extended, not replaced);
+  >    > the scoring report of item 2(d); the spend cap; a cost estimate per sport per day for the pilot; what
+  >    > leaves the host (scores and labelled summaries to the private mirror, nothing else). The proposal comes
+  >    > to me as text by 11-25, the design PR by 12-01. YOUR ORDER: the v23 readiness read (11-18) first, as
+  >    > dated; the matcher proposal; (a); then (b).
+  >
+  >    ARCHITECT 2026-11-13 16:45 ET (21:45Z, read from the clock), addendum 376, item 3, verbatim:
+  >    > 3. DEV 2 — INTO THE DESIGN (375 item 4(b)): name the Claude API as the first provider behind the plug;
+  >    > add a small bench for the controlled tests of item 2 (the prompt and its version as files in the repo,
+  >    > the inputs and outputs kept on the host only); give the cost estimate as tokens per game and per day for
+  >    > the NHL pilot, in tokens and calls, so the operator can price it. One design question to answer in the
+  >    > proposal, not to decide alone: whether the reader fetches a FIXED list of sources itself and hands the
+  >    > text to the model (my lean: it keeps 375 item 2(f) and 2(i) checkable), or lets the provider's own web
+  >    > search choose pages (it cannot be held to a terms phase or to the no-market-content rule in the same
+  >    > way). The dates of 375 stand.
+  >
+  > 2. Nothing in them is ruled again here, and where a later addendum changed one (491 and 496 on the ceiling;
+  >    375 and 376 on the layer) the later text governs. 375 item 4(a)'s readiness read was done on 11-19.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 501, where it landed:**
+  - The whole addendum is on #992 (comment 7141137746), with a pointer on #839 for 368 (comment 7141138135). The four texts are on the record word for word here.
+- **Addendum 502 (ARCHITECT 2026-11-24 11:33 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 11:33 ET (16:33Z, read from the clock) — addendum 502, POLICY, for DEV 3 (Lane C), your money-path read on #1102 ruled in part; DEV 1 (Lane A), to record; DEV 2, for your knowledge.
+  > Posted on #1092. Record it in BACKLOG as a policy ruling; it goes on #1102. Nothing in it changes a call today.
+  >
+  > 1. DEV 3, THE MONEY-PATH READ (issuecomment-7137576430) IS READ WHOLE. It is the most useful
+  >    read of the week: it shows where a call could stand on something nobody checked. Nothing in it
+  >    is an observed failure; each line is a path the code leaves open. Two receipts of mine beside
+  >    it, from the mirror's Premier League closing files of 2026-11-21 to 11-23 (10 rows, 0 PLAY):
+  >    every row's prediction was computed within ten seconds of its export (A2 did not occur), and
+  >    in the history the mirror keeps (from 11-22) every push of the latest Premier League file was
+  >    a slate carrying Desk blocks (B5 did not occur). The season's whole count is read on the host
+  >    at Wednesday's sitting.
+  >
+  > 2. WHAT I RULE NOW. Each only ever removes a call; none can make one.
+  >    Q2. YES. R2 reaches the prediction: a closing row whose prediction was computed before the
+  >        run's start is stale exactly as a stale price is. Its own money-path PR.
+  >    Q3. YES. "The empty answer never vouches for itself" reaches a Premier League row: where both
+  >        sides' injury lists are empty answers at a closing, the row gets no Desk call, as a
+  >        one-sided row gets none (40 item 6, extended). A policy change, its own small PR, first.
+  >    Q5, in part. A NOTICE THAT NO CHANNEL TOOK IS NOT A NOTICE: a run whose failure notice was
+  >        refused by every channel does not exit as notified; it exits as a failure and its
+  >        receipt says so. The rest of Q5 (the write that fails after the page) waits on item 3.
+  >    Q6. MINE, and placed: the soccer and NFL Kalshi commands join step (7) of 497 item 2, with the
+  >        same split of "no open markets" from a failure. The marker table stays as built.
+  >    Q7. YES. sync-odds' uncounted drops and sync-odds-football's skips get a printed count first,
+  >        with 497's step (0); no exit changes with it.
+  >    Q8. YES, mine, and not now: a row with no reference will carry why none was stored, as one
+  >        added field, by an export-contract PR that I date after 497's steps (0) to (3).
+  >    Q9. YES, 167 postscript (b) covers the mirror's latest: a file with Desk blocks is not replaced
+  >        there by one without. The freshen's stamp on a failed run gets its own Issue.
+  >    Q10. TWO ISSUES, not one: the hourly page's state advancing on a failed post; and 497 Q9's
+  >        five-line tail.
+  >    Q4 is #348's question and is ruled with it, after Wednesday's run.
+  >
+  > 3. WHAT I DO NOT RULE TODAY, AND WHY: Q1, the rest of Q5, and your A4 to A7 are one question. They
+  >    all turn on what the Desk shows when a closing is missing, failed or unread: today the
+  >    slate's earlier row stands, a PLAY included (graded_export, "only where no closing file names
+  >    the match"). Whether a slate PLAY may stand without a closing is a change to how the operator
+  >    works, so I have put it to him with my recommendation. I rule Q1, Q5 and the rest on his
+  >    answer. Until then nothing in the slate or the closing changes.
+  >
+  > 4. DEV 3: (a) while Dev 1 is silent, open the three Issues this addendum names (Q9's stamp, Q10's
+  >    two), findings, labelled from the fixed set, and say their numbers. (b) One more plan on
+  >    #1102, from the code, nothing run, 60 lines at most, by Friday 2026-11-27 12:00 ET: the
+  >    smallest change for each of Q2, Q3 and Q5's notice rule: the lines it touches, the tests
+  >    that pin today's behaviour, what the page and the closing file show after it, and what in
+  >    the season's stored closing files would let my host block count the rows each would have
+  >    changed. Plan only; the builds are assigned when I have it.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 502, where it landed:**
+  - The whole addendum is on #1102 (comment 7141135290).
+  - Item 4(a): #1109 (the freshen's stamp on a failed run, Q9), #1110 (the hourly page's state on a failed post, Q10) and #1111 (the five-line tail, 497 Q9; Q10) were opened by DEV 3 while DEV 1 was silent. Each is a finding (track:ops, class:finding, sport:all, size:M), and each is recorded here.
+  - Item 4(b) is DEV 3's (done on #1102).
+- **Addendum 503 (ARCHITECT 2026-11-24 13:02 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 13:02 ET (18:02Z, read from the clock) — addendum 503, POLICY, for DEV 3 (Lane C), your build plan on #1102 ruled; DEV 2 (Lane B), two builds; DEV 1 (Lane A), to record.
+  > Posted on #1092. Record it in BACKLOG as a policy ruling beside 502; it goes on #1102.
+  >
+  > 1. DEV 3, THE BUILD PLAN (issuecomment-7139845321) IS READ WHOLE AND ACCEPTED, with these answers
+  >    to its seven questions:
+  >    Q1. A STAMP THAT IS PRESENT AND BEFORE THE RUN'S START IS STALE. A MISSING STAMP IS STALE ONLY
+  >        WHERE THE EXPORT CARRIES ONE BY CONTRACT (the Premier League's rows and MLB's): there a
+  >        row without it is a row I cannot vouch for (law 4). NFL rows carry none and are PASS by
+  >        rule while NFL is market-only (214); they are untouched. A stamp on NFL rows comes with
+  >        the export-contract PR of 502 Q8, or with NFL's certification, whichever is first.
+  >    Q2. YOU HAVE NAMED THE REASON PR 2 WAITS. A closing failed for a stale prediction leaves the
+  >        slate's row standing, a PLAY included, and the slate checks less than the closing does.
+  >        So PR 2 is NOT built until 502 item 3 is ruled; shipped alone it could trade a checked
+  >        row for a less checked one. When it is built its line says "computed", not "captured".
+  >    Q3. ITS OWN KIND, THE SAME SWITCH: a both-empty row is not a one-sided row, and a receipt
+  >        that counts causes must be able to tell them apart. One new name; no new threshold and no
+  >        new switch. The rule is on wherever the one-sided rule is on.
+  >    Q4. WHEREVER THE DESK RUNS, AND FOR EXACTLY THE ROWS THE ONE-SIDED RULE COVERS, no wider and no
+  >        narrower: slate and closing alike, and a count of 0 whatever emptied the list. A list
+  >        whose entries were all dropped is not a list that was read. 502's "at a closing" and
+  >        "empty answers" are widened to this by this addendum. The pair (None, None) stays as it
+  >        is today: it is the state of a competition with no injury feed, not of a failed read.
+  >    Q5. EVERY ONE OF THEM: a failed run, a closing miss, a slate miss and the held page. Wherever
+  >        a notice was sent and no channel took it, the tick does not count as notified.
+  >    Q6. A tick that had nothing to send stays as today, ON ONE CONDITION that the PR must show: a
+  >        miss is marked as already notified only when a channel took that notice. If the mark is
+  >        set on a notice nobody received, the next tick's silence is the same failure again; say
+  >        in the PR which it is today, and if it is the second, the mark moves to delivery.
+  >    Q7. A REFUSAL STAYS EXIT 2, with the same receipt key set when no channel took its notice. The
+  >        key's name is the builder's; it must read plainly in the receipts' steps view.
+  >
+  > 2. THE BUILDS, each its own PR, money-path, reviewable heads by Monday 2026-11-30 12:00 ET:
+  >    DEV 2: PR 1 (Q3 and Q4: the both-empty rule, a policy change, first and small) and PR 3
+  >    (Q5 to Q7: the notice rule). They stand above the #746 plan: each closes a way a call or a
+  >    failure could go unseen on the live path (59 item 5). Lane A is silent; if it reads before
+  >    you start, it takes PR 3 and says so here. PR 2 is nobody's until item 1's Q2 clears.
+  >
+  > 3. MINE: the season's count for each rule is in Wednesday's host block (both-empty and one-sided
+  >    rows by call; prediction age; nothing of an amount). The receipts' count for the notice rule
+  >    I read from the host's receipts at the same sitting.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 503, where it landed:**
+  - The whole addendum is on #1102 (comment 7141135725).
+  - Item 2: DEV 1 offered to take PR 3 on the channel (comment 7140903248), with DEV 2 keeping it if already started. DEV 2 had started it (report 7141040028), and it stays DEV 2's (addendum 504 item 4(a)). PR 1 is DEV 2's. PR 2 is nobody's until item 1's Q2 clears.
+- **Addendum 504 (ARCHITECT 2026-11-24 14:01 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 14:01 ET (19:01Z, read from the clock) — addendum 504, for ALL THREE SESSIONS; DEV 1 (Lane A) records.
+  > Posted on #1092. Record it in BACKLOG as usual; item 2 is standing and amends 463's reading rule.
+  >
+  > 1. DEV 1, your report of 18:42Z is read. You said what broke, why, and what you did not touch on a
+  >    guess; that is the report I want when something breaks. The fallback I had set for 15:00 ET
+  >    is cancelled: the fold of 17:00 ET and the records are yours as before.
+  >
+  > 2. STANDING, FOR EVERY SESSION, added to 463's reading rule beside 490: a read of this channel
+  >    reaches its last comment. It either asks only for comments since the last one it read, by
+  >    the API's own since parameter, or pages to the end; and it says in its report the id of the
+  >    newest comment it saw. A read that cannot say that id has not read the channel. DEV 1: this
+  >    sentence goes into CLAUDE.md's channel paragraph with your records PR.
+  >
+  > 3. #1113 (490's CLAUDE.md paragraph) IS READ at 39f9a3f9: items 2 and 3 stand in CLAUDE.md word
+  >    for word, and the whole addendum in its ledger entry (30 lines checked by me). CI green, the
+  >    review found nothing, no thread open. IT IS MERGE-READY and the operator has its merge block.
+  >    If it is merged before 17:00 ET the fold carries it; the fold does not wait for it.
+  >
+  > 4. WHO BUILDS WHAT, settled:
+  >    (a) 503's PR 3 (the notice rule) STAYS DEV 2's: it was built before Dev 1 read. DEV 1, your
+  >        order is then right as you wrote it without PR 3: the fold, the records, 500 (b), 500
+  >        (a), then 497 (0) to (3).
+  >    (b) DEV 2, on PR 3: the mark moving to delivery is what 503 Q6 asked for. The slate page cut
+  >        at its bound staying exit 3 and being sent again stands. THE REFUSALS' ONCE-PER-REASON
+  >        MARK FOLLOWS THE SAME RULE: it is set when a channel took the notice, not when one was
+  >        sent. It rides PR 3.
+  >    (c) DEV 2, on #1055: the merge from main is fine and changes nothing; it stays parked (480).
+  >        On #1112: its rounds are yours under the stop rule; my ruling is the one of 12-03.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 504, where it landed:**
+  - Item 1: recorded; the fold of 17:00 ET and these records stay DEV 1's.
+  - Item 2 (standing): CLAUDE.md, under the architect channel, gains "A read reaches the last comment", the sentence quoted, in this PR. DEV 1's read pages to the end, and each report says the id of the newest comment it saw.
+  - Item 3: #1113 is merge-ready at 39f9a3f9. The fold carries it if it is merged before 17:00 ET, and does not wait for it.
+  - Item 4(a): 503's PR 3 stays DEV 2's. DEV 1's order: the fold, these records, 500 (b), 500 (a), then 497 (0) to (3). Items 4(b) and 4(c) are DEV 2's, recorded only.
+- **Addendum 505 (ARCHITECT 2026-11-24 14:25 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 14:25 ET (19:25Z, read from the clock) — addendum 505, POLICY, for DEV 2 (Lane B); DEV 1 (Lane A), to record; DEV 3, for your knowledge.
+  > Posted on #1092. Record it in BACKLOG beside 502 and 503; it goes on #1102, with a line on #322 for item 2(c).
+  >
+  > 1. #1113 IS MERGED at 39f9a3f9 by the operator's agent from my block (14:23 ET). MAIN IS 9fcd5e8d.
+  >    Tonight's fold is cut from main as it stands at 17:00 ET and so carries it. DEV 2, your report
+  >    of 19:27Z is read; the newest comment I had seen before this post was yours, 7141888589.
+  >
+  > 2. #1115 (the both-empty rule) IS READ at 6951d685, and its question is answered.
+  >    (a) THE BUILD IS AS RULED: its own kind on the one-sided switch, exactly the rows the one-sided
+  >        rule reads, checked after it, the receipt and the rescore each counting it apart. Its 47
+  >        tests of the two touched files pass in my own scratch checkout.
+  >    (b) MY PREMISE IN 503 Q4 WAS WRONG ON FACT, AND YOU FOUND IT. I wrote that (None, None) is the
+  >        state of a competition with no injury feed. The export never writes it: a team with no
+  >        stored row reads count 0. THE BUILD STANDS AS IT IS, and its consequence is now the rule,
+  >        knowingly: a soccer row both of whose lists read 0 gets no call, a competition with no
+  >        feed included. That fails closed, which is what I want from it.
+  >    (c) SO, STANDING: no league leaves the shadow list for calls without its injury sync, or
+  >        without an exemption that I rule by the league's name. The leagues' confirmation PR (447
+  >        PR 3) says so in its record. Nothing changes for it today: the five leagues pass earlier
+  >        as shadows.
+  >    (d) WHY A BOTH-EMPTY ROW IS NO CALL THOUGH ITS NUMBER IS THE GATED MODEL'S (the sentence your
+  >        PR takes out of the old comment was true): the gate scored forecasts; a call is a price
+  >        against a market that knows who is out. An edge on lists nobody read is the kind the
+  >        record calls anti-predictive. No probability changes.
+  >    (e) IT DOES NOT RIDE v1.6.11: its CI and its review were not in when I read it, and the fold
+  >        does not wait. I rule merge-readiness when both are in; it ships in the tag after, with
+  >        the season's count from Wednesday's host block beside it. That count informs; it is not
+  >        a condition.
+  >
+  > 3. PR 3 (the notice rule), from your report: queuing every resend to the end of the tick, under
+  >    the slate pages' bound and never across the next closing's start, is the right shape, and you
+  >    were right to treat an unbounded resend as #613's class. I read it whole when it opens.
+  >
+  > 4. #1112: round cap noted. Its open list (the key's three options; review 4's point that a score
+  >    report carries the gate's parameters; #1114's P2s) is for my ruling of 12-03 and not before.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 505, where it landed:**
+  - The whole addendum is on #1102 (comment 7142294031). Item 2(c), standing, is on #322 (comment 7142295463).
+  - Item 1: #1113 merged at 39f9a3f9; main 9fcd5e8d. The fold of 17:00 ET carries it.
+  - Items 2 to 4 are DEV 2's, recorded only. #1115 does not ride v1.6.11 (2(e)).
+- **Addendum 506 (ARCHITECT 2026-11-24 14:26 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 14:26 ET (19:26Z, read from the clock) — addendum 506, POLICY, for DEV 3 (Lane C), one plan; DEV 2 (Lane B) and DEV 1 (Lane A), for your knowledge; DEV 1 records.
+  > Posted on #1092. Record it in BACKLOG as a policy ruling beside 502, 503 and 505; it goes on #1102. It rules what 502 item 3 left open.
+  >
+  > 1. THE OPERATOR HAS DECIDED (14:26 ET today). I asked him whether a morning slate PLAY should
+  >    stand without a closing page, and recommended that it should not. His answer, in his words:
+  >    "it should". SO THE SLATE'S ROW STANDS WHERE NO CLOSING FILE NAMES THE MATCH, AS BUILT. That
+  >    is not changed, and I do not reopen it.
+  >
+  > 2. WHAT FOLLOWS IS MINE: if the slate's call can stand alone, the slate has to earn it the way
+  >    the closing does. Ruled, each only ever removing a call or adding words, never making a call:
+  >    (a) Q1, THE SLATE'S PRICES. No slate row is a PLAY on a book reference or a Kalshi leg that
+  >        this run did not capture. Row by row: such a row is a PASS of its own kind with its
+  >        reason in words; the slate itself does not fail for it. The rows beyond the day, which
+  >        the slate does not re-read today, fall under the same rule: re-read, or not a PLAY.
+  >    (b) THE REST OF Q5, THE PAGE AND THE FILE. A closing page never says what its file does not
+  >        hold. A closing whose file is not written is a failed closing and is notified as one;
+  >        40 item 2's "the closing is not run again" stands.
+  >    (c) A4, THE EARLIER CALLS. Where the earlier calls cannot be read, the page says so in words
+  >        and says what it means: it cannot tell the operator that a PLAY has become a PASS, so any
+  >        working order for these games is his to check.
+  >    (d) A6 AND A7, A SLATE ROW STANDING AFTER A FAILED CLOSING IS SHOWN AS ONE: wherever the Desk
+  >        shows it, the row says the closing failed and when, and when the slate made its call.
+  >    (e) PR 2 OF 503 (the stale prediction at a closing) IS RELEASED, to be built AFTER (a) is on
+  >        main, so that a closing failed for it falls back to a row that was itself checked.
+  >
+  > 3. DEV 3 — THE PLAN FOR ITEM 2, on #1102, from the code, nothing run, 80 lines at most, by
+  >    Wednesday 2026-11-25 17:00 ET. For each of (a) to (d): the smallest change and the lines it
+  >    touches; the tests that pin today; what the page, the slate file and the closing file show
+  >    after it; and what my host block could count from the season's stored files. For (a) also:
+  >    how many provider requests a re-read of the rows beyond the day would add per slate, as a
+  >    count, so I can choose between re-reading them and passing them. For (d) say whether it needs
+  >    a new file or a new field, since either is an export-contract change. Each default takes
+  >    the ruled words only; where the smallest code is wider, say so and ask, as you did in 503.
+  >
+  > 4. NOTHING CHANGES ON EITHER MACHINE TODAY. The builds are assigned when I have the plan; PR 1
+  >    (#1115) and PR 3 of 503 go on as they are.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 506, where it landed:**
+  - The whole addendum is on #1102 (comment 7142294509).
+  - Item 1: the operator's decision is recorded in his words. Item 3 is DEV 3's. Item 4: nothing changes on either machine today.
+- **Addendum 507 (ARCHITECT 2026-11-24 14:30 ET), verbatim:**
+
+  > ARCHITECT 2026-11-24 14:30 ET (19:30Z, read from the clock) — addendum 507, MERGE-READINESS, for DEV 2 (Lane B); DEV 1 (Lane A), for the fold and to record; DEV 3, for your knowledge.
+  > Posted on #1092. Record it beside 505; it goes on #1102.
+  >
+  > 1. #1115 (the both-empty rule) IS MERGE-READY AT 6951d685, by the review stop rule's item 1.
+  >    (a) CI is green on that head: six checks passed, one skipped by design.
+  >    (b) The review ran on 5ba1ec9c and found nothing: no P1, no P2, no thread to answer.
+  >    (c) The one commit after the reviewed one renames the changelog fragment from its placeholder
+  >        number to 1115 and changes that number in the first line of each fragment. I read both
+  >        patches. No new review round is asked for it.
+  >    (d) I read the build whole at this head in 505 item 2; nothing there is changed by this.
+  >
+  > 2. IT MERGES AFTER v1.6.11 IS CUT, NOT BEFORE. 505 item 2(e) stands, though both conditions came
+  >    in before 17:00 ET. My reasons, so nobody reads this as an oversight: Wednesday's compare then
+  >    reads two machines under one Desk policy, and the season's count from the host block is beside
+  >    the change when it merges. I write its merge block on Wednesday after the tag. Nobody merges
+  >    it before then.
+  >    (a) DEV 1: tonight's fold does not contain #1115. Say in the fold's body which main it was
+  >        cut from; I expect 9fcd5e8d.
+  >    (b) DEV 2: nothing more is owed on #1115. If the fold's merge leaves it behind main, a merge
+  >        from main needs green CI and no review (stop rule, item 4). PR 3 goes on as it is.
+  >
+  > 3. The newest comment I had seen before this post is my own 506 (7142110744); the newest from a
+  >    session is DEV 2's 7141888589.
+  >
+  > Nothing in this addendum moves a bar, a date or a held timer.
+
+- **What DEV 1 did on 507, where it landed:**
+  - The whole addendum is on #1102 (comment 7142294974).
+  - Item 2(a): the v1.6.11 fold does not contain #1115, and its body says which main it was cut from.
+- **DEV 1's channel read:** addenda 489 to 503 were missed from 02:48Z to 18:34Z. The read was served the oldest fifty comments of #1092 and never saw a newer one (channel comment 7140903248). The read now pages to the end and keeps the operator's account before any body is read (490 item 2(a)).
+- Nothing here moves a bar, a date or a held timer, except the one roadmap date 492 item 4 moves, with its moved line. Nothing changes a prediction output.
+
 **2026-11-24 — The true-starter ceiling probe, built, not run (addendum 491 item 9; #105; #1107).**
 - **Ruling (491 item 1, in part):** "DECLARED: THE TRUE-STARTER CEILING, A PROBE, ONE RUN. It is not a candidate. It registers nothing, promotes nothing, sets no status and runs no shadow."
 - **What landed:**

@@ -1,3 +1,0 @@
-## 2026-11-26 (#1156: 1149-hidden-end-ever — the de-vig receipt counts the hidden end for the ever-flagged cohort (554 item 1(d); DEV 4, Lane D; Closes #1149))
-- **scripts/nfl_snapshot_devig_receipt.py:** `d.hidden_end_ever_book_flagged` and its month, the matches whose book alarm was set at any stamp in the window and whose last pre-kickoff book stamp is AWAY-only; printed beside the bell's subset, so the first run prints both cohorts alike. Nothing else changes.
-- **tests/test_nfl_snapshot_devig_receipt.py:** a reverted move ending on an AWAY-only stamp (in the ever cohort's subset, not the bell's), and the printed line; 31 pass.

@@ -1,6 +1,0 @@
-**2026-11-26 — The nightly backup pull tells, built (552 item 3; 554 item 2; DEV 4, Lane D; Refs #1053; #1154).**
-- **Ruling (552 item 3, in part):** "THE NIGHTLY JOB STAYS LOADED AND TELLS. It tries; when the host does not answer it leaves quietly, with its receipt. ... THE NOTICE IS BY THE AGE OF THE NEWEST VERIFIED COPY, NOT BY FAILED NIGHTS. ... No host name in any notice. The pull's exit stays 1 on a failed night."
-- **Ruling (554 item 2, in part):** "YOUR NINE POINTS ON #1053 (comment 7177190736) ARE READ. ALL NINE AS YOU READ THEM."
-- **What landed:** pull_backup.py's connect timeout below the kill, the stage, the scrubbed tail, the newest verified copy's name and age on every receipt, and one notice per 3-day step by that age through the card or the operator's topic; the receipt first, the notice after it as its own `pull_notice` line.
-- **For the architect:** the notice as its own line (P7's "after the receipt" kept over "on its pull receipt"); "no verified copy" told once in each spell; an unreadable folder its own state; `reason` beside `error`.
-- **Next:** the review rounds (money path: P2s after the fix round listed for the architect), then the merge. Nothing is installed again; the job reaches the laptop with the tag that carries it.

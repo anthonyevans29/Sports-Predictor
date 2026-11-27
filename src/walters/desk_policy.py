@@ -1186,16 +1186,18 @@ def kalshi_only_suspended(r) -> bool:
 
 def _env_file(path, strict: bool = False):
     """An env file's KEY=VALUE pairs, read with config.py's reader (python-dotenv). A file that does not exist reads {}
-    and the next source decides. One that exists but cannot be read (host.env is root:sp 0640; a directory): with
-    `strict` (host.env, addendum 116 item 2) HOST_ENV_UNREADABLE, which makes the role unknown and stops the reading;
-    without it {} (the checkout's .env, the last source: nothing after it either way)."""
+    and the next source decides. One that exists but cannot be read (host.env is root:sp 0640; a directory), or that
+    cannot be decoded as UTF-8 (ARCHITECT 2026-11-23, addendum 464 item 4; #1093): with `strict` (host.env, addendum
+    116 item 2) HOST_ENV_UNREADABLE, which makes the role unknown and stops the reading; without it {} (the checkout's
+    .env, the last source: nothing after it either way). A decode error is a ValueError, not an OSError: before #1093
+    it passed through every caller of role_reading as a traceback instead of the reading."""
     from dotenv import dotenv_values
     try:
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
     except FileNotFoundError:
         return {}
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return HOST_ENV_UNREADABLE if strict else {}
     return dotenv_values(stream=io.StringIO(text))
 

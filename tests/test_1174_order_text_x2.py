@@ -49,6 +49,8 @@ REFUSED = [
     "@ 0.45 X2", "@ 45c X2",                                    # the upper-case two after an at-sign and a price
     "X2 at 45c", "X2 @ 45c",                                    # ... and before "at" / "@"
     "45c X2", "45c X3", "45c x 3", "45cX3", "45 c x 2",         # D': a price in cents then a count
+    "45\u00a2 X2", "45\u00a2X2", "45&#162; X2", "45\uffe0 X2",      # ... the cents sign too (Codex P1 on #1178)
+    "45 cents X2", "45 cent X2", "0.45 cents x 3",              # ... and the word
     "@ 0.45 x 3", "x 3 at 45c", "@ 45c x 3",                    # the pins already on main stay
 ]
 

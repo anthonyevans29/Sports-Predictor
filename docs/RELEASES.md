@@ -770,10 +770,10 @@ its compare verdict.
   #1171 merge 412003a7, as v1.6.11's was the #1121 merge: the ledger compile a152b22d (32 changelog fragments, 33
   ledger entries) over 6d511184 (#1170's merge). Its tree 5132fedc is the tree of the architect's own compile on
   6d511184 (577 item 1(a)). The tag was cut by the operator's own hand from the architect's block and is on origin, as
-  Code fetched it. Its tagger stamp is 2026-11-27 17:41:07Z (12:41:07 -0500). ONE TAG AND ONE DEPLOY (565 item 2(d);
-  573 item 4(f)): it carries the record of soccer-v23's one run and its REJECT (#1170) and every merge since v1.6.11,
-  and the host went from v1.6.10 to v1.6.12 in one deploy; v1.6.11 was never deployed by itself. **DEPLOYED 2026-11-27
-  18:25Z. PRODUCTION = v1.6.12** (580 item 2).
+  Code fetched it. Its tagger stamp is 2026-11-27 17:41:07Z (12:41:07 -0500). ONE TAG AND ONE DEPLOY (565 item 2(e),
+  for a REJECT; 573 item 4(f)): it carries the record of soccer-v23's one run and its REJECT (#1170) and every merge
+  since v1.6.11, and the host went from v1.6.10 to v1.6.12 in one deploy; v1.6.11 was never deployed by itself.
+  **DEPLOYED 2026-11-27 18:25Z. PRODUCTION = v1.6.12** (580 item 2).
   - **Step 1, the tag's three conditions (577 item 2, verbatim):** "2. THE TAG's THREE CONDITIONS (docs/RELEASES.md),
     for v1.6.12: (a) THE HOST's RECEIPTS: read this morning by the operator's block (572 item 1(a)): 0 failing rows in
     the 47 hours since Wednesday's read, which itself held 0 over 98 hours; 22 timers, clean; no failed unit. (b) THE
@@ -830,12 +830,14 @@ its compare verdict.
     The first pages it writes are today's 19:25Z closings; I read them." install.sh was not run (579 item 5 Q2: "A
     comment-only difference in a unit file's /etc copy needs no reinstall"); step 5 above stands as written.
   - **What changed for the host, read from git (`v1.6.10..v1.6.12`, the deploy's span: 320 commits, 127 files):**
-    `src/db/schema.py`, every `migrate_*.py` (27 at each end), `requirements.txt` and both side requirements files are
-    unchanged. One unit file differs, `deploy/hosting/systemd/sp-closing-watch.service`, in comment lines alone
-    (#1117); the pack ships 27 timers and 12 services at v1.6.10, v1.6.11 and v1.6.12. Under `deploy/hosting/`:
-    `laptop_routine.py` new (#1096, the laptop's command); `closing.py` (#1117, #1131, #1136), `pull_backup.py`
-    (#1154, #1159, laptop), `sp_run.py` (#1119, #1123, #1150), `sp_receipts.py` (#1117), `sp_window_page.py` (#1104)
-    and `compare_exports.py` (#1064) changed. No setting is added that the host's env file must carry (578 item 3).
+    - `src/db/schema.py`, every `migrate_*.py` (27 at each end), `requirements.txt` and both side requirements files
+      are unchanged. No setting is added that the host's env file must carry (578 item 3).
+    - One unit file differs, `deploy/hosting/systemd/sp-closing-watch.service`, in comment lines alone (#1117); the
+      pack ships 27 timers and 12 services at v1.6.10, v1.6.11 and v1.6.12.
+    - Under `deploy/hosting/`: `laptop_routine.py` new (#1096, then #1119, #1123, #1150 and #1157; the laptop's
+      command); `closing.py` (#1117, #1131, #1136), `pull_backup.py` (#1154, #1159; it runs on the laptop),
+      `sp_run.py` (#1119, #1123, #1150), `sp_receipts.py` (#1117), `sp_window_page.py` (#1104) and
+      `compare_exports.py` (#1064) changed.
   - **Carries:** git's `v1.6.11..v1.6.12` holds 159 commits and 93 files. Of its 46 merge commits, 33 are "Merge pull
     request #N" on main's first parent: the 32 PRs the notes carry, one CHANGELOG section each, and the fold PR #1171.
     The other 13: twelve merge main into PR branches (three times into #1119's, twice into #1123's, once each into
@@ -844,12 +846,15 @@ its compare verdict.
     #1128, #1129, #1131, #1134, #1136, #1137, #1139, #1143, #1144, #1145, #1148, #1150, #1151, #1153, #1154, #1156,
     #1157, #1159, #1160, #1161, #1162, #1165, #1167, #1168, #1170. Not in the tag: none.
   - **Release Issue:** #1173 (ritual step 4), opened 2026-11-27 at the tag on ARCHITECT 2026-11-27 12:10 ET, addendum
-    578 item 4 ("DEV 1 — the Release Issue at the tag, its figures read again from git"), on the milestone v1.6.12,
-    labelled release, track:H, class:lane, sport:all and size:S. Its notes are in two comments (7224731828 and
-    7224732799), read back equal to the tag message with the server's attribution footer after each. The deploy's
-    console is its comment 7225633042, and addendum 580 is placed whole there (7225628713). On 580 item 3's ruling,
-    quoted verbatim, "v1.6.12 is live on the host from 2026-11-27T18:25Z and carries every merge of v1.6.10 and
-    v1.6.11 (ARCHITECT, addendum 580)", #1061 (v1.6.10) and #1138 (v1.6.11) are closed.
+    578 item 4 ("DEV 1 — the Release Issue at the tag, its figures read again from git"), on the milestone v1.6.12.
+    - It is "Release v1.6.12 (412003a7)", labelled release, track:H, class:lane, sport:all and size:S, in the form of
+      v1.6.11's #1138.
+    - It carries the notes in two comments (7224731828 and 7224732799). Read back from GitHub, each with the server's
+      attribution footer after it, the two bodies joined are the tag message character for character (97,568
+      characters).
+    - The deploy's console is its comment 7225633042, and addendum 580 is placed whole there (7225628713).
+    - On 580 item 3's ruling, quoted verbatim, "v1.6.12 is live on the host from 2026-11-27T18:25Z and carries every
+      merge of v1.6.10 and v1.6.11 (ARCHITECT, addendum 580)", #1061 (v1.6.10) and #1138 (v1.6.11) are closed.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

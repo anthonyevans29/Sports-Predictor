@@ -1292,16 +1292,20 @@ def test_no_number_outside_the_designs_own_literals():
 
 # --------------------------------------------------------------------------------------------- the gate --
 
-def test_the_real_registry_holds_the_declared_unrun_entry_and_the_run_refuses_without_a_copy():
-    """ARCHITECT 2026-11-23, addendum 449: soccer-v23 is DECLARED (status declared, run and verdict null). On the real
-    registry the run still refuses before any load without --db, and nothing is reserved."""
+def test_the_real_registry_holds_the_one_run_and_the_gate_refuses_a_second():
+    """ARCHITECT 2026-11-23, addendum 449: soccer-v23 was DECLARED; it ran once on 2026-11-27 and its verdict is
+    REJECT (addendum 573 item 4(c)). On the real registry the gate now refuses at its first check, before any load:
+    the pot is read once for this candidate. The run's reservation stands as the laptop wrote it, unchanged."""
     from src.walters import registry as reg
     e = reg.get(v.EID, reg.LEDGER)
-    assert e["status"] == "declared" and e["run"] is None and e["verdict"] is None
-    assert v.declared_unrun() == e
-    with pytest.raises(v.GateRefused, match="pass --db"):
+    assert e["status"] == "closed" and e["run"]["run_at"] == "2026-11-27T13:53:47Z"
+    assert e["verdict"]["verdict"] == "REJECT"
+    before = Path(v.reservation_path()).read_bytes()
+    with pytest.raises(v.GateRefused, match="must be declared and unrun"):
+        v.declared_unrun()
+    with pytest.raises(v.GateRefused, match="must be declared and unrun"):
         v.run("word", "fp", db=None)
-    assert not Path(v.reservation_path()).exists()
+    assert Path(v.reservation_path()).read_bytes() == before
 
 
 def test_a_stray_one_row_season_fits_and_a_goalless_one_is_named(store):

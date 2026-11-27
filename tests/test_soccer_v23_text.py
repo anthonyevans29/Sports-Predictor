@@ -281,10 +281,20 @@ def test_the_lane_is_appended_as_216_item_3_dates_it():
     ln = lanes["soccer-v23"]
     # ARCHITECT 2026-11-23 08:05 ET, addendum 449 item 8(a): after #1080 merged, the declaration step is done-marked
     # (its receipt cites 443 item 1(c), 444 item 4), the state is "declared", registry_id "soccer-v23" (validate()
-    # takes any id in any state), and live_needs gains item 5's criterion; the run's step stays 2026-11-27
-    assert ln["issue"] == 656 and ln["registry_id"] == "soccer-v23" and ln["state"] == "declared"
+    # takes any id in any state), and live_needs gains item 5's criterion; the run's step stays 2026-11-27.
+    # ARCHITECT 2026-11-27 08:56 ET, addendum 573 item 4(e): the run's step done 2026-11-27, its receipt the three
+    # figures and "VERDICT REJECT, addendum 573, #656 comment 7220079040"; the lane's state "to declare";
+    # earliest_live stays null and no date moves; one step appended, the next candidate's proposal, code, 2026-12-04
+    assert ln["issue"] == 656 and ln["registry_id"] == "soccer-v23" and ln["state"] == "to declare"
     assert [(s["owner"], s["due"], s["done"] and s["done"]["date"]) for s in ln["steps"]] == [
-        ("code", "2026-11-13", "2026-11-05"), ("architect", "2026-11-23", "2026-11-23"), ("operator", "2026-11-27", None)]
+        ("code", "2026-11-13", "2026-11-05"), ("architect", "2026-11-23", "2026-11-23"),
+        ("operator", "2026-11-27", "2026-11-27"), ("code", "2026-12-04", None)]
+    run_receipt = ln["steps"][2]["done"]["receipt"]
+    for fig in ("14,887", "1.017249", "1.023066", "+0.005817", "0.9956", "0.992925", "+0.002675", "1.0465",
+                "1.045811", "+0.000689"):
+        assert fig in run_receipt, fig
+    assert run_receipt.endswith("VERDICT REJECT, addendum 573, #656 comment 7220079040")
+    assert ln["steps"][3]["what"] == "the next candidate's proposal on #656, no code (addendum 573 item 5)"
     assert ln["steps"][1]["done"]["receipt"].startswith("#1080 merged 2026-11-23 (d1637122)")
     assert "addendum 443 item 1(c)" in ln["steps"][1]["done"]["receipt"]
     assert ln["live_needs"].endswith("\"CONFIRMED iff soccer-v23's is BELOW live v22's on the same 60 games; equal or "
@@ -304,15 +314,42 @@ def test_the_lane_is_appended_as_216_item_3_dates_it():
     assert names.index("soccer-v23") == names.index("availability-record") + 1
 
 
-def test_the_one_registry_entry_is_the_declaration_of_449_and_unrun():
+REJECT_RULING = (
+    "REJECT (ARCHITECT 2026-11-27, addendum 573). soccer-v23 beat v22 re-walked on the pot by 0.005817 and missed "
+    "both of v22's recorded Premier League figures over the same matches, by 0.002675 on 2024/25 and 0.000689 on "
+    "2025/26, against 0.0050. Three comparisons, PASS only if all hold. The bar did not move.")
+
+
+def test_the_one_registry_entry_is_the_declaration_of_449_run_once_and_rejected():
     """No registry entry existed before the declaration (this test's earlier form). ARCHITECT 2026-11-23, addendum 449
-    declared it: exactly one soccer-v23 entry, declared at 449's stamp, unrun, with no reservation."""
+    declared it: exactly one soccer-v23 entry, declared at 449's stamp. It ran once on 2026-11-27 (the laptop's record,
+    merged as written: laptop/soccer-v23-run-record 9e959a3c, its reservation kept) and its verdict is REJECT, recorded
+    by registry.record_verdict with the ruling verbatim (ARCHITECT 2026-11-27, addendum 573 item 4(c)): status
+    closed."""
     entries = json.loads((ROOT / "docs" / "registry" / "experiments.json").read_text())
     mine = [e for e in entries if e["id"] == v.EID]
     assert len(mine) == 1 and mine[0]["declared_at"] == "2026-11-23T13:05:00Z" and mine[0]["ratified"] == (
         "ARCHITECT 2026-11-23, addendum 449")
-    assert mine[0]["status"] == "declared" and mine[0]["run"] is None and mine[0]["verdict"] is None
-    assert not (ROOT / "docs" / "registry" / f"{v.EID}.started.json").exists()
+    e = mine[0]
+    assert e["status"] == "closed"
+    run = e["run"]
+    assert (run["run_at"], run["n_scored"], run["ids_file"]) == (
+        "2026-11-27T13:53:47Z", 14887, "docs/registry/ids/soccer-v23.txt")
+    assert run["ids_sha256"] == "74936dc8338aeee5e8cbaf3d0620e6af818750f35846059e6822215c9d9eb6f1"
+    ids = [int(x) for x in (ROOT / run["ids_file"]).read_text().split()]
+    from src.walters import registry as reg
+    assert len(ids) == 14887 and reg._ids_sha(ids) == run["ids_sha256"]
+    res = run["result"]
+    assert (res["verdict"], res["comparisons"], res["n"], res["verdict_rewalked"]) == ("REJECT", 3, 14887, "PASS")
+    assert (round(res["v23_log_loss"], 6), round(res["v22_rewalked_log_loss"], 6), round(res["delta_rewalked"], 6)) \
+        == (1.017249, 1.023066, 0.005817)
+    assert [(r["season"], r["n"], r["v22_recorded_log_loss"], round(r["v23_log_loss"], 6), round(r["delta"], 6),
+             r["verdict"]) for r in res["recorded"]] == [
+        ("2024/25", 340, 0.9956, 0.992925, 0.002675, "REJECT"), ("2025/26", 340, 1.0465, 1.045811, 0.000689, "REJECT")]
+    assert e["verdict"] == {"verdict": "REJECT", "ruling": REJECT_RULING, "at": "2026-11-27T14:05:22Z"}
+    started = json.loads((ROOT / "docs" / "registry" / f"{v.EID}.started.json").read_text())
+    assert started["id"] == v.EID and started["stream_fingerprint"] == (
+        "d51cdc40156a5634b87ee33034267908a375eade117191eab6c50f4372ac6bd5") and started["scored"] == 14887
 
 
 def test_the_command_is_documented():

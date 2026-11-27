@@ -2678,7 +2678,7 @@
       "reference": "live v22: the production probabilities on the same stored row, on the same 60 games"
     },
     "declared_at": "2026-11-23T13:05:00Z",
-    "status": "run",
+    "status": "closed",
     "run": {
       "run_at": "2026-11-27T13:53:47Z",
       "n_scored": 14887,
@@ -3735,7 +3735,11 @@
       ],
       "prior_read_count": 1
     },
-    "verdict": null,
+    "verdict": {
+      "verdict": "REJECT",
+      "ruling": "REJECT (ARCHITECT 2026-11-27, addendum 573). soccer-v23 beat v22 re-walked on the pot by 0.005817 and missed both of v22's recorded Premier League figures over the same matches, by 0.002675 on 2024/25 and 0.000689 on 2025/26, against 0.0050. Three comparisons, PASS only if all hold. The bar did not move.",
+      "at": "2026-11-27T14:05:22Z"
+    },
     "declaration_slots": {
       "scope": "LEAGUE_REGULAR",
       "first_season": "score_under_prior",

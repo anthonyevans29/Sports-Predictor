@@ -224,7 +224,15 @@ become MORE binding under an income goal, never less."
 - **Soccer**: soccer_elo_poisson **v22** on the 16,546-match / 24-comp
   pot; PL predictions live; positive-edge cohort (>=+5pp vs market) is
   6/16 — big anti-market edges are ANTI-PREDICTIVE; n=30 pre-committed
-  read pending. Market-first discipline is doctrine. The five expansion
+  read pending.
+  soccer-v23 (the joint log-linear successor, declared by addendum 449) ran
+  ONCE through its UNCHANGED gate on 11-27 and was REJECTED: +0.005817 against
+  v22 re-walked on 14,887 matches, which held, and +0.002675 and +0.000689
+  against v22's recorded PL 2024/25 and 2025/26 over the same 340 matches
+  each, which did not, where all three had to reach 0.0050 (addendum 573); v22
+  stays live; the v23 shadow stays dormant; the next candidate is to declare
+  and is tested forward unless its declaration names an unread set. The bar
+  did not move. Market-first discipline is doctrine. The five expansion
   leagues (PD, SA, FL1, ELC declared 2026-11-02T18:10:00Z, addendum 220; BL1
   declared 2026-11-09T14:45:00Z, addendum 303) run as shadows on
   soccer-expansion-v1's frozen constants toward independent 60-game windows;

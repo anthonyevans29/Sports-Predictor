@@ -5,4 +5,5 @@
 - **CLAUDE.md:** the Soccer paragraph gains 573 item 4(d)'s sentence verbatim.
 - **docs/roadmap.json, lane soccer-v23:** the run's step is done 2026-11-27 with its receipt. The state is "to declare". One step is appended: the next candidate's proposal on #656, no code, due 2026-12-04 (573 item 4(e)). No date moves.
 - **Tests follow the record:** the real-entry pins in `tests/test_soccer_v23_text.py`, `tests/test_soccer_v23_harness.py` and `tests/test_449_v23_declaration.py` now pin the one run, the REJECT, the figures, the shas and the kept reservation. They also pin the gate refusing a second run at its first check. The lane test pins the four steps and the run's receipt.
-- No source code changes. The bar did not move. Refs #656.
+- **The texts that said "not run" now say the run and the verdict** (the review's one fix round on #1170): `soccer-v23-gate`'s help text, its row in `docs/CLI.md`, the spec's title and State paragraph, the module docstrings of `soccer_v23` and `soccer_v23_shadow`, and the docs index, which also gains rows for the run's ids file and reservation. The CLI.md row's test now pins the run.
+- No code path changes: docstrings and documents only. The bar did not move. Refs #656.

@@ -354,7 +354,8 @@ def test_the_one_registry_entry_is_the_declaration_of_449_run_once_and_rejected(
 
 def test_the_command_is_documented():
     rows = [ln for ln in (ROOT / "docs" / "CLI.md").read_text().splitlines() if ln.startswith("| `soccer-v23-gate` ")]
-    assert len(rows) == 1 and "DECLARED BY ADDENDUM 449 (2026-11-23T13:05:00Z), NOT RUN" in rows[0]   # 449: declared
+    assert len(rows) == 1 and "DECLARED BY ADDENDUM 449 (2026-11-23T13:05:00Z)" in rows[0]   # 449: declared
+    assert "RUN ONCE ON 2026-11-27 AND REJECTED (addendum 573" in rows[0] and "NOT RUN" not in rows[0]   # 573: the run
     assert "NEVER RUN BEFORE THE DECLARATION" not in rows[0]
 
 

@@ -1,4 +1,4 @@
-# soccer-v23 — the joint log-linear successor to v22 (THE DESIGN; declared by addendum 449, not run)
+# soccer-v23 — the joint log-linear successor to v22 (THE DESIGN; declared by addendum 449, run once on 2026-11-27 and REJECTED, addendum 573)
 
 Lane `soccer-v23` (docs/roadmap.json), Issue #656, designed with the one-prediction-function lane #789. Code:
 src/models/joint_poisson.py (the fit), src/walters/soccer_v23.py (the snapshot, the one prediction function, both
@@ -6,7 +6,7 @@ arms, the walk, the availability term, the gate), `soccer-v23-gate` (cli.py; doc
 tests/test_soccer_v23_fit.py, tests/test_soccer_v23_harness.py, tests/test_soccer_v23_text.py, on synthetic stores
 only.
 
-**State: DECLARED, not run** (ARCHITECT 2026-11-23 08:05 ET, addendum 449: declared_at 2026-11-23T13:05:00Z; the entry
+**State: RUN ONCE ON 2026-11-27 AND REJECTED** (ARCHITECT 2026-11-27 08:56 ET, addendum 573: +0.005817 against v22 re-walked on 14,887 matches, which held, and +0.002675 and +0.000689 against v22's recorded PL 2024/25 and 2025/26 over the same 340 matches each, which did not, where all three had to reach 0.0050; the console on #656, comment 7220079040; v22 stays live, the v23 shadow stays dormant; the bar did not move). The state before the run, as written then: **DECLARED, not run** (ARCHITECT 2026-11-23 08:05 ET, addendum 449: declared_at 2026-11-23T13:05:00Z; the entry
 `soccer-v23` in docs/registry/experiments.json holds the slots, the frozen constants, BAR_TEXT as the gate and the
 confirmation's criterion). Before it no registry entry existed (an undeclared candidate holds none). The one run is
 the operator's block on the architect's word (11-27, if the declaration PR merges by 11-25: 449 item 7). Nothing in this design has been run on real data, and no result exists. Addendum 251

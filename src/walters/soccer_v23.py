@@ -4,11 +4,11 @@ soccer-v23: THE DESIGN HARNESS (GATE-CLASS by what it guards; lane soccer-v23, #
 docs/specs/soccer-v23.md quotes each ruling verbatim, carries THE BAR (BAR_TEXT below, pinned by sha256 in a test)
 and every declaration slot.
 
-NOTHING HERE HAS RUN ON REAL DATA. "NO run before 11-20's declaration" (248 item 2(b)); "NO run and NO declaration
-before 11-20 (a date is never a reason to run early)" (230 item 1(d)). The one run is the operator's block on the
-architect's word on 11-27 (216 item 3), through `soccer-v23-gate`, which refuses (exit 2, nothing reserved, nothing
-recorded) without a declared, unrun entry: DECLARED by ARCHITECT 2026-11-23, addendum 449 (declared_at 13:05:00Z;
-docs/registry/experiments.json; tests/test_449_v23_declaration.py), nothing run. v22 is not changed: this module
+RUN ONCE ON REAL DATA, ON 2026-11-27, AND REJECTED (addendum 573; the entry is closed). "NO run before 11-20's
+declaration" (248 item 2(b)); "NO run and NO declaration before 11-20 (a date is never a reason to run early)" (230
+item 1(d)). The one run was the operator's block on the architect's word on 11-27 (216 item 3), through
+`soccer-v23-gate`, which refuses (exit 2, nothing reserved, nothing recorded) without a declared, unrun entry: DECLARED
+by ARCHITECT 2026-11-23, addendum 449 (declared_at 13:05:00Z; docs/registry/experiments.json). v22 is not changed: this module
 imports poisson.estimate_strengths / predict_match and elo's own functions and calls them unchanged.
 
 ONE PREDICTION FUNCTION (216 item 4's lane, #789): `predict(snapshot, fixture, arm)` is pure (no database, no clock,

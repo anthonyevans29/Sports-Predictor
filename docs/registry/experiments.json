@@ -2678,8 +2678,1063 @@
       "reference": "live v22: the production probabilities on the same stored row, on the same 60 games"
     },
     "declared_at": "2026-11-23T13:05:00Z",
-    "status": "declared",
-    "run": null,
+    "status": "run",
+    "run": {
+      "run_at": "2026-11-27T13:53:47Z",
+      "n_scored": 14887,
+      "ids_sha256": "74936dc8338aeee5e8cbaf3d0620e6af818750f35846059e6822215c9d9eb6f1",
+      "ids_file": "docs/registry/ids/soccer-v23.txt",
+      "result": {
+        "verdict": "REJECT",
+        "delta": 0.005817357546954449,
+        "min_delta": 0.005,
+        "n": 14887,
+        "prod_log_loss": 1.0230661478781602,
+        "cand_log_loss": 1.0172487903312057,
+        "prod_rps": 0.21137509541476734,
+        "cand_rps": 0.2096135440364658,
+        "prod_brier": 0.6129356971291237,
+        "cand_brier": 0.609306623472307,
+        "v23_log_loss": 1.0172487903312057,
+        "v22_rewalked_log_loss": 1.0230661478781602,
+        "verdict_rewalked": "PASS",
+        "delta_rewalked": 0.005817357546954449,
+        "recorded": [
+          {
+            "competition": "PL",
+            "season": "2024/25",
+            "n": 340,
+            "source": "soccer-backtest with v22 in production (production's rho -0.1 and Elo goal coefficient 0.0008 since #142, min_prior 40, soccer_calibration): the operator's console of 2026-10-08 on the laptop at c3a3744, recorded that day in BACKLOG under READ (ARCHITECT, addendum 10, item 2): 340 predictions per season, log-loss 0.9956 (2024/25) and 1.0465 (2025/26). Named the record's figures by ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 1(a).",
+            "v22_recorded_log_loss": 0.9956,
+            "v23_log_loss": 0.9929247102562658,
+            "delta": 0.0026752897437342105,
+            "verdict": "REJECT",
+            "ids_sha256": "d30c77c528185f5dfd89cd18e5a209661cffe11e5a9a835de91fc4ba28ea786d"
+          },
+          {
+            "competition": "PL",
+            "season": "2025/26",
+            "n": 340,
+            "source": "soccer-backtest with v22 in production (production's rho -0.1 and Elo goal coefficient 0.0008 since #142, min_prior 40, soccer_calibration): the operator's console of 2026-10-08 on the laptop at c3a3744, recorded that day in BACKLOG under READ (ARCHITECT, addendum 10, item 2): 340 predictions per season, log-loss 0.9956 (2024/25) and 1.0465 (2025/26). Named the record's figures by ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 1(a).",
+            "v22_recorded_log_loss": 1.0465,
+            "v23_log_loss": 1.0458105236042052,
+            "delta": 0.0006894763957947525,
+            "verdict": "REJECT",
+            "ids_sha256": "6c169f03b51d412472cadd4be7330b3237268dffa13c0ec2d465d61528015c40"
+          }
+        ],
+        "comparisons": 3,
+        "architect_word": "ARCHITECT 2026-11-27: soccer-v23, the one run, on the host copy of 2026-11-27 09:30Z (sha256 426f61d9174414b3), stream fingerprint d51cdc40156a5634 on 14887 rows, the same on both copies and the same as 2026-11-23; declared by addendum 449; addenda 458 item 4 and 565 item 2",
+        "stream_fingerprint": "d51cdc40156a5634b87ee33034267908a375eade117191eab6c50f4372ac6bd5",
+        "slots": {
+          "scope": "LEAGUE_REGULAR",
+          "first_season": "score_under_prior",
+          "visibility": "day",
+          "cut": "2026-10-30T15:00:00Z",
+          "availability_on": false,
+          "v22_recorded": [
+            {
+              "competition": "PL",
+              "season": "2024/25",
+              "n": 340,
+              "log_loss": 0.9956,
+              "source": "soccer-backtest with v22 in production (production's rho -0.1 and Elo goal coefficient 0.0008 since #142, min_prior 40, soccer_calibration): the operator's console of 2026-10-08 on the laptop at c3a3744, recorded that day in BACKLOG under READ (ARCHITECT, addendum 10, item 2): 340 predictions per season, log-loss 0.9956 (2024/25) and 1.0465 (2025/26). Named the record's figures by ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 1(a)."
+            },
+            {
+              "competition": "PL",
+              "season": "2025/26",
+              "n": 340,
+              "log_loss": 1.0465,
+              "source": "soccer-backtest with v22 in production (production's rho -0.1 and Elo goal coefficient 0.0008 since #142, min_prior 40, soccer_calibration): the operator's console of 2026-10-08 on the laptop at c3a3744, recorded that day in BACKLOG under READ (ARCHITECT, addendum 10, item 2): 340 predictions per season, log-loss 0.9956 (2024/25) and 1.0465 (2025/26). Named the record's figures by ARCHITECT 2026-11-21 18:57 ET, addendum 443 item 1(a)."
+            }
+          ]
+        },
+        "db": "/Users/anthonyevans/sp-backups/sports_2026-11-27_093001.db",
+        "availability": [
+          "  AVAILABILITY (253 item 2(d); addendum 252's record read under the recorded clock at each fixture's decision instant, both paths alike):",
+          "    AUT 2024/25: 132 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    AUT 2025/26: 132 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    AUT 2026/27: 60 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    BEL 2024/25: 240 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    BEL 2025/26: 240 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    BEL 2026/27: 80 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    BL1 2023/24: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    BL1 2024/25: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    BL1 2025/26: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    BL1 2026/27: 63 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    CZE 2024/25: 240 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    CZE 2025/26: 240 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    CZE 2026/27: 94 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    EL1 2024/25: 552 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    EL1 2025/26: 552 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    EL1 2026/27: 143 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    EL2 2024/25: 552 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    EL2 2025/26: 552 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    EL2 2026/27: 151 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    ELC 2023/24: 552 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    ELC 2024/25: 552 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    ELC 2025/26: 552 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    ELC 2026/27: 144 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    FL1 2023/24: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    FL1 2024/25: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    FL1 2025/26: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    FL1 2026/27: 72 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    GRE 2024/25: 182 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    GRE 2025/26: 182 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    GRE 2026/27: 55 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    NED 2024/25: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    NED 2025/26: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    NED 2026/27: 90 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    PD 2023/24: 380 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    PD 2024/25: 380 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    PD 2025/26: 380 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    PD 2026/27: 99 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    PL 2023/24: 380 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    PL 2024/25: 380 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    PL 2025/26: 380 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    PL 2026/27: 80 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    POR 2024/25: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    POR 2025/26: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    POR 2026/27: 81 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    SA 2023/24: 380 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    SA 2024/25: 380 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    SA 2025/26: 380 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    SA 2026/27: 90 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    SCO 2024/25: 198 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    SCO 2025/26: 198 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    SCO 2026/27: 66 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    SUI 2024/25: 198 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    SUI 2025/26: 198 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    SUI 2026/27: 66 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    TUR 2024/25: 342 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    TUR 2025/26: 306 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)",
+          "    TUR 2026/27: 81 fixture(s) term off: the slot availability_on is false (the availability record (record.as_of, the one read path, under the recorded clock, kind injury_status) holds no soccer injury_status fact in force at the decision instant (the other kinds are no input of v23; no soccer source is declared, addendum 263 item 25); the term is off)"
+        ],
+        "labels": [
+          "  residual (visibility 'day'): a fixture kicking off before the morning chain's run is priced by the previous day's chain (labelled residual of the day rule, addendum 254 item 3 Q4); count not computed: no chain run time is declared in code (none for soccer-v23's live path; never guessed)",
+          "  \"v22 re-walked\" is v22 on THIS harness, not live v22 reproduced: both arms read the admitted rows, an AET or PEN league row at its 90-minute score where live v22 reads the full score; on a store holding such a row it differs from live v22, by about 3.7e-4 in a probability on the design's synthetic one-row probe (a synthetic receipt, not a pot figure; addendum 254 item 3 Q22); rows read at their 90-minute score (a non-FT raw code: AET / PEN): 0 scored, 0 in the walked history",
+          "  the v22 arm's backfill below V22_MIN_MATCHES takes tied kickoffs in SQLite's id-ascending order, pinned and accepted as v22's for the bar (production's ORDER BY utc_date DESC is SQL-undefined on ties; addendum 263 item 17)",
+          "  thin seasons excluded by cause (addendum 263 item 14): 0 competition-season(s), 0 row(s), out of the scored set and soccer-v23's window",
+          "  arrivals off the declared pyramid (addendum 263 item 15): 0, each priced on the outside-the-store prior"
+        ],
+        "aet_pen_rows": {
+          "scored": 0,
+          "history": 0
+        },
+        "thin_excluded": [],
+        "off_pyramid_arrivals": [],
+        "v22_params_sha256": "82593b378d5d3d6c12b7f1e0621156a30a50f5d74eff7385f368be05ec27c494",
+        "placed_by_ruling_456": [
+          [
+            "AUT",
+            "2025/26",
+            "Championship Group - 23",
+            "playoff",
+            3
+          ],
+          [
+            "AUT",
+            "2025/26",
+            "Championship Group - 24",
+            "playoff",
+            3
+          ],
+          [
+            "AUT",
+            "2025/26",
+            "Championship Group - 25",
+            "playoff",
+            3
+          ],
+          [
+            "AUT",
+            "2025/26",
+            "Championship Group - 26",
+            "playoff",
+            3
+          ],
+          [
+            "AUT",
+            "2025/26",
+            "Championship Group - 27",
+            "playoff",
+            3
+          ],
+          [
+            "AUT",
+            "2025/26",
+            "Championship Group - 28",
+            "playoff",
+            3
+          ],
+          [
+            "AUT",
+            "2025/26",
+            "Championship Group - 29",
+            "playoff",
+            3
+          ],
+          [
+            "AUT",
+            "2025/26",
+            "Championship Group - 30",
+            "playoff",
+            3
+          ],
+          [
+            "AUT",
+            "2025/26",
+            "Championship Group - 31",
+            "playoff",
+            3
+          ],
+          [
+            "AUT",
+            "2025/26",
+            "Championship Group - 32",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Championship Group - 31",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Championship Group - 32",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Championship Group - 33",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Championship Group - 34",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Championship Group - 35",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Championship Group - 36",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Championship Group - 37",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Championship Group - 38",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Championship Group - 39",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Championship Group - 40",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Conference League Group - 31",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Conference League Group - 32",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Conference League Group - 33",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Conference League Group - 34",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Conference League Group - 35",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Conference League Group - 36",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Conference League Group - 37",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Conference League Group - 38",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Conference League Group - 39",
+            "playoff",
+            3
+          ],
+          [
+            "BEL",
+            "2025/26",
+            "Conference League Group - 40",
+            "playoff",
+            3
+          ],
+          [
+            "CZE",
+            "2025/26",
+            "Championship Group - 1",
+            "playoff",
+            3
+          ],
+          [
+            "CZE",
+            "2025/26",
+            "Championship Group - 2",
+            "playoff",
+            3
+          ],
+          [
+            "CZE",
+            "2025/26",
+            "Championship Group - 3",
+            "playoff",
+            3
+          ],
+          [
+            "CZE",
+            "2025/26",
+            "Championship Group - 4",
+            "playoff",
+            3
+          ],
+          [
+            "CZE",
+            "2025/26",
+            "Championship Group - 5",
+            "playoff",
+            3
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Championship Group - 1",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Championship Group - 2",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Championship Group - 3",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Championship Group - 4",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Championship Group - 5",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Championship Group - 6",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Conference League Group - 1",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Conference League Group - 2",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Conference League Group - 3",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Conference League Group - 4",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Conference League Group - 5",
+            "playoff",
+            2
+          ],
+          [
+            "GRE",
+            "2025/26",
+            "Conference League Group - 6",
+            "playoff",
+            2
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 1",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 10",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 11",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 12",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 13",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 14",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 15",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 16",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 17",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 18",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 19",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 2",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 20",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 21",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 22",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 23",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 24",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 25",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 26",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 27",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 28",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 29",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 3",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 30",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 31",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 32",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 33",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 4",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 5",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 6",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 7",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 8",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "1st Phase - 9",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "2nd Phase - 1",
+            "playoff",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "2nd Phase - 2",
+            "playoff",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "2nd Phase - 3",
+            "playoff",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "2nd Phase - 4",
+            "playoff",
+            6
+          ],
+          [
+            "SCO",
+            "2024/25",
+            "2nd Phase - 5",
+            "playoff",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 1",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 10",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 11",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 12",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 13",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 14",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 15",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 16",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 17",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 18",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 19",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 2",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 20",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 21",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 22",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 23",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 24",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 25",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 26",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 27",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 28",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 29",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 3",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 30",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 31",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 32",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 33",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 4",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 5",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 6",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 7",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 8",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "1st Phase - 9",
+            "regular",
+            6
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "Championship Group - 34",
+            "playoff",
+            3
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "Championship Group - 35",
+            "playoff",
+            3
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "Championship Group - 36",
+            "playoff",
+            3
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "Championship Group - 37",
+            "playoff",
+            3
+          ],
+          [
+            "SCO",
+            "2025/26",
+            "Championship Group - 38",
+            "playoff",
+            3
+          ],
+          [
+            "SUI",
+            "2025/26",
+            "Championship Group - 34",
+            "playoff",
+            3
+          ],
+          [
+            "SUI",
+            "2025/26",
+            "Championship Group - 35",
+            "playoff",
+            3
+          ],
+          [
+            "SUI",
+            "2025/26",
+            "Championship Group - 36",
+            "playoff",
+            3
+          ],
+          [
+            "SUI",
+            "2025/26",
+            "Championship Group - 37",
+            "playoff",
+            3
+          ],
+          [
+            "SUI",
+            "2025/26",
+            "Championship Group - 38",
+            "playoff",
+            3
+          ]
+        ],
+        "ruled_placements_sha256": "308a6f88b2b4ca5a609297384caf71f3ff9d3a1f23af0eb75d6f9d7434ebbe7f"
+      },
+      "prior_reads": [
+        {
+          "id": "soccer-expansion-v1",
+          "candidate": "the PRODUCTION soccer model exactly as shipped (production params resolved at run time: dixon_coles_rho, elo_goal_coeff from the production model version; no refit, no per-league tuning), on PD, SA, BL1, FL1, ELC",
+          "run_at": "2026-10-09T12:24:56Z",
+          "why": "overlapping scored ids",
+          "overlap": 3445
+        }
+      ],
+      "prior_read_count": 1
+    },
     "verdict": null,
     "declaration_slots": {
       "scope": "LEAGUE_REGULAR",

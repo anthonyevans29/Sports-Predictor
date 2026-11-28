@@ -1,4 +1,4 @@
-## 2026-11-28 (#000: 1093-env-file-decode — desk_policy._env_file reads an undecodable env file as an unreadable one (addendum 464 item 4; #1093))
+## 2026-11-28 (#1179: 1093-env-file-decode — desk_policy._env_file reads an undecodable env file as an unreadable one (addendum 464 item 4; #1093))
 - **src/walters/desk_policy.py, `_env_file`:** a file that cannot be decoded as UTF-8 now reads as one that cannot be opened.
   - With `strict` (host.env), it reads `HOST_ENV_UNREADABLE`: the role is unknown and nothing after it is read.
   - Without `strict` (the checkout's .env), it reads `{}`.

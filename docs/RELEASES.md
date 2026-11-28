@@ -162,6 +162,7 @@ its compare verdict.
 | `v1.6.10` | 2026-11-21 12:57:39Z | `67f02dfc1bdcd30ab7860dd1cc5c78737908a1d8` | `a081dceded6b897f3f3623de16518bdd0acb9bdd` | #1061 |
 | `v1.6.11` | 2026-11-25 14:54:00Z | `3b63269b5463ebddde57bf3781bf79caeca7ae54` | `4d4f00497517db7d332a08521f35343b65bfcd62` | #1138 |
 | `v1.6.12` | 2026-11-27 17:41:07Z | `412003a7cb8d3e115ff11b316f0384978536f5b1` | `d86021de71bec0189b60efd82869f90f6fc67efd` | #1173 |
+| `v1.6.13` | 2026-11-28 17:09:39Z | `019a1e2fca4205f0bcb3bf50419dcae8fa989d0e` | `57429b5844e9130000de296f14cb133250a6fe27` | #1184 |
 
 - **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
   compile over 53a0e83, the #551 merge over c546168.
@@ -855,6 +856,83 @@ its compare verdict.
     - The deploy's console is its comment 7225633042, and addendum 580 is placed whole there (7225628713).
     - On 580 item 3's ruling, quoted verbatim, "v1.6.12 is live on the host from 2026-11-27T18:25Z and carries every
       merge of v1.6.10 and v1.6.11 (ARCHITECT, addendum 580)", #1061 (v1.6.10) and #1138 (v1.6.11) are closed.
+
+- **v1.6.13** (ARCHITECT 2026-11-28 09:29 ET, addendum 586 item 2), a patch tag: no migration, and none was due. The
+  commit is the #1181 merge 019a1e2f, as v1.6.12's was the #1171 merge: the ledger compile 1fd62e08 (4 changelog
+  fragments, 4 ledger entries) over 64a63510 (#1180's merge). Its tree c5c2cbcc is the tree of the architect's own
+  compile on 64a63510 (585 item 2(a)). The order is 582 item 2, as 584 item 3(a) amends it: the fold was cut only once
+  #1178, #1179 and #1180 were all on main, so the tag carries the three. The tag was cut by the operator's own hand from
+  the architect's block and is on origin, as Code fetched it. Its tagger stamp is 2026-11-28 17:09:39Z (12:09:39 -0500).
+  The host went from v1.6.12 to v1.6.13 in one deploy. **DEPLOYED 2026-11-28 17:10Z. PRODUCTION = v1.6.13** (588 item
+  1).
+  - **The tag ruled, and its conditions (586 item 2, verbatim):** "2. v1.6.13 IS RULED, ON 019a1e2f, BY THE OPERATOR's
+    BLOCK, UNDER THESE CONDITIONS: (a) THE DAY's COMPARE, 2026-11-27: CLEAN (582 item 2(b)). (b) THE HOST's RECEIPTS:
+    the tag block reads them itself, first and read-only, over the last 24 hours. Its gate opens only if every failing
+    row is a bulletin run that left with 2 and the host's own receipts name the pattern order_text and no other. Any
+    other failing row, or a host it cannot read, and no tag is cut. This is 582 item 2(c) done by the block, so the
+    operator need not wait on my read between two pastes; I read the console after. (c) CI ON 019a1e2f: read by the same
+    block, which stops while a job still runs. (d) THE DEPLOY, v1.6.12 to v1.6.13, is its own block and reads the
+    receipts again, with 579's named exception. No migration, no requirement, nothing under deploy/, no unit and no
+    timer. (e) DEV 1 — the Release Issue at the tag; then the records PR, as you say. NOTHING ELSE MERGES BEFORE THE
+    TAG; #1183 waits for the next ordinary tag."
+  - **Step 2, the fold (585 item 2 and 586 item 1, verbatim):** "2. DEV 1 — #1181 (the fold) IS MERGE-READY AT 1fd62e08,
+    one commit on 64a63510. (a) I ran the ledger compile on main myself: the same tree, c5c2cbcc. The diff is
+    BACKLOG.md, CHANGELOG.md, four fragments and four entries deleted; nothing pending after it. (b) The release notes
+    on that commit, by my run: exit 0, 67 lines, 4 sections, no AMENDED line. (c) Since v1.6.12 the code that changes is
+    the guard's pattern, the env reader's one clause, the copy helper with one line of the pitcher reader, and sixteen
+    read-only scripts. Nothing under deploy/, no migration, no requirement. (d) Its merge block is with the operator,
+    for the agent; it stops while CI is still running. NOTHING ELSE MERGES BEFORE THE TAG. The records PR waits, as you
+    say." Then: "1. THE FOLD's CONSOLE IS READ WHOLE: #1181 merged at 1fd62e08, MERGEABLE/CLEAN, every check a success,
+    no open thread. Main is 019a1e2f; its tree is c5c2cbcc, the fold's and my own compile's; nothing pending. The notes
+    file was written for that commit: exit 0, 67 lines, 4 sections, no AMENDED line." #1181 merged 2026-11-28T14:10:21Z.
+  - **Step 3, the tag (587 item 1, verbatim):** "1. THE TAG BLOCK's CONSOLE IS READ WHOLE. v1.6.13 is cut and pushed by
+    the operator's block. (a) THE HOST's RECEIPTS, read first by the block at 17:09Z on v1.6.12 (412003a7): 1,374 lines
+    in 24 hours, 3 failing, each a bulletin run that left with 2 (11-27 17:31Z, 11-28 12:30Z and 14:25Z), and the host's
+    own receipts name the pattern order_text and no other. The gate opened. Those are the three pages that held a
+    LADDER; nothing else failed since the deploy. (b) CI on 019a1e2f: smoke and smoke-py310 a success, fragments
+    skipped. (c) THE TAG: object 57429b58, on 019a1e2fca4205f0bcb3bf50419dcae8fa989d0e, the #1181 merge; tagger stamp
+    2026-11-28 12:09:39 -0500; message the notes file, 67 lines, 4 sections. I read the same object and commit from
+    GitHub. (d) DEV 1 — the Release Issue now, its figures read from git. The records PR after the deploy's console is
+    read, as you planned."
+  - **The tag, read from git:** tag object `57429b5844e9130000de296f14cb133250a6fe27` on
+    `019a1e2fca4205f0bcb3bf50419dcae8fa989d0e` (tree `c5c2cbcc7af97ca719fcdbfc42f1c846a013975f`); tagger timestamp
+    1795885779 -0500, which is 2026-11-28 12:09:39 -0500 (17:09:39Z), the tag's day 2026-11-28.
+  - **The tag message:**
+    - Stored (`git cat-file -p v1.6.13`): 67 lines and 7,856 bytes (its final newline included); 5 lines begin with `#`
+      (the header and all 4 `## ` section headings). Its first line reads "# Release notes ·
+      019a1e2fca4205f0bcb3bf50419dcae8fa989d0e (019a1e2f) · since v1.6.12".
+    - It is byte-identical to `python3 scripts/release_notes.py --to 019a1e2fca4205f0bcb3bf50419dcae8fa989d0e` (67
+      lines, exit 0). `git for-each-ref --format='%(contents)'` prints one more newline, as on the earlier entries.
+    - No AMENDED line, no `FAIL` and no `✗`.
+  - **Step 5, the deploy (588 item 1, verbatim):** "1. THE DEPLOY BLOCK's CONSOLE IS READ WHOLE. The host runs v1.6.13
+    from 17:10Z on 2026-11-28. (a) BEFORE: v1.6.12 at 412003a7; no reboot pending; 1,374 receipt lines in 24 hours, 3
+    failing, the same three bulletin runs as 587 item 1(a), pattern order_text and no other. (b) THE DEPLOY: the dry run
+    left with 0 naming v1.6.13; the deploy left with 0, v1.6.12 to v1.6.13, 55 files; HEAD is
+    019a1e2fca4205f0bcb3bf50419dcae8fa989d0e, the tag's commit; its receipt row is written. No migration and no
+    requirement were named. (c) AFTER: 22 timers expected and 22 active, none missing, none stray; the tennis timer
+    disabled and the college basketball one not installed, as held; both availability timers active; the registry on the
+    checkout reads soccer-v23 closed and REJECT; the MLB sync hold line is one line naming MLB; the checkout is clean;
+    no failed unit. (d) WHAT IS LIVE: #1178's pattern, #1179's clause, #1180's helper and scripts." And (588 item 2,
+    verbatim): "2. THE FIRST PROOF OF #1178 ON THE HOST is the next page that holds a LADDER: Sunday's PL slate (9282),
+    then its closing at 13:30Z. I read both and say on this channel whether a bulletin was written. Today's 16:55Z
+    closing held no LADDER and proves nothing either way."
+  - **What changed for the host, read from git (`v1.6.12..v1.6.13`, the deploy's span: 24 commits, 55 files):**
+    - `src/db/schema.py`, every `migrate_*.py` (27 at each end), every `requirements*.txt` and all of `deploy/` are
+      unchanged (`git diff --name-status v1.6.12 v1.6.13 --` on them prints nothing). The pack ships 27 timers and 12
+      services at v1.6.12 and v1.6.13. No setting is added that the host's env file must carry.
+    - What is live (588 item 1(d)): #1178's pattern (`src/privacy_patterns.py`, the bulletins' guard: the one token X2
+      exempt, the cents arm), #1179's clause (`src/walters/desk_policy.py` `_env_file`: an undecodable env file reads as
+      unreadable), and #1180's helper (`src/walters/db_copy.py`) with its 16 hand-run scripts.
+  - **Carries:** git's `v1.6.12..v1.6.13` holds 24 commits and 55 files. Its 5 merge commits are all "Merge pull request
+    #N" on main's first parent: the 4 PRs the notes carry, one CHANGELOG section each, and the fold PR #1181. The 4:
+    #1175, #1178, #1179, #1180. Not in the tag: none.
+  - **Release Issue:** #1184 (ritual step 4), opened 2026-11-28T17:15:31Z at the tag on ARCHITECT 2026-11-28 09:29 ET,
+    addendum 586 item 2(e) ("DEV 1 — the Release Issue at the tag; then the records PR, as you say.") and 587 item 1(d)
+    ("DEV 1 — the Release Issue now, its figures read from git.").
+    - It is "Release v1.6.13 (019a1e2f)", labelled release, track:H, class:lane, sport:all and size:S, in the form of
+      v1.6.12's #1173. It carries the notes inline (7,840 characters).
+    - 587 and 588 are placed whole there (7242884688 and 7242884951); 588 item 1 is the deploy's console in the
+      architect's words.
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

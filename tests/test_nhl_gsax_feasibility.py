@@ -99,9 +99,12 @@ def test_the_console_names_each_rule_and_never_writes(db, capsys):
     assert db.read_bytes() == before
 
 
-def test_no_database_is_never_created(tmp_path):
-    with pytest.raises(SystemExit, match="never creates one"):
-        gx.main(["--db", str(tmp_path / "absent.db")])
+def test_no_database_is_never_created(tmp_path, capsys):
+    # pin moved by ARCHITECT 2026-11-27, addendum 582 item 4(b): an absent --db is a copy refused before any open, exit 2
+    absent = tmp_path / "absent.db"
+    assert gx.main(["--db", str(absent)]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("REFUSED: ") and f"no file at {absent}" in err
     assert not (tmp_path / "absent.db").exists()
 
 

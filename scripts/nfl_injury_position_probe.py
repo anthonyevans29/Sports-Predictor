@@ -11,8 +11,12 @@ takes the player id from it by EXACT name. A stored name the feed no longer list
 guessed. Then, per id, GET /players?id=<id> and print what the provider answers: every field of each player object
 (position and group verbatim), or that it answered nothing.
 
-- The stored side opens the database mode=ro (URI); a copy that refuses it: the plain path with PRAGMA query_only =
-  ON, and the console says which (#421's rule). It writes nothing.
+- The stored side: the app's configured database (no --db, or a --db that is it) keeps its open: mode=ro (URI);
+  refused, the plain path with PRAGMA query_only = ON, and the console says which (#421's rule). Any other --db is a
+  copy (addendum 582 item 4; #1089): mode=ro&immutable=1, no fallback, refused with exit 2 before any open under data/,
+  with a -wal/-shm/-journal sidecar beside it, or absent, an empty --db too; a copy it cannot read refused the same
+  way; a machine whose configuration is not loaded reads its own live file as a copy under data/ and refuses (addendum
+  582 item 4). It writes nothing.
 - The provider side: GET only, api-sports american-football (API_AMERICAN_FOOTBALL_KEY, else API_FOOTBALL_KEY, from
   the environment or .env; the key is never printed). One /injuries call per team and one /players call per id; the
   count of calls is printed. `--team` narrows to teams whose name contains the text; `--limit` caps the ids asked.
@@ -32,6 +36,8 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from src.walters import db_copy  # noqa: E402  (addendum 582 item 4: the live file or a copy)
 BASE = "https://v1.american-football.api-sports.io"     # src/adapters/api_american_football.py DIRECT_BASE
 SOURCE = "api_american_football"                         # the adapter's source_name (teams.external_ids key)
 
@@ -57,7 +63,8 @@ def db_path(arg: str | None) -> Path:
 
 
 def open_read(p: Path):
-    """(connection, form): mode=ro first; a copy that refuses it: the plain path with query_only set (#421)."""
+    """The live file's open alone (582 item 4(a); copies go through db_copy): (connection, form): mode=ro first; a live
+    file that refuses it: the plain path with query_only set (#421)."""
     if not p.exists():
         raise SystemExit(f"no database at {p}")
     try:
@@ -69,6 +76,36 @@ def open_read(p: Path):
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM injuries LIMIT 1")
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
+
+
+def classify_db(arg: str | None) -> tuple[str, Path]:
+    """Addendum 582 item 4: ("live", path) for no --db or a --db that is the app's configured database (db_path, as
+    today); ("copy", resolved path) for any other --db after db_copy's fence; db_copy.CopyRefused before any open
+    otherwise (empty, under data/, a sidecar beside it, absent: nothing read)."""
+    if arg is None:                                       # an empty --db is db_copy's to refuse, never the default
+        return "live", db_path(arg)
+    kind, path = db_copy.classify(arg)
+    return (kind, db_path(arg)) if kind == "live" else (kind, path)
+
+
+COPY_PROBE_TABLES = ("injuries", "teams", "matches", "competitions")   # every table unresolved() reads
+
+
+def open_db(kind: str, p: Path):
+    """(connection, form): the live file keeps open_read (#421's rule); a copy opens mode=ro&immutable=1, no
+    fallback; a copy it cannot read (not a SQLite file, or a table in COPY_PROBE_TABLES missing) is refused
+    (db_copy.CopyRefused: one line, the path and the error class, never a row) and its connection closed."""
+    if kind == "live":
+        return open_read(p)
+    con = db_copy.connect_copy(p)
+    try:
+        for t in COPY_PROBE_TABLES:
+            con.execute(f"SELECT 1 FROM {t} LIMIT 1")
+    except sqlite3.Error as e:
+        con.close()
+        raise db_copy.CopyRefused(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI "
+                                  f"({type(e).__name__}: {e}); no fallback; nothing read") from None
+    return con, "copy: mode=ro&immutable=1 URI (no fallback; addendum 582 item 4)"
 
 
 def unresolved(con, team_filter: str | None = None, competition: str = "NFL") -> list[dict]:
@@ -189,13 +226,25 @@ def main(argv=None) -> int:
     ap.add_argument("--team", help="only teams whose name contains this text")
     ap.add_argument("--limit", type=int, default=None, help="ask at most this many player ids")
     ap.add_argument("--out", help="append one JSON line per player here")
-    ap.add_argument("--db")
+    ap.add_argument("--db", help="the app's configured database keeps its open (mode=ro, #421's fallback); any "
+                    "other file is a copy opened mode=ro&immutable=1, no fallback, refused (exit 2, nothing read) "
+                    "under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine whose "
+                    "configuration is not loaded reads its own live file as a copy under data/ and refuses "
+                    "(addendum 582 item 4)")
     a = ap.parse_args(argv)
-    dbp = db_path(a.db)
+    try:
+        kind, dbp = classify_db(a.db)
+    except db_copy.CopyRefused as e:
+        print(e)
+        return db_copy.EXIT_REFUSED
     if a.out and (why := out_refusal(a.out, dbp)):
         print(why)
         return 2
-    con, form = open_read(dbp)
+    try:
+        con, form = open_db(kind, dbp)
+    except db_copy.CopyRefused as e:
+        print(e)
+        return db_copy.EXIT_REFUSED
     try:
         items = unresolved(con, a.team)
     finally:

@@ -327,6 +327,16 @@ def test_the_constants():
 
 # ------------------------------------------------------- the BEFORE / AFTER receipt (read-only, one DB state) ----
 
+@pytest.fixture
+def iso_is_configured(iso, monkeypatch):
+    """The receipt reads the app's configured database only (addendum 582 item 4(c), db_copy.require_live): iso.db is
+    made that database for the receipt tests that read it."""
+    from src.walters import db_copy
+    monkeypatch.setattr(db_copy, "app_db", lambda: (iso / "iso.db").resolve())
+    return iso
+
+
+@pytest.mark.usefixtures("iso_is_configured")
 def test_the_restate_receipt_prints_both_records_and_writes_nothing(iso, capsys):
     import hashlib
     import importlib.util
@@ -365,7 +375,9 @@ def test_the_restate_receipt_refuses_a_missing_db_and_creates_none(tmp_path, cap
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod.main(["--db", str(tmp_path / "nope.db"), "--exports", str(tmp_path)]) == 2
-    assert "REFUSED: no DB file" in capsys.readouterr().out and not (tmp_path / "nope.db").exists()
+    out = capsys.readouterr().out                               # the absent case, named (addendum 582 item 4(b))
+    assert out.startswith("REFUSED: ") and str(tmp_path / "nope.db") in out and "no file at" in out
+    assert not (tmp_path / "nope.db").exists()
 
 
 @pytest.mark.parametrize("iso", ["absent"], indirect=True)
@@ -400,6 +412,7 @@ def _receipt_mod():
     return mod
 
 
+@pytest.mark.usefixtures("iso_is_configured")
 def test_the_receipt_leaves_a_void_row_out_of_its_tally_and_names_it(iso, capsys):
     """A re-dated row (its closing row an hour and more from its current start) leaves every record (addendum 106
     item 4): the rule's tally and the changed-rows table read the rows the records read, and name the void ones."""
@@ -422,6 +435,7 @@ def test_the_receipt_leaves_a_void_row_out_of_its_tally_and_names_it(iso, capsys
     assert f"| {void_id} |" not in out
 
 
+@pytest.mark.usefixtures("iso_is_configured")
 def test_the_receipt_refuses_when_the_db_changes_between_its_passes(iso, capsys, monkeypatch):
     """ONE DB STATE: a commit by another connection between the BEFORE and AFTER passes is a change the rule did not
     make; the receipt reads data_version before and after, and refuses."""

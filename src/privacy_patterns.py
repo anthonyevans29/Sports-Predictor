@@ -30,7 +30,11 @@ no pool figure, no account id"), each a named pattern over every line of the who
                      prefix or suffix joined by "_" and in the export's own JSON / dict shape ("contracts": 5)
   order_text         the shape of desk.order.text (desk_policy.order_line: "BUY <YES|NO> <ticker> @ <limit> × <n>"):
                      the BUY YES / BUY NO lead, a "×" before a digit (the count's own sign), or an ASCII x count
-                     after a price or before "at"/"@" ("@ 0.45 x 3", "x 3 at 45c"), or a lower-case "x3" alone
+                     after a price or before "at"/"@" ("@ 0.45 x 3", "x 3 at 45c"), or an "x3" alone in either
+                     case EXCEPT the one upper-case token "X2" (the Desk's double chance: "(X2)", "1X/X2"; #1174,
+                     addendum 581 item 1), or a price in cents then a count ("45c X2", "45¢ X2", "45 cents x 3"). KNOWN PASS,
+                     written down by 581 item 1(c): an upper-case "X2" with none of the lead, the sign, an "@", an
+                     "at" or a cents letter ("0.45 X2"); the Desk's own order line carries the lead and the sign
   unit_label         the unit's label (desk_policy.unit_basis_usd "1u = <figure>", the legacy "1u = <n> contracts"):
                      a units figure followed by "="
   fraction           desk_meta.unit.fraction / half_fraction printed: the word fraction (or half_fraction) beside a
@@ -131,7 +135,16 @@ CONTRACT_COUNT = re.compile("(?i)(?<![\\d,.])[,.]*\\d[\\d,.]*\\s*(?:-\\s*)?[a-z_
 ORDER_TEXT = re.compile("(?i)\\bBUY\\s+(?:YES|NO)\\b|\\u00d7\\s*\\d"
                         "|@\\s*[\\d.]+\\s*c?\\s*x\\s*\\d"                       # "@ 0.45 x 3", "@ 45c x 3"
                         "|(?<![A-Za-z0-9])x\\s*\\d+\\s*(?:@|\\bat\\b)"          # "x 3 at 45c", "x3 @"
-                        "|(?<![A-Za-z0-9])x\\d+\\b")                            # "x3" standing alone (lower case only)
+                        # #1174 (ARCHITECT 2026-11-27, addendum 581 item 1, F): a count standing alone, in either case
+                        # (the (?i) at the head covers it), EXCEPT the one upper-case token X2, the Desk's own name for
+                        # the double chance ("(X2)", "1X/X2", "X2 = not home"); "x2", "X3", "X12", "X22" still refuse
+                        "|(?<![A-Za-z0-9])(?!(?-i:X2)\\b)x\\d+\\b"
+                        # #1174 (581 item 1, D'): a price in cents then a count ("45c X2", "45c x 3", "45cX3"), the
+                        # cents written c, cent(s), the sign \u00a2 or its full-width \uffe0 ("45\u00a2 X2", "45 cents
+                        # X2"; Codex P1 on #1178: main refused those through the X2 arm); the lookbehind also refuses
+                        # any digit (\\d, not only 0-9), so a run of non-ASCII digits is one start, not one per digit
+                        # (LINEAR, tests/test_privacy_patterns_linear.py)
+                        "|(?<![A-Za-z0-9\\d])\\d+(?:\\.\\d+)?\\s*(?:cents?|c|\\u00a2|\\uffe0)\\s*x\\s*\\d")
 UNIT_LABEL = re.compile(r"\b\d+(?:\.\d+)?\s*u\s*=")
 # LINEAR (#979, addendum 364 item 2): the word's arm starts once per run of letters and underscores, as CONTRACT_COUNT's
 # key arm (#969): at the run's start, or, when a digit precedes the run, just after its first underscore (the earliest

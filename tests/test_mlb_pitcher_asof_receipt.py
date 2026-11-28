@@ -186,11 +186,12 @@ def test_it_writes_nothing_and_refuses_a_missing_db(tmp_path, capsys):
     before = hashlib.sha256(p.read_bytes()).hexdigest()
     assert rc.main(["--db", str(p)]) == 0
     assert hashlib.sha256(p.read_bytes()).hexdigest() == before
-    try:
-        rc.main(["--db", str(tmp_path / "absent.db")])
-    except SystemExit as e:
-        assert "never creates one" in str(e)
-    assert not (tmp_path / "absent.db").exists()
+    absent = tmp_path / "absent.db"
+    capsys.readouterr()
+    assert rc.main(["--db", str(absent)]) == 2                       # 582 item 4(b): refused, exit 2, nothing read
+    err = capsys.readouterr().err
+    assert err.startswith("REFUSED: ") and str(absent) in err and "no file at" in err
+    assert not absent.exists()
 
 
 def test_a_missing_column_refuses_law_1(tmp_path):

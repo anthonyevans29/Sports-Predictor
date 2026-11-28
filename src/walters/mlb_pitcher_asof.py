@@ -81,8 +81,9 @@ def db_path(arg: str | None) -> Path:
 
 
 def open_read(p: Path):
-    """(connection, form). mode=ro first; a copy that refuses it: the plain path with query_only set (#421). It opens
-    the database no third way, and never creates one."""
+    """(connection, form) on the live file. mode=ro first; when the live file refuses it: the plain path with query_only
+    set (#421), the live file's fallback alone (582 item 4(a)); a copy never comes here, it opens through db_copy
+    (scripts/mlb_pitcher_asof_receipt.py's open_copy). It opens the database no third way, and never creates one."""
     if not p.is_file():
         raise SystemExit(f"no database at {p}: the receipt never creates one")
     try:

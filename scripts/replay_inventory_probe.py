@@ -62,8 +62,12 @@ SQLite time format). Sport: the matches.sport name; NCAA = sport NFL with compet
 competition code. "All four" = a stored prediction before kickoff (current row or history) + book history + Kalshi
 history (not mismatched) before kickoff + a closing file.
 
-Opens the database mode=ro (a copy that refuses it: the plain path with PRAGMA query_only = ON, #421) and never
-creates one. Writes nothing.
+Opens the database read-only and never creates one. The app's configured database (no --db, or a --db that is it by
+resolved path or by identity) keeps its open: mode=ro, falling back to the plain path with PRAGMA query_only = ON where
+mode=ro is refused (#421). Any other --db is a copy: mode=ro&immutable=1 with no fallback, refused before any open
+(exit 2, the path printed, never a row) under data/, with a -wal/-shm/-journal sidecar beside it, or absent, and a copy
+immutable=1 cannot read is refused the same way; a machine whose configuration is not loaded reads its own live file as
+a copy under data/ and refuses (addendum 582 item 4, #1089). Writes nothing.
 
     python3 scripts/replay_inventory_probe.py [--db PATH] [--since 2026-09-20] [--until YYYY-MM-DD] [--exports exports]
 """
@@ -83,9 +87,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.walters.close import CAPTURE_SESSION  # noqa: E402  (the close's own session window, read, never restated)
 from src.walters.redated import closing_starts, void_counts, void_label  # noqa: E402  (addendum 107 item A2)
+from src.walters import db_copy  # noqa: E402  (#1089: the live file or a copy, addendum 582 item 4)
 
 SINCE = "2026-09-20"
 CHUNK = 500
+# the tables inventory() reads without a has_table check (prediction_history and kalshi_settled_markets are optional)
+COPY_PROBE_TABLES = ("matches", "competitions", "predictions", "prediction_outcomes", "odds_snapshots", "odds")
 TWO_WAY, THREE_WAY = frozenset({"HOME", "AWAY"}), frozenset({"HOME", "DRAW", "AWAY"})
 SESSION_MS = int(CAPTURE_SESSION.total_seconds() * 1000)
 SNAP_SESSION = "a session = one captured_at"
@@ -124,8 +131,9 @@ def db_path(arg: str | None) -> Path:
 
 
 def open_read(p: Path):
-    """(connection, form): mode=ro first; a copy that refuses it, the plain path with query_only set (#421). Never
-    creates a database."""
+    """(connection, form) on the live file alone: mode=ro first; where the live file refuses it, the plain path with
+    query_only set (#421; the fallback is the live file's alone, addendum 582 item 4(a): a copy goes through
+    db_copy, open_copy). Never creates a database."""
     if not p.is_file():
         raise SystemExit(f"no database at {p}: the probe never creates one")
     con = None
@@ -138,11 +146,28 @@ def open_read(p: Path):
             con.close()
         # #421 RULED (ARCHITECT 2026-10-11, addendum 38): "A receipt opens the database mode=ro. Where a copy refuses
         # that, it opens the plain path with query_only set and prints which form it used [...] It opens the
-        # database no third way." (#421 put the -wal/-shm question, immutable or refusing, to the architect.)
+        # database no third way." (#421 put the -wal/-shm question to the architect; 582 item 4(a) answered it: this
+        # fallback is the live file's alone, and a copy opens mode=ro&immutable=1 through db_copy with no fallback.)
         con = sqlite3.connect(str(p), timeout=60)
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM matches LIMIT 1")
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
+
+
+def open_copy(p: Path):
+    """(connection, form) on a --db that db_copy.classify read as a copy (addendum 582 item 4(a)): mode=ro&immutable=1
+    through db_copy.connect_copy, no fallback, nothing created or written beside it; a copy it cannot read (not a
+    SQLite file, or a table in COPY_PROBE_TABLES missing) is refused (db_copy.CopyRefused: one line, the path and the
+    error class, never a row) and its connection closed."""
+    con = db_copy.connect_copy(p)
+    try:
+        for t in COPY_PROBE_TABLES:
+            con.execute(f"SELECT 1 FROM {t} LIMIT 1")
+    except sqlite3.Error as e:
+        con.close()
+        raise db_copy.CopyRefused(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI "
+                                  f"({type(e).__name__}: {e}); no fallback; nothing read") from None
+    return con, "copy: mode=ro&immutable=1 URI (no fallback)"
 
 
 def has_table(con, name: str) -> bool:
@@ -416,13 +441,26 @@ def report(inv: dict, form: str, since: str, until: str, exports: Path, echo=pri
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="addendum 79 item 3: what the DB can replay, per sport")
-    ap.add_argument("--db", default=None)
+    ap.add_argument("--db", default=None,
+                    help="SQLite file (default: DATABASE_URL from the environment or .env). The app's configured "
+                    "database keeps its open (mode=ro, the #421 fallback); any other file is a copy opened "
+                    "mode=ro&immutable=1 with no fallback, refused (exit 2, nothing read) under data/, with a "
+                    "-wal/-shm/-journal sidecar beside it, or absent; a machine whose configuration is not loaded "
+                    "reads its own live file as a copy under data/ and refuses (addendum 582 item 4)")
     ap.add_argument("--since", default=SINCE, help="first kickoff day, UTC (default 2026-09-20)")
     ap.add_argument("--until", default=None, help="kickoffs before this day, UTC (default: now)")
     ap.add_argument("--exports", default="exports", help="the laptop's exports folder (closing_*.json)")
     a = ap.parse_args(argv)
     until = a.until or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    con, form = open_read(db_path(a.db))
+    if a.db is None:
+        con, form = open_read(db_path(a.db))
+    else:                              # #1089 (addendum 582 item 4): the live file keeps its open; any other is a copy
+        try:
+            kind, p = db_copy.classify(a.db)    # 582 item 4(b): a copy is refused before any open, nothing read
+            con, form = open_read(db_path(a.db)) if kind == "live" else open_copy(p)
+        except db_copy.CopyRefused as e:
+            print(str(e), file=sys.stderr)
+            return db_copy.EXIT_REFUSED
     try:
         report(inventory(con, a.since, until, Path(a.exports)), form, a.since, until, Path(a.exports))
     finally:

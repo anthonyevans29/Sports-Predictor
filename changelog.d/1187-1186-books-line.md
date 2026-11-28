@@ -1,4 +1,4 @@
-## 2026-11-28 (#0000: 1186-books-line — the BOOKS line in the closing book-gap receipt, and the model engine's count pin as built (ARCHITECT 2026-11-28, addendum 590 item 7: read-only, files only))
+## 2026-11-28 (#1187: 1186-books-line — the BOOKS line in the closing book-gap receipt, and the model engine's count pin as built (ARCHITECT 2026-11-28, addendum 590 item 7: read-only, files only))
 - **The question (587 item 4, #1186):** at a PL close one row held one priced book where its slate held nine. The model engine sets no floor on books before a PLAY or a LADDER. The architect rules from the count.
 - **(b) THE BOOKS LINE:** `scripts/closing_book_gap_receipt.py` gains a per-family BOOKS section, read from the page alone (files only), for SOCCER (PL 2026/27) and NFL. It covers every counted row from the family's first closing page on the record, which it prints, and not only the stamped window. It gives:
   - `market.bookmaker_count` (the complete books, the Desk's `books`) as 0, 1, 2, 3, 4 or more, and absent;

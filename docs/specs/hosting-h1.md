@@ -1256,7 +1256,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 
     | Timer | Held by | Lifts when |
     |---|---|---|
-    | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the architect's block (288 item 5). Its other condition, the tag that carries the map, is met: the map (#900, tennis-E) is in every tag from v1.6.6 on, and production is v1.6.12 from 2026-11-27 18:25Z (addendum 580 item 2; v1.6.10 before it, addendum 436 item 1(d)) |
+    | `sp-tennis-daily.timer` | ARCHITECT 2026-11-08, addendum 288 item 5 | the architect's block (288 item 5). Its other condition, the tag that carries the map, is met: the map (#900, tennis-E) is in every tag from v1.6.6 on, and production is v1.6.13 from 2026-11-28 17:10Z (addendum 588 item 1; v1.6.12 before it from 2026-11-27 18:25Z, addendum 580 item 2; v1.6.10 before that, addendum 436 item 1(d)) |
     | `sp-ncaamb-daily.timer` | ARCHITECT 2026-11-12, addendum 356 item 2 (entered when #957 merged, 2026-11-12 20:46Z) | the architect's enabling block after the host's NCAAMB load and stored certification |
 
     - **The rule that joins THE HELD LIST and `TIMERS_BY_BLOCK` (ARCHITECT 2026-11-12 12:25 ET, addendum 356 item 2,
@@ -1288,6 +1288,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
       (ARCHITECT 2026-11-27 13:26 ET, addendum 580 item 1(d), verbatim in part): "timers.enabled 22 names, 22 active,
       none missing, none stray; the tennis timer disabled and the college basketball one not installed, as held; both
       availability timers active; no failed unit; the checkout clean."
+      On v1.6.13 (deployed 2026-11-28 17:10Z, from v1.6.12) the same (ARCHITECT 2026-11-28 12:10 ET, addendum 588
+      item 1(c), verbatim in part): "22 timers expected and 22 active, none missing, none stray; the tennis timer
+      disabled and the college basketball one not installed, as held; both availability timers active".
     - **`sp-availability-graph` on the host (ARCHITECT 2026-11-14 08:23 ET, addendum 378).**
       - **The install, 2026-11-14 13:08Z** (378 item 1(a), verbatim in part): "Successfully installed ladybug-0.22.3",
         pip exit 0, by the recorded hash, wheel only. The two unit files were installed, "byte-identical to the
@@ -1348,7 +1351,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         sp-chain@<chain>.service`) and says so in its block; sp-tennis-daily's block (288 item 5, when it comes) does
         NOT: its first run is its next 06:53Z firing, read the morning after — the laptop's daily step covers the days
         before." This corrects 330 item 2's "the next instance: its block says so" (Codex on #918, #920).
-        - Of the 27 timers the pack ships (read at v1.6.8, b3c5fbcf; v1.6.9, 482de3fd; v1.6.10, 67f02dfc; v1.6.11, 3b63269b, and v1.6.12, 412003a7, add none), 24 carry `Persistent=true`;
+        - Of the 27 timers the pack ships (read at v1.6.8, b3c5fbcf; v1.6.9, 482de3fd; v1.6.10, 67f02dfc; v1.6.11, 3b63269b; v1.6.12, 412003a7, and v1.6.13, 019a1e2f, add none), 24 carry `Persistent=true`;
           `sp-closing-watch.timer`, `sp-cup-observe.timer` and `sp-availability-observe.timer` carry `Persistent=false`.
           Read the unit under
           `deploy/hosting/systemd/` before the lift. What decides the catch-up is systemd's stamp,
@@ -1512,8 +1515,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
           read as that list.
         - **The durable answer, declared (332 item 3):** a per-competition sync hold that the step itself honors,
           `SP_SYNC_HOLD`. It shipped as its own small PR, #925 (Issue #921), merged 2026-11-11 and in every tag from
-          v1.6.7; production v1.6.10 carried it (addendum 436 item 1(d)), and production v1.6.12 does from 2026-11-27
-          18:25Z (addendum 580 item 2). (333
+          v1.6.7; production v1.6.10 carried it (addendum 436 item 1(d)), production v1.6.12 from 2026-11-27 18:25Z
+          (addendum 580 item 2), and production v1.6.13 does from 2026-11-28 17:10Z (addendum 588 item 1). (333
           item 3(iii), verbatim): "SP_SYNC_HOLD (#921) honors the same path: its design covers intl-sync, or says in
           its body why not."
     - **The deploy's receipt:** 323 item 1 rules that the deploy's report of timers missing from `timers.enabled`
@@ -1614,8 +1617,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         and `; held steps (SP_SYNC_HOLD) N` to the receipts table's key line, and a held competition's receipt line
         reads `sync-teams HELD (SP_SYNC_HOLD)` and `sync-matches HELD (SP_SYNC_HOLD)`.
       - **Where it runs.** The laptop holds from #925's merge (main, 2026-11-11). The host holds from the tag that carries
-        it, v1.6.7 (deployed 2026-11-12), and so on production v1.6.10 (addendum 436 item 1(d)) and production v1.6.12
-        (from 2026-11-27 18:25Z; addendum 580 item 2). Before v1.6.7 a host hold
+        it, v1.6.7 (deployed 2026-11-12), and so on production v1.6.10 (addendum 436 item 1(d)), production v1.6.12
+        (from 2026-11-27 18:25Z; addendum 580 item 2) and production v1.6.13 (from 2026-11-28 17:10Z; addendum 588
+        item 1). Before v1.6.7 a host hold
         was the procedure above (timers), as 332 item 3 says.
       - **THE HOST HOLDS MLB (from 2026-11-25).** Why: the operator's Baseball API plan drops to the free tier from
         2026-11-25 until the new season (ARCHITECT 2026-11-24 18:27 ET, addendum 522 item 1), and the host's
@@ -1632,7 +1636,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
         HELD line. No timer, unit or chain changed." The block ran on v1.6.10, which carries `SP_SYNC_HOLD` (above),
         before v1.6.11's deploy (530 item 1(c)). v1.6.11 was never deployed by itself; the hold stands on v1.6.12 from its
         deploy (ARCHITECT 2026-11-27 13:26 ET, addendum 580 item 1(e), verbatim in part: "the MLB sync hold line stands,
-        one line naming MLB"). **Its lifting condition: the host holds MLB from 2026-11-25, lifted
+        one line naming MLB"), and on v1.6.13 from its deploy (ARCHITECT 2026-11-28 12:10 ET, addendum 588 item 1(c),
+        verbatim in part: "the MLB sync hold line is one line naming MLB"). **Its lifting condition: the host holds MLB from 2026-11-25, lifted
         only by the architect's block with the plan's renewal before the 2027 season** (531 item 1(d), whose words are
         "hosting-h1 section O and the release record say the host holds MLB from 2026-11-25, lifted only by my block
         with the plan's renewal before the 2027 season (522 item 4)"; corrected by ARCHITECT 2026-11-25 13:42 ET,

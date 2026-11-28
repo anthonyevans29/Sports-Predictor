@@ -903,7 +903,8 @@ its compare verdict.
       019a1e2fca4205f0bcb3bf50419dcae8fa989d0e (019a1e2f) · since v1.6.12".
     - It is byte-identical to `python3 scripts/release_notes.py --to 019a1e2fca4205f0bcb3bf50419dcae8fa989d0e` (67
       lines, exit 0). `git for-each-ref --format='%(contents)'` prints one more newline, as on the earlier entries.
-    - No AMENDED line, no `FAIL` and no `✗`.
+    - No AMENDED line and no `✗`. Its one `FAIL` match is quoted inside #1175's section (CLAUDE.md's NHL line: "each
+      FAILED at the same gate"), not a failing line.
   - **Step 5, the deploy (588 item 1, verbatim):** "1. THE DEPLOY BLOCK's CONSOLE IS READ WHOLE. The host runs v1.6.13
     from 17:10Z on 2026-11-28. (a) BEFORE: v1.6.12 at 412003a7; no reboot pending; 1,374 receipt lines in 24 hours, 3
     failing, the same three bulletin runs as 587 item 1(a), pattern order_text and no other. (b) THE DEPLOY: the dry run
@@ -927,8 +928,9 @@ its compare verdict.
     #N" on main's first parent: the 4 PRs the notes carry, one CHANGELOG section each, and the fold PR #1181. The 4:
     #1175, #1178, #1179, #1180. Not in the tag: none.
   - **Release Issue:** #1184 (ritual step 4), opened 2026-11-28T17:15:31Z at the tag on ARCHITECT 2026-11-28 09:29 ET,
-    addendum 586 item 2(e) ("DEV 1 — the Release Issue at the tag; then the records PR, as you say.") and 587 item 1(d)
-    ("DEV 1 — the Release Issue now, its figures read from git.").
+    addendum 586 item 2(e) ("DEV 1 — the Release Issue at the tag; then the records PR, as you say."), on the
+    milestone v1.6.13. It matches 587 item 1(d) ("DEV 1 — the Release Issue now, its figures read from git."), which was
+    posted at 17:10Z and read after it.
     - It is "Release v1.6.13 (019a1e2f)", labelled release, track:H, class:lane, sport:all and size:S, in the form of
       v1.6.12's #1173. It carries the notes inline (7,840 characters).
     - 587 and 588 are placed whole there (7242884688 and 7242884951); 588 item 1 is the deploy's console in the

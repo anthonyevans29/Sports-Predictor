@@ -18,6 +18,8 @@ THE CALL LINE is closing.call_text(row, desk), IMPORTED and printed verbatim; th
 on the Desk row closing.desk_rows builds (the one the summary block prints), labelled "record only, not placed"; the
 quarantine, value shadow and kalshi-only hold lines are closing.summary_block's own lines for the row, verbatim, except
 the console's column gap after "value shadow", which is one space here (ARCHITECT 2026-11-10, addendum 321 item 4(c)).
+The value shadow's own QB tag, which that line does not carry, prints on a renderer line of its own right after it, and
+only when the shadow carries the tag (VALUE_SHADOW_QB_LINE; ARCHITECT 2026-11-27, addendum 583 item 1(b)).
 
 THE CARD (item 1): "a phone-sized portrait card (1080 px wide), matplotlib's Agg backend with its bundled DejaVu Sans
 (no display, no system font)". Drawn on a matplotlib Figure with the Agg canvas (never pyplot, never a display), every
@@ -162,6 +164,7 @@ FREE_TEXT_FIELDS = frozenset({
     "slate_file", "books.n", "books.why", "closing.unresolved_injuries",
     "desk.call_text", "desk.cls", "desk.hold", "desk.market_ref", "desk.model_p", "desk.order.side", "desk.pass_kind",
     "desk.pick", "desk.qb_class", "desk.reason", "desk.reasons", "desk.reference", "desk.summary", "desk.tags",
+    "desk.market_only_hold.would_pass_kind",      # addendum 583 item 1(a): the QB line's KIND, the chain's own
     "desk.tier", "desk.would_be", "desk.exec.basis", "desk.exec.doctrine", "desk.exec.fee_clears", "desk.exec.join_note",
     "desk_meta.as_of", "desk_meta.policy_version", "desk_meta.rule",
     "factor_breakdown.attack", "factor_breakdown.defense", "factor_breakdown.elo", "factor_breakdown.factor_notes",
@@ -512,6 +515,46 @@ def _order_line(d: dict) -> str:
 
 _LABEL_GAP = re.compile(r"^(value shadow) {2,}")
 
+# ARCHITECT 2026-11-27 20:35 ET, addendum 583 item 1 (#1169): the two QB lines name what they classify. (a) "QB tag on
+# the Desk's call: none" or the tags (closing.qb_class, unchanged, which reads the Desk row's tags alone); and, only
+# when it is none and the chain's call is a PASS, the clause "(the Desk's chain passed at KIND; QB tags are written
+# only when it sizes a PLAY)", KIND read through its own classified field. (b) The value shadow's own QB tag, on a line
+# of its own after summary_block's verbatim one, only when the shadow carries it. (c) No cohort name on these lines.
+QB_CALL_LABEL = "QB tag on the Desk's call"
+QB_CALL_NONE = "none"
+QB_CLEAN = cl.qb_class({})                    # the classifier's own clean text ("QB inputs clean"), read from it
+QB_PASS_CLAUSE = "(the Desk's chain passed at {kind}; QB tags are written only when it sizes a PLAY)"
+VALUE_SHADOW_QB_TAG = "QB-flagged"            # desk_policy.value_side's tag when a QB is listed on either side
+VALUE_SHADOW_QB_LINE = "value shadow's own QB tag: QB-flagged (a QB is listed on either side)"
+
+
+def qb_call_line(d: dict) -> str:
+    """Addendum 583 item 1(a) and (d): THE CALL's QB line and THE TEAMS' QB line, one helper (a test holds them equal).
+    The tags are closing.qb_class's text through fv('desk.qb_class'); "none" where it reads clean. The chain's call is
+    the market-only hold's would_call where the row carries the hold (addendum 214), else the row's call; its KIND is
+    the hold's would_pass_kind where the hold is there, else the row's pass_kind (desk_policy.chain_kind's rule), each
+    through its own field. A kind the row does not carry prints "not stored" (law 4)."""
+    got = cl.qb_class(d)
+    if got != QB_CLEAN:
+        return f"- {QB_CALL_LABEL}: {fv('desk.qb_class', got)}"
+    h = d.get("market_only_hold")
+    if isinstance(h, dict):
+        chain_call = h.get("would_call")
+        kind = fv("desk.market_only_hold.would_pass_kind", h.get("would_pass_kind")) if chain_call == "PASS" else None
+    else:
+        chain_call = d.get("call")
+        kind = fv("desk.pass_kind", d.get("pass_kind")) if chain_call == "PASS" else None
+    if chain_call != "PASS":
+        return f"- {QB_CALL_LABEL}: {QB_CALL_NONE}"
+    return f"- {QB_CALL_LABEL}: {QB_CALL_NONE} {QB_PASS_CLAUSE.format(kind=kind)}"
+
+
+def value_shadow_qb_flagged(d: dict) -> bool:
+    """Addendum 583 item 1(b): the Desk row's value shadow carries its own QB tag (a list of tags holding it)."""
+    vs = d.get("value_shadow")
+    tags = vs.get("tags") if isinstance(vs, dict) else None
+    return isinstance(tags, (list, tuple)) and VALUE_SHADOW_QB_TAG in tags
+
 
 def section_call(row: dict, d: dict, x: dict | None, fam: str) -> list[str]:
     call = cl.call_text(row, d)
@@ -526,7 +569,7 @@ def section_call(row: dict, d: dict, x: dict | None, fam: str) -> list[str]:
     out += [f"- pass_kind: {fv('desk.pass_kind', d.get('pass_kind'))}", f"- tier: {fv('desk.tier', d.get('tier'))}",
             f"- tags: {fv('desk.tags', d.get('tags'))}"]
     if fam == "NFL":
-        out.append(f"- QB: {fv('desk.qb_class', cl.qb_class(d))}")
+        out.append(qb_call_line(d))
     hold = cl.hold_for(d, fam)
     if hold:
         out.append(f"- HOLD: {fv('desk.hold', hold)}")
@@ -540,6 +583,8 @@ def section_call(row: dict, d: dict, x: dict | None, fam: str) -> list[str]:
             if s.startswith(("value shadow", "quarantine shadow", "kalshi-only hold")):
                 s = _LABEL_GAP.sub(r"\1 ", s)      # addendum 321 item 4(c): the console's column gap, one space
                 out.append(f"- {fv('desk.summary', s)}")
+                if s.startswith("value shadow ") and value_shadow_qb_flagged(d):
+                    out.append(f"- {VALUE_SHADOW_QB_LINE}")        # addendum 583 item 1(b): its own line, after it
     return out + [""]
 
 
@@ -616,7 +661,7 @@ def section_teams(row: dict, d: dict, fam: str) -> list[str]:
                 f"- factor notes: {fv('factor_breakdown.factor_notes', fb.get('factor_notes'))}",
                 f"- injuries_synced_at: {fv('input_quality.injuries_synced_at', iq.get('injuries_synced_at'))}"]
     if fam == "NFL":
-        out += [f"- QB class: {fv('desk.qb_class', cl.qb_class(d))}", f"- positions_unresolved (both sides): "
+        out += [qb_call_line(d), f"- positions_unresolved (both sides): "
                 f"{fv('closing.unresolved_injuries', cl.unresolved_injuries(row))}",
                 f"- Elo gap: {fv('row.elo_gap', row.get('elo_gap'))} · home advantage applied: {fv('row.home_adv_applied', row.get('home_adv_applied'))}"]
     for team in cl.injuries_empty(row):

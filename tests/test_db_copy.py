@@ -95,3 +95,38 @@ def test_a_refusal_names_the_path_and_no_row(tmp_path):
     with pytest.raises(dc.CopyRefused) as e:
         dc.check_copy(p)
     assert str(p) in str(e.value) and str(e.value).startswith("REFUSED: ")
+
+
+def test_an_absent_copy_speaks_for_any_reader_and_an_empty_db_is_refused(tmp_path):
+    with pytest.raises(dc.CopyRefused) as e:
+        dc.classify(tmp_path / "absent.db")
+    assert str(e.value).endswith("; nothing created, nothing read") and "the gate" not in str(e.value)
+    for empty in ("", "   "):
+        with pytest.raises(dc.CopyRefused, match=r"^REFUSED: --db is empty: "):
+            dc.classify(empty)
+
+
+def test_a_copy_sqlite_cannot_open_is_one_refusal_never_a_traceback(tmp_path, monkeypatch):
+    p = wal_copy(tmp_path / "copy.db")
+    path = dc.check_copy(p)
+
+    def unopenable(*a, **k):                                      # what an unreadable file gives at connect time
+        raise sqlite3.OperationalError("unable to open database file")
+    monkeypatch.setattr(dc.sqlite3, "connect", unopenable)
+    with pytest.raises(dc.CopyRefused, match=r"^REFUSED: --db .*copy\.db: cannot be opened through a "
+                                             r"mode=ro&immutable=1 URI \(OperationalError\); no fallback; nothing read$"):
+        dc.connect_copy(path)
+    assert dc.sidecars(p) == []
+
+
+def test_a_path_that_cannot_resolve_is_refused_in_one_line(tmp_path):
+    a, b = tmp_path / "a.db", tmp_path / "b.db"
+    a.symlink_to(b)
+    b.symlink_to(a)                                               # a symlink loop: refused, whichever way resolve() takes it
+    for f in (dc.classify, dc.require_live):
+        try:
+            f(a)
+        except dc.CopyRefused as e:
+            assert str(e).startswith("REFUSED: ")
+        else:
+            pytest.fail(f"{f.__name__} took a symlink loop")

@@ -36,13 +36,22 @@ def app_db() -> Path | None:
     return mp._app_db()
 
 
+def _resolve(db) -> Path:
+    """The --db, resolved; CopyRefused, nothing opened, when it cannot be (a symlink loop, an unreadable folder)."""
+    try:
+        return Path(str(db)).expanduser().resolve()
+    except (OSError, RuntimeError) as err:
+        raise CopyRefused(f"REFUSED: --db {db}: the path cannot be resolved ({err.__class__.__name__}); nothing "
+                          "read") from None
+
+
 def is_live(db) -> bool:
     """True when `db` is the app's configured database by resolved path or by identity (582 item 4(a))."""
     from src.walters import mlb_pitchers_gate as mp
     app = app_db()
     if app is None or db is None or not str(db).strip():
         return False
-    tgt = Path(str(db)).expanduser().resolve()
+    tgt = _resolve(db)
     return tgt == app or mp._same_file(tgt, app)
 
 
@@ -64,6 +73,7 @@ def check_copy(db) -> Path:
     if db is None or not str(db).strip():
         raise CopyRefused("REFUSED: --db is empty: name the app's configured database or a .backup copy outside "
                           "data/; nothing read")
+    _resolve(db)                                              # a path that cannot resolve is refused in one line
     try:
         path = mp.check_db(db)
     except mp.GateRefused as e:                               # the fence's own words, spoken for any reader, not the gate
@@ -85,7 +95,7 @@ def classify(db) -> tuple[str, Path]:
     """("live", path) for the app's configured database (it keeps its open), else ("copy", path) after check_copy;
     CopyRefused before any open otherwise. A missing --db is the caller's: this is only asked of a --db given."""
     if is_live(db):
-        return "live", Path(str(db)).expanduser().resolve()
+        return "live", _resolve(db)
     return "copy", check_copy(db)
 
 
@@ -96,8 +106,12 @@ def copy_uri(path: Path) -> str:
 
 def connect_copy(path: Path) -> sqlite3.Connection:
     """sqlite3 on a checked copy through mode=ro&immutable=1: never created, never written, nothing beside it; no
-    fallback."""
-    return sqlite3.connect(copy_uri(path), uri=True)
+    fallback; CopyRefused when SQLite cannot open it (an unreadable file), so the caller prints one line, exit 2."""
+    try:
+        return sqlite3.connect(copy_uri(path), uri=True)
+    except sqlite3.Error as err:                              # a file the fence passed but SQLite cannot open: one
+        raise CopyRefused(f"REFUSED: --db {path}: cannot be opened through a mode=ro&immutable=1 URI "   # line, exit 2
+                          f"({err.__class__.__name__}); no fallback; nothing read") from None
 
 
 def copy_engine(path: Path):
@@ -112,7 +126,7 @@ def require_live(db) -> Path:
     """582 item 4(c), for the two live-file receipts: the resolved path when `db` is the app's configured database,
     else CopyRefused naming the copy open this receipt does not take."""
     if is_live(db):
-        return Path(str(db)).expanduser().resolve()
+        return _resolve(db)
     raise CopyRefused(f"REFUSED: --db {db} is not the app's configured database: this receipt reads the live file "
                       "only (its data_version check means something only on a file being written) and takes no copy "
                       "open (mode=ro&immutable=1); nothing read")

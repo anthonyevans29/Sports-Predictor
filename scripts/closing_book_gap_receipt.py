@@ -51,6 +51,11 @@ WHAT IT READS (law 1: every key below was read from the code at origin/main c53a
   NFL kalshi_prob, the HOME probability normalised over HOME and AWAY, null where a leg is missing
   (nfl_predict.py:352, venue.kalshi_home_prob), input_quality.kalshi "mismatched" (nfl_predict.py:371-375) a cause.
   The receipt computes |fair - kalshi| itself, in pp; it never reads market.kalshi.vs_book_pp or venue_gap_pp.
+  THE BOOKS LINE (590 item 7(b); these keys read at origin/main 019a1e2f) reads three more keys of the row's market
+  block and no others: bookmaker_count (the complete books the close priced from: close.py:104-107, export.py:754,
+  nfl_predict.py:271-272; the Desk's "books", desk_policy.py:540), bookmaker_count_quoted (every book that quoted,
+  SOCCER only: export.py:723, :755) and whether close_unpriced is present (export.py:724: quoted, no book complete);
+  on NFL, fair_source.
 - THE DESK, these keys of row.desk and no others (DESK_READS): call ("PLAY", "PASS", "LADDER"; desk_policy.py:1407,
   closing.STAKED_CALLS holds PLAY and LADDER, closing.py:232), pick, reference ("books" or "kalshi_only",
   desk_policy.py:2113-2114) and market_ref (the books' fair on the pick, desk_policy.py:483-485). NEVER READ, and never
@@ -102,6 +107,20 @@ THE MEASURES:
   reference: the books' session's where desk.reference is "books"; "reference not the books" where it is not
   (counted apart, no bucket); desk.market_ref is checked against the page's fair on the pick at 4 places, agree or
   differ counted, never dropped.
+
+- THE BOOKS LINE (ARCHITECT 2026-11-28, addendum 590 item 7(b), #1186), FILES ONLY: over EVERY counted row of the
+  family from its FIRST CLOSING PAGE on the record (590 7(b): "this season"; the earliest counted page, printed), not
+  only the stamped window, the complete count as 0, 1, 2, 3, 4 or more and absent; the quoted count beside it; the
+  rows under four (1, 2, 3) split by desk.call; 0 (no complete book, so no books' fair) apart, never folded into the
+  thin closes, by cause: THE UNPRICED CLOSE (close_unpriced: quoted, no book complete) and the Kalshi-only block (no
+  book quoted: export.py:710-713). The page decides between 0 and absent, not the books: a SOCCER game with no book
+  odds is 0 where Kalshi priced it and absent (no market block, export.py:714) where it did not; both causes print.
+  ON NFL THE UNPRICED CLOSE CANNOT BE TOLD FROM THE PAGE: nfl_predict.py:267-290 writes no block for it (market None,
+  or the spread fallback), so it sits inside absent beside the games with no 1X2 quote, and the line says so in place
+  of a count. A row whose fair_source is not "1X2" (the spread fallback: its bookmaker_count counts spread lines,
+  spread_fallback.py:119-146) is counted apart, outside the buckets. Under --from/--through the first page is the
+  first in the run's bound, and a start whose latest page cannot be told is out: the line names both. Rows and
+  distinct games.
 
 Counts and gaps in pp only: no threshold, no verdict, no bookmaker name, no amount (532 item 4).
 No provider call, no network, nothing written (the copy is opened immutable=1; no bytecode is written).
@@ -166,6 +185,18 @@ NO_MATCH = "no stored session matches the page"
 EARLIER = "page matches an earlier session"
 BEFORE_FIRST = "exported before the family's first stamped row"
 NOT_BOOKS = "reference not the books"
+# THE BOOKS LINE (ARCHITECT 2026-11-28, addendum 590 item 7(b), #1186): files only, the complete count by bucket
+BOOKS_BUCKETS = ("0", "1", "2", "3", "4 or more")
+BOOKS_UNDER_FOUR = ("1", "2", "3")
+BOOKS_ABSENT = "absent"
+BOOKS_ZERO = "0 (no complete book, so no books' fair; counted apart, never a thin close)"
+BOOKS_UNPRICED_WHY = "the unpriced close: quoted, no book complete (close_unpriced)"
+BOOKS_KALSHI_ONLY_WHY = "no book quoted: a Kalshi-only block (no close_unpriced on the block)"
+BOOKS_NFL_UNPRICED = ("the unpriced close CANNOT BE TOLD FROM AN NFL PAGE: nfl_predict.py:267-290 writes no market "
+                      "block for it (or the spread fallback's), so it is inside absent, beside the games with no 1X2 "
+                      "quote; no count is given for it")
+BOOKS_NOT_1X2 = "fair_source not 1X2 (its bookmaker_count counts its own lines, not 1X2 books; counted apart)"
+NO_QUOTED = "not on the page"
 READS = {"matches": {"id", "home_team_id", "away_team_id", "utc_date"},
          "teams": {"id", "name"},
          "odds_snapshots": {"match_id", "market", "selection", "devig_prob", "captured_at", "source"}}
@@ -195,7 +226,13 @@ DEFINITIONS = (
     "bucket of its reference (the books' session where desk.reference is 'books'; 'reference not the books' counted "
     "apart, 534 Q3). Only desk.call, pick, reference and market_ref are read.",
     "THE LATEST PAGE OF A START (532 item 4 #6): one page per (family, run start) counts, the latest by exported_at; "
-    "earlier pages and copies are printed, labelled and out.")
+    "earlier pages and copies are printed, labelled and out.",
+    "THE BOOKS LINE (590 item 7(b)), files only: market.bookmaker_count, the complete books the close priced from (the "
+    "Desk's 'books'), over every counted row from the family's first closing page, as 0 · 1 · 2 · 3 · 4 or more · "
+    "absent; market.bookmaker_count_quoted beside it (SOCCER only; 'not on the page' elsewhere); the rows under four "
+    "(1, 2, 3) by desk.call; 0 counted apart, by cause (the unpriced close, quoted with no book complete; a "
+    "Kalshi-only block, no book quoted). On NFL the unpriced close cannot be told from the page (it is inside absent), "
+    "and a fair_source other than 1X2 is counted apart, outside the buckets.")
 
 
 class Refused(Exception):
@@ -467,6 +504,101 @@ def read_desk(r: dict) -> dict | None:
     return {k: d.get(k) for k in DESK_READS}
 
 
+def _count(v):
+    """A whole, non-negative count, else None (a bool or a float is not a count: law 4, never coerced)."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+
+
+def books_of(fam: str, r: dict) -> dict:
+    """590 item 7(b): the row's complete count's bucket, its quoted count and, where it is no bucket, the cause."""
+    m = r.get("market")
+    if not isinstance(m, dict):
+        return {"bucket": BOOKS_ABSENT, "quoted": NO_QUOTED,
+                "why": "no market block" + (" (on NFL: neither a 1X2 consensus nor the spread fallback; an unpriced "
+                                            "close among them, not told apart)" if fam == "NFL" else
+                                            " (no book odds and no Kalshi price: export.py:714)")}
+    if fam == "NFL" and m.get("fair_source") != "1X2":
+        return {"bucket": BOOKS_NOT_1X2, "why": f"fair_source {m.get('fair_source')!r}", "quoted": NO_QUOTED}
+    q = _count(m.get("bookmaker_count_quoted"))
+    quoted = str(q) if q is not None else (NO_QUOTED if "bookmaker_count_quoted" not in m else "not a whole number")
+    n = _count(m.get("bookmaker_count"))
+    if n is None:
+        return {"bucket": BOOKS_ABSENT, "quoted": quoted,
+                "why": "no bookmaker_count" if m.get("bookmaker_count") is None else "bookmaker_count not a whole number"}
+    out = {"bucket": BOOKS_BUCKETS[min(n, 4)], "quoted": quoted, "why": None}
+    if n == 0:
+        out["why"] = BOOKS_UNPRICED_WHY if "close_unpriced" in m else BOOKS_KALSHI_ONLY_WHY
+    return out
+
+
+def books_report(fam: str, rows: list, pop: dict, L: list) -> dict:
+    """590 item 7(b) (#1186): the BOOKS line, files only, over every counted row from the family's first closing page."""
+    pages = pop["pages"]
+    bounded = pop.get("lo") is not None or pop.get("hi") is not None
+    undecided = pop["counts"].get("undecided_starts:" + fam, 0)
+    firsts = [g for g in pages if g["family"] == fam and g["counts"]]
+    first = min(firsts, key=lambda g: (g["run"] or g["exported_at"] or datetime.max, g["exported_at"] or datetime.max,
+                                       g["seq"]), default=None)
+    out = {"rows": len(rows), "first_page": None, "bounded": bounded, "undecided_starts_out": undecided}
+    scope = ((" in this run's bound (--from/--through: the season's first page only if the bound starts before it)"
+              if bounded else " on the record")
+             + (f"; starts whose latest page cannot be told, out: {undecided}" if undecided else ""))
+    if first is None:
+        L.append(f"BOOKS (590 item 7(b)), files only: no counted {fam} page, so no first closing page and no row"
+                 + (scope if bounded or undecided else ""))
+        return out
+    out["first_page"] = {"page": first["file"], "run": _t(first["run"]), "exported_at": first["exported_raw"]}
+    L.append(f"BOOKS (590 item 7(b); #1186), files only: market.bookmaker_count, the complete books the close priced "
+             f"from (the Desk's 'books'), over every counted row from the family's FIRST CLOSING PAGE{scope}: "
+             f"{first['file']} (run start {_t(first['run'])} · exported_at {first['exported_raw']}): rows {len(rows)}")
+    names = list(BOOKS_BUCKETS) + [BOOKS_ABSENT] + ([BOOKS_NOT_1X2] if fam == "NFL" else [])
+    per = {}
+    for name in names:
+        xs = [x for x in rows if x["books"]["bucket"] == name]
+        games = {json.dumps(x["match_id"], default=str) for x in xs}
+        quoted = Counter(x["books"]["quoted"] for x in xs)
+        calls = Counter(str((x["desk"] or {}).get("call")) if x["desk"] is not None else "(no desk block)" for x in xs)
+        why = Counter(x["books"]["why"] for x in xs if x["books"]["why"])
+        per[name] = {"rows": len(xs), "games": len(games), "quoted": dict(quoted), "calls": dict(calls),
+                     "why": dict(why)}
+    L.append("    complete count: " + " · ".join(f"{n} {per[n]['rows']}" for n in BOOKS_BUCKETS + (BOOKS_ABSENT,))
+             + (f" · {BOOKS_NOT_1X2.split(' (')[0]} {per[BOOKS_NOT_1X2]['rows']} (apart)" if fam == "NFL" else "")
+             + " (rows)")
+
+    def tail(p):
+        return (f"rows {p['rows']} · games {p['games']} · quoted: "
+                + (" · ".join(f"{k} {v}" for k, v in sorted(p["quoted"].items())) or "none")
+                + " · desk.call: " + (" · ".join(f"{k} {v}" for k, v in sorted(p["calls"].items())) or "none"))
+    for n in BOOKS_UNDER_FOUR + ("4 or more",):
+        L.append(f"    {n}: {tail(per[n])}")
+    under = [x for x in rows if x["books"]["bucket"] in BOOKS_UNDER_FOUR]
+    u_calls = Counter(str((x["desk"] or {}).get("call")) if x["desk"] is not None else "(no desk block)" for x in under)
+    u_ref = sum(1 for x in under if x["desk"] is not None and x["desk"].get("call") in ("PLAY", "LADDER")
+                and x["desk"].get("reference") == "books")
+    out["under_four"] = {"rows": len(under), "games": len({json.dumps(x["match_id"], default=str) for x in under}),
+                         "calls": dict(u_calls), "staked_on_the_books": u_ref}
+    L.append(f"    UNDER FOUR (1, 2, 3): rows {len(under)} · games {out['under_four']['games']} · by desk.call: "
+             + (" · ".join(f"{k} {v}" for k, v in sorted(u_calls.items())) or "none")
+             + f" · of which PLAY or LADDER on desk.reference 'books' {u_ref}")
+    p0 = per["0"]
+    if fam == "NFL":
+        out["unpriced_close"] = None
+        L.append(f"    {BOOKS_ZERO}: {tail(p0)} · {BOOKS_NFL_UNPRICED}")
+    else:
+        out["unpriced_close"] = p0["why"].get(BOOKS_UNPRICED_WHY, 0)
+        L.append(f"    {BOOKS_ZERO}: {tail(p0)} · by cause: "
+                 + ("; ".join(f"{w} {v}" for w, v in sorted(p0["why"].items())) or "none"))
+    pa = per[BOOKS_ABSENT]
+    L.append(f"    {BOOKS_ABSENT}: {tail(pa)} · by cause: "
+             + ("; ".join(f"{w} {v}" for w, v in sorted(pa["why"].items())) or "none"))
+    if fam == "NFL":
+        pn = per[BOOKS_NOT_1X2]
+        L.append(f"    {BOOKS_NOT_1X2}: {tail(pn)} · by fair_source: "
+                 + ("; ".join(f"{w} {v}" for w, v in sorted(pn["why"].items())) or "none"))
+    out["buckets"] = per
+    return out
+
+
 def bucket(h: float | None) -> str:
     if h is None:
         return NO_STAMP
@@ -490,6 +622,7 @@ def measure(page: dict, r: dict, s, has_stamp: bool) -> dict:
     x["fair"], fair_why = page_fair(fam, r)
     x["kalshi"], kal_why = page_kalshi(fam, r)
     x["desk"] = read_desk(r)
+    x["books"] = books_of(fam, r)                  # 590 item 7(b): files only, the BOOKS line
     if x["fair"] is not None and x["kalshi"] is not None:
         x["gap"] = round(abs(x["fair"]["HOME"] - x["kalshi"]["HOME"]) * 100, 4)   # 4-place inputs: exact in pp
     else:
@@ -772,6 +905,7 @@ def report(pop: dict, s, has_stamp: bool, hdr: dict) -> tuple[list[str], dict]:
     fams = {}
     for fam in FAMILIES:
         fams[fam] = family_report(fam, rows[fam], L)
+        fams[fam]["books"] = books_report(fam, rows[fam], pop, L)
     summary = {"families": fams, "stamp_column": has_stamp, "files": c, "unreadable": pop["unreadable"],
                "pages": {fam: {"read": sum(1 for g in pop["pages"] if g["family"] == fam),
                                "counted": sum(1 for g in pop["pages"] if g["family"] == fam and g["counts"]),

@@ -13,7 +13,11 @@ An event is a market ticker without its last '-' segment (the rule of src/walter
 The series is the ticker's first segment. Captures with no ticker (before migrate_kalshi_ticker.py, or a leg the
 matcher stored without one) are counted, never checked.
 
-Opens the DB read-only (mode=ro URI; a copy that refuses mode=ro falls back to the plain path with PRAGMA query_only = ON, #421).
+Opens the DB read-only. The app's configured database (no --db, or a --db that is it by resolved path or by identity)
+keeps its open: mode=ro URI, falling back to the plain path with PRAGMA query_only = ON where mode=ro is refused
+(#421). Any other --db is a copy: mode=ro&immutable=1, no fallback, refused before any open (exit 2, the path
+printed, never a row) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine without the
+app's configuration loaded reads its live file as a copy and refuses (addendum 582 item 4, #1089).
 Writes nothing.
 
     python3 scripts/kalshi_leg_audit.py [--since YYYY-MM-DD] [--db PATH]
@@ -27,6 +31,10 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from src.walters import db_copy  # noqa: E402  (#1089: the live file or a copy, addendum 582 item 4)
 
 
 def event_of(ticker):
@@ -71,6 +79,19 @@ def open_read(p: Path):
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM odds_snapshots LIMIT 1")
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
+
+
+def open_copy(p: Path):
+    """A copy (addendum 582 item 4(a)): mode=ro&immutable=1 through db_copy.connect_copy, no fallback; a copy it cannot
+    read is refused (db_copy.CopyRefused, the path printed, never a row) and its connection closed."""
+    con = db_copy.connect_copy(p)
+    try:
+        con.execute("SELECT 1 FROM odds_snapshots LIMIT 1")
+    except sqlite3.Error as e:
+        con.close()
+        raise db_copy.CopyRefused(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI "
+                                  f"({type(e).__name__}: {e}); no fallback; nothing read") from None
+    return con, "copy: mode=ro&immutable=1 URI (no fallback)"
 
 
 def has_ticker_column(con) -> bool:
@@ -198,7 +219,11 @@ def report(r: dict, echo=print) -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="addendum 37 item 4: the read-only Kalshi leg audit")
     ap.add_argument("--since", help="captures on or after this date (YYYY-MM-DD, UTC)")
-    ap.add_argument("--db", help="SQLite file (default: DATABASE_URL from the environment or .env)")
+    ap.add_argument("--db", help="SQLite file (default: DATABASE_URL from the environment or .env). The app's configured "
+                    "database keeps its open (mode=ro, the #421 fallback); any other file is a copy opened "
+                    "mode=ro&immutable=1 with no fallback, refused (exit 2) under data/, with a -wal/-shm/-journal "
+                    "sidecar beside it, or absent; a machine without the app's configuration loaded reads its live "
+                    "file as a copy and refuses (addendum 582 item 4)")
     a = ap.parse_args(argv)
     if a.since is not None:            # #419 (Codex on #416): a malformed date never gives a quiet wrong window
         try:
@@ -207,7 +232,15 @@ def main(argv=None) -> int:
         except ValueError:
             print(f"REFUSED: --since {a.since!r} is not a date YYYY-MM-DD")
             return 2
-    con, form = open_read(db_path(a.db))
+    if a.db is None:
+        con, form = open_read(db_path(a.db))
+    else:                              # #1089 (addendum 582 item 4): the live file keeps its open; any other is a copy
+        try:
+            kind, p = db_copy.classify(a.db)
+            con, form = open_read(db_path(a.db)) if kind == "live" else open_copy(p)
+        except db_copy.CopyRefused as e:
+            print(str(e))
+            return db_copy.EXIT_REFUSED
     try:
         print(f"read-only open: {form}" + (f" · since {a.since}" if a.since else ""))
         r = audit(con, a.since)

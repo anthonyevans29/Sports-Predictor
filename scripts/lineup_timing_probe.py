@@ -8,7 +8,12 @@ T-75, T-60, T-45, T-30 and T-15 minutes before kickoff, and print per fixture th
 per side came back, the keys used, and the calls made. Nothing written. The block is mine; the operator keeps the
 laptop awake 12:30pm to 3:00pm ET that day."
 
-  D0  the database   opened mode=ro (a copy that refuses it: the plain path with PRAGMA query_only = ON, #421). The CL
+  D0  the database   the app's configured database (no --db, or a --db that is it by resolved path or by identity)
+                     keeps its open: mode=ro, and a file that refuses it the plain path with PRAGMA query_only = ON
+                     (#421). Any other --db is a copy, opened mode=ro&immutable=1 with no fallback, and refused before
+                     any open (exit 2, its path printed, nothing read) under data/, with a -wal/-shm/-journal sidecar
+                     beside it, or absent; a machine without the app's configuration loaded reads its own live file as
+                     a copy under data/ and refuses (ARCHITECT 2026-11-27, addendum 582 item 4; #1089). The CL
                      competition's stored rows whose kickoff (matches.utc_date, UTC) falls on the day, each with its
                      id, kickoff, stored status, teams, and API-Football fixture id (matches.external_ids['api_football'],
                      APIFootballAdapter.source_name). Not polled, printed with the reason: a row with no fixture id, a
@@ -72,6 +77,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.walters import db_copy  # noqa: E402 - addendum 582 item 4: the live file or a copy
+
 COMPETITIONS = ("CL", "UEL", "EL", "EFL", "PL")   # addendum 75 item 3(a), 76 item 2: CL default; UEL; EL; EFL; PL (163 item 4)
 COMPETITION = COMPETITIONS[0]
 # Addendum 76 item 2: the Europa League is stored under either code (api_football maps both to league 3); a day with no
@@ -122,6 +129,18 @@ def open_read(p: Path):
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM matches LIMIT 1")
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
+
+
+def open_copy(p: Path):
+    """(connection, form) on a --db that db_copy.classify read as a copy (addendum 582 item 4(a)): mode=ro with
+    immutable=1, no fallback, nothing created or written beside it; closed again when the first read fails."""
+    con = db_copy.connect_copy(p)
+    try:
+        con.execute("SELECT 1 FROM matches LIMIT 1")
+    except BaseException:
+        con.close()
+        raise
+    return con, "mode=ro URI with immutable=1 (a copy; no fallback)"
 
 
 def source_name() -> str:
@@ -322,7 +341,12 @@ def run(argv=None, clock=_clock, sleep=time.sleep, provider=None) -> int:
                                              "read-only")
     ap.add_argument("--competition", default=COMPETITION, choices=COMPETITIONS,
                     help="the stored competition code whose rows are polled (default CL)")
-    ap.add_argument("--db", default=None)
+    ap.add_argument("--db", default=None,
+                    help="the app's configured database keeps its open (mode=ro; #421's fallback); any other "
+                         "file is a copy opened mode=ro&immutable=1, refused (exit 2, nothing read) under "
+                         "data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine without "
+                         "the app's configuration loaded reads its live file as a copy and refuses "
+                         "(addendum 582 item 4)")
     ap.add_argument("--date", default=None, help="the day in UTC, YYYY-MM-DD (default: today in UTC)")
     ap.add_argument("--plan", action="store_true", help="print the fixtures and the poll times; make no call")
     a = ap.parse_args(argv)
@@ -337,8 +361,15 @@ def run(argv=None, clock=_clock, sleep=time.sleep, provider=None) -> int:
     print(f"  polls at {_offs(OFFSETS)} minutes · a poll more than {int(LATE_LIMIT.total_seconds() // 60)} minutes "
           "past its time is missed, never counted under its label")
 
-    p = db_path(a.db)
-    con, form = open_read(p)
+    kind = "live"
+    if a.db:
+        try:
+            kind, copy = db_copy.classify(a.db)      # addendum 582 item 4(b): refused before any open, nothing read
+        except db_copy.CopyRefused as e:
+            print(f"✗ {e}")
+            return db_copy.EXIT_REFUSED
+    p = db_path(a.db) if kind == "live" else copy
+    con, form = open_read(p) if kind == "live" else open_copy(p)
     src = source_name()
     print(f"\nD0 database {p} · opened via {form}")
     print(f"  READ: matches (id, utc_date, status, external_ids['{src}']) of competitions.code = '{a.competition}', "

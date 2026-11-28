@@ -97,6 +97,13 @@ as a closing-file failure is; rec["exit"] never changed; the push proceeds with 
 closing takes the same hook under laptop/bulletins/". `python cli.py bulletin --closing-file|--slate-file <the kept
 file> --out-dir exports/bulletins`, bounded at BULLETIN_TIMEOUT_S; the receipt's `bulletin` {command, exit, seconds,
 tail[, error]}. No timer and no chain step of its own: the hooks ride the closing and slate runs that exist.
+THE STALE PREDICTION AT A CLOSING (503's PR 2; ARCHITECT 2026-11-24, addendum 502 item 2 Q2 and addendum 503 item 1
+Q1-Q2; ARCHITECT 2026-11-26, addendum 563): on MLB and SOCCER (FAMILIES "computed"; NFL untouched), after the price
+check and before the starters, every summary row's prediction.computed_at in the export is checked against the run's
+start (stale_predictions). It ships OFF behind its own switch, STALE_PREDICTION_RULE: off, it fails nothing and changes
+no page, file, exit or notice, and prints one line and writes one receipt key (STALE_PREDICTIONS_OFF_KEY), the rows it
+would have failed with their causes, [] for none. On (by an architect's addendum only), a stale row fails the run as
+its own failure, "stale predictions" (one of OWN_CHECK_FAILURES), its rows in the receipt's `stale_predictions`.
 """
 from __future__ import annotations
 
@@ -125,13 +132,16 @@ from chains import CHAINS, CLOSING_FAMILIES  # noqa: E402
 NY = ZoneInfo("America/New_York")
 # C1: the families with a closing run. comps = the competition codes whose games it covers; export_glob = the files
 # its export step writes (the "last file" a call is compared with, C5); noun = what the start time is called.
+# computed (503's PR 2; ARCHITECT 2026-11-24, addendum 503 item 1 Q1: "A MISSING STAMP IS STALE ONLY WHERE THE EXPORT
+# CARRIES ONE BY CONTRACT (the Premier League's rows and MLB's) [...] NFL rows carry none [...]; they are untouched"):
+# the family's export rows carry prediction.computed_at by contract, so its closing checks it (stale_predictions).
 FAMILIES = {
     "MLB": {"chain": CLOSING_FAMILIES["MLB"], "comps": ("MLB",), "export_glob": "mlb_MLB_*.json",
-            "noun": "first pitch", "feed": True, "starters": True},
+            "noun": "first pitch", "feed": True, "starters": True, "computed": True},
     "NFL": {"chain": CLOSING_FAMILIES["NFL"], "comps": ("NFL",), "export_glob": "nfl_predictions_*.json",
-            "noun": "kickoff", "feed": False, "starters": False},
+            "noun": "kickoff", "feed": False, "starters": False, "computed": False},
     "SOCCER": {"chain": CLOSING_FAMILIES["SOCCER"], "comps": ("PL",), "export_glob": "soccer_PL_*.json",
-               "noun": "kickoff", "feed": False, "starters": False},
+               "noun": "kickoff", "feed": False, "starters": False, "computed": True},
 }
 # Addendum 179 item 4, verbatim: the text of an unread day (desk_policy.UNIT_UNREAD_TEXT; this module never imports the
 # Desk, C8: a test pins the two). UNIT_MARK: the line `cli.py desk-unit` ends on (cli.DESK_UNIT_MARK; pinned too).
@@ -235,7 +245,15 @@ STAKED_CALLS = ("PLAY", "LADDER")                      # a call that stakes unit
 # the export step writes it under logs/, named with the run id, so no call is left behind (a receipt older than that
 # names an export R6 moved there).
 # C (addendum 23): a run left with no game by the schedule read is "start moved".
-OWN_CHECK_FAILURES = ("stale prices", "stale starters", "missing from export", "target started", "start moved")
+OWN_CHECK_FAILURES = ("stale prices", "stale predictions", "stale starters", "missing from export", "target started",
+                      "start moved")
+# THE STALE PREDICTION AT A CLOSING (503's PR 2; ARCHITECT 2026-11-26, addendum 563 item 2 Q1): "OFF AT MERGE, [...]
+# behind its own closing-side switch." This module's own switch (C8: the Desk's STALE_PRICE_RULE is never imported or
+# read here); 563 item 2(b): "IT IS TURNED ON BY AN ADDENDUM OF MINE [...] The code ties the two switches to nothing:
+# each is read by itself." Off, the check still runs and counts (563 item 2(a)): one console line and one receipt key,
+# STALE_PREDICTIONS_OFF_KEY, and nothing else changes. Nobody sets it on outside a test until that addendum.
+STALE_PREDICTION_RULE = {"on": False}
+STALE_PREDICTIONS_OFF_KEY = "stale_predictions_would_fail"
 # B2 (ARCHITECT 2026-10-09, addendum 23): "The phone page is the page. It is tried three times, ten seconds apart,
 # before the run fails as 'page'. A screen notification that is not posted is recorded and changes nothing."
 PAGE_TRIES = 3
@@ -1310,6 +1328,75 @@ def stale_prices(doc: dict, rows: list[dict], run_start: datetime, unread: list 
     return out
 
 
+PREDICTION_CAUSES = {"before": "computed before the run's start", "missing": "no computed time",
+                     "unreadable": "computed time unreadable"}
+
+
+def stale_predictions(doc: dict, rows: list[dict], run_start: datetime) -> list[dict]:
+    """503's PR 2 (ARCHITECT 2026-11-24, addendum 502 item 2 Q2): "R2 reaches the prediction: a closing row whose
+    prediction was computed before the run's start is stale exactly as a stale price is." Addendum 503 item 1 Q1: "A
+    STAMP THAT IS PRESENT AND BEFORE THE RUN'S START IS STALE. A MISSING STAMP IS STALE ONLY WHERE THE EXPORT CARRIES
+    ONE BY CONTRACT" (FAMILIES[fam]["computed"]: MLB and SOCCER; NFL is never checked). As ruled (addendum 563 item
+    1): every row R2 checks (the summary rows, PASS included), the export's own prediction.computed_at (no DB read),
+    the run's start R2 takes (380.4: the moment the run held the lock), "the comparison R2 makes, a stamp in the
+    start's own second stale". The stamp is read with parse_utc, as R2 reads a stored capture (a naive stamp is UTC,
+    cut to its second), and is stale when it is before the start (R2's `< s0`) or in the start's own second (563 item
+    1's words; the two differ only where the start is a whole second or the stamp carries its own offset and
+    fraction). A missing or null stamp is stale (law 4), and so is one that does not parse. Each entry: match_id,
+    game, start_et, cause (PREDICTION_CAUSES), computed_at (whole seconds, as R2 prints a capture; None when there is
+    no readable stamp) and run_start. It reads the export only: no Desk code, no export field, no DB."""
+    by_id = {r.get("match_id"): r for r in doc.get("predictions") or []}
+    s0 = utc(run_start).astimezone(timezone.utc)
+    out = []
+    for x in rows:
+        r = by_id.get(x["match_id"]) or {}
+        pred = r.get("prediction")
+        raw = pred.get("computed_at") if isinstance(pred, dict) else None
+        at = None
+        if raw is None:
+            cause = "missing"
+        else:
+            try:
+                if not isinstance(raw, str):
+                    raise TypeError(type(raw).__name__)
+                at = parse_utc(raw)
+            except (TypeError, ValueError, OverflowError):     # OverflowError: '0001-01-01T00:00:00+05:00'
+                cause = "unreadable"
+            else:
+                if not (at < s0 or at.replace(microsecond=0) == s0.replace(microsecond=0)):
+                    continue
+                cause = "before"
+        out.append({"match_id": x["match_id"], "game": f"{x['away']} @ {x['home']}", "start_et": x["start_et"],
+                    "cause": PREDICTION_CAUSES[cause], "computed_at": iso_z(at) if at else None,
+                    "run_start": iso_z(s0)})
+    return out
+
+
+def prediction_text(x: dict) -> str:
+    """Addendum 563 item 4 (Q3), the words: "With a stamp: "prediction computed", the stamp, "before the run's start",
+    the start. With no stamp: "prediction carries no computed time". With a stamp that does not parse: "prediction
+    computed time unreadable". Never "computed never"." """
+    if x["cause"] == PREDICTION_CAUSES["missing"]:
+        return "prediction carries no computed time"
+    if x["cause"] == PREDICTION_CAUSES["unreadable"]:
+        return "prediction computed time unreadable"
+    return f"prediction computed {x['computed_at']}, before the run's start {x['run_start']}"
+
+
+def _game_text(x: dict) -> str:
+    return f"match {x['match_id']} ({x['start_et']} {x['game']})"
+
+
+def stale_predictions_off_line(found: list[dict]) -> str:
+    """563 item 2(a): with the switch off, the ONE console line: the rows the check would have failed, each with its
+    cause, or that there are none."""
+    head = "· stale predictions (rule off, counted only: fails nothing): "
+    if not found:
+        return head + "none would fail"
+    return head + f"{len(found)} row(s) would fail: " + "; ".join(
+        f"{_game_text(x)}: {prediction_text(x)}" for x in found)
+
+
 def stale_starters(doc: dict, rows: list[dict], games: list[dict], run_start: datetime) -> list[dict]:
     """380.1 (ARCHITECT): "The run checks its starters, not a step's console. For every game in the summary: where the
     export row lists a starter, the stored starter row for that side was refreshed at or after the run's start. A
@@ -2253,6 +2340,17 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             print(f"✗ stale prices: match {s_['match_id']} ({s_['start_et']} {s_['game']}): {s_['price']} "
                   f"captured {s_['captured_at'] or 'never (no stored row)'}, before the run's start {s_['run_start']}")
         return
+    if FAMILIES[fam]["computed"]:     # 503's PR 2 (addendum 563): after the prices, before the starters (Q4)
+        sp_ = stale_predictions(doc, rows, held)
+        if not STALE_PREDICTION_RULE["on"]:
+            rec[STALE_PREDICTIONS_OFF_KEY] = sp_       # 563 item 2(a): off, it still counts; it fails nothing
+            print(stale_predictions_off_line(sp_))
+        elif sp_:                     # 563 item 3 (Q2): its own failure, never under R2's captured line
+            rec["failed"] = "stale predictions"
+            rec["stale_predictions"] = sp_
+            for x in sp_:
+                print(f"✗ stale predictions: {_game_text(x)}: {prediction_text(x)}")
+            return
     if FAMILIES[fam]["starters"]:
         st_ = stale_starters(doc, rows, games, held)
         if st_:                       # 380.1: a failed attempt, retried like stale prices; not a refusal
@@ -2486,6 +2584,8 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
         print(f"  export: {' or '.join(export_candidates(fam, s, now, run_id))} · then, once the page is accepted, "
               f"{CLOSING_FILE_DIR}/{closing_name(fam, s)} · checks: started (R1), start moved (C), "
               "missing, prices (R2, A5 legs)"
+              + ((", predictions (503 PR 2" + ("" if STALE_PREDICTION_RULE["on"] else ": rule off, counted only")
+                  + ")") if FAMILIES[fam]["computed"] else "")
               + (", starters (380.1)" if FAMILIES[fam]["starters"] else "")
               + " · page: ntfy card topic (3 tries) + screen · then push: exports_mirror.py push --role "
                 f"{mirror_role()} --label closing")

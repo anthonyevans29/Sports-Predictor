@@ -1,4 +1,4 @@
-## 2026-11-28 (#000: 1089-db-copy-immutable — a --db copy opens mode=ro&immutable=1 with no fallback; the live file keeps its open (addendum 462 item 6, ruled by addendum 582 item 4; #1089))
+## 2026-11-28 (#1180: 1089-db-copy-immutable — a --db copy opens mode=ro&immutable=1 with no fallback; the live file keeps its open (addendum 462 item 6, ruled by addendum 582 item 4; #1089))
 - **New, `src/walters/db_copy.py`:** the one rule, used by all 16 scripts.
   - `classify()` reads the app's configured database, matched by resolved path or by identity, as the live file, which keeps its open (#421's fallback included).
   - Any other `--db` is a copy: it is checked by `mlb_pitchers_gate.check_db` and a sidecar check, then opened through `?mode=ro&immutable=1` with no fallback.

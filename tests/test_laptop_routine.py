@@ -537,9 +537,11 @@ def test_an_unreadable_weekly_list_refuses_the_run(box, monkeypatch, capsys):
 @pytest.fixture
 def bad_dotenv(tmp_path, monkeypatch):
     """A checkout .env holding bytes that are not UTF-8 (\\xff\\xfe): sp_common.redact reads it (_dotenv, by
-    sp_common's own parse_env_file) and raises UnicodeDecodeError, and desk_policy.not_laptop_reason reads it too
-    (DOTENV, no host.env, no role in the environment) and raises. The receipts' own reads (SP_HOST_NAME,
-    SP_WRITER_OF_RECORD) are set in the environment, so append_receipt never reaches the .env and only redact fails."""
+    sp_common's own parse_env_file) and raises UnicodeDecodeError. desk_policy.not_laptop_reason reads it too (DOTENV,
+    no host.env, no role in the environment) and, since #1093 (ARCHITECT 2026-11-23, addendum 464 item 4), does NOT
+    raise: _env_file reads a file it cannot decode as {} without strict, so the role reads as unset. The receipts' own
+    reads (SP_HOST_NAME, SP_WRITER_OF_RECORD) are set in the environment, so append_receipt never reaches the .env and
+    only redact fails."""
     from src.walters import desk_policy as dp
     bad = tmp_path / "bad.env"
     bad.write_bytes(b"\xff\xfe" + b"SP_EXPORTS_MIRROR_ROLE=laptop\n")
@@ -559,11 +561,14 @@ def bad_dotenv(tmp_path, monkeypatch):
 @pytest.mark.parametrize("dry", [False, True])
 def test_a_role_read_that_raises_while_redact_raises_is_still_refused_exit_2(box, bad_dotenv, monkeypatch, capsys,
                                                                             dry):
-    """461 item 3(d): the refusal is exit 2, nothing run. A checkout .env that is not UTF-8 makes not_laptop_reason
-    raise AND the handler's redact raise: the error is named by its class alone (_redacted), the refusal line is
-    printed, a real run writes exactly one receipt and a --dry-run none; never a traceback with exit 1."""
-    with pytest.raises(UnicodeDecodeError):
-        lr.not_laptop_reason()                               # the role read itself raises on this .env
+    """461 item 3(d): the refusal is exit 2, nothing run. A role read that raises (made to raise here by a monkeypatch
+    on the routine's own name, since #1093's mend no longer raises on this .env: ARCHITECT 2026-11-27 20:05 ET,
+    addendum 582 item 3(b)) AND the handler's redact raising on the bad .env: the error is named by its class alone
+    (_redacted), the refusal line is printed, a real run writes exactly one receipt and a --dry-run none; never a
+    traceback with exit 1."""
+    def raising():
+        raise UnicodeDecodeError("utf-8", b"\xff\xfe", 0, 1, "invalid start byte")
+    monkeypatch.setattr(lr, "not_laptop_reason", raising)
     monkeypatch.setattr(lr, "weekly_list", lambda since=lr.WEEKLY_FROM: pytest.fail("read before the refusal"))
     assert lr.main(["--weekly", "--dry-run"] if dry else ["--weekly"]) == 2 and box.calls == []
     out = capsys.readouterr().out
@@ -578,6 +583,34 @@ def test_a_role_read_that_raises_while_redact_raises_is_still_refused_exit_2(box
         assert (r["kind"], r["exit"], r["refused"], r["error"]) == ("laptop_routine", 2, "not_laptop_reason",
                                                                     "UnicodeDecodeError")
         assert r["not_laptop_reason"] == "the role could not be read (UnicodeDecodeError)"
+
+
+@pytest.mark.parametrize("dry", [False, True])
+def test_an_undecodable_checkout_env_reads_the_role_as_unset_and_is_refused_exit_2(box, bad_dotenv, monkeypatch,
+                                                                                   capsys, dry):
+    """#1093's mended path (addendum 464 item 4; 582 item 3(c)): the real reader on the same .env does not raise; the
+    role reads as unset, so the routine refuses, exit 2, nothing run, with that reason; a real run writes one receipt,
+    which carries no error key, and a --dry-run none."""
+    unset = f"the role is unknown ({lr_role_env()} unset)"
+    assert lr.not_laptop_reason() == unset                   # the real reader, on the bad .env, does not raise
+    monkeypatch.setattr(lr, "weekly_list", lambda since=lr.WEEKLY_FROM: pytest.fail("read before the refusal"))
+    assert lr.main(["--weekly", "--dry-run"] if dry else ["--weekly"]) == 2 and box.calls == []
+    out = capsys.readouterr().out
+    assert out.startswith(f"✗ laptop-routine refused: {unset}; this command runs on the laptop only "
+                          "(src.walters.desk_policy.not_laptop_reason). Nothing was run.")
+    rs = receipts(box.tmp)
+    if dry:
+        assert rs == []
+    else:
+        (r,) = rs
+        assert (r["kind"], r["exit"], r["refused"], r["not_laptop_reason"]) == ("laptop_routine", 2,
+                                                                              "not_laptop_reason", unset)
+        assert "error" not in r
+
+
+def lr_role_env():
+    from src.walters import desk_policy as dp
+    return dp.ROLE_ENV
 
 
 def test_an_unreadable_weekly_list_is_refused_exit_2_while_redact_raises(box, bad_dotenv, monkeypatch, capsys):

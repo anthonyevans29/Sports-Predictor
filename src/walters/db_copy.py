@@ -61,10 +61,14 @@ def check_copy(db) -> Path:
     link into it or a folder it links to included), is the app's configured database, does not exist, or has a sidecar
     beside it; else the resolved path."""
     from src.walters import mlb_pitchers_gate as mp
+    if db is None or not str(db).strip():
+        raise CopyRefused("REFUSED: --db is empty: name the app's configured database or a .backup copy outside "
+                          "data/; nothing read")
     try:
         path = mp.check_db(db)
-    except mp.GateRefused as e:
-        raise CopyRefused(f"REFUSED: {e}") from None
+    except mp.GateRefused as e:                               # the fence's own words, spoken for any reader, not the gate
+        raise CopyRefused("REFUSED: " + str(e).replace("; the gate never creates one", "; nothing created, nothing read")
+                          ) from None
     try:
         sides = sidecars(path)
     except OSError as err:                                   # law 4: an unreadable neighbour is never "no sidecar"

@@ -28,7 +28,6 @@ branch, with the laptop checkout as the working directory, so the checkout itsel
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import sys
 import tempfile
@@ -63,7 +62,7 @@ def main(argv=None) -> int:
     ap.add_argument("--exports", required=True, help="the exports dir holding closing_*.json (read, never written)")
     ap.add_argument("--days", type=int, default=30, help="results-tally's window (default 30, as the command)")
     a = ap.parse_args(argv)
-    from src.walters import db_copy                    # before DATABASE_URL is defaulted: the --db never configures
+    from src.walters import db_copy                    # loads the app's configuration: the --db is checked against it
     try:
         db = db_copy.require_live(a.db)                # 582 item 4(c): the live file only, nothing opened otherwise
     except db_copy.CopyRefused as e:
@@ -76,7 +75,6 @@ def main(argv=None) -> int:
     if not ex.is_dir():
         print(f"REFUSED: --exports {a.exports!r} is not a directory: no receipt, never an empty one")
         return 2
-    os.environ.setdefault("DATABASE_URL", f"sqlite:///{db.as_posix()}")   # before src is imported: never ./data
     import sqlite3
 
     from sqlalchemy import create_engine

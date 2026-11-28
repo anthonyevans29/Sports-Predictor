@@ -922,8 +922,9 @@ its compare verdict.
       unchanged (`git diff --name-status v1.6.12 v1.6.13 --` on them prints nothing). The pack ships 27 timers and 12
       services at v1.6.12 and v1.6.13. No setting is added that the host's env file must carry.
     - What is live (588 item 1(d)): #1178's pattern (`src/privacy_patterns.py`, the bulletins' guard: the one token X2
-      exempt, the cents arm), #1179's clause (`src/walters/desk_policy.py` `_env_file`: an undecodable env file reads as
-      unreadable), and #1180's helper (`src/walters/db_copy.py`) with its 16 hand-run scripts.
+      exempt, the cents arm), #1179's clause (`src/walters/desk_policy.py` `_env_file`: a host.env it cannot decode reads as
+      HOST_ENV_UNREADABLE, the role unknown and nothing after it read; a checkout .env it cannot decode reads as {},
+      the role unset), and #1180's helper (`src/walters/db_copy.py`) with its 16 hand-run scripts.
   - **Carries:** git's `v1.6.12..v1.6.13` holds 24 commits and 55 files. Its 5 merge commits are all "Merge pull request
     #N" on main's first parent: the 4 PRs the notes carry, one CHANGELOG section each, and the fold PR #1181. The 4:
     #1175, #1178, #1179, #1180. Not in the tag: none.

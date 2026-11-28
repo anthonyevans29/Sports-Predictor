@@ -158,3 +158,40 @@ def test_the_db_help_line_names_the_rule(capsys):
                   "-wal/-shm/-journal sidecar", "or absent",
                   "a machine whose configuration is not loaded reads its own live file as a copy under data/ and refuses (addendum 582 item 4)"):
         assert words in out
+
+
+def test_a_copy_past_the_fence_sqlite_cannot_open_is_one_refused_line_exit_2(tmp_path, capsys, monkeypatch):
+    """db_copy.connect_copy (7a66e7f8) on a copy the fence passed but SQLite cannot open through mode=ro&immutable=1:
+    through the probe's own main(), one REFUSED line naming the path and the error class, exit 2, no traceback, no
+    fallback (no other open of it), nothing created beside it. The stub refuses only an immutable=1 URI and hands every
+    other connect to the real one. The probe opens a copy by connect_copy alone (no SQLAlchemy engine); copy_engine's
+    pool is proved here too to pass CopyRefused through unwrapped (a non-DBAPI error is not made a DBAPIError)."""
+    p = wal_copy(tmp_path / "copy.db")
+    before = sorted(x.name for x in tmp_path.iterdir())
+    real = sqlite3.connect
+    asked = []
+
+    def stub(database, *a, **k):
+        asked.append(str(database))
+        if "immutable=1" in str(database):
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(database, *a, **k)
+    monkeypatch.setattr(dc.sqlite3, "connect", stub)
+    monkeypatch.setattr(probe, "open_read", lambda *a: pytest.fail("a copy took the live file's open"))
+    rc, out = run(p, capsys)
+    lines = [ln for ln in out.splitlines() if "REFUSED" in ln]
+    assert rc == 2 == dc.EXIT_REFUSED
+    assert lines == [f"✗ REFUSED: --db {p.resolve()}: cannot be opened through a mode=ro&immutable=1 URI "
+                     "(OperationalError); no fallback; nothing read"]
+    assert "Traceback" not in out and "D0 database" not in out and "games by stored season" not in out
+    assert asked == [dc.copy_uri(p)]                                                   # one open, the copy URI, no fallback
+    assert sorted(x.name for x in tmp_path.iterdir()) == before and dc.sidecars(p) == []
+
+    eng = dc.copy_engine(p.resolve())
+    try:
+        with pytest.raises(dc.CopyRefused) as ei:
+            eng.connect()
+    finally:
+        eng.dispose()
+    assert type(ei.value) is dc.CopyRefused and str(ei.value) == lines[0][2:]
+    assert sorted(x.name for x in tmp_path.iterdir()) == before

@@ -155,3 +155,29 @@ def test_an_unreadable_copy_is_one_refused_line_exit_2_nothing_beside_it(tmp_pat
     assert ("DatabaseError" in lines[0]) if kind == "not_sqlite" else ("OperationalError" in lines[0])
     assert "Traceback" not in out and closed == [True]
     assert sorted(x.name for x in tmp_path.iterdir()) == before and dc.sidecars(p) == []
+
+
+def test_a_copy_sqlite_cannot_open_is_one_refused_line_exit_2_no_traceback_nothing_beside_it(tmp_path, monkeypatch,
+                                                                                            capsys):
+    """A copy that passes the fence but SQLite cannot open (connect_copy's sqlite3.connect raises): through main(), one
+    REFUSED line naming the path, exit 2, no traceback, nothing created beside it (db_copy.connect_copy, 7a66e7f8)."""
+    p = wal_copy(tmp_path / "copy.db")
+    before = sorted(x.name for x in tmp_path.iterdir())
+    real = sqlite3.connect
+    tried = []
+
+    def stub(database, *a, **k):
+        if "immutable=1" in str(database):
+            tried.append(str(database))
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(database, *a, **k)
+    monkeypatch.setattr(dc.sqlite3, "connect", stub)
+    assert dc.sqlite3 is sqlite3 and sqlite3.connect is stub
+    assert pp.main(["--db", str(p)]) == dc.EXIT_REFUSED == 2
+    out = capsys.readouterr().out
+    lines = out.strip().splitlines()
+    assert lines == [f"REFUSED: --db {p.resolve()}: cannot be opened through a mode=ro&immutable=1 URI "
+                     "(OperationalError); no fallback; nothing read"]
+    assert "Traceback" not in out
+    assert tried == [dc.copy_uri(p.resolve())]                 # the copy's URI was asked once, never a fallback
+    assert sorted(x.name for x in tmp_path.iterdir()) == before and dc.sidecars(p) == []

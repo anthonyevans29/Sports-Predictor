@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -133,7 +132,6 @@ def main(argv=None) -> int:
     if not ex.is_dir():
         print(f"REFUSED: --exports {a.exports!r} is not a directory: no receipt, never an empty one")
         return 2
-    os.environ.setdefault("DATABASE_URL", f"sqlite:///{db.as_posix()}")   # before src is imported: never ./data
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 

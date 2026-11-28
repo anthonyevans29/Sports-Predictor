@@ -166,3 +166,33 @@ def test_9_the_help_line_carries_582_item_4_d(capsys):
     out = " ".join(capsys.readouterr().out.split())
     assert ("a machine whose configuration is not loaded reads its own live file as a copy under data/ and refuses "
             "(addendum 582 item 4)") in out
+
+
+def test_10_a_copy_sqlite_cannot_open_is_refused_in_one_line_exit_2_nothing_created(tmp_path, capsys, monkeypatch):
+    """A copy that passes the fence but SQLite cannot open through the immutable URI (db_copy.connect_copy's
+    CopyRefused, commit 7a66e7f8): through main(), exactly one REFUSED line naming the path, exit 2, no traceback,
+    nothing created beside it. The copy is built first; then sqlite3.connect (the module db_copy calls) refuses only a
+    URI carrying immutable=1 and delegates every other open to the real connect."""
+    p = wal_copy(tmp_path / "copy.db")
+    before = p.read_bytes()
+    real = sqlite3.connect
+    asked = []
+
+    def refuse_immutable(database, *a, **k):
+        if "immutable=1" in str(database):
+            asked.append(str(database))
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(database, *a, **k)
+    monkeypatch.setattr(dc.sqlite3, "connect", refuse_immutable)
+    opened = []
+    monkeypatch.setattr(rc, "open_read", lambda *a, **k: opened.append(a))
+    assert rc.main(ARGS + [str(p)]) == 2
+    out = capsys.readouterr().out
+    lines = out.strip().splitlines()
+    assert lines == [f"REFUSED: --db {p.resolve()}: cannot be opened through a mode=ro&immutable=1 URI "
+                     "(OperationalError); no fallback; nothing read"]
+    assert asked == [dc.copy_uri(p)]                               # the immutable URI was asked once, no fallback
+    assert opened == []                                            # never the live open
+    assert "Traceback" not in out and "read-only open" not in out and "TOTALS" not in out
+    assert p.read_bytes() == before and dc.sidecars(p) == []
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["copy.db"]

@@ -163,3 +163,49 @@ def test_the_help_line_says_the_rule(capsys, monkeypatch):
                   "a machine whose configuration is not loaded reads its own live file as a copy under data/ and "
                   "refuses (addendum 582 item 4)"):
         assert words in out, words
+
+
+def test_a_copy_sqlite_cannot_open_through_immutable_is_one_refused_line(tmp_path, capsys, monkeypatch):
+    """A copy that passes the fence but that SQLite cannot open through mode=ro&immutable=1 (db_copy.connect_copy's
+    CopyRefused, raised at connect time): through the receipt's own main, one REFUSED line naming the path, exit 2, no
+    traceback, never a row, nothing created beside it. The stub refuses only the immutable=1 URI; every other connect
+    (the fixture's own) is the real one."""
+    p = wal_copy(tmp_path / "copy.db")
+    before = sorted(x.name for x in tmp_path.iterdir())
+    real, seen = sqlite3.connect, []
+
+    def connect(database, *args, **kwargs):
+        if "immutable=1" in str(database):
+            seen.append(str(database))
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(database, *args, **kwargs)
+
+    monkeypatch.setattr(db_copy.sqlite3, "connect", connect)
+    monkeypatch.setattr(rc, "open_read", lambda *a: pytest.fail("a copy took the live file's open (#421's fallback)"))
+    assert rc.main(["--db", str(p), "--seasons", "2025"]) == db_copy.EXIT_REFUSED == 2
+    assert seen == [db_copy.copy_uri(p)]                            # the immutable open was asked once, and only it
+    cap = capsys.readouterr()
+    assert cap.out == ""                                            # never a row
+    lines = cap.err.strip().splitlines()
+    assert lines == [f"REFUSED: --db {p.resolve()}: cannot be opened through a mode=ro&immutable=1 URI "
+                     "(OperationalError); no fallback; nothing read"]
+    assert "Traceback" not in cap.err
+    assert sorted(x.name for x in tmp_path.iterdir()) == before     # nothing created beside it
+    assert db_copy.sidecars(p) == []
+
+
+def test_copy_engine_lets_the_connect_refusal_through_sqlalchemy_unwrapped(tmp_path, monkeypatch):
+    """db_copy.copy_engine's creator is connect_copy: SQLAlchemy passes its CopyRefused (not a DBAPI error) through
+    the pool unwrapped, so a caller's `except db_copy.CopyRefused` catches it on the engine's first use."""
+    p = wal_copy(tmp_path / "copy.db")
+    real = sqlite3.connect
+    monkeypatch.setattr(db_copy.sqlite3, "connect", lambda database, *a, **k: (
+        (_ for _ in ()).throw(sqlite3.OperationalError("unable to open database file"))
+        if "immutable=1" in str(database) else real(database, *a, **k)))
+    eng = db_copy.copy_engine(p)
+    with pytest.raises(db_copy.CopyRefused) as ei:
+        with eng.connect():
+            pass
+    assert type(ei.value) is db_copy.CopyRefused
+    assert str(ei.value).startswith(f"REFUSED: --db {p}: cannot be opened through a mode=ro&immutable=1 URI")
+    eng.dispose()

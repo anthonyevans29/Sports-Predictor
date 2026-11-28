@@ -177,3 +177,80 @@ def test_a_copy_missing_a_table_is_refused_exit_2_one_line(tmp_path, monkeypatch
     _one_refused_line(out.err, p, "OperationalError")
     assert "prediction_outcomes" in out.err and closed == [True] and out.out == ""
     assert [x.name for x in tmp_path.iterdir()] == ["thin.db"]
+
+
+def _refuse_immutable_open(monkeypatch, after: int = 0):
+    """sqlite3.connect (db_copy's module reference is the sqlite3 module's own) raises OperationalError for a URI that
+    carries immutable=1, once `after` such opens have gone through, and delegates to the real connect otherwise, so only
+    the copy open fails. Returns the immutable URIs asked for."""
+    real = sqlite3.connect
+    asked = []
+
+    def stub(database, *args, **kwargs):
+        if "immutable=1" in str(database):
+            asked.append(str(database))
+            if len(asked) > after:
+                raise sqlite3.OperationalError("unable to open database file")
+        return real(database, *args, **kwargs)
+    monkeypatch.setattr(dc.sqlite3, "connect", stub)
+    return asked
+
+
+def _opened_refusal(err: str, p: Path):
+    lines = [x for x in err.splitlines() if x.strip()]
+    assert lines == [f"REFUSED: --db {p.resolve()}: cannot be opened through a mode=ro&immutable=1 URI "
+                     "(OperationalError); no fallback; nothing read"]
+    assert "Traceback" not in err
+
+
+def test_a_copy_the_fence_passes_but_sqlite_cannot_open_is_refused_one_line_exit_2_nothing_beside_it(
+        tmp_path, monkeypatch, capsys):
+    p = wal_copy(tmp_path / "copy.db")                            # the copy is built before the stub goes in
+    before = sorted(x.name for x in tmp_path.iterdir())
+    data_before = p.read_bytes()
+    asked = _refuse_immutable_open(monkeypatch)
+    monkeypatch.setattr(rc, "open_session", lambda *_: (_ for _ in ()).throw(AssertionError("fallback taken")))
+    monkeypatch.setattr(rc, "query_only_engine", lambda *_: (_ for _ in ()).throw(AssertionError("fallback taken")))
+    monkeypatch.setattr(rc, "rows", lambda *_: (_ for _ in ()).throw(AssertionError("read past the open")))
+    assert rc.main(["--db", str(p)]) == dc.EXIT_REFUSED == 2
+    out = capsys.readouterr()
+    _opened_refusal(out.err, p)
+    assert str(p.resolve()) in out.err and out.out == ""
+    assert len(asked) == 1 and asked[0].endswith("?mode=ro&immutable=1")
+    assert sorted(x.name for x in tmp_path.iterdir()) == before   # nothing created beside it
+    assert p.read_bytes() == data_before
+
+
+def test_the_engines_own_open_failing_is_refused_one_line_exit_2_before_any_read(tmp_path, monkeypatch, capsys):
+    """The probe's open goes through, the engine's first open does not (the file gone unreadable between them): the
+    engine's first use is inside open_db, so main prints the one REFUSED line, exit 2, nothing on stdout, no row read."""
+    p = wal_copy(tmp_path / "copy.db")
+    before = sorted(x.name for x in tmp_path.iterdir())
+    asked = _refuse_immutable_open(monkeypatch, after=1)
+    monkeypatch.setattr(rc, "open_session", lambda *_: (_ for _ in ()).throw(AssertionError("fallback taken")))
+    monkeypatch.setattr(rc, "rows", lambda *_: (_ for _ in ()).throw(AssertionError("read past the open")))
+    assert rc.main(["--db", str(p)]) == 2
+    out = capsys.readouterr()
+    _opened_refusal(out.err, p)
+    assert out.out == "" and len(asked) == 2
+    assert sorted(x.name for x in tmp_path.iterdir()) == before
+
+
+def test_copy_engine_passes_copy_refused_through_sqlalchemy_unwrapped(tmp_path, monkeypatch):
+    """The creator's CopyRefused is not a DBAPI error: SQLAlchemy's pool lets it out as itself, never wrapped in
+    sqlalchemy.exc.DBAPIError, through the engine and through an ORM Session alike."""
+    import sqlalchemy.exc
+    from sqlalchemy.orm import Session
+    p = wal_copy(tmp_path / "copy.db")
+    _refuse_immutable_open(monkeypatch)
+    eng = dc.copy_engine(p)
+    with pytest.raises(dc.CopyRefused) as ei:
+        eng.connect()
+    assert type(ei.value) is dc.CopyRefused and not isinstance(ei.value, sqlalchemy.exc.SQLAlchemyError)
+    s = Session(eng)
+    try:
+        with pytest.raises(dc.CopyRefused) as ei:
+            s.execute(text("SELECT 1"))
+        assert type(ei.value) is dc.CopyRefused and not isinstance(ei.value, sqlalchemy.exc.SQLAlchemyError)
+    finally:
+        s.close()

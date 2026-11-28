@@ -140,6 +140,31 @@ def test_an_unreadable_copy_is_one_refused_line_exit_2_nothing_beside_it(kind, t
     assert sorted(x.name for x in tmp_path.iterdir()) == before and dc.sidecars(p) == []
 
 
+def test_a_copy_sqlite_cannot_open_is_one_refused_line_exit_2_through_main(tmp_path, capsys, monkeypatch):
+    """A copy that passes the fence (a fresh WAL copy, no sidecar) but that SQLite refuses at connect time: connect_copy's
+    CopyRefused reaches main's refusal, one line naming the path, exit 2, no traceback, nothing created beside it."""
+    p = wal_copy(tmp_path / "copy.db")                       # built with the real connect, before the stub
+    before = sorted(x.name for x in tmp_path.iterdir())
+    real = sqlite3.connect
+    seen = []
+
+    def connect(database, *a, **k):
+        if "immutable=1" in str(database):
+            seen.append(str(database))
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(database, *a, **k)
+    monkeypatch.setattr(dc.sqlite3, "connect", connect)      # the sqlite3 module's connect: delegate all but the copy
+    assert dc.check_copy(p) == p.resolve()                   # the fence passes it
+    assert tp.main(["--stored", "--db", str(p)]) == dc.EXIT_REFUSED == 2
+    cap = capsys.readouterr()
+    lines = cap.err.strip().splitlines()
+    assert len(lines) == 1 and lines[0] == (f"REFUSED: --db {p.resolve()}: cannot be opened through a mode=ro&immutable=1 "
+                                            "URI (OperationalError); no fallback; nothing read")
+    assert seen == [dc.copy_uri(p)]                          # the copy's one open was the immutable URI, and nothing else
+    assert "Traceback" not in cap.err and cap.out == ""
+    assert sorted(x.name for x in tmp_path.iterdir()) == before and dc.sidecars(p) == []
+
+
 def test_the_help_line_carries_582_item_4d():
     h = " ".join(tp.parser().format_help().split())
     assert ("a machine whose configuration is not loaded reads its own live file as a copy under data/ and refuses "

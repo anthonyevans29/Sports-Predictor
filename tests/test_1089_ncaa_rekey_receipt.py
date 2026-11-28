@@ -213,3 +213,38 @@ def test_the_db_help_line_says_the_rule(capsys):
                   "a machine whose configuration is not loaded reads its own live file as a copy under data/ and "
                   "refuses (addendum 582 item 4)"):
         assert words in help_text
+
+
+@pytest.mark.parametrize("extra", [[], ["--reconstruct-merges"]])
+def test_a_copy_sqlite_cannot_open_is_refused_one_line_exit_2(tmp_path, capsys, monkeypatch, extra):
+    """A copy that passes the fence but that SQLite cannot open through mode=ro&immutable=1 (db_copy.connect_copy's
+    CopyRefused, commit 7a66e7f8): through main, exactly one REFUSED line naming the path, exit 2, no traceback, no
+    receipt, nothing created beside it. The stub refuses only an immutable=1 URI; every other connect is the real one."""
+    p = wal_copy(tmp_path / "copy.db")
+    pre = tmp_path / "pre.backup"                                     # rollback-journal file: the --backup's own open
+    con = sqlite3.connect(pre)
+    _tables(con)
+    con.close()
+    real = dc.sqlite3.connect
+    refused = []
+
+    def stub(database, *a, **k):
+        if "immutable=1" in str(database):
+            refused.append(str(database))
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(database, *a, **k)
+    monkeypatch.setattr(dc.sqlite3, "connect", stub)
+    args = ["--competition", "C1089", "--db", str(p), "--now", NOW] + (extra and extra + ["--backup", str(pre)])
+    before = sorted(x.name for x in tmp_path.iterdir())
+    assert rr.main(args) == dc.EXIT_REFUSED == 2
+    cap = capsys.readouterr()
+    out = cap.out
+    assert cap.err == ""
+    lines = out.strip().splitlines()
+    assert refused == [dc.copy_uri(p.resolve())]                       # the copy open was asked, once, and failed
+    assert len(lines) == 1
+    assert lines[0] == (f"REFUSED: --db {p.resolve()}: cannot be opened through a mode=ro&immutable=1 URI "
+                        "(OperationalError); no fallback; nothing read")
+    assert "NCAA RE-KEY RECEIPT" not in out and "RECONSTRUCTION" not in out and "Traceback" not in out
+    assert sorted(x.name for x in tmp_path.iterdir()) == before       # nothing created beside it
+    assert dc.sidecars(p) == []

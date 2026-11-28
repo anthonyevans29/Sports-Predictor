@@ -164,3 +164,30 @@ def test_a_machine_without_configuration_reads_its_live_file_as_a_copy_under_dat
     monkeypatch.setattr(gx, "open_read", lambda *a: pytest.fail("an unconfigured machine took the live open"))
     rc = gx.main(["--db", str(p)])
     assert rc == 2 and "under the repo's data/" in capsys.readouterr().err
+
+
+def test_a_copy_sqlite_cannot_open_is_one_refused_line_exit_2_nothing_beside_it(tmp_path, capsys, monkeypatch):
+    """db_copy.connect_copy (7a66e7f8): a copy that passes the fence but that SQLite cannot open through
+    mode=ro&immutable=1 raises CopyRefused at connect time; through main() that is one REFUSED line naming the path,
+    exit 2, no traceback, no fallback, nothing created beside it."""
+    p = wal_copy(tmp_path / "copy.db")
+    before = p.read_bytes()
+    real = sqlite3.connect
+    asked = []
+
+    def connect(database, *a, **k):
+        if "immutable=1" in str(database):
+            asked.append(str(database))
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(database, *a, **k)
+    monkeypatch.setattr(dc.sqlite3, "connect", connect)
+    monkeypatch.setattr(gx, "open_read", lambda *a: pytest.fail("a copy SQLite cannot open fell back to the live open"))
+    rc = gx.main(["--db", str(p)])
+    cap = capsys.readouterr()
+    assert asked == [dc.copy_uri(p.resolve())]                                       # the copy's URI, asked once
+    assert rc == 2 == dc.EXIT_REFUSED and cap.out == ""
+    assert cap.err == (f"REFUSED: --db {p.resolve()}: cannot be opened through a mode=ro&immutable=1 URI "
+                       "(OperationalError); no fallback; nothing read\n")
+    assert "Traceback" not in cap.err and cap.err.count("\n") == 1
+    assert p.read_bytes() == before and dc.sidecars(p) == []
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["copy.db"]

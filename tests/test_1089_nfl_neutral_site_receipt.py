@@ -169,3 +169,39 @@ def test_a_copy_it_cannot_read_is_refused_one_line_exit_2_nothing_beside_it(tmp_
     assert "Traceback" not in out and "D the database" not in out and calls == []
     assert db_copy.sidecars(p) == [] and hashlib.sha256(p.read_bytes()).hexdigest() == before
     assert sorted(x.name for x in tmp_path.iterdir() if x.name.startswith("copy.db")) == ["copy.db"]
+
+
+def test_a_copy_the_fence_passes_but_sqlite_cannot_open_is_refused_one_line_exit_2(tmp_path, monkeypatch):
+    """db_copy.connect_copy's CopyRefused (sqlite3.Error at connect time) through main(): copy_engine's creator raises it
+    inside SQLAlchemy's pool, which passes a non-DBAPI exception through unwrapped (proved below), so the refusal is
+    connect_copy's own line, never the probe's 'cannot be read' line and never a traceback."""
+    import sqlalchemy.exc as sa_exc
+    p = _schema(tmp_path / "copy.db", wal=True)                   # a fresh .backup-like copy that passes the fence
+    before = hashlib.sha256(p.read_bytes()).hexdigest()
+    real_connect = sqlite3.connect
+    tried = []
+
+    def stub(database, *a, **k):
+        if "immutable=1" in str(database):
+            tried.append(str(database))
+            raise sqlite3.OperationalError("unable to open database file")
+        return real_connect(database, *a, **k)
+    monkeypatch.setattr(db_copy.sqlite3, "connect", stub)
+
+    eng = db_copy.copy_engine(p.resolve())                        # SQLAlchemy passes CopyRefused through, unwrapped
+    with pytest.raises(db_copy.CopyRefused) as ei:
+        eng.connect()
+    eng.dispose()
+    assert type(ei.value) is db_copy.CopyRefused and not isinstance(ei.value, sa_exc.SQLAlchemyError)
+    tried.clear()
+
+    calls = []
+    out = run(tmp_path, p, calls, 2)
+    refused = [x for x in out.splitlines() if x.startswith("REFUSED")]
+    assert refused == [out.splitlines()[-1]]                      # exactly one REFUSED line, the last one
+    assert refused[0] == (f"REFUSED: --db {p.resolve()}: cannot be opened through a mode=ro&immutable=1 URI "
+                          "(OperationalError); no fallback; nothing read")
+    assert tried and all(u == db_copy.copy_uri(p) for u in tried)  # the copy's URI was the one asked, no fallback
+    assert "Traceback" not in out and "cannot be read" not in out and "D the database" not in out and calls == []
+    assert db_copy.sidecars(p) == [] and hashlib.sha256(p.read_bytes()).hexdigest() == before
+    assert sorted(x.name for x in tmp_path.iterdir() if x.name.startswith("copy.db")) == ["copy.db"]

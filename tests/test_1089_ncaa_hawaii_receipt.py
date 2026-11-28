@@ -178,3 +178,29 @@ def test_an_unreadable_copy_closes_its_connection(tmp_path, monkeypatch, capsys)
     monkeypatch.setattr(dc, "connect_copy", lambda path: Rec(real(path)))
     assert hr.main(["--db", str(p), "--no-provider"]) == 2
     assert closed == [True]
+
+
+def test_a_copy_sqlite_cannot_open_is_refused_in_one_line_exit_2_nothing_beside_it(tmp_path, capsys, monkeypatch):
+    """A copy that passes the fence but that SQLite cannot open through the immutable URI (db_copy.connect_copy's
+    sqlite3.Error at connect time, commit 7a66e7f8) is refused through main itself: one REFUSED line naming the path,
+    exit 2, no traceback, nothing created beside it."""
+    p = wal_copy(tmp_path / "copy.db")                                # built before the stub, through the real connect
+    real = dc.sqlite3.connect
+    asked = []
+
+    def stub(database, *a, **k):
+        if "immutable=1" in str(database):
+            asked.append(str(database))
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(database, *a, **k)
+    monkeypatch.setattr(dc.sqlite3, "connect", stub)
+    before = sorted(x.name for x in tmp_path.iterdir())
+    assert hr.main(["--db", str(p), "--no-provider"]) == dc.EXIT_REFUSED == 2
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert asked == [dc.copy_uri(p.resolve())]                        # the copy open was the immutable URI, asked once
+    assert len(lines) == 1 and lines[0] == (f"REFUSED: --db {p.resolve()}: cannot be opened through a "
+                                            "mode=ro&immutable=1 URI (OperationalError); no fallback; nothing read")
+    assert "Traceback" not in out and "read-only open" not in out
+    assert sorted(x.name for x in tmp_path.iterdir()) == before       # nothing created beside it
+    assert dc.sidecars(p) == []

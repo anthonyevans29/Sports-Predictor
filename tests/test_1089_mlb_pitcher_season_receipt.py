@@ -158,3 +158,31 @@ def test_the_apps_configured_database_takes_the_live_open(tmp_path, capsys, monk
     assert mod.main(["--db", str(live), "--date", "2094-07-01", "--season", "2094"]) == 0
     assert calls == [Path(str(live))]
     assert "opened via mode=ro URI" in capsys.readouterr().out
+
+
+def test_a_copy_that_passes_the_fence_but_sqlite_cannot_open_is_refused_in_one_line(tmp_path, capsys, monkeypatch):
+    """db_copy.connect_copy's connect-time refusal (commit 7a66e7f8), proved through main(): a fresh WAL copy passes
+    the fence, then SQLite refuses the mode=ro&immutable=1 open; one REFUSED line naming the path, exit 2, no
+    traceback, nothing created beside it, and no fallback open."""
+    p = wal_copy(tmp_path / "copy.db")
+    real_connect = sqlite3.connect
+    uris = []
+
+    def connect(database, *a, **k):
+        if "immutable=1" in str(database):
+            uris.append(str(database))
+            raise sqlite3.OperationalError("unable to open database file")
+        return real_connect(database, *a, **k)
+
+    monkeypatch.setattr(dc.sqlite3, "connect", connect)
+    mod = _receipt()
+    monkeypatch.setattr(mod, "open_read", lambda *_: (_ for _ in ()).throw(AssertionError("live open on a copy")))
+    assert mod.main(["--db", str(p), "--date", "2094-07-01", "--season", "2094"]) == dc.EXIT_REFUSED == 2
+    cap = capsys.readouterr()
+    lines = cap.err.strip().splitlines()
+    assert len(lines) == 1 and "REFUSED: --db " in lines[0] and str(p.resolve()) in lines[0]
+    assert ("cannot be opened through a mode=ro&immutable=1 URI (OperationalError); no fallback; nothing read"
+            in lines[0])
+    assert "Traceback" not in cap.err and "D0 database" not in cap.out and "S1 " not in cap.out
+    assert uris == [dc.copy_uri(p)]                                         # one open, the copy's URI; no fallback
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["copy.db"]       # nothing created beside it

@@ -176,3 +176,40 @@ def test_a_copy_probe_closes_its_connection_when_it_refuses(tmp_path, monkeypatc
     else:
         raise AssertionError("an unreadable copy was opened")
     assert closed == [True]
+
+
+def test_a_copy_sqlite_cannot_open_is_refused_in_one_line_through_main(tmp_path, capsys, monkeypatch):
+    """A copy that passes the fence but that SQLite cannot open (connect_copy's sqlite3.Error at connect time) gives,
+    through main(), one REFUSED line naming the path, exit 2, no traceback, nothing created beside it. The stub raises
+    only for the immutable=1 URI; every other connect is the real one."""
+    p = wal_copy(tmp_path / "copy.db")
+    before = p.read_bytes()
+    real, uris = sqlite3.connect, []
+
+    def stub(database, *a, **k):
+        if "immutable=1" in str(database):
+            uris.append(str(database))
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(database, *a, **k)
+    monkeypatch.setattr(dc.sqlite3, "connect", stub)
+    assert rip.main(args(p, tmp_path)) == dc.EXIT_REFUSED == 2
+    cap = capsys.readouterr()
+    assert cap.out == "" and "Traceback" not in cap.err
+    assert cap.err.splitlines() == [f"REFUSED: --db {p.resolve()}: cannot be opened through a mode=ro&immutable=1 URI "
+                                    "(OperationalError); no fallback; nothing read"]
+    assert uris == [dc.copy_uri(p)]
+    assert p.read_bytes() == before
+    assert sorted(x.name for x in tmp_path.iterdir()) == [p.name]           # nothing created beside it
+    # copy_engine's creator is connect_copy: SQLAlchemy passes the non-DBAPI CopyRefused through unwrapped
+    from sqlalchemy.exc import SQLAlchemyError
+    eng = dc.copy_engine(p)
+    try:
+        eng.connect()
+    except dc.CopyRefused as e:
+        assert not isinstance(e, SQLAlchemyError) and type(e) is dc.CopyRefused
+        assert str(e) == cap.err.splitlines()[0]
+    else:
+        raise AssertionError("copy_engine opened a copy SQLite cannot open")
+    finally:
+        eng.dispose()
+    assert sorted(x.name for x in tmp_path.iterdir()) == [p.name]

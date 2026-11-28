@@ -571,15 +571,22 @@ def probe_copy(path: Path) -> None:
 def open_db(arg: str | None):
     """(session, form) by addendum 582 item 4 (#1089): no --db, or the app's configured database by resolved path or by
     identity, is the live file and keeps its open (open_session, #421's fallback included); any other --db is a copy,
-    opened through db_copy.copy_engine (mode=ro&immutable=1, no fallback) once probe_copy reads it. Else
-    db_copy.CopyRefused: refused by the fence before any open, or by the probe with its connection closed."""
+    opened through db_copy.copy_engine (mode=ro&immutable=1, no fallback) once probe_copy reads it, the session taking
+    its connection here. Else db_copy.CopyRefused: refused by the fence before any open, by the probe with its
+    connection closed, or by the engine's own open (connect_copy's refusal, which SQLAlchemy passes through unwrapped)."""
     from sqlalchemy.orm import Session
     from src.walters import db_copy
     if arg is not None:                                  # an empty --db is refused (db_copy), never the default open
         kind, path = db_copy.classify(arg)
         if kind == "copy":
             probe_copy(path)
-            return Session(db_copy.copy_engine(path)), COPY_FORM
+            s = Session(db_copy.copy_engine(path))
+            try:                                         # the engine's first open is taken here, inside main's
+                s.connection()                           # CopyRefused catch; the session holds it for rows()
+            except BaseException:
+                s.close()
+                raise
+            return s, COPY_FORM
     return open_session(db_path(arg))
 
 

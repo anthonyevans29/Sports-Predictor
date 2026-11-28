@@ -18,6 +18,24 @@ run on the laptop as an ingest step before v2's run; derived, labelled."
 --plan prints the call count and stops. --max-calls refuses an over-budget
 plan. --venues-dir saves (and on a re-run replays) the /venues responses.
 Never touches data/. Upsert; never deletes.
+
+VENUE-COUNTRY OVERRIDES (ARCHITECT 2026-10-23, addendum 160 item 2, verbatim in part: "(a) a venue-country override,
+keyed by venue id, with the evidence line and the ruling date, applied by the venue ingest when it derives neutral_v3
+(never a hand edit of rows; the override is code, reviewed, and the re-derivation is receipted per row changed)"):
+VENUE_COUNTRY_OVERRIDES below, one entry per venue id, each with its country, its ruling, its ruling date and its
+evidence line. derive() is the one derivation: sync() (the daily ingest on the host, chain intl-daily) and rederive()
+(`intl-venue-override`) both call it. For a PLAYED fixture the FIRST change of a stored row's flag is the receipted,
+guarded `intl-venue-override --apply`'s alone (160 item 2: "the re-derivation is receipted per row changed"; 160 item
+3's stop; 426 item 5(b); confirmed by 431 item 2(a)): until such a row carries the override's rule, sync() derives it
+as main did and counts it `override_pending_apply`; once --apply has written it, sync() keeps it, so no daily run puts
+the provider's flag back. A fixture STILL TO COME (its stored kickoff after the run's clock) is derived by derive() at
+once, whatever its stored rule, and counted on a line of its own, as a row the ingest creates is (431 item 2(c): "A
+flag set before the kickoff is an input, not a correction of history"); a row with no stored kickoff is played.
+The stored venue_country stays the provider's ("law 4 kept: the stored value is the provider's; the correction is
+explicit and keyed"); the row's `rule` names the override it was derived under, so the flag from the provider's country
+alone stays computable (provider_flag) for the read reported both ways (160 item 3; 161 item 2). resolve() and
+intl_venue_resolved are not touched (ARCHITECT 2026-11-19, addendum 429 item 1(d)). Built from #276 on current main,
+the 10-23 branch a reference (287 item 3(B); 426 item 5).
 """
 from __future__ import annotations
 
@@ -35,6 +53,63 @@ NEUTRAL_V3_RULE = ("intl-neutral-v3 (ARCHITECT 2026-10-02; intl-elo-v2): neutral
 
 class VenueError(RuntimeError):
     pass
+
+
+OVERRIDE_RULING = "ARCHITECT 2026-10-23, addendum 160 item 2"     # the override as a mechanism; each entry names its own
+OVERRIDE_TAG = "VENUE-COUNTRY OVERRIDE"
+# venue id -> the country neutral_v3 is derived from (None = unknown: neutral_v3 NULL, law 4), the ruling that set the
+# entry, its date and its evidence line (none of them a result). Applied to every game at that venue, never to a row by
+# hand. An entry is one venue id; nothing else enters the record's inputs unless the architect declares it, by venue
+# id, on evidence that is no result, before the corrected read (ARCHITECT 2026-11-19, addendum 428 item 2(e)).
+VENUE_COUNTRY_OVERRIDES: dict[int, dict] = {
+    2618: {"country": "Andorra", "ruling": "ARCHITECT 2026-10-23, addendum 160 item 2", "ruled": "2026-10-23",
+           "evidence": "Andorra's national stadium; the provider serves venue_country \"Spain\" on every Andorra home "
+                       "game since 2023 (eight rows read: UEFA_EURO_Q 2023, UNL 2024, FRIENDLIES_INT 2024, UNL "
+                       "2026-09-24 31801), so neutral_v3 read TRUE on Andorra's home games; the provider's own answer "
+                       "by id, read 2026-11-19, gives country Andorra (addendum 428 item 2(a))"},
+    3989: {"country": "Spain", "ruling": "ARCHITECT 2026-11-19, addendum 428 item 2(c)", "ruled": "2026-11-19",
+           "evidence": "the provider's own answer by id, read 2026-11-19, gives country Spain (the country only, not "
+                       "the name or city); Ukraine stands on the home-abroad list (160 item 1) and its game of "
+                       "2025-03-20 cannot have been played there; seven nations are listed at home at the one ground. "
+                       "Replaces 160 item 2's \"unknown\", set pending that answer"},
+}
+
+
+def override_note(vid: int) -> str:
+    o = VENUE_COUNTRY_OVERRIDES[vid]
+    return (f"{OVERRIDE_TAG}: venue {vid} -> {o['country'] or 'unknown (neutral_v3 NULL)'} ({o['ruling']}, "
+            f"ruled {o['ruled']})")
+
+
+def provider_flag(venue_country, home_country) -> bool | None:
+    """neutral_v3 from the provider's venue country as stored, no override (the "stored flags" side of item 3)."""
+    from src.ingestion.intl_history import norm_city
+    a, b = norm_city(venue_country), norm_city(home_country)
+    return None if a is None or b is None else a != b
+
+
+def derive(vid, venue_country, home_country) -> tuple[bool | None, str]:
+    """(neutral_v3, rule) for one row: NEUTRAL_V3_RULE on the provider's venue country, or, for a venue id in
+    VENUE_COUNTRY_OVERRIDES, on the override's country (None -> unknown) with the override named in the rule."""
+    if vid is not None and vid in VENUE_COUNTRY_OVERRIDES:
+        o = VENUE_COUNTRY_OVERRIDES[vid]
+        flag = None if o["country"] is None else provider_flag(o["country"], home_country)
+        return flag, f"{NEUTRAL_V3_RULE} · {override_note(vid)}"
+    return provider_flag(venue_country, home_country), NEUTRAL_V3_RULE
+
+
+def _pending_apply(vid, stored_rule: str | None, derived_rule: str) -> bool:
+    """A STORED row whose derivation the override table changes and that `intl-venue-override --apply` has not yet
+    re-derived: its venue is in the table, or its stored rule names an override (a lapsed or replaced entry), and its
+    stored rule is not the one derive() gives now. sync() leaves its flag to the receipted --apply."""
+    at_override = (vid is not None and vid in VENUE_COUNTRY_OVERRIDES) or OVERRIDE_TAG in (stored_rule or "")
+    return at_override and stored_rule != derived_rule
+
+
+def _to_come(kickoff, clock) -> bool:
+    """The fixture has not kicked off: its stored kickoff is after the run's clock. A row with no stored kickoff is
+    treated as played (ARCHITECT 2026-11-19, addendum 431 item 2(c))."""
+    return kickoff is not None and kickoff > clock
 
 
 def _slug(country: str) -> str:
@@ -57,12 +132,15 @@ def fixture_venues(save_dir: str) -> dict[str, int | None]:
 
 
 def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, max_calls: int = 230,
-         root: str | None = None, client=None) -> dict:
+         root: str | None = None, client=None, now=None) -> dict:
+    """`now`: the run's clock (default utc_now_naive()), read once: a fixture whose stored kickoff is after it has not
+    kicked off (ARCHITECT 2026-11-19, addendum 431 item 2(c))."""
     from sqlalchemy import select
 
     from src.db.database import session_scope
     from src.db.schema import Competition, IntlMatchVenue, Match, Team
-    from src.ingestion.intl_history import CODE_BY_NAME, norm_city
+    from src.ingestion.intl_history import CODE_BY_NAME
+    from src.timeutil import utc_now_naive
 
     root = root or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     for d in (save_dir, venues_dir):
@@ -77,11 +155,11 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
         for m in s.execute(select(Match).where(Match.competition_id.in_(comps))).scalars():
             sid = (m.external_ids or {}).get("api_football")
             if sid in fv:
-                rows.append((m.id, fv[sid], area.get(m.home_team_id)))
+                rows.append((m.id, fv[sid], area.get(m.home_team_id), m.utc_date))
         s.rollback()
-    countries = sorted({c for _, _, c in rows if c})
-    plan = {"matches": len(rows), "with_venue_id": sum(1 for _, v, _ in rows if v is not None),
-            "home_country_known": sum(1 for _, _, c in rows if c), "calls": len(countries), "countries": countries}
+    countries = sorted({c for _, _, c, _ in rows if c})
+    plan = {"matches": len(rows), "with_venue_id": sum(1 for _, v, _, _ in rows if v is not None),
+            "home_country_known": sum(1 for _, _, c, _ in rows if c), "calls": len(countries), "countries": countries}
     if plan_only:
         return {"plan": plan}
     if venues_dir:
@@ -114,20 +192,196 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
                 venue_country[v["id"]] = v.get("country")
     if venue_country and not {"id", "country"} <= set(keys):
         raise VenueError("REFUSED (law 1): /venues response lacks id/country; keys served: " + ", ".join(sorted(keys)))
-    out = Counter()
+    out, out_future = Counter(), 0
     with session_scope() as s:
-        for mid, vid, hc in rows:
+        clock = now or utc_now_naive()
+        for mid, vid, hc, kickoff in rows:
             vc = venue_country.get(vid) if vid is not None else None
-            a, b = norm_city(vc), norm_city(hc)
-            flag = None if a is None or b is None else a != b
-            r = s.get(IntlMatchVenue, mid) or IntlMatchVenue(match_id=mid, rule=NEUTRAL_V3_RULE)
-            r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule = vid, vc, hc, flag, NEUTRAL_V3_RULE
+            flag, rule = derive(vid, vc, hc)                 # addendum 160 item 2: the keyed override, if any
+            r = s.get(IntlMatchVenue, mid)
+            existing = r is not None
+            if not existing:
+                r = IntlMatchVenue(match_id=mid, rule=rule)      # a new row: no stored flag to move
+            elif _pending_apply(vid, r.rule, rule):
+                if _to_come(kickoff, clock):
+                    # A fixture still to come: derived by derive() at once, as a new row is, whatever its stored
+                    # rule (ARCHITECT 2026-11-19, addendum 431 item 2(c): "A flag set before the kickoff is an input,
+                    # not a correction of history"); counted on a line of its own.
+                    out_future += 1
+                else:
+                    # A PLAYED stored row (or one with no stored kickoff) the override would move, not yet
+                    # re-derived by `intl-venue-override --apply`: the first change of its flag is the receipted,
+                    # guarded --apply's alone (160 item 2: "the re-derivation is receipted per row changed"; 160 item
+                    # 3's stop; 426 item 5(b); confirmed by 431 item 2(a)). Until then the daily run derives it as
+                    # main did (the provider's country), or, for a row already under another or a lapsed override,
+                    # keeps its flag and rule.
+                    flag, rule = ((provider_flag(vc, hc), NEUTRAL_V3_RULE) if OVERRIDE_TAG not in (r.rule or "")
+                                  else (r.neutral_v3, r.rule))
+                    out["override_pending_apply"] += 1
+            if existing and (r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule) != (
+                    vid, vc, hc, flag, rule):
+                r.derived_at = utc_now_naive()               # the flag's ingest time moves only when the row does
+            r.venue_id, r.venue_country, r.home_country, r.neutral_v3, r.rule = vid, vc, hc, flag, rule
             s.add(r)
             out["unknown" if flag is None else "neutral" if flag else "home"] += 1
+            if rule != NEUTRAL_V3_RULE:
+                out["venue_country_override"] += 1
             if vid is not None and vid not in venue_country:
                 out["venue_not_in_any_queried_country"] += 1
     return {"plan": plan, "calls": calls, "venue_keys": dict(keys), "venues_resolved": len(venue_country),
-            "neutral_v3": dict(out)}
+            "neutral_v3": dict(out), "override_to_come": out_future}
+
+
+def _cohort_ids(s) -> tuple[set[int] | None, str]:
+    """The intl-elo-v2 confirmation cohort (frozen, else provisional), as intl_shadow reads it; (None, why) when the
+    registry cannot give it. Never depends on results."""
+    try:
+        from src.walters import intl_elo as ie
+        from src.walters import intl_shadow as sh
+        from src.walters import registry as reg
+        e = reg.get(ie.EID_V2)
+        if e is None:
+            return None, f"{ie.EID_V2} not in the registry"
+        co = sh.cohort(e, s)
+        return set(co["ids"]), f"{co['state']} ({len(co['ids'])} of {co['n_games']})"
+    except Exception as err:  # noqa: BLE001 - the receipt says why, the rows still print
+        return None, f"not read: {type(err).__name__}: {err}"
+
+
+class OverrideRefused(VenueError):
+    """intl-venue-override refuses; nothing is written. `result`: the receipt read before the refusal, if any (an
+    --apply refused by the cohort count still prints every row it would have changed)."""
+
+    def __init__(self, msg: str, result: dict | None = None):
+        super().__init__(msg)
+        self.result = result
+
+
+def rederive(apply: bool = False, cohort_ids: set[int] | None = None, s=None) -> dict:
+    """THE RE-DERIVATION (addendum 160 item 2(a)(b)): every intl_match_venue row at an overridden venue id, or whose
+    rule names an override that is no longer in the table, re-derived by derive() from its stored venue country and
+    home country (the inputs the ingest stored; nothing is fetched). A row changes when its neutral_v3 or its rule
+    does. The receipt (b): "every row whose neutral_v3 changes, by competition-season, with the cohort fixtures among
+    them named", each with its flag before and after (ARCHITECT 2026-11-19, addendum 427 item 3(c)).
+
+    `apply` False (the default): a DRY RUN, nothing written. `s`: a session to read through (`--db COPY`: the copy's
+    mode=ro + immutable=1 session, addendum 346's fence); None reads the app's database. `apply` with `s` is refused:
+    a copy is never written. `apply` writes only after every row is read, and only when the cohort is known and at
+    most two cohort fixtures move (160 item 3: "If the receipt shows more than two cohort fixtures moving for any
+    reason, it comes to me before the read"); otherwise OverrideRefused and nothing is written. `cohort_ids` None:
+    read from the registry."""
+    if apply and s is not None:
+        raise OverrideRefused("--apply writes the app's database and never a copy: --apply with --db is refused; "
+                              "nothing written")
+    if s is not None:
+        return _rederive(s, False, cohort_ids)
+    from sqlalchemy.exc import DBAPIError
+
+    from src.db import database as dbm
+    try:
+        if not apply:                                    # the dry run reads mode=ro: nothing created, nothing written
+            with dbm.readonly_scope() as s2:
+                return _rederive(s2, False, cohort_ids)
+        dbm._readonly_engine().dispose()                 # --apply: the app's database file must exist (never created)
+        with dbm.session_scope() as s2:
+            try:
+                return _rederive(s2, True, cohort_ids)
+            except BaseException:
+                s2.rollback()
+                raise
+    except dbm.ReadOnlyRefused as e:
+        raise OverrideRefused(f"{str(e).removeprefix('REFUSED: ')}; nothing read, nothing written") from None
+    except DBAPIError as e:
+        raise OverrideRefused(f"the app's database could not be read ({e.orig!r}); nothing written") from None
+
+
+def _rederive(s, apply: bool, cohort_ids: set[int] | None) -> dict:
+    from sqlalchemy import or_, select
+
+    from src.db.schema import Competition, IntlMatchVenue, Match, Team
+    from src.timeutil import utc_now_naive
+
+    out = {"rows_read": 0, "flag_changed": [], "rule_only": 0, "unchanged": 0, "applied": False}
+    if cohort_ids is None:
+        cohort_ids, out["cohort"] = _cohort_ids(s)
+    else:
+        out["cohort"] = f"given ({len(cohort_ids)})"
+    q = (select(IntlMatchVenue, Match, Competition.code)
+         .join(Match, Match.id == IntlMatchVenue.match_id)
+         .join(Competition, Competition.id == Match.competition_id)
+         .where(or_(IntlMatchVenue.venue_id.in_(list(VENUE_COUNTRY_OVERRIDES)),
+                    IntlMatchVenue.rule.contains(OVERRIDE_TAG)))
+         .order_by(Match.utc_date, Match.id))
+    names, writes = {}, []
+    for v, m, code in s.execute(q).all():
+        out["rows_read"] += 1
+        flag, rule = derive(v.venue_id, v.venue_country, v.home_country)
+        if flag == v.neutral_v3 and rule == v.rule:
+            out["unchanged"] += 1
+            continue
+        writes.append((v, flag, rule))
+        if flag == v.neutral_v3:
+            out["rule_only"] += 1
+            continue
+        for tid in (m.home_team_id, m.away_team_id):
+            if tid not in names:
+                t = s.get(Team, tid)
+                names[tid] = t.name if t else str(tid)
+        out["flag_changed"].append({
+            "match_id": m.id, "code": code, "season": m.season, "kickoff": m.utc_date,
+            "home": names[m.home_team_id], "away": names[m.away_team_id], "venue_id": v.venue_id,
+            "venue_country": v.venue_country, "home_country": v.home_country, "before": v.neutral_v3,
+            "after": flag, "cohort": cohort_ids is not None and m.id in cohort_ids})
+    out["cohort_known"] = cohort_ids is not None
+    out["cohort_moving"] = sum(1 for x in out["flag_changed"] if x["cohort"])
+    if not apply:
+        s.rollback()
+        return out
+    if not out["cohort_known"]:
+        s.rollback()
+        raise OverrideRefused(f"the confirmation cohort could not be read ({out['cohort']}): --apply needs it to "
+                              "count the cohort fixtures that move (160 item 3); nothing written", result=out)
+    if out["cohort_moving"] > 2:
+        s.rollback()
+        raise OverrideRefused(f"{out['cohort_moving']} cohort fixtures move (more than two): to the architect before "
+                              "the read (addendum 160 item 3); nothing written", result=out)
+    now = utc_now_naive()
+    for v, flag, rule in writes:
+        v.neutral_v3, v.rule, v.derived_at = flag, rule, now        # the flag's ingest time moves with the row
+    out["applied"] = True
+    return out
+
+
+def _flag(v) -> str:
+    return "unknown" if v is None else "neutral" if v else "home"
+
+
+def rederive_lines(r: dict) -> list[str]:
+    L = [f"INTL-VENUE-OVERRIDE ({OVERRIDE_RULING}){'' if r['applied'] else ' · DRY RUN: nothing written'} · "
+         f"overrides {len(VENUE_COUNTRY_OVERRIDES)}:"]
+    for vid, o in sorted(VENUE_COUNTRY_OVERRIDES.items()):
+        L.append(f"  - venue {vid} -> {o['country'] or 'unknown (neutral_v3 NULL)'} · {o['ruling']} · ruled "
+                 f"{o['ruled']} · evidence: {o['evidence']}")
+    changed = r["flag_changed"]
+    n_cohort = r["cohort_moving"]
+    L.append(f"  rows at an overridden venue (or under a lapsed override) {r['rows_read']} · neutral_v3 changes "
+             f"{len(changed)} · rule text only {r['rule_only']} · unchanged {r['unchanged']} · the confirmation "
+             f"cohort: {r['cohort']} · cohort fixtures among the changes "
+             + (str(n_cohort) if r["cohort_known"] else "UNKNOWN (cohort not read)"))
+    by: dict = {}
+    for x in changed:
+        by.setdefault((x["code"], x["season"]), []).append(x)
+    for (code, season), xs in sorted(by.items(), key=lambda kv: (str(kv[0][0]), str(kv[0][1]))):
+        L.append(f"  {code} {season}: {len(xs)}")
+        for x in xs:
+            L.append(f"    - match {x['match_id']} · {x['kickoff']:%Y-%m-%d} · {x['home']} v {x['away']} · venue "
+                     f"{x['venue_id']} (provider: {x['venue_country'] or 'none'}) · home country "
+                     f"{x['home_country'] or 'unknown'} · neutral_v3 {_flag(x['before'])} -> {_flag(x['after'])}"
+                     + (" · COHORT FIXTURE" if x["cohort"] else ""))
+    if r["cohort_known"] and n_cohort > 2:
+        L.append(f"  STOP: {n_cohort} cohort fixtures move (more than two): to the architect before the read "
+                 "(addendum 160 item 3)")
+    return L
 
 
 # ---------------------------------------------------------------------------

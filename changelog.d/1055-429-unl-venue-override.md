@@ -1,0 +1,12 @@
+## 2026-11-19 (#1055: 429-unl-venue-override — the UNL venue-country override keyed by venue id (ARCHITECT 2026-10-23, addendum 160 item 2; built by addenda 426 item 5, 427 item 3, 428 item 2(c) and 429 item 1; #276, #220))
+- **src/ingestion/intl_venues.py:** `VENUE_COUNTRY_OVERRIDES` holds 2618 -> Andorra (160 item 2) and 3989 -> Spain (428 item 2(c)), one entry each with its ruling, date and evidence.
+  - `derive()` is the one derivation, for the daily `intl-venue-sync` and the re-derivation.
+  - The stored `venue_country` stays the provider's; the rule names the override; `derived_at` moves only with a row.
+  - The first change of a stored flag is `--apply`'s alone (`override_pending_apply` until then); after it, the daily run keeps it.
+  - `resolve()` and `intl_venue_resolved` are untouched.
+- **cli.py `intl-venue-override [--db COPY] [--apply] [--provider-check]`:**
+  - a DRY RUN by default, receipting every changed row before and after, by competition-season, with the cohort fixtures named and STOP above two;
+  - `--db` reads a copy under 346's fence;
+  - `--apply` is refused with `--db`, with the cohort unread, or above two cohort fixtures;
+  - `--provider-check` asks by id alone.
+- **tests/test_intl_venue_override.py:** 20 tests. **docs/CLI.md:** the row. Nothing run.

@@ -159,8 +159,10 @@ def test_it_writes_nothing_and_never_creates_a_database(db, tmp_path, capsys):
     assert hashlib.sha256(db.read_bytes()).hexdigest() == before
     assert sorted(p.name for p in tmp_path.iterdir()) == files
     missing = tmp_path / "nope.db"
-    with pytest.raises(SystemExit, match="no database at"):
-        probe.main(["--db", str(missing), "--no-network"])
+    capsys.readouterr()
+    assert probe.main(["--db", str(missing), "--no-network"]) == 2      # addendum 582 item 4(b): absent, refused
+    out = capsys.readouterr().out
+    assert f"REFUSED: --db {missing}: no file at" in out
     assert not missing.exists()
 
 

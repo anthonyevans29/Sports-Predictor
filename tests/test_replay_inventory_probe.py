@@ -121,7 +121,8 @@ def block(out, name):
 def test_the_header_names_the_keys_the_schema_and_the_closing_files(world, capsys):
     out = run(world, capsys)
     assert out[0].startswith("REPLAY INVENTORY PROBE (ARCHITECT 2026-10-15, addendum 79 item 3; #75): read-only · "
-                             "mode=ro URI · graded games with kickoff in [2026-09-20, 2026-10-12) UTC: 5")
+                             "copy: mode=ro&immutable=1 URI (no fallback) · graded games with kickoff in "
+                             "[2026-09-20, 2026-10-12) UTC: 5")
     assert out[1].startswith("keys: graded = matches.status FINISHED with home_score and away_score")
     assert "predictions is CURRENT-ONLY per match" in out[2] and "prediction_history is APPEND-ONLY" in out[2]
     assert "prediction_history here: 4 rows, first computed_at 2026-09-29 16:00 UTC" in out[2]
@@ -204,10 +205,11 @@ def test_an_older_database_without_the_newer_tables_says_so(world, capsys, tmp_p
     assert "history 0" in block(out, "NFL")[1]
 
 
-def test_the_probe_never_creates_a_database_and_writes_nothing(tmp_path, world):
+def test_the_probe_never_creates_a_database_and_writes_nothing(tmp_path, world, capsys):
     missing = tmp_path / "none.db"
-    with pytest.raises(SystemExit, match="never creates one"):
-        rip.main(["--db", str(missing)])
+    assert rip.main(["--db", str(missing)]) == 2
+    err = capsys.readouterr().err.splitlines()
+    assert len(err) == 1 and err[0].startswith("REFUSED: ") and f"no file at {missing.resolve()}" in err[0]
     assert not missing.exists()
     db = world[0]
     before = db.stat().st_mtime_ns, db.stat().st_size

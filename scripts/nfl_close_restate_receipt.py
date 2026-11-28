@@ -20,12 +20,16 @@ runs from it every minute):
     python /tmp/nfl614/scripts/nfl_close_restate_receipt.py --db data/sports.db --exports exports
     git worktree remove /tmp/nfl614
 
-`--db` is the file the laptop's DATABASE_URL names (data/sports.db by default). The output names no path."""
+`--db` is the app's configured database (DATABASE_URL), the live file: it keeps its open (mode=ro and the data_version
+check; an absent file is refused, never created). Any other file is a copy (opened mode=ro&immutable=1, no fallback, by
+the copy receipts; refused under data/, with a -wal/-shm/-journal sidecar beside it, or absent); for this live-file
+receipt any other file is refused, exit 2, nothing read, the message naming the case (addendum 582 item 4(b)(c)). A
+machine whose configuration is not loaded reads its own live file as a copy under data/ and is refused (addendum 582
+item 4). The output names no path but a refusal's."""
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -101,18 +105,33 @@ def report(docs: dict, grades: dict) -> list[str]:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="NFL record BEFORE and AFTER the stale-book close rule (read-only).")
-    ap.add_argument("--db", required=True, help="the laptop DB file (opened mode=ro; a missing file is refused)")
+    ap.add_argument("--db", required=True,
+                    help="the app's configured database, the live file: it keeps its open (mode=ro and the "
+                         "data_version check; an absent file is refused, never created). Any other file is a copy, "
+                         "opened mode=ro&immutable=1 with no fallback and refused under data/, with a -wal/-shm/-journal "
+                         "sidecar beside it, or absent; for this live-file receipt any other file is refused, exit 2, "
+                         "nothing read. A machine whose configuration is not loaded reads its own live file as a copy "
+                         "under data/ and is refused (addendum 582 item 4)")
     ap.add_argument("--exports", required=True, help="the exports dir holding closing_*.json (read, never written)")
     a = ap.parse_args(argv)
-    db = Path(a.db).expanduser().resolve()
+    # 582 item 4(b)(c), before any open: a --db that is not the app's configured database is a copy; its fence names
+    # the case (under data/, a sidecar beside it, absent; empty), and one it passes is still refused here, this receipt
+    # reading the live file only. Nothing is opened before this answers.
+    from src.walters import db_copy
+    try:
+        kind, db = db_copy.classify(a.db)
+        if kind != "live":
+            db_copy.require_live(a.db)
+    except db_copy.CopyRefused as e:
+        print(e)
+        return db_copy.EXIT_REFUSED
     ex = Path(a.exports).expanduser().resolve()
-    if not db.is_file():
-        print(f"REFUSED: no DB file at --db {a.db!r}: a read-only receipt never creates one")
-        return 2
+    if not db.is_file():                                  # the live file absent: refused, never created
+        print(f"REFUSED: --db {a.db}: no file at {db}; nothing created, nothing read")
+        return db_copy.EXIT_REFUSED
     if not ex.is_dir():
         print(f"REFUSED: --exports {a.exports!r} is not a directory: no receipt, never an empty one")
         return 2
-    os.environ.setdefault("DATABASE_URL", f"sqlite:///{db.as_posix()}")   # before src is imported: never ./data
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 

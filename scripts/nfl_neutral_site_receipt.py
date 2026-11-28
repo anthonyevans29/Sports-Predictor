@@ -44,13 +44,13 @@ WHAT IT READS (law 1: read 2026-10-27):
      team's home" (venue != the home team's home venue AND != the away team's, all three known) and "outside the
      home team's stadium" (venue != the home team's home venue, both known); any side missing: UNKNOWN, never "home"
      (law 4).
-  D  the database, READ-ONLY (src.db.database.readonly_scope: a mode=ro open, a missing file refused and never
-     created; or --db PATH opened the same mode=ro way): the NFL matches (nfl_scoped) by season, matches.venue /
-     teams.venue filled (the adapter stores none), and the provider game joined to its stored match by
-     matches.external_ids["api_american_football"] (the adapter's own key), else a previous id of a re-keyed match
-     (external_ids["api_american_football_prev"]), else season + both teams + kickoff date (labelled). More than one
-     candidate at any step (a provider id on two stored matches, a previous id on two, two matches on one key) is
-     AMBIGUOUS and refused, never a guess (the ingestion's own rule, service.py).
+  D  the database, READ-ONLY (src.db.database.readonly_scope: mode=ro, a missing file refused, never created; --db: the
+     app's configured file the same way, any other a copy, mode=ro&immutable=1, no fallback, refused under data/, with a
+     sidecar, absent or unreadable; a machine whose configuration is not loaded reads its own live file as a copy under
+     data/ and refuses; addendum 582 item 4): NFL matches (nfl_scoped) by season, matches.venue / teams.venue filled
+     (adapter stores none), the provider game joined by matches.external_ids["api_american_football"] (the adapter's
+     key), else a previous id (external_ids["api_american_football_prev"]), else season + both teams + kickoff date
+     (labelled). More than one candidate at any step is AMBIGUOUS and refused, never a guess (service.py's own rule).
   W  v1's walk, recomputed: the stored finished NFL games (preseason dropped), in stored order (utc_date, id), with
      nfl_backtest's own pure functions (NFLEloConfig, _State, _expected_home, _update; never run_backtest or
      _current_ratings, which open session_scope). Per game BEFORE its update: p_with = _expected_home(cfg, ...) and
@@ -84,7 +84,7 @@ import json
 import math
 import sys
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import date, datetime
 from pathlib import Path
 
@@ -293,7 +293,10 @@ def classify(season: int, rows: list) -> dict:
 # --------------------------------------------------------------------------------------------------------------- D
 @contextmanager
 def ro_session(db: str | None):
-    """readonly_scope, or --db PATH opened the same mode=ro way (a missing file refused, never created)."""
+    """readonly_scope, or --db PATH: the app's configured database opened the same mode=ro way (a missing file refused,
+    never created); any other file a copy, mode=ro&immutable=1 with no fallback (db_copy; addendum 582 item 4),
+    db_copy.CopyRefused raised before any open under data/, with a sidecar beside it, or absent (or empty), and after the
+    copy's open when it cannot be read (_probe_copy). The live file's plain mode=ro open is its own; no copy takes it."""
     from src.db import database
     if db is None:
         with database.readonly_scope() as s:
@@ -301,17 +304,50 @@ def ro_session(db: str | None):
         return
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
+
+    from src.walters import db_copy
+    if not str(db).strip():
+        db_copy.check_copy(db)                        # an empty --db: the helper's own refusal, nothing read
     path = Path(db).expanduser().resolve()
     if not path.is_file():
         raise database.ReadOnlyRefused(f"REFUSED: no DB file at --db {db!r}: a read-only read never creates one")
-    eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
-                        connect_args={"uri": True, "check_same_thread": False})
+    kind, path = db_copy.classify(db)                 # 582 item 4(b): a copy refused here, before any open
+    if kind == "live":
+        eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
+                            connect_args={"uri": True, "check_same_thread": False})
+    else:
+        eng = db_copy.copy_engine(path)               # mode=ro&immutable=1, nothing created beside it, no fallback
     s = Session(eng, autoflush=False, expire_on_commit=False)
+    if kind == "copy":
+        _probe_copy(s, eng, path, db_copy)
     try:
         yield s
     finally:
         s.close()
         eng.dispose()
+
+
+# The tables every read of this receipt needs (db_counts, walk, join_index: matches, competitions via nfl_scoped, teams).
+COPY_PROBE_TABLES = ("matches", "competitions", "teams")
+
+
+def _probe_copy(s, eng, path: Path, db_copy) -> None:
+    """A copy it cannot read through mode=ro&immutable=1 (not a SQLite file, or a table in COPY_PROBE_TABLES missing)
+    is refused (db_copy.CopyRefused: one line, the path and the error class, never a row), its session closed and its
+    engine disposed; no fallback (582 item 4(a); kalshi_leg_audit.open_copy's pattern)."""
+    import sqlite3
+
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+    try:
+        for t in COPY_PROBE_TABLES:
+            s.execute(text(f"SELECT 1 FROM {t} LIMIT 1"))
+    except (DBAPIError, sqlite3.Error) as e:
+        err = getattr(e, "orig", None) or e
+        s.close()
+        eng.dispose()
+        raise db_copy.CopyRefused(f"REFUSED: --db {path}: cannot be read through a mode=ro&immutable=1 URI "
+                                  f"({type(err).__name__}: {err}); no fallback; nothing read") from None
 
 
 def db_counts(s) -> dict:
@@ -571,7 +607,13 @@ def main(argv=None, echo=print, get=None) -> int:
     ap.add_argument("--save", default=str(DEFAULT_SAVE), help="this receipt's payload cache (never under data/)")
     ap.add_argument("--max-calls", type=int, default=10)
     ap.add_argument("--exports", default=None, help="the closing files' directory (optional; read only)")
-    ap.add_argument("--db", default=None, help="a DB file opened mode=ro (default: the app's, through readonly_scope)")
+    ap.add_argument("--db", default=None,
+                    help="default: the app's database, through readonly_scope. The app's configured database keeps "
+                         "its open (mode=ro; a missing file refused). Any other file is a copy opened "
+                         "mode=ro&immutable=1, no fallback, refused (exit 2, nothing read) under data/, with a "
+                         "-wal/-shm/-journal sidecar beside it, or absent; a copy it cannot read is refused the same "
+                         "way. A machine whose configuration is not loaded reads its own live file as a copy under "
+                         "data/ and refuses (addendum 582 item 4)")
     a = ap.parse_args(argv)
     save = Path(a.save).expanduser().resolve()
     if _under_data(save):
@@ -587,13 +629,15 @@ def main(argv=None, echo=print, get=None) -> int:
          "never gated: no verdict; a neutral rule is its own candidate through its own gate (law 3)")
     echo(f"rule: {VENUE_RULE}")
     from src.db.database import ReadOnlyRefused
+    from src.walters import db_copy
     try:
         with ro_session(a.db) as s:                    # the refusal before any call; one short read
             dbc = db_counts(s)
-    except ReadOnlyRefused as e:
+    except (ReadOnlyRefused, db_copy.CopyRefused) as e:
         echo(str(e))
-        return 2
-    echo(f"D the database (mode=ro{', --db ' + a.db if a.db else ', readonly_scope'}): NFL matches by season "
+        return db_copy.EXIT_REFUSED
+    form = ", a copy: mode=ro&immutable=1" if a.db and not db_copy.is_live(a.db) else ""
+    echo(f"D the database (mode=ro{', --db ' + a.db + form if a.db else ', readonly_scope'}): NFL matches by season "
          + (" · ".join(f"{k} {v} (finished {dbc['finished'].get(k, 0)})" for k, v in dbc["seasons"].items()) or "none")
          + f" · matches.venue filled {dbc['match_venue']} of {dbc['matches']} · teams.venue filled {dbc['team_venue']}"
            f" of {dbc['teams']} (the adapter stores no venue)")
@@ -652,7 +696,12 @@ def main(argv=None, echo=print, get=None) -> int:
              + (f" · runs {cr['runs'][0]:%Y-%m-%d} .. {cr['runs'][1]:%Y-%m-%d}" if cr["runs"] else " · runs none"))
     else:
         echo("S closing files: not read (no --exports): void labels and desk rows read 'not read'")
-    with ro_session(a.db) as s:
+    with ExitStack() as stack:
+        try:                                           # the copy's fence again before the second open (582 item 4(b))
+            s = stack.enter_context(ro_session(a.db))
+        except (ReadOnlyRefused, db_copy.CopyRefused) as e:
+            echo(str(e))
+            return db_copy.EXIT_REFUSED
         wk, walked = walk(s)
         idx = join_index(s)
         stored_seasons = {str(m.season) for m in walked}

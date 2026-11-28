@@ -6,8 +6,14 @@ the query yields last." (a) the operator's receipt tonight: rows per season, pit
 tonight's two starters' rows. (b) the PR body's receipt: for every MLB prediction row still on disk this postseason,
 the (player, season) the old read would have used vs the new, counts only, and whether any live probability changes.
 
-  D0  the database               opened mode=ro (a copy that refuses it: the plain path with PRAGMA query_only = ON,
-                                 the form printed, #421); never created
+  D0  the database               the app's configured database (no --db, or a --db that is it by resolved path or
+                                 by identity) keeps its open: mode=ro, and a file that refuses it the plain path with
+                                 PRAGMA query_only = ON (#421). Any other --db is a copy, opened mode=ro&immutable=1
+                                 with no fallback, and refused before any open (exit 2, its path printed, nothing
+                                 read) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine
+                                 without the app's configuration loaded reads its own live file as a copy under data/
+                                 and refuses (ARCHITECT 2026-11-27, addendum 582 item 4; #1089). The form is printed;
+                                 never created
   S1  pitcher_season_stats       rows and distinct pitchers per season, as stored
   S2  more than one season       pitchers (player_source_id) holding rows for two or more seasons, and the season sets
   S3  the day's starters         every MLB game whose start falls in the --date window (10:00Z that day to 10:00Z the
@@ -54,7 +60,7 @@ Nothing is re-predicted: a changed row is named, and the size of the change is a
 
 Run (from the repo root):  python3 scripts/mlb_pitcher_season_receipt.py [--db PATH] [--date YYYY-MM-DD]
                            [--season 2026] [--competition MLB]
-Stdlib only, so the operator can run it from a fetched copy before the PR merges. Paste the whole output.
+Stdlib and src/walters/db_copy (the --db rule, addendum 582 item 4), run from the repo root. Paste the whole output.
 """
 from __future__ import annotations
 
@@ -66,6 +72,10 @@ import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.walters import db_copy  # noqa: E402 - addendum 582 item 4: the live file or a copy
 
 COMPETITION = "MLB"
 POSTSEASON = ("F", "D", "L", "W")       # src.walters.export.MLB_POSTSEASON_GAME_TYPES (pinned by the test)
@@ -101,6 +111,18 @@ def open_read(p: Path):
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM pitcher_season_stats LIMIT 1")
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
+
+
+def open_copy(p: Path):
+    """(connection, form) on a --db that db_copy.classify read as a copy (addendum 582 item 4(a)): mode=ro with
+    immutable=1, no fallback, nothing created or written beside it; closed again when the first read fails."""
+    con = db_copy.connect_copy(p)
+    try:
+        con.execute("SELECT 1 FROM pitcher_season_stats LIMIT 1")
+    except BaseException:
+        con.close()
+        raise
+    return con, "mode=ro URI with immutable=1 (a copy; no fallback)"
 
 
 def usable_rows(con, sid: str) -> list[tuple]:
@@ -183,7 +205,12 @@ def classify(rows: list[tuple] | None, season: str, detail: dict | None = None, 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="addendum 162 item 1: MLB pitcher rows by season, read-only")
-    ap.add_argument("--db", default=None)
+    ap.add_argument("--db", default=None,
+                    help="the app's configured database keeps its open (mode=ro; #421's fallback); any other "
+                         "file is a copy opened mode=ro&immutable=1, refused (exit 2, nothing read) under "
+                         "data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine without "
+                         "the app's configuration loaded reads its live file as a copy and refuses "
+                         "(addendum 582 item 4)")
     ap.add_argument("--date", default=None, help="the day whose starters S3 lists (YYYY-MM-DD; default today UTC)")
     ap.add_argument("--season", default="2026", help="the season S4 reads (as stored)")
     ap.add_argument("--competition", default=COMPETITION, help="the competition code (default MLB)")
@@ -191,8 +218,15 @@ def main(argv=None) -> int:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     print(f"MLB PITCHER SEASON RECEIPT · {now:%Y-%m-%d %H:%M}Z · addendum 162 item 1 · read-only, nothing written")
 
-    p = db_path(a.db)
-    con, form = open_read(p)
+    kind = "live"
+    if a.db:
+        try:
+            kind, copy = db_copy.classify(a.db)      # addendum 582 item 4(b): refused before any open, nothing read
+        except db_copy.CopyRefused as e:
+            print(f"✗ {e}", file=sys.stderr)         # the script's refusals go to stderr (SystemExit's message)
+            return db_copy.EXIT_REFUSED
+    p = db_path(a.db) if kind == "live" else copy
+    con, form = open_read(p) if kind == "live" else open_copy(p)
     print(f"\nD0 database {p} · opened via {form}")
     print("  READ: pitcher_season_stats (id, player_source_id, season, era, innings_pitched, games_started); "
           "match_participants (match_id, team_id, role = 'starting_pitcher', player_name, player_source_id); "

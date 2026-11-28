@@ -52,8 +52,11 @@ scripts/nhl_api_probe.py green condition (a starter flag found, or the MoneyPuck
 --stored (no network): the stored fields, read-only. nhl_goalie_appearances (the stored starters): its rows per season
 by the game id's first four digits, is_starter True / False / NULL, and how many rows were captured before their game's
 start (captured_at < game_start): a row captured before the game is the only stored field that could reflect pre-game
-knowledge. Opens the DB mode=ro (a copy that refuses it: the plain path with PRAGMA query_only = ON, #421); never
-creates one.
+knowledge. Never creates a database. The open (addendum 582 item 4; #1089): no --db, or a --db that is the app's
+configured database by resolved path or by identity, keeps the live file's open, mode=ro (a file that refuses it: the
+plain path with PRAGMA query_only = ON, #421). Any other --db is a copy: mode=ro&immutable=1, no fallback, refused
+before any open (exit 2, the path printed, never a row) under data/, with a -wal/-shm/-journal sidecar beside it, or
+absent. A machine without the app's configuration loaded reads its live file as a copy and refuses (582 item 4(d)).
 
 It never stops on an error: a failed request is printed and counted. It writes nothing; --save DIR keeps every
 answer whole (<game id>_<endpoint>_<label>.json; refused under data/).
@@ -336,18 +339,21 @@ def run(day: date, fetch, now, sleep, save: Path | None = None, plan_only: bool 
     return 0
 
 
-def stored(db: Path, out=print) -> int:
-    if not db.is_file():
+def stored(db: Path, out=print, copy: bool = False) -> int:
+    if not copy and not db.is_file():
         raise SystemExit(f"no database at {db}: the probe never creates one")
-    try:
-        con = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
-        con.execute("SELECT 1 FROM nhl_goalie_appearances LIMIT 1")
-        form = "mode=ro URI"
-    except sqlite3.OperationalError:
-        con = sqlite3.connect(str(db), timeout=60)
-        con.execute("PRAGMA query_only = ON")
-        con.execute("SELECT 1 FROM nhl_goalie_appearances LIMIT 1")
-        form = "plain path with PRAGMA query_only = ON (mode=ro refused)"
+    if copy:                                            # a --db db_copy.classify read as a copy (main): no fallback
+        con, form = open_copy(db)
+    else:                                               # the live file: its open as before (#421's fallback)
+        try:
+            con = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
+            con.execute("SELECT 1 FROM nhl_goalie_appearances LIMIT 1")
+            form = "mode=ro URI"
+        except sqlite3.OperationalError:
+            con = sqlite3.connect(str(db), timeout=60)
+            con.execute("PRAGMA query_only = ON")
+            con.execute("SELECT 1 FROM nhl_goalie_appearances LIMIT 1")
+            form = "plain path with PRAGMA query_only = ON (mode=ro refused)"
     tally: dict = {}
     for gid, start, cap, st in con.execute("SELECT nhl_game_id, game_start, captured_at, is_starter "
                                            "FROM nhl_goalie_appearances"):
@@ -374,17 +380,19 @@ def stored(db: Path, out=print) -> int:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--date", help="the NHL day, YYYY-MM-DD (default: today in UTC)")
-    ap.add_argument("--plan", action="store_true", help="print the games and poll times; poll nothing")
-    ap.add_argument("--save", help="keep every answer whole in DIR (never under data/)")
-    ap.add_argument("--stored", action="store_true", help="the stored fields only (no network)")
-    ap.add_argument("--db", help="SQLite file for --stored (default: DATABASE_URL, else ./data/sports.db)")
-    a = ap.parse_args(argv)
+    a = parser().parse_args(argv)                      # parser() sits below main: scripts/README.md cites line 386
     if a.stored:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from nhl_gsax_feasibility import db_path
-        return stored(db_path(a.db))
+        if not a.db:                                   # no --db: the default file, its open as before
+            return stored(db_path(a.db))
+        from src.walters import db_copy                # addendum 582 item 4: the live file or a copy
+        try:
+            kind, copy = db_copy.classify(a.db)        # 582 item 4(b): refused before any open, nothing read
+        except db_copy.CopyRefused as e:
+            print(e, file=sys.stderr)
+            return db_copy.EXIT_REFUSED
+        return stored(db_path(a.db)) if kind == "live" else stored(copy, copy=True)
     day = date.fromisoformat(a.date) if a.date else datetime.now(timezone.utc).date()
     save = None
     if a.save:
@@ -394,6 +402,36 @@ def main(argv=None) -> int:
         save.mkdir(parents=True, exist_ok=True)
     from src.ingestion.nhl_goalies import http_json
     return run(day, http_json, lambda: datetime.now(timezone.utc).replace(tzinfo=None), time.sleep, save, a.plan)
+
+
+# #1089 (ARCHITECT 2026-11-27 20:05 ET, addendum 582 item 4): --db, the live file or a copy. These sit below main so
+# that the line scripts/README.md cites (386, main's db_path import) holds.
+def parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--date", help="the NHL day, YYYY-MM-DD (default: today in UTC)")
+    ap.add_argument("--plan", action="store_true", help="print the games and poll times; poll nothing")
+    ap.add_argument("--save", help="keep every answer whole in DIR (never under data/)")
+    ap.add_argument("--stored", action="store_true", help="the stored fields only (no network)")
+    ap.add_argument("--db", help="SQLite file for --stored (default: DATABASE_URL, else ./data/sports.db). The app's "
+                                 "configured database keeps its open (mode=ro; #421's fallback); any other file is a "
+                                 "copy opened mode=ro&immutable=1 with no fallback, refused (exit 2, its path printed, "
+                                 "nothing read) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a "
+                                 "machine without the app's configuration loaded reads its live file as a copy and "
+                                 "refuses (addendum 582 item 4)")
+    return ap
+
+
+def open_copy(p: Path):
+    """(connection, form) on a --db that db_copy.classify read as a copy (addendum 582 item 4(a)): mode=ro with
+    immutable=1, no fallback, nothing created or written beside it; closed again when its first read fails."""
+    from src.walters import db_copy
+    con = db_copy.connect_copy(p)
+    try:
+        con.execute("SELECT 1 FROM nhl_goalie_appearances LIMIT 1")
+    except BaseException:
+        con.close()
+        raise
+    return con, "mode=ro URI with immutable=1 (a copy; no fallback)"
 
 
 if __name__ == "__main__":

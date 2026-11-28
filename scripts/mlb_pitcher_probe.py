@@ -10,8 +10,14 @@ season, whether the schedule hydrate names the probable starters, and for the ne
 probables are named now and at what hour they appeared if the payload says. Print the keys used. Summary lines per
 season: starters recorded x/y, probables available on the sample z/10. The block that runs it is mine."
 
-  D0  the database                 opened mode=ro (a copy that refuses it: the plain path with PRAGMA query_only = ON,
-                                   the form printed, #421); every table whose name or columns speak of a pitcher or a
+  D0  the database                 the app's configured database (no --db, or a --db that is it by resolved path or
+                                   by identity) keeps its open: mode=ro, and a file that refuses it the plain path
+                                   with PRAGMA query_only = ON (#421). Any other --db is a copy, opened
+                                   mode=ro&immutable=1 with no fallback, and refused before any open (exit 2, its path
+                                   printed, nothing read) under data/, with a -wal/-shm/-journal sidecar beside it, or
+                                   absent; a machine without the app's configuration loaded reads its own live file as
+                                   a copy under data/ and refuses (ARCHITECT 2026-11-27, addendum 582 item 4; #1089).
+                                   The form is printed; every table whose name or columns speak of a pitcher or a
                                    starter, with its columns as PRAGMA table_info gives them; the table and columns
                                    this probe reads, printed
   D1  per season (2024..2026)      the MLB competition's games by stored status; finished games (status FINISHED);
@@ -49,6 +55,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.walters import db_copy  # noqa: E402 - addendum 582 item 4: the live file or a copy
 
 DEFAULT_SEASONS = ["2024", "2025", "2026"]
 SAMPLE = 10
@@ -93,6 +101,18 @@ def open_read(p: Path):
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM matches LIMIT 1")
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
+
+
+def open_copy(p: Path):
+    """(connection, form) on a --db that db_copy.classify read as a copy (addendum 582 item 4(a)): mode=ro with
+    immutable=1, no fallback, nothing created or written beside it; closed again when the first read fails."""
+    con = db_copy.connect_copy(p)
+    try:
+        con.execute("SELECT 1 FROM matches LIMIT 1")
+    except BaseException:
+        con.close()
+        raise
+    return con, "mode=ro URI with immutable=1 (a copy; no fallback)"
 
 
 def tables(con) -> dict[str, list[str]]:
@@ -273,7 +293,12 @@ def time_keys(obj, prefix="") -> list[str]:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="addendum 67 item 2: MLB pitcher coverage, read-only")
-    ap.add_argument("--db", default=None)
+    ap.add_argument("--db", default=None,
+                    help="the app's configured database keeps its open (mode=ro; #421's fallback); any other "
+                         "file is a copy opened mode=ro&immutable=1, refused (exit 2, nothing read) under "
+                         "data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine without "
+                         "the app's configuration loaded reads its live file as a copy and refuses "
+                         "(addendum 582 item 4)")
     ap.add_argument("--seasons", default=",".join(DEFAULT_SEASONS))
     ap.add_argument("--sample", type=int, default=SAMPLE)
     ap.add_argument("--no-network", action="store_true", help="the database part only (P1/P2 are not asked)")
@@ -282,8 +307,15 @@ def main(argv=None) -> int:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     print(f"MLB PITCHER PROBE · {now:%Y-%m-%d %H:%M}Z · read-only, nothing written")
 
-    p = db_path(a.db)
-    con, form = open_read(p)
+    kind = "live"
+    if a.db:
+        try:
+            kind, copy = db_copy.classify(a.db)      # addendum 582 item 4(b): refused before any open, nothing read
+        except db_copy.CopyRefused as e:
+            print(f"✗ {e}")
+            return db_copy.EXIT_REFUSED
+    p = db_path(a.db) if kind == "live" else copy
+    con, form = open_read(p) if kind == "live" else open_copy(p)
     print(f"\nD0 database {p} · opened via {form}")
     found = tables(con)
     for t, cols in found.items():

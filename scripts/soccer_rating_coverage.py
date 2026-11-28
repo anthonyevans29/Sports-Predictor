@@ -11,7 +11,8 @@ league table is parameters.elo.league.ratings (the legacy single-state shape, pa
 training.py reads it). Keys are team ids as JSON strings; MISSING means the id is not a key, which is when
 EloState.get answers the starting rating. team_to_league is shown as stored, or "-" when the id is not in it.
 
-Opens the DB read-only (mode=ro URI; a copy that refuses it falls back to the plain path with PRAGMA query_only = ON, #421).
+Opens the DB read-only. The app's configured database (and no --db) keeps its open: mode=ro URI, falling back to the
+plain path with PRAGMA query_only = ON (#421). Any other --db is a copy (addendum 582 item 4), see --db's help.
 
     python3 scripts/soccer_rating_coverage.py --competition PL --season 2026/27 [--db PATH]
 """
@@ -23,6 +24,10 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from src.walters import db_copy  # noqa: E402  (addendum 582 item 4: the live file or a copy)
 
 FAMILY = "soccer_elo_poisson"
 
@@ -59,6 +64,18 @@ def open_read(p: Path):
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM model_versions LIMIT 1")
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
+
+
+def open_db(arg: str | None):
+    """582 item 4 (#1089): no --db, or a --db that is the app's configured database (by resolved path or by
+    identity), keeps the live open above (open_read, #421's fallback included); any other --db is a copy, checked
+    before any open (db_copy.CopyRefused: nothing read) and opened mode=ro&immutable=1 with no fallback."""
+    if arg is None:
+        return open_read(db_path(None))
+    kind, path = db_copy.classify(arg)
+    if kind == "live":
+        return open_read(db_path(arg))
+    return db_copy.connect_copy(path), "copy: mode=ro&immutable=1 URI (no fallback; addendum 582 item 4)"
 
 
 class Refused(Exception):
@@ -128,9 +145,16 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="addendum 36 item 4: the production soccer model's rating coverage")
     ap.add_argument("--competition", required=True)
     ap.add_argument("--season", required=True)
-    ap.add_argument("--db")
+    ap.add_argument("--db", help="the app's configured database keeps its open (mode=ro URI, #421's query_only "
+                    "fallback); any other file is a copy, opened mode=ro&immutable=1 with no fallback, and refused "
+                    "(exit 2, nothing read) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a "
+                    "machine without the app's configuration loaded reads its live file as a copy (addendum 582 item 4)")
     a = ap.parse_args(argv)
-    con, form = open_read(db_path(a.db))
+    try:
+        con, form = open_db(a.db)
+    except db_copy.CopyRefused as e:
+        print(str(e))
+        return db_copy.EXIT_REFUSED
     try:
         print(f"read-only open: {form}")
         report(coverage(con, a.competition, a.season))

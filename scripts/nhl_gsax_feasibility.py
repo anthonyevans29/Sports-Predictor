@@ -39,8 +39,8 @@ Per-goalie exposure, regular season (game type 2) per season, sorted by shots fa
 the appearances), games with an event in the set, starts (is_starter True), shots faced, xG faced, goals against,
 xG - goals against. Playoffs are counted in the season's lines and not tabled.
 
-Opens the DB read-only (mode=ro URI; a copy that refuses mode=ro falls back to the plain path with PRAGMA query_only =
-ON, #421); never creates one; writes nothing.
+Opens the DB read-only: the app's configured database keeps its open (mode=ro URI, else the plain path with PRAGMA
+query_only = ON, #421); any other --db is a copy: mode=ro&immutable=1, no fallback (582 item 4; see --db); writes none.
 
 Run:  python3 scripts/nhl_gsax_feasibility.py [--db PATH] [--no-goalies]
 --no-goalies leaves out the per-goalie tables (the season lines stay). Paste the whole output on #105.
@@ -305,13 +305,40 @@ def lines(out: dict, model, why: str | None, form: str, path: Path, goalies: boo
     return L
 
 
+def open_copy(p: Path):
+    """(connection, form) on a --db that db_copy.classify read as a copy (ARCHITECT 2026-11-27, addendum 582 item 4(a)):
+    mode=ro with immutable=1, no fallback, nothing created or written beside it; closed again when its first read
+    fails."""
+    from src.walters import db_copy
+    con = db_copy.connect_copy(p)
+    try:
+        con.execute("SELECT 1 FROM nhl_shot_events LIMIT 1")
+    except BaseException:
+        con.close()
+        raise
+    return con, "mode=ro URI with immutable=1 (a copy; no fallback)"
+
+
 def main(argv=None) -> int:
+    from src.walters import db_copy                  # addendum 582 item 4: the live file or a copy
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--db", help="SQLite file (default: DATABASE_URL, else ./data/sports.db)")
+    ap.add_argument("--db", help="SQLite file (default: DATABASE_URL, else ./data/sports.db). The app's configured "
+                                 "database keeps its open (mode=ro; #421's fallback); any other file is a copy opened "
+                                 "mode=ro&immutable=1 with no fallback, refused (exit 2, its path printed, nothing "
+                                 "read) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine "
+                                 "without the app's configuration loaded reads its live file as a copy and refuses "
+                                 "(addendum 582 item 4)")
     ap.add_argument("--no-goalies", action="store_true", help="leave out the per-goalie tables")
     a = ap.parse_args(argv)
-    p = db_path(a.db)
-    con, form = open_read(p)
+    kind, copy = "live", None
+    if a.db:
+        try:
+            kind, copy = db_copy.classify(a.db)      # addendum 582 item 4(b): refused before any open, nothing read
+        except db_copy.CopyRefused as e:
+            print(e, file=sys.stderr)
+            return db_copy.EXIT_REFUSED
+    p = db_path(a.db) if kind == "live" else copy
+    con, form = open_read(p) if kind == "live" else open_copy(p)
     try:
         events, apps, apps_why = load(con)
     finally:

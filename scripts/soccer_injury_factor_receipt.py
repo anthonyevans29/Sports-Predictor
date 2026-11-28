@@ -74,8 +74,8 @@ the cases where only the guard changed the call. Measurement only; no rule, thre
   gate) and never the call; and the EPL tickers (KXEPLGAME-26SEP27CHEARS-ARS) carry no clock, so the kickoff-clock
   rule would read nothing from them. Both runs read alike, which is what isolates the guard.
 
-Opens the database mode=ro (URI); where a copy refuses that, the plain path with PRAGMA query_only = ON, and says
-which form it used (#421's rule). Writes nothing.
+Opens the live file (the app's configured database) mode=ro (URI), else the plain path with PRAGMA query_only = ON
+(#421), and says which; any other --db is a copy, mode=ro&immutable=1, no fallback (582 item 4: --help). Writes nothing.
 
     python3 scripts/soccer_injury_factor_receipt.py [--competition PL] [--db PATH] [--list]
 """
@@ -542,13 +542,38 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
     return sm
 
 
+COPY_FORM = "copy: mode=ro&immutable=1 URI (no fallback; addendum 582 item 4)"
+
+
+def open_db(arg: str | None):
+    """(session, form) by addendum 582 item 4 (#1089): no --db, or the app's configured database by resolved path or by
+    identity, is the live file and keeps its open (open_session, #421's fallback included); any other --db is a copy,
+    opened through db_copy.copy_engine (mode=ro&immutable=1, no fallback). Else db_copy.CopyRefused, nothing opened."""
+    from sqlalchemy.orm import Session
+    from src.walters import db_copy
+    if arg:
+        kind, path = db_copy.classify(arg)
+        if kind == "copy":
+            return Session(db_copy.copy_engine(path)), COPY_FORM
+    return open_session(db_path(arg))
+
+
 def main(argv=None) -> int:
+    from src.walters import db_copy
     ap = argparse.ArgumentParser(description="addendum 40 item 6: the soccer injury factor, measured")
     ap.add_argument("--competition", default="PL")
-    ap.add_argument("--db")
+    ap.add_argument("--db", help="the app's configured database (the default) keeps its open: mode=ro URI, else the "
+                    "plain path with PRAGMA query_only = ON (#421). Any other file is a copy, opened "
+                    "mode=ro&immutable=1 with no fallback, and refused before any open (exit 2, nothing read) under "
+                    "data/, with a -wal, -shm or -journal sidecar beside it, or absent. A machine without the app's configuration loaded reads "
+                    "its live file as a copy under data/ and refuses (addendum 582 item 4)")
     ap.add_argument("--list", action="store_true", help="also print one line per prediction")
     a = ap.parse_args(argv)
-    s, form = open_session(db_path(a.db))
+    try:
+        s, form = open_db(a.db)
+    except db_copy.CopyRefused as e:                     # 582 item 4(b): the path printed, never a row
+        print(e, file=sys.stderr)
+        return db_copy.EXIT_REFUSED
     try:
         print(f"read-only open: {form}")
         rs, skipped = rows(s, a.competition)

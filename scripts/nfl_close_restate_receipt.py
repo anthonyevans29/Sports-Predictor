@@ -20,7 +20,8 @@ runs from it every minute):
     python /tmp/nfl614/scripts/nfl_close_restate_receipt.py --db data/sports.db --exports exports
     git worktree remove /tmp/nfl614
 
-`--db` is the file the laptop's DATABASE_URL names (data/sports.db by default). The output names no path."""
+`--db` is the app's configured database (DATABASE_URL), the live file alone; any other file is refused, exit 2
+(addendum 582 item 4(c)). The output names no path."""
 from __future__ import annotations
 
 import argparse
@@ -101,7 +102,12 @@ def report(docs: dict, grades: dict) -> list[str]:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="NFL record BEFORE and AFTER the stale-book close rule (read-only).")
-    ap.add_argument("--db", required=True, help="the laptop DB file (opened mode=ro; a missing file is refused)")
+    ap.add_argument("--db", required=True,
+                    help="the app's configured database, the live file (it keeps its open: mode=ro and the "
+                         "data_version check; a missing file is refused). Any other file is a copy, and this receipt "
+                         "takes no copy open (mode=ro&immutable=1): it is refused, exit 2, nothing read. A machine "
+                         "without the app's configuration loaded reads its live file as a copy and refuses "
+                         "(addendum 582 item 4)")
     ap.add_argument("--exports", required=True, help="the exports dir holding closing_*.json (read, never written)")
     a = ap.parse_args(argv)
     db = Path(a.db).expanduser().resolve()
@@ -109,6 +115,12 @@ def main(argv=None) -> int:
     if not db.is_file():
         print(f"REFUSED: no DB file at --db {a.db!r}: a read-only receipt never creates one")
         return 2
+    from src.walters import db_copy                       # 582 item 4(c): the live file only, before any open
+    try:
+        db_copy.require_live(a.db)
+    except db_copy.CopyRefused as e:
+        print(e)
+        return db_copy.EXIT_REFUSED
     if not ex.is_dir():
         print(f"REFUSED: --exports {a.exports!r} is not a directory: no receipt, never an empty one")
         return 2

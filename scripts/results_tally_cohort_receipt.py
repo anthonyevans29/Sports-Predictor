@@ -24,7 +24,7 @@ branch, with the laptop checkout as the working directory, so the checkout itsel
     python /tmp/sp615/scripts/results_tally_cohort_receipt.py --db data/sports.db --exports exports
     git worktree remove /tmp/sp615
 
-`--db` is the file the laptop's DATABASE_URL names (data/sports.db by default). The output names no path."""
+`--db` must be the app's configured database (582 item 4(c)): any other is refused by its path, exit 2, nothing read."""
 from __future__ import annotations
 
 import argparse
@@ -54,11 +54,21 @@ def section_lines(text: str) -> dict:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="RESULTS.md's divergence cohorts BEFORE and AFTER #615 (read-only).")
-    ap.add_argument("--db", required=True, help="the laptop DB file (opened mode=ro; a missing file is refused)")
+    ap.add_argument("--db", required=True,
+                    help="the app's configured database, by resolved path or identity, which keeps its mode=ro open "
+                         "(a missing file is refused); any other file is a copy, and this live-file receipt takes no "
+                         "copy open (mode=ro&immutable=1): it is refused before any open, exit 2; a machine without "
+                         "the app's configuration loaded reads its live file as a copy and is refused (addendum 582 "
+                         "item 4)")
     ap.add_argument("--exports", required=True, help="the exports dir holding closing_*.json (read, never written)")
     ap.add_argument("--days", type=int, default=30, help="results-tally's window (default 30, as the command)")
     a = ap.parse_args(argv)
-    db = Path(a.db).expanduser().resolve()
+    from src.walters import db_copy                    # before DATABASE_URL is defaulted: the --db never configures
+    try:
+        db = db_copy.require_live(a.db)                # 582 item 4(c): the live file only, nothing opened otherwise
+    except db_copy.CopyRefused as e:
+        print(e)
+        return db_copy.EXIT_REFUSED
     ex = Path(a.exports).expanduser().resolve()
     if not db.is_file():
         print(f"REFUSED: no DB file at --db {a.db!r}: a read-only receipt never creates one")

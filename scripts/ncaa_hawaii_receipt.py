@@ -13,8 +13,11 @@ provider answers for team 59 and for team 901. [...] Nothing is built until I ha
    field of each answer verbatim. api-sports american-football (API_AMERICAN_FOOTBALL_KEY, else API_FOOTBALL_KEY;
    never printed). --no-provider skips it.
 
-The database opens mode=ro (URI); a copy that refuses it: the plain path with PRAGMA query_only = ON, and the console
-says which (#421's rule). It writes nothing.
+The app's configured database (no --db, or a --db that is it) keeps its open: mode=ro (URI); refused, the plain path
+with PRAGMA query_only = ON, and the console says which (#421's rule). Any other --db is a copy (addendum 582 item 4;
+#1089): mode=ro&immutable=1, no fallback, refused with exit 2 before any open under data/, with a -wal/-shm/-journal
+sidecar beside it, or absent; a machine without the app's configuration loaded reads its live file as a copy and
+refuses. It writes nothing.
 
     python3 scripts/ncaa_hawaii_receipt.py [--match 32536 --match 32724 ...] [--provider-team 59 ...] [--no-provider]
            [--db PATH]
@@ -31,6 +34,8 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from src.walters import db_copy  # noqa: E402  (addendum 582 item 4: the live file or a copy)
 BASE = "https://v1.american-football.api-sports.io"     # src/adapters/api_american_football.py DIRECT_BASE
 SOURCE = "api_american_football"
 GAMES = (32536, 32724, 32744)
@@ -69,6 +74,18 @@ def open_read(p: Path):
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM teams LIMIT 1")
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
+
+
+def open_db(arg: str | None):
+    """Addendum 582 item 4: no --db, or a --db that is the app's configured database, keeps open_read (#421's rule);
+    any other --db is a copy, checked before any open (db_copy.CopyRefused: nothing read) and opened mode=ro&immutable=1
+    with no fallback."""
+    if not arg:
+        return open_read(db_path(arg))
+    kind, path = db_copy.classify(arg)
+    if kind == "live":
+        return open_read(db_path(arg))
+    return db_copy.connect_copy(path), "copy: mode=ro&immutable=1 URI (no fallback; addendum 582 item 4)"
 
 
 def _ext(v) -> dict:
@@ -158,9 +175,16 @@ def main(argv=None) -> int:
     ap.add_argument("--match", type=int, action="append", help=f"a stored match id (default {GAMES})")
     ap.add_argument("--provider-team", type=int, action="append", help=f"a provider team id (default {PROVIDER_TEAMS})")
     ap.add_argument("--no-provider", action="store_true")
-    ap.add_argument("--db")
+    ap.add_argument("--db", help="the app's configured database keeps its open (mode=ro, #421's fallback); any other "
+                    "file is a copy opened mode=ro&immutable=1, no fallback, refused (exit 2, nothing read) under data/, "
+                    "with a -wal/-shm/-journal sidecar beside it, or absent; a machine without the app's configuration "
+                    "loaded reads its live file as a copy and refuses (addendum 582 item 4)")
     a = ap.parse_args(argv)
-    con, form = open_read(db_path(a.db))
+    try:
+        con, form = open_db(a.db)
+    except db_copy.CopyRefused as e:
+        print(e)
+        return db_copy.EXIT_REFUSED
     try:
         print(f"read-only open: {form}")
         teams, games = our_teams(con), the_games(con, a.match or GAMES)

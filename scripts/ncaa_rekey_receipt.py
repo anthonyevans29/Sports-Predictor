@@ -47,7 +47,7 @@ apply output ([merge] lines): keeper AND merged row ids and both provider ids. A
 UNKNOWN (law 4). --expect N states the reported cohort size; the receipt says
 whether it accounts for all N.
 
-Opens the DB read-only (mode=ro URI); writes nothing anywhere.
+Opens the DB read-only; --db is the live file or a copy (addendum 582 item 4; --db's help); writes nothing.
 """
 from __future__ import annotations
 
@@ -235,6 +235,17 @@ def max_rowid(con, t) -> int | None:
     return 0 if v is None else v
 
 
+def db_kind(arg):
+    """Addendum 582 item 4 (#1089): ("live", path) for no --db or a --db that is the app's configured database (it
+    keeps ro_connect / open_read, #421's fallback); else ("copy", resolved path) once db_copy's fence passes; raises
+    db_copy.CopyRefused before any open (under data/, a sidecar beside it, or absent: nothing read)."""
+    from src.walters import db_copy
+    if not arg:
+        return "live", c.db_path()
+    kind, path = db_copy.classify(arg)
+    return kind, (Path(arg) if kind == "live" else path)
+
+
 def twin_group(rows_of_pair, start) -> list:
     """The connected component of `start` in the twin graph (kickoffs within TWIN_H, different ids)."""
     seen, todo = {start["id"]}, [start]
@@ -271,9 +282,13 @@ def parse_plan(path) -> dict:
     return out
 
 
-def reconstruct(cur_path: Path, pre_path: Path, comp: str, source: str, plan_path, expect) -> int:
+def reconstruct(cur_path: Path, pre_path: Path, comp: str, source: str, plan_path, expect, cur_kind="live") -> int:
     pre_con, form = open_read(pre_path)
-    cur_con, _ = open_read(cur_path)
+    if cur_kind == "live":
+        cur_con, _ = open_read(cur_path)
+    else:                                              # a copy: mode=ro&immutable=1, no fallback (582 item 4)
+        from src.walters import db_copy
+        cur_con = db_copy.connect_copy(cur_path)
     pre, cur = load(pre_con, comp, source), load(cur_con, comp, source)
     pre_by, cur_by = {r["id"]: r for r in pre}, {r["id"]: r for r in cur}
     pre_pair = defaultdict(list)
@@ -452,15 +467,28 @@ def main(argv=None) -> int:
     ap.add_argument("--backup", default=None, help="the retained PRE-APPLY .backup file (read-only)")
     ap.add_argument("--plan", default=None, help="the pasted dedupe-matches --orphans --apply output (optional)")
     ap.add_argument("--expect", type=int, default=None, help="the reported merge count (e.g. 30)")
-    ap.add_argument("--db", default=None, help=argparse.SUPPRESS)        # tests
+    ap.add_argument("--db", default=None,
+                    help="the app's configured database keeps its open (mode=ro; --reconstruct-merges: #421's "
+                    "fallback); any other file is a copy opened mode=ro&immutable=1, no fallback, refused (exit 2, "
+                    "nothing read) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine "
+                    "without the app's configuration loaded reads its live file as a copy and refuses "
+                    "(addendum 582 item 4)")
     ap.add_argument("--now", default=None, help=argparse.SUPPRESS)       # tests
     a = ap.parse_args(argv)
-    p = Path(a.db) if a.db else c.db_path()
+    from src.walters import db_copy
+    try:
+        kind, p = db_kind(a.db)                        # addendum 582 item 4: refused before any open
+    except db_copy.CopyRefused as e:
+        print(e)
+        return db_copy.EXIT_REFUSED
     now = _dt(a.now) if a.now else datetime.now(timezone.utc).replace(tzinfo=None)
-    con = c.ro_connect(p)
-    rows = load(con, a.competition, a.source)
-    con.close()
-    print(f"NCAA RE-KEY RECEIPT · {a.competition} ({a.source}) · db {p} (read-only) · now {now:%Y-%m-%dT%H:%MZ}")
+    con = c.ro_connect(p) if kind == "live" else db_copy.connect_copy(p)
+    try:
+        rows = load(con, a.competition, a.source)
+    finally:
+        con.close()
+    form = "read-only" if kind == "live" else "read-only, copy: mode=ro&immutable=1"
+    print(f"NCAA RE-KEY RECEIPT · {a.competition} ({a.source}) · db {p} ({form}) · now {now:%Y-%m-%dT%H:%MZ}")
     rek = [r for r in rows if r["prev"]]
     print(f"1. rows {len(rows)} · re-keyed in place (carry {a.source}_prev) {len(rek)} · source-id classes "
           f"{dict(sorted(Counter(_sid_class(r['sid']) for r in rows).items()))}")
@@ -518,7 +546,7 @@ def main(argv=None) -> int:
         if not a.backup:
             print("8. --reconstruct-merges needs --backup PRE.db (the retained pre-apply backup) — REFUSED")
             return 2
-        return reconstruct(p, Path(a.backup), a.competition, a.source, a.plan, a.expect)
+        return reconstruct(p, Path(a.backup), a.competition, a.source, a.plan, a.expect, kind)
     if a.game:
         away, _, home = a.game.partition("@")
         hits = [r for r in rows if r["utc"] and abs(r["utc"] - now) <= timedelta(days=a.days)

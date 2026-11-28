@@ -4,6 +4,70 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-11-28 (#1180: 1089-db-copy-immutable — a --db copy opens mode=ro&immutable=1 with no fallback; the live file keeps its open (addendum 462 item 6, ruled by addendum 582 item 4; #1089))
+- **New, `src/walters/db_copy.py`:** the one rule, used by all 16 scripts.
+  - `classify()` reads the app's configured database, matched by resolved path or by identity, as the live file, which keeps its open (#421's fallback included).
+  - Any other `--db` is a copy: it is checked by `mlb_pitchers_gate.check_db` and a sidecar check, then opened through `?mode=ro&immutable=1` with no fallback.
+  - A copy is refused before any open, exit 2, the path printed and never a row, when it is under data/, has a -wal/-shm/-journal sidecar beside it, or is absent. It is refused the same way when its path is empty or cannot be resolved, or when SQLite cannot open it.
+  - `require_live()` serves the two live-file receipts.
+- **The 16 scripts:**
+  - kalshi_leg_audit, lineup_timing_probe, mlb_pitcher_asof_receipt, mlb_pitcher_probe, mlb_pitcher_season_receipt, ncaa_hawaii_receipt, ncaa_rekey_receipt, nfl_injury_position_probe, nfl_neutral_site_receipt, nhl_gsax_feasibility, nhl_starter_timing_probe, replay_inventory_probe, soccer_injury_factor_receipt and soccer_rating_coverage take either file.
+  - nfl_close_restate_receipt and results_tally_cohort_receipt refuse a `--db` that is not the configured database (582 item 4(c)).
+  - Each `--db` help line says the rule, including 4(d): "a machine whose configuration is not loaded reads its own live file as a copy under data/ and refuses".
+  - A copy that opens but cannot be read is one REFUSED line, exit 2, never a traceback.
+- **Tests:**
+  - **New:** `tests/test_db_copy.py` (13), and `tests/test_1089_<script>.py` for each script. Each drives the script's own entry point: a copy read with nothing created beside it, each refusal case, and the live open kept.
+  - **Pins moved as 582 item 4(b) and (c) rule (named in the PR):**
+    - The absent-file tests of five scripts now assert exit 2 and the REFUSED line, and still assert that no file is created.
+    - replay_inventory_probe's header now shows the copy's open.
+    - The two live receipts' tests now name their scratch file as the configured database, with every assertion kept.
+- **Docs:** docs/CLI.md and scripts/README.md rows are rewritten inside their own lines.
+- Read-only tooling: no Desk call, export or model output changes. Refs #1089.
+
+## 2026-11-28 (#1179: 1093-env-file-decode — desk_policy._env_file reads an undecodable env file as an unreadable one (addendum 464 item 4; #1093))
+- **src/walters/desk_policy.py, `_env_file`:** a file that cannot be decoded as UTF-8 now reads as one that cannot be opened.
+  - With `strict` (host.env), it reads `HOST_ENV_UNREADABLE`: the role is unknown and nothing after it is read.
+  - Without `strict` (the checkout's .env), it reads `{}`.
+  - Before this, a UnicodeDecodeError passed through every caller of role_reading as a traceback (host_fenced, not_host_reason, not_laptop_reason, machine_role). It failed closed, but a command that refuses on the role ended with exit 1 instead of its refusal.
+- **Tests:**
+  - **New, `tests/test_env_file_decode.py`:** strict and plain readings; #1093's own case on three environment roles; the fence with its switch on.
+  - **`tests/test_laptop_routine.py`**, as ruled (ARCHITECT 2026-11-27, addendum 582 item 3):
+    - The pinned handler test keeps its case, with the raise now made by a monkeypatch.
+    - A new test pins the mended path: exit 2, the role unset, a receipt with no error key.
+    - The fixture's docstring is corrected.
+- No Desk call, size or price changes; the host fence's switch is off on main. Refs #1093.
+
+## 2026-11-27 (#1178: 1174-order-text-x2 — the bulletins' guard exempts the one token X2 and gains a cents arm (ARCHITECT 2026-11-27, addendum 581 item 1: F with D'; money path, under the #960/#969/#979 review))
+- **The finding (#1174, addendum 579):** `ORDER_TEXT` (src/privacy_patterns.py) is compiled with `(?i)` for the whole expression, so its standing-alone arm, documented "lower case only", matched the Desk's double-chance "(X2)" in a LADDER reason. Every bulletin of a slate or a closing that held a LADDER call was refused (exit 2, pattern order_text, nothing written). It failed closed: nothing leaked.
+- **F:** the standing-alone arm refuses a count in either case EXCEPT the one upper-case token `X2` (`(?!(?-i:X2)\b)`). "x2", "X3", "X12", "X22" and the full-width "Ｘ3" still refuse.
+- **D':** a new arm refuses a price in cents followed by a count ("45c X2", "45c x 3", "45cX3"), the cents written c, cent(s), the sign ¢ or its full-width form ("45¢ X2", "45&#162; X2", "45 cents X2"; Codex P1 on #1178, round 1: main refused those through the X2 arm). Its lookbehind refuses any digit (`\d`), which keeps the pattern linear on a run of non-ASCII digits.
+- **The known pass, accepted and written down (581 item 1(c)):** an upper-case "X2" with no BUY lead, no "×", no "@", no "at" and no cents letter passes ("0.45 X2"). The Desk's own order line carries the lead and the sign, whose arms are untouched. A test pins the string as a KNOWN PASS.
+- **Unchanged:** the BUY YES/NO, "×", "@ price x n" and "x n at" arms and the `(?i)` head; every other pattern; the Desk's words, the frozen golden and the Cockpit (581 item 1(b): B is not taken).
+- **Tests:** `tests/test_1174_order_text_x2.py` (new): the Desk's double-chance words pass; every other count refuses, the lower-case two, the upper-case two after an at-sign and a price and before "at", and the cents forms among them; the Desk's own order lines refuse; the known pass; a bulletin run with a LADDER reason writes its files, one with "45c X2" in a reason refuses. Against main's pattern 14 of them fail.
+
+## 2026-11-27 (#1175: 564-580-records — Records of addenda 564 to 571 and 575 to 580, the v1.6.12 release record, CLAUDE.md's NHL line given v5 to v8, CONTRIBUTING.md's law-5 pointer moved)
+- **docs/ledger/entries/2026-11-27-564-580-records.md:** addenda 564 to 571 and 575 to 580, each quoted whole, with what DEV 1 did on each. 572 to 574 are in #1170's entry.
+- **docs/RELEASES.md, the release record:**
+  - **The row:** v1.6.12, cut 2026-11-27 17:41:07Z, commit 412003a7, tag object d86021de, Release Issue #1173.
+  - **The entry:**
+    - the tag's ruling (578 item 2);
+    - its three conditions (577 item 2);
+    - the fold #1171 (577 item 1, 578 item 1);
+    - the tag and its message, read from git;
+    - the deploy (579 items 1 and 3, 580 items 1 and 2): the first attempt stopped on the bulletins' guard, and the second block deployed v1.6.10 to v1.6.12 at 18:25Z;
+    - what changed for the host, and the 32 PRs it carries.
+  - **PRODUCTION = v1.6.12**, from 2026-11-27T18:25Z (580 item 2).
+- **docs/specs/hosting-h1.md, section O:**
+  - the timers after v1.6.12's deploy;
+  - the pack's 27 timers, read again at v1.6.11 and v1.6.12;
+  - `SP_SYNC_HOLD` on production v1.6.12;
+  - the HELD LIST's tennis row, production v1.6.12;
+  - the host's MLB hold, which stands on v1.6.12 (580 item 1(d), 1(e)).
+- **CLAUDE.md, the NHL line** (ARCHITECT 2026-11-26, addendum 565 item 5): after "v1-v4 all FAILED", the four later candidates from the registry, v5 to v8, each FAILED at the same gate. v7's 0.6885 was the best of the eight, and shot information was the one positive increment.
+- **CONTRIBUTING.md** (addendum 567 item 2(b)): "(law 5 above)" moves from the account-data line to the data/ line, where law 5 applies.
+- **#1061 (v1.6.10) and #1138 (v1.6.11) are closed** on 580 item 3's ruling, quoted verbatim on each.
+- No code, test or CI change. No bar, date or held timer moves. Refs #1173.
+
 ## 2026-11-27 (#1170: 573-soccer-v23-verdict-record — soccer-v23's one run merged as the laptop wrote it and its REJECT recorded (addenda 572, 573 and 574))
 - **docs/registry/:** the three files of `laptop/soccer-v23-run-record` (9e959a3c), merged byte-identical: `ids/soccer-v23.txt` (14,887 scored ids), `soccer-v23.started.json` and the run block in `experiments.json`.
 - **The verdict:** REJECT, recorded by `registry.record_verdict` with the ruling of ARCHITECT 2026-11-27, addendum 573 item 4(c), verbatim. The status goes from run to closed. soccer-v23 beat v22 re-walked by 0.005817 and missed both of v22's recorded Premier League figures, by 0.002675 (2024/25) and 0.000689 (2025/26), against 0.0050, where all three had to hold.

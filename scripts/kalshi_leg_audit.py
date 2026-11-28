@@ -15,10 +15,11 @@ matcher stored without one) are counted, never checked.
 
 Opens the DB read-only. The app's configured database (no --db, or a --db that is it by resolved path or by identity)
 keeps its open: mode=ro URI, falling back to the plain path with PRAGMA query_only = ON where mode=ro is refused
-(#421). Any other --db is a copy: mode=ro&immutable=1, no fallback, refused before any open (exit 2, the path
-printed, never a row) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine without the
-app's configuration loaded reads its live file as a copy and refuses (addendum 582 item 4, #1089).
-Writes nothing.
+(#421); that fallback is the live file's alone. Any other --db is a copy, through src/walters/db_copy.py:
+mode=ro&immutable=1, no fallback, refused before any open (exit 2, the path printed, never a row) under data/, with a
+-wal/-shm/-journal sidecar beside it, or absent, and refused the same way (one REFUSED line naming the path and the
+error class) when it cannot be read through that URI; a machine whose configuration is not loaded reads its own live
+file as a copy under data/ and refuses (addendum 582 item 4, #1089). Writes nothing.
 
     python3 scripts/kalshi_leg_audit.py [--since YYYY-MM-DD] [--db PATH]
 """
@@ -74,19 +75,26 @@ def open_read(p: Path):
     except sqlite3.OperationalError:
         # #421 RULED (ARCHITECT 2026-10-11, addendum 38): "A receipt opens the database mode=ro. Where a copy refuses
         # that, it opens the plain path with query_only set and prints which form it used [...] It opens the
-        # database no third way."
+        # database no third way." Since 582 item 4(a) (#1089) this fallback is the live file's alone: a --db that is
+        # not the app's configured database is a copy and goes through open_copy (db_copy, immutable=1, no fallback).
         con = sqlite3.connect(str(p), timeout=60)
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM odds_snapshots LIMIT 1")
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
 
 
+# The tables audit() cannot read around; the graded query's two tables fail to their own NOT CHECKED line (#419).
+COPY_PROBE_TABLES = ("odds_snapshots", "matches", "teams")
+
+
 def open_copy(p: Path):
     """A copy (addendum 582 item 4(a)): mode=ro&immutable=1 through db_copy.connect_copy, no fallback; a copy it cannot
-    read is refused (db_copy.CopyRefused, the path printed, never a row) and its connection closed."""
+    read (not a SQLite file, or a table in COPY_PROBE_TABLES missing) is refused (db_copy.CopyRefused: one line, the
+    path and the error class, never a row) and its connection closed."""
     con = db_copy.connect_copy(p)
     try:
-        con.execute("SELECT 1 FROM odds_snapshots LIMIT 1")
+        for t in COPY_PROBE_TABLES:
+            con.execute(f"SELECT 1 FROM {t} LIMIT 1")
     except sqlite3.Error as e:
         con.close()
         raise db_copy.CopyRefused(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI "
@@ -222,8 +230,8 @@ def main(argv=None) -> int:
     ap.add_argument("--db", help="SQLite file (default: DATABASE_URL from the environment or .env). The app's configured "
                     "database keeps its open (mode=ro, the #421 fallback); any other file is a copy opened "
                     "mode=ro&immutable=1 with no fallback, refused (exit 2) under data/, with a -wal/-shm/-journal "
-                    "sidecar beside it, or absent; a machine without the app's configuration loaded reads its live "
-                    "file as a copy and refuses (addendum 582 item 4)")
+                    "sidecar beside it, or absent; a machine whose configuration is not loaded reads its own live "
+                    "file as a copy under data/ and refuses (addendum 582 item 4)")
     a = ap.parse_args(argv)
     if a.since is not None:            # #419 (Codex on #416): a malformed date never gives a quiet wrong window
         try:

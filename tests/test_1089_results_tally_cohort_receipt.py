@@ -67,8 +67,25 @@ def test_a_copy_with_a_wal_sidecar_is_refused_and_nothing_is_opened(tmp_path, ca
     (tmp_path / "exports").mkdir()
     opens.clear()
     assert _mod().main(["--db", str(p), "--exports", str(tmp_path / "exports")]) == dc.EXIT_REFUSED
-    assert "is not the app's configured database" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert out.startswith(f"REFUSED: --db {p} ") and "is not the app's configured database" in out
     assert opens == [] and not p.with_name(p.name + "-shm").exists()
+
+
+def test_a_copy_under_data_is_refused_and_nothing_is_opened(tmp_path, capsys, monkeypatch, opens):
+    """A copy under data/ (the fence's data/ pointed at a tmp folder: nothing under the repo's data/ is touched): this
+    live-file receipt refuses it as not the configured database, exit 2, before any open."""
+    from src.walters import mlb_pitchers_gate as mp
+    data = tmp_path / "data"
+    data.mkdir()
+    p = wal_copy(data / "sports.db")
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
+    (tmp_path / "exports").mkdir()
+    opens.clear()
+    assert _mod().main(["--db", str(p), "--exports", str(tmp_path / "exports")]) == dc.EXIT_REFUSED
+    out = capsys.readouterr().out
+    assert out.startswith(f"REFUSED: --db {p} ") and "is not the app's configured database" in out
+    assert "## " not in out and opens == [] and dc.sidecars(p) == []
 
 
 def test_an_absent_db_is_refused_and_never_created(tmp_path, capsys, opens):
@@ -76,8 +93,21 @@ def test_an_absent_db_is_refused_and_never_created(tmp_path, capsys, opens):
     (tmp_path / "exports").mkdir()
     opens.clear()
     assert _mod().main(["--db", str(p), "--exports", str(tmp_path / "exports")]) == dc.EXIT_REFUSED
-    assert capsys.readouterr().out.startswith("REFUSED: ")
+    out = capsys.readouterr().out
+    assert out.startswith(f"REFUSED: --db {p} ") and "is not the app's configured database" in out
     assert opens == [] and not p.exists()
+
+
+def test_an_absent_configured_database_is_refused_as_absent_and_never_created(tmp_path, capsys, monkeypatch, opens):
+    """The configured database itself absent: the live open's own refusal names the path and the absent case."""
+    p = tmp_path / "sports.db"
+    (tmp_path / "exports").mkdir()
+    monkeypatch.setattr(dc, "app_db", lambda: p.resolve())
+    opens.clear()
+    assert _mod().main(["--db", str(p), "--exports", str(tmp_path / "exports")]) == dc.EXIT_REFUSED
+    out = capsys.readouterr().out
+    assert out.startswith(f"REFUSED: --db {p}: no file at {p.resolve()}") and "nothing created, nothing read" in out
+    assert opens == [] and not p.exists() and dc.sidecars(p) == []
 
 
 def test_with_no_configuration_the_db_never_becomes_the_configured_one(tmp_path, capsys, monkeypatch, opens):

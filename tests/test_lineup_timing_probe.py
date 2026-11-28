@@ -382,8 +382,9 @@ def test_no_key_stops_before_any_call(world, capsys, monkeypatch):
 
 def test_no_database_file_is_never_created(tmp_path, capsys):
     missing = tmp_path / "nope.db"
-    with pytest.raises(SystemExit, match="never creates one"):
-        probe.run(["--db", str(missing), "--date", DAY], clock=Clock(at(12, 0)))
+    rc = probe.run(["--db", str(missing), "--date", DAY], clock=Clock(at(12, 0)))
+    out = capsys.readouterr().out
+    assert rc == 2 and f"REFUSED: --db {missing}: no file at" in out and "nothing created, nothing read" in out
     assert not missing.exists()
 
 

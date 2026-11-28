@@ -1,6 +1,7 @@
 """#1089 (ARCHITECT 2026-11-27 20:05 ET, addendum 582 item 4) for scripts/soccer_rating_coverage.py: the app's configured
 database keeps its open; any other --db is a copy, opened mode=ro&immutable=1 with no fallback, and refused before any
-open (exit 2, nothing read) with a sidecar beside it or absent. Every file here is a throwaway in tmp_path."""
+open (exit 2, nothing read) under data/, with a sidecar beside it, absent or empty; a copy it cannot read is refused in one
+line. Every file here is a throwaway in tmp_path (data/ is a tmp folder the fence is pointed at, never the repo's)."""
 import json
 import sqlite3
 import sys
@@ -9,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import soccer_rating_coverage as rc  # noqa: E402
 from src.walters import db_copy as dc  # noqa: E402
+from src.walters import mlb_pitchers_gate as mp  # noqa: E402
 
 ARGS = ["--competition", "PL", "--season", "2026/27", "--db"]
 
@@ -66,7 +68,9 @@ def test_3_an_absent_db_is_refused_exit_2_and_not_created(tmp_path, capsys):
     p = tmp_path / "absent.db"
     assert rc.main(ARGS + [str(p)]) == 2
     out = capsys.readouterr().out
-    assert out.startswith("REFUSED: ") and "no file at" in out
+    assert out.startswith("REFUSED: ") and "no file at" in out and str(p) in out
+    assert out.rstrip().endswith("; nothing created, nothing read") and "the gate never creates one" not in out
+    assert len(out.strip().splitlines()) == 1
     assert not p.exists() and dc.sidecars(p) == []
 
 
@@ -83,3 +87,82 @@ def test_4_the_apps_configured_database_takes_the_live_open(tmp_path, monkeypatc
     monkeypatch.setattr(dc, "connect_copy", lambda *a, **k: (_ for _ in ()).throw(AssertionError("copy open")))
     assert rc.main(ARGS + [str(live)]) == 0
     assert [c.resolve() for c in calls] == [live.resolve()]
+
+
+def test_5_a_copy_under_data_is_refused_exit_2_nothing_opened(tmp_path, capsys, monkeypatch):
+    data = tmp_path / "data"
+    data.mkdir()
+    p = wal_copy(data / "x.db")
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
+    opened = []
+    monkeypatch.setattr(rc, "open_read", lambda *a, **k: opened.append(a))
+    monkeypatch.setattr(dc, "connect_copy", lambda *a, **k: opened.append(a))
+    assert rc.main(ARGS + [str(p)]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: ") and "under the repo's data/" in out and str(p) in out
+    assert len(out.strip().splitlines()) == 1
+    assert opened == [] and "read-only open" not in out and "TOTALS" not in out
+
+
+def test_6_an_empty_db_is_refused_exit_2_nothing_opened(capsys, monkeypatch):
+    opened = []
+    monkeypatch.setattr(rc, "open_read", lambda *a, **k: opened.append(a))
+    monkeypatch.setattr(dc, "connect_copy", lambda *a, **k: opened.append(a))
+    assert rc.main(ARGS + [""]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: --db is empty: ") and len(out.strip().splitlines()) == 1
+    assert opened == []
+
+
+def test_7_a_copy_that_is_not_sqlite_is_refused_in_one_line_and_closed(tmp_path, capsys, monkeypatch):
+    p = tmp_path / "junk.db"
+    p.write_bytes(b"not a sqlite file" * 64)
+    before = p.read_bytes()
+    closed = []
+    real = dc.connect_copy
+
+    def track(path):
+        con = real(path)
+
+        class C:
+            def execute(self, *a):
+                return con.execute(*a)
+
+            def close(self):
+                closed.append(True)
+                con.close()
+        return C()
+    monkeypatch.setattr(dc, "connect_copy", track)
+    assert rc.main(ARGS + [str(p)]) == 2
+    out = capsys.readouterr().out
+    lines = out.strip().splitlines()
+    assert len(lines) == 1 and lines[0].startswith(f"REFUSED: --db {p}: ") and "DatabaseError" in lines[0]
+    assert "Traceback" not in out and "read-only open" not in out and "TOTALS" not in out
+    assert closed == [True]
+    assert p.read_bytes() == before and dc.sidecars(p) == []
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["junk.db"]
+
+
+def test_8_a_copy_missing_a_table_is_refused_in_one_line(tmp_path, capsys):
+    p = wal_copy(tmp_path / "copy.db")
+    con = sqlite3.connect(p)
+    con.execute("DROP TABLE teams")
+    con.commit()
+    con.close()
+    for s in dc.SIDECARS:
+        p.with_name(p.name + s).unlink(missing_ok=True)
+    assert rc.main(ARGS + [str(p)]) == 2
+    out = capsys.readouterr().out
+    lines = out.strip().splitlines()
+    assert len(lines) == 1 and lines[0].startswith(f"REFUSED: --db {p}: ") and "OperationalError" in lines[0]
+    assert "no such table: teams" in lines[0] and "TOTALS" not in out
+    assert dc.sidecars(p) == [] and sorted(x.name for x in tmp_path.iterdir()) == ["copy.db"]
+
+
+def test_9_the_help_line_carries_582_item_4_d(capsys):
+    import pytest
+    with pytest.raises(SystemExit):
+        rc.main(["--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert ("a machine whose configuration is not loaded reads its own live file as a copy under data/ and refuses "
+            "(addendum 582 item 4)") in out

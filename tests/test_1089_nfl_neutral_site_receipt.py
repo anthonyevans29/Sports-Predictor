@@ -109,7 +109,8 @@ def test_an_absent_copy_is_refused_exit_2_and_never_created(tmp_path, monkeypatc
     _no_copy_open(monkeypatch)
     calls = []
     out = run(tmp_path, p, calls, 2)
-    assert "REFUSED: no DB file at --db" in out and calls == []
+    assert out.splitlines()[-1].startswith("REFUSED: no DB file at --db") and calls == []
+    assert "D the database" not in out
     assert not p.exists() and db_copy.sidecars(p) == []
 
 
@@ -122,7 +123,8 @@ def test_a_copy_under_data_is_refused_exit_2(tmp_path, monkeypatch):
     _no_copy_open(monkeypatch)
     calls = []
     out = run(tmp_path, p, calls, 2)
-    assert "REFUSED: " in out and "under the repo's data/" in out and calls == []
+    assert out.splitlines()[-1].startswith("REFUSED: ") and "under the repo's data/" in out and calls == []
+    assert "D the database" not in out and db_copy.sidecars(p) == []      # nothing read, nothing beside it
 
 
 def test_the_apps_configured_database_takes_the_live_open(tmp_path, monkeypatch):
@@ -137,3 +139,33 @@ def test_the_apps_configured_database_takes_the_live_open(tmp_path, monkeypatch)
     live = [(u, k) for u, k in urls if u == f"sqlite:///file:{p.resolve().as_posix()}?mode=ro&uri=true"]
     assert len(live) == 2 and all(k["connect_args"] == {"uri": True, "check_same_thread": False} for _u, k in live)
     assert f"(mode=ro, --db {p}):" in out and "immutable" not in out.split("NFL matches")[0].split("D the database")[1]
+
+
+def test_an_empty_db_is_refused_exit_2_in_the_helpers_words(tmp_path, monkeypatch):
+    _no_copy_open(monkeypatch)
+    calls = []
+    out = run(tmp_path, "", calls, 2)
+    assert out.splitlines()[-1].startswith("REFUSED: --db is empty: ") and calls == []
+    assert "D the database" not in out
+
+
+@pytest.mark.parametrize("case", ["not sqlite", "no matches table"])
+def test_a_copy_it_cannot_read_is_refused_one_line_exit_2_nothing_beside_it(tmp_path, case):
+    p = tmp_path / "copy.db"
+    if case == "not sqlite":
+        p.write_bytes(b"this is not a SQLite database file, only bytes" * 100)
+    else:
+        con = sqlite3.connect(p)
+        con.execute("CREATE TABLE teams (id INTEGER)")
+        con.commit()
+        con.close()
+    before = hashlib.sha256(p.read_bytes()).hexdigest()
+    calls = []
+    out = run(tmp_path, p, calls, 2)
+    refused = [x for x in out.splitlines() if x.startswith("REFUSED")]
+    assert len(refused) == 1 and refused[0] == out.splitlines()[-1]
+    assert f"--db {p.resolve()}: cannot be read through a mode=ro&immutable=1 URI" in refused[0]
+    assert ("DatabaseError" if case == "not sqlite" else "OperationalError") in refused[0]
+    assert "Traceback" not in out and "D the database" not in out and calls == []
+    assert db_copy.sidecars(p) == [] and hashlib.sha256(p.read_bytes()).hexdigest() == before
+    assert sorted(x.name for x in tmp_path.iterdir() if x.name.startswith("copy.db")) == ["copy.db"]

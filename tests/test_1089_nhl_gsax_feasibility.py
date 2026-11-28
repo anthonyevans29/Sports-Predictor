@@ -76,8 +76,57 @@ def test_an_absent_copy_is_refused_exit_2_and_never_created(tmp_path, capsys, mo
     monkeypatch.setattr(gx.sqlite3, "connect", lambda *a, **k: pytest.fail("an absent copy was opened"))
     rc = gx.main(["--db", str(p)])
     cap = capsys.readouterr()
-    assert rc == 2 and cap.err.startswith("REFUSED: ") and str(p) in cap.err and cap.out == ""
+    assert rc == 2 and cap.err.startswith("REFUSED: ") and f"no file at {p}" in cap.err and cap.out == ""
+    assert "nothing created, nothing read" in cap.err and cap.err.count("\n") == 1
     assert not p.exists() and dc.sidecars(p) == []
+
+
+def test_an_empty_db_is_refused_exit_2_never_read_as_the_default(capsys, monkeypatch):
+    monkeypatch.setattr(gx, "open_read", lambda *a: pytest.fail("an empty --db took the live open"))
+    monkeypatch.setattr(dc, "connect_copy", lambda *a: pytest.fail("an empty --db was opened"))
+    rc = gx.main(["--db", ""])
+    cap = capsys.readouterr()
+    assert rc == 2 and cap.err.startswith("REFUSED: --db is empty: ") and cap.out == ""
+
+
+@pytest.mark.parametrize("case", ["not_sqlite", "no_shot_table"])
+def test_an_unreadable_copy_is_refused_exit_2_one_line_nothing_beside_it(tmp_path, capsys, monkeypatch, case):
+    """582 item 4(a): a copy that passes the fence but cannot be read through immutable=1 is one REFUSED line naming
+    the path and the error class, exit 2, no traceback and no fallback; nothing is created beside it."""
+    p = tmp_path / "copy.db"
+    if case == "not_sqlite":
+        p.write_bytes(b"this is not a SQLite database file, only text" * 20)
+    else:
+        con = sqlite3.connect(p)
+        con.execute(APPS)
+        con.commit()
+        con.close()
+    before = p.read_bytes()
+    closed = []
+    real = dc.connect_copy
+
+    def spy(path):
+        con = real(path)
+
+        class C:
+            def execute(self, *a):
+                return con.execute(*a)
+
+            def close(self):
+                closed.append(True)
+                con.close()
+        return C()
+    monkeypatch.setattr(dc, "connect_copy", spy)
+    monkeypatch.setattr(gx, "open_read", lambda *a: pytest.fail("an unreadable copy fell back to the live open"))
+    rc = gx.main(["--db", str(p)])
+    cap = capsys.readouterr()
+    cls = "DatabaseError" if case == "not_sqlite" else "OperationalError"
+    assert rc == 2 and cap.out == ""
+    assert cap.err == (f"REFUSED: --db {p.resolve()}: the copy cannot be read through mode=ro&immutable=1 ({cls}); "
+                       "no fallback; nothing read\n")
+    assert closed == [True]
+    assert p.read_bytes() == before and dc.sidecars(p) == []
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["copy.db"]
 
 
 def test_a_copy_under_data_is_refused_exit_2(tmp_path, capsys, monkeypatch):

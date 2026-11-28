@@ -47,7 +47,12 @@ apply output ([merge] lines): keeper AND merged row ids and both provider ids. A
 UNKNOWN (law 4). --expect N states the reported cohort size; the receipt says
 whether it accounts for all N.
 
-Opens the DB read-only; --db is the live file or a copy (addendum 582 item 4; --db's help); writes nothing.
+Opens the DB read-only; writes nothing. --db (addendum 582 item 4): the app's configured database (no --db, or a
+--db that is it by resolved path or identity) keeps its open (mode=ro; --reconstruct-merges: #421's fallback, the live
+file's alone); any other file is a copy opened mode=ro&immutable=1 through src/walters/db_copy.py, no fallback, refused
+(exit 2, nothing read) under data/, with a -wal/-shm/-journal sidecar beside it, absent, empty, or unreadable through
+immutable=1; a machine whose configuration is not loaded reads its own live file as a copy under data/ and refuses
+(addendum 582 item 4).
 """
 from __future__ import annotations
 
@@ -170,8 +175,8 @@ TWIN_H = 48                                            # match_dedupe.TWIN_H (th
 
 
 def open_read(p: Path):
-    """Read-only open; a macOS .backup that refuses mode=ro (the 2026-10-03 hotfix) falls back to a plain
-    connect that this script only ever SELECTs on. Returns (con, form)."""
+    """The live --db's and the --backup's read-only open; one that refuses mode=ro (the 2026-10-03 hotfix) falls back
+    to a plain connect, SELECT only. A --db copy never reaches it: open_copy, no fallback (582 item 4(a)). (con, form)."""
     try:
         con = c.ro_connect(p)
         con.execute("SELECT 1 FROM matches LIMIT 1")
@@ -235,15 +240,34 @@ def max_rowid(con, t) -> int | None:
     return 0 if v is None else v
 
 
+COPY_PROBE_TABLES = ("competitions", "teams", "odds", "odds_snapshots", "matches")     # every table load() reads
+
+
 def db_kind(arg):
     """Addendum 582 item 4 (#1089): ("live", path) for no --db or a --db that is the app's configured database (it
-    keeps ro_connect / open_read, #421's fallback); else ("copy", resolved path) once db_copy's fence passes; raises
-    db_copy.CopyRefused before any open (under data/, a sidecar beside it, or absent: nothing read)."""
+    keeps ro_connect / open_read, #421's fallback, the live file's alone); else ("copy", resolved path) once db_copy's
+    fence passes; raises db_copy.CopyRefused before any open (empty, under data/, a sidecar beside it, or absent)."""
     from src.walters import db_copy
-    if not arg:
+    if arg is None:
         return "live", c.db_path()
     kind, path = db_copy.classify(arg)
     return kind, (Path(arg) if kind == "live" else path)
+
+
+def open_copy(p: Path):
+    """A copy (582 item 4(a)): mode=ro&immutable=1 through db_copy.connect_copy, no fallback; one it cannot read (not a
+    SQLite file, or a table of COPY_PROBE_TABLES missing) is refused (db_copy.CopyRefused: one line, the path and the
+    error class, never a row) and its connection closed."""
+    from src.walters import db_copy
+    con = db_copy.connect_copy(p)
+    try:
+        for t in COPY_PROBE_TABLES:
+            con.execute(f"SELECT 1 FROM {t} LIMIT 1")
+    except sqlite3.Error as e:
+        con.close()
+        raise db_copy.CopyRefused(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI "
+                                  f"({type(e).__name__}: {e}); no fallback; nothing read") from None
+    return con
 
 
 def twin_group(rows_of_pair, start) -> list:
@@ -288,7 +312,12 @@ def reconstruct(cur_path: Path, pre_path: Path, comp: str, source: str, plan_pat
         cur_con, _ = open_read(cur_path)
     else:                                              # a copy: mode=ro&immutable=1, no fallback (582 item 4)
         from src.walters import db_copy
-        cur_con = db_copy.connect_copy(cur_path)
+        try:
+            cur_con = open_copy(cur_path)
+        except db_copy.CopyRefused as e:
+            pre_con.close()
+            print(e)
+            return db_copy.EXIT_REFUSED
     pre, cur = load(pre_con, comp, source), load(cur_con, comp, source)
     pre_by, cur_by = {r["id"]: r for r in pre}, {r["id"]: r for r in cur}
     pre_pair = defaultdict(list)
@@ -469,10 +498,10 @@ def main(argv=None) -> int:
     ap.add_argument("--expect", type=int, default=None, help="the reported merge count (e.g. 30)")
     ap.add_argument("--db", default=None,
                     help="the app's configured database keeps its open (mode=ro; --reconstruct-merges: #421's "
-                    "fallback); any other file is a copy opened mode=ro&immutable=1, no fallback, refused (exit 2, "
-                    "nothing read) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine "
-                    "without the app's configuration loaded reads its live file as a copy and refuses "
-                    "(addendum 582 item 4)")
+                    "fallback, the live file's alone); any other file is a copy opened mode=ro&immutable=1, no "
+                    "fallback, refused (exit 2, nothing read) under data/, with a -wal/-shm/-journal sidecar beside "
+                    "it, absent, empty, or unreadable through immutable=1; a machine whose configuration is not "
+                    "loaded reads its own live file as a copy under data/ and refuses (addendum 582 item 4)")
     ap.add_argument("--now", default=None, help=argparse.SUPPRESS)       # tests
     a = ap.parse_args(argv)
     from src.walters import db_copy
@@ -482,7 +511,11 @@ def main(argv=None) -> int:
         print(e)
         return db_copy.EXIT_REFUSED
     now = _dt(a.now) if a.now else datetime.now(timezone.utc).replace(tzinfo=None)
-    con = c.ro_connect(p) if kind == "live" else db_copy.connect_copy(p)
+    try:
+        con = c.ro_connect(p) if kind == "live" else open_copy(p)   # a copy it cannot read: one REFUSED line, exit 2
+    except db_copy.CopyRefused as e:
+        print(e)
+        return db_copy.EXIT_REFUSED
     try:
         rows = load(con, a.competition, a.source)
     finally:

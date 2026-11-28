@@ -40,7 +40,9 @@ the appearances), games with an event in the set, starts (is_starter True), shot
 xG - goals against. Playoffs are counted in the season's lines and not tabled.
 
 Opens the DB read-only: the app's configured database keeps its open (mode=ro URI, else the plain path with PRAGMA
-query_only = ON, #421); any other --db is a copy: mode=ro&immutable=1, no fallback (582 item 4; see --db); writes none.
+query_only = ON, #421, the live file's alone); any other --db is a copy: mode=ro&immutable=1, no fallback, refused (exit
+2) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine whose configuration is not loaded reads
+its own live file as a copy under data/ and refuses (addendum 582 item 4); writes nothing.
 
 Run:  python3 scripts/nhl_gsax_feasibility.py [--db PATH] [--no-goalies]
 --no-goalies leaves out the per-goalie tables (the season lines stay). Paste the whole output on #105.
@@ -94,8 +96,8 @@ def db_path(arg: str | None) -> Path:
 
 
 def open_read(p: Path):
-    """(connection, form). mode=ro first; a copy that refuses it: the plain path with query_only set (#421). It opens
-    the database no third way, and never creates one."""
+    """(connection, form) on the live file alone. mode=ro first, then the plain path with query_only set (#421, the
+    live file's alone, 582 item 4(a)); a copy goes through open_copy (db_copy). Never creates one."""
     if not p.is_file():
         raise SystemExit(f"no database at {p}: the receipt never creates one")
     try:
@@ -307,12 +309,20 @@ def lines(out: dict, model, why: str | None, form: str, path: Path, goalies: boo
 
 def open_copy(p: Path):
     """(connection, form) on a --db that db_copy.classify read as a copy (ARCHITECT 2026-11-27, addendum 582 item 4(a)):
-    mode=ro with immutable=1, no fallback, nothing created or written beside it; closed again when its first read
-    fails."""
+    mode=ro with immutable=1, no fallback, nothing created or written beside it. A copy its first read fails on (not a
+    SQLite file, no nhl_shot_events) is closed and refused: db_copy.CopyRefused naming the path and the error class."""
     from src.walters import db_copy
-    con = db_copy.connect_copy(p)
+    try:
+        con = db_copy.connect_copy(p)
+    except sqlite3.Error as e:
+        raise db_copy.CopyRefused(f"REFUSED: --db {p}: the copy cannot be read through mode=ro&immutable=1 "
+                                  f"({e.__class__.__name__}); no fallback; nothing read") from None
     try:
         con.execute("SELECT 1 FROM nhl_shot_events LIMIT 1")
+    except sqlite3.Error as e:
+        con.close()
+        raise db_copy.CopyRefused(f"REFUSED: --db {p}: the copy cannot be read through mode=ro&immutable=1 "
+                                  f"({e.__class__.__name__}); no fallback; nothing read") from None
     except BaseException:
         con.close()
         raise
@@ -326,21 +336,31 @@ def main(argv=None) -> int:
                                  "database keeps its open (mode=ro; #421's fallback); any other file is a copy opened "
                                  "mode=ro&immutable=1 with no fallback, refused (exit 2, its path printed, nothing "
                                  "read) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine "
-                                 "without the app's configuration loaded reads its live file as a copy and refuses "
-                                 "(addendum 582 item 4)")
+                                 "whose configuration is not loaded reads its own live file as a copy under data/ and "
+                                 "refuses (addendum 582 item 4)")
     ap.add_argument("--no-goalies", action="store_true", help="leave out the per-goalie tables")
     a = ap.parse_args(argv)
     kind, copy = "live", None
-    if a.db:
+    if a.db is not None:                             # an empty --db is refused, never read as the default
         try:
             kind, copy = db_copy.classify(a.db)      # addendum 582 item 4(b): refused before any open, nothing read
         except db_copy.CopyRefused as e:
             print(e, file=sys.stderr)
             return db_copy.EXIT_REFUSED
     p = db_path(a.db) if kind == "live" else copy
-    con, form = open_read(p) if kind == "live" else open_copy(p)
+    try:
+        con, form = open_read(p) if kind == "live" else open_copy(p)
+    except db_copy.CopyRefused as e:                 # a copy that passed the fence but cannot be read: one line, exit 2
+        print(e, file=sys.stderr)
+        return db_copy.EXIT_REFUSED
     try:
         events, apps, apps_why = load(con)
+    except sqlite3.Error as e:
+        if kind == "live":
+            raise
+        print(f"REFUSED: --db {p}: the copy cannot be read through mode=ro&immutable=1 ({e.__class__.__name__}); "
+              "no fallback; nothing read", file=sys.stderr)
+        return db_copy.EXIT_REFUSED
     finally:
         con.close()
     model, why = xg_model(events)

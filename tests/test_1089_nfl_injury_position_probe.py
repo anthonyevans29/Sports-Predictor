@@ -38,7 +38,8 @@ def _no_provider(monkeypatch):
 def _no_open(monkeypatch):
     calls = []
     monkeypatch.setattr(pp, "open_read", lambda p: calls.append(("live", p)) or (_ for _ in ()).throw(AssertionError))
-    monkeypatch.setattr(dc, "connect_copy", lambda p: calls.append(("copy", p)) or (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(dc, "connect_copy",
+                        lambda p: calls.append(("copy", p)) or (_ for _ in ()).throw(AssertionError))
     return calls
 
 
@@ -84,3 +85,73 @@ def test_the_apps_configured_database_takes_the_live_open(tmp_path, monkeypatch,
     assert pp.main(["--db", str(live)]) == 0
     assert calls == [Path(str(live))]
     assert "read-only open: mode=ro URI" in capsys.readouterr().out
+
+
+def test_a_copy_under_data_is_refused_exit_2_nothing_opened(tmp_path, monkeypatch, capsys):
+    from src.walters import mlb_pitchers_gate as mp
+    data = tmp_path / "data"
+    data.mkdir()
+    p = wal_copy(data / "x.db")
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
+    calls = _no_open(monkeypatch)
+    assert pp.main(["--db", str(p)]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: ") and "under the repo's data/" in out
+    assert calls == [] and dc.sidecars(p) == []
+
+
+def test_an_absent_db_message_says_nothing_created_nothing_read(tmp_path, monkeypatch, capsys):
+    p = tmp_path / "absent.db"
+    _no_open(monkeypatch)
+    assert pp.main(["--db", str(p)]) == 2
+    out = capsys.readouterr().out.strip()
+    assert out.endswith("; nothing created, nothing read") and "the gate never creates one" not in out
+    assert not p.exists()
+
+
+def test_an_empty_db_is_refused_exit_2_never_the_default(tmp_path, monkeypatch, capsys):
+    calls = _no_open(monkeypatch)
+    monkeypatch.setattr(pp, "db_path", lambda arg: (_ for _ in ()).throw(AssertionError("default db on --db ''")))
+    assert pp.main(["--db", ""]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: --db is empty: ") and len(out.strip().splitlines()) == 1
+    assert calls == []
+
+
+@pytest.mark.parametrize("kind", ["not_sqlite", "missing_table"])
+def test_an_unreadable_copy_is_one_refused_line_exit_2_nothing_beside_it(tmp_path, monkeypatch, capsys, kind):
+    p = tmp_path / "copy.db"
+    if kind == "not_sqlite":
+        p.write_bytes(b"not a sqlite file at all, just bytes" * 64)
+    else:
+        con = sqlite3.connect(p)
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("CREATE TABLE injuries (id INTEGER PRIMARY KEY, team_id INTEGER, player_name TEXT, "
+                    "player_position TEXT, refreshed_at TEXT)")
+        con.commit()
+        con.close()
+        for s in dc.SIDECARS:
+            p.with_name(p.name + s).unlink(missing_ok=True)
+    before = sorted(x.name for x in tmp_path.iterdir())
+    closed = []
+    real = dc.connect_copy
+
+    def tracked(path):
+        c = real(path)
+
+        class Wrap:
+            def execute(self, *a, **k):
+                return c.execute(*a, **k)
+
+            def close(self):
+                closed.append(True)
+                c.close()
+        return Wrap()
+    monkeypatch.setattr(dc, "connect_copy", tracked)
+    assert pp.main(["--db", str(p)]) == 2
+    out = capsys.readouterr().out
+    lines = out.strip().splitlines()
+    assert len(lines) == 1 and lines[0].startswith(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1")
+    assert ("DatabaseError" in lines[0]) if kind == "not_sqlite" else ("OperationalError" in lines[0])
+    assert "Traceback" not in out and closed == [True]
+    assert sorted(x.name for x in tmp_path.iterdir()) == before and dc.sidecars(p) == []

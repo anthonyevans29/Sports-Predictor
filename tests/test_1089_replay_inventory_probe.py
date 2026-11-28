@@ -1,7 +1,8 @@
 """#1089 (ARCHITECT 2026-11-27 20:05 ET, addendum 582 item 4) for scripts/replay_inventory_probe.py: the app's
 configured database keeps its open (mode=ro, the #421 fallback); any other --db is a copy, opened mode=ro&immutable=1
-with no fallback, refused before any open (exit 2) with a sidecar beside it or absent. Throwaway WAL files in tmp,
-never data/."""
+with no fallback, refused before any open (exit 2) under data/, with a sidecar beside it, absent or empty, and a copy
+immutable=1 cannot read is refused in one line. Throwaway WAL files in tmp, never the repo's data/ (the under-data case
+points the fence's data/ at a tmp folder)."""
 import sqlite3
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from sqlalchemy import create_engine
 import scripts.replay_inventory_probe as rip
 from src.db.schema import Base
 from src.walters import db_copy as dc
+from src.walters import mlb_pitchers_gate as mp
 
 COPY_FORM = "copy: mode=ro&immutable=1 URI (no fallback)"
 
@@ -70,7 +72,8 @@ def test_an_absent_db_is_refused_exit_2_and_not_created(tmp_path, capsys):
     assert rip.main(args(p, tmp_path)) == 2
     cap = capsys.readouterr()
     assert cap.out == ""
-    assert cap.err.startswith("REFUSED: ") and "no file at" in cap.err
+    assert cap.err.startswith("REFUSED: ") and f"no file at {p.resolve()}" in cap.err
+    assert cap.err.rstrip().endswith("; nothing created, nothing read") and "the gate" not in cap.err
     assert not p.exists()
     assert sorted(x.name for x in tmp_path.iterdir()) == []
 
@@ -88,3 +91,88 @@ def test_the_apps_configured_database_takes_the_live_open(tmp_path, capsys, monk
     assert rip.main(args(live, tmp_path)) == 0
     assert calls == [live]
     assert " · mode=ro URI · graded games" in capsys.readouterr().out.splitlines()[0]
+
+
+def test_a_copy_under_data_is_refused_exit_2_nothing_opened(tmp_path, capsys, monkeypatch):
+    data = tmp_path / "data"
+    data.mkdir()
+    p = wal_copy(data / "x.db")
+    before = p.read_bytes()
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
+    opened = []
+    monkeypatch.setattr(rip, "open_read", lambda *a, **k: opened.append("live"))
+    monkeypatch.setattr(rip.db_copy, "connect_copy", lambda *a, **k: opened.append("connect"))
+    assert rip.main(args(p, tmp_path)) == 2
+    cap = capsys.readouterr()
+    assert cap.out == ""
+    err = cap.err.splitlines()
+    assert len(err) == 1 and err[0].startswith(f"REFUSED: --db {p} resolves under the repo's data/")
+    assert opened == []
+    assert p.read_bytes() == before and sorted(x.name for x in data.iterdir()) == ["x.db"]
+
+
+def test_an_empty_db_is_refused_exit_2(tmp_path, capsys, monkeypatch):
+    opened = []
+    monkeypatch.setattr(rip, "open_read", lambda *a, **k: opened.append("live"))
+    monkeypatch.setattr(rip.db_copy, "connect_copy", lambda *a, **k: opened.append("connect"))
+    assert rip.main(["--db", "", "--exports", str(tmp_path / "none"), "--until", "2026-10-12"]) == 2
+    cap = capsys.readouterr()
+    assert cap.out == ""
+    assert cap.err.splitlines() == ["REFUSED: --db is empty: name the app's configured database or a .backup copy "
+                                    "outside data/; nothing read"]
+    assert opened == []
+
+
+def unreadable_case(p: Path, tmp_path: Path, capsys) -> str:
+    before = p.read_bytes()
+    assert rip.main(args(p, tmp_path)) == 2
+    cap = capsys.readouterr()
+    assert cap.out == ""
+    err = cap.err.splitlines()
+    assert len(err) == 1 and err[0].startswith(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI (")
+    assert err[0].endswith("); no fallback; nothing read") and "Traceback" not in cap.err
+    assert p.read_bytes() == before
+    assert sorted(x.name for x in tmp_path.iterdir()) == [p.name]           # nothing created beside it
+    return err[0]
+
+
+def test_a_copy_that_is_not_a_sqlite_file_is_refused_in_one_line(tmp_path, capsys):
+    p = tmp_path / "junk.db"
+    p.write_bytes(b"this is not a database, not even close" * 200)
+    assert "(DatabaseError: " in unreadable_case(p, tmp_path, capsys)
+
+
+def test_a_copy_missing_a_table_the_probe_reads_is_refused_in_one_line(tmp_path, capsys):
+    p = wal_copy(tmp_path / "copy.db")
+    con = sqlite3.connect(p)
+    con.execute("DROP TABLE odds")
+    con.commit()
+    con.close()
+    for s in dc.SIDECARS:
+        p.with_name(p.name + s).unlink(missing_ok=True)
+    assert "(OperationalError: no such table: odds)" in unreadable_case(p, tmp_path, capsys)
+
+
+def test_a_copy_probe_closes_its_connection_when_it_refuses(tmp_path, monkeypatch):
+    p = tmp_path / "junk.db"
+    p.write_bytes(b"x" * 4096)
+    closed, real = [], dc.connect_copy
+
+    class Spy:
+        def __init__(self, con):
+            self.con = con
+
+        def execute(self, *a):
+            return self.con.execute(*a)
+
+        def close(self):
+            closed.append(True)
+            self.con.close()
+    monkeypatch.setattr(rip.db_copy, "connect_copy", lambda path: Spy(real(path)))
+    try:
+        rip.open_copy(p)
+    except dc.CopyRefused:
+        pass
+    else:
+        raise AssertionError("an unreadable copy was opened")
+    assert closed == [True]

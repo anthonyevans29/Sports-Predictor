@@ -99,6 +99,73 @@ def test_an_absent_db_is_refused_exit_2_and_not_created(tmp_path, capsys, monkey
     out = capsys.readouterr().out
     assert out.startswith("REFUSED: ") and "no file at" in out and "NCAA RE-KEY RECEIPT" not in out
     assert not p.exists() and dc.sidecars(p) == []
+    assert "nothing created, nothing read" in out and "the gate never creates one" not in out
+
+
+def test_a_copy_under_data_is_refused_exit_2_nothing_opened(tmp_path, capsys, monkeypatch):
+    from src.walters import mlb_pitchers_gate as mp
+    data = tmp_path / "data"                                          # a tmp data/: the repo's own is never touched
+    data.mkdir()
+    p = wal_copy(data / "x.db")
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
+    _no_open(monkeypatch)
+    assert rr.main(["--competition", "C1089", "--db", str(p), "--now", NOW]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: ") and "under the repo's data/" in out and "NCAA RE-KEY RECEIPT" not in out
+    assert len(out.strip().splitlines()) == 1 and dc.sidecars(p) == []
+
+
+def test_an_empty_db_is_refused_exit_2_nothing_opened(capsys, monkeypatch):
+    _no_open(monkeypatch)
+    assert rr.main(["--competition", "C1089", "--db", "", "--now", NOW]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: --db is empty: ") and "NCAA RE-KEY RECEIPT" not in out
+    assert len(out.strip().splitlines()) == 1
+
+
+@pytest.mark.parametrize("kind", ["not_sqlite", "missing_table"])
+def test_an_unreadable_copy_is_refused_one_line_exit_2(tmp_path, capsys, kind):
+    p = tmp_path / "bad.db"
+    if kind == "not_sqlite":
+        p.write_bytes(b"this is not a SQLite file at all, nothing but bytes" * 100)
+    else:                                                             # a SQLite file without the odds table
+        con = sqlite3.connect(p)
+        con.execute("CREATE TABLE competitions (id INTEGER PRIMARY KEY, code TEXT)")
+        con.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT)")
+        con.commit()
+        con.close()
+    before = sorted(x.name for x in tmp_path.iterdir())
+    assert rr.main(["--competition", "C1089", "--db", str(p), "--now", NOW]) == 2
+    out = capsys.readouterr().out
+    lines = out.strip().splitlines()
+    assert len(lines) == 1 and lines[0].startswith(f"REFUSED: --db {p.resolve()}: cannot be read through")
+    assert ("DatabaseError" if kind == "not_sqlite" else "OperationalError") in lines[0]
+    assert "NCAA RE-KEY RECEIPT" not in out and "Traceback" not in out
+    assert sorted(x.name for x in tmp_path.iterdir()) == before       # nothing created beside it
+
+
+def test_reconstruct_on_an_unreadable_copy_is_refused_one_line_exit_2(tmp_path, capsys, monkeypatch):
+    p = wal_copy(tmp_path / "copy.db")
+    pre = tmp_path / "pre.backup"
+    con = sqlite3.connect(pre)
+    _tables(con)
+    con.close()
+
+    def unreadable(path):                                             # the copy turns unreadable after main's probe
+        raise dc.CopyRefused(f"REFUSED: --db {path}: cannot be read through a mode=ro&immutable=1 URI "
+                             "(DatabaseError: file is not a database); no fallback; nothing read")
+    real = rr.open_copy
+    calls = []
+
+    def second_fails(path):
+        calls.append(path)
+        return real(path) if len(calls) == 1 else unreadable(path)
+    monkeypatch.setattr(rr, "open_copy", second_fails)
+    assert rr.main(["--competition", "C1089", "--db", str(p), "--now", NOW, "--reconstruct-merges",
+                    "--backup", str(pre)]) == 2
+    out = capsys.readouterr().out
+    assert out.strip().splitlines()[-1].startswith("REFUSED: --db ") and "RECONSTRUCTION" not in out
+    assert dc.sidecars(p) == []
 
 
 def test_the_configured_database_keeps_its_live_open(tmp_path, capsys, monkeypatch):
@@ -142,6 +209,7 @@ def test_the_db_help_line_says_the_rule(capsys):
         rr.main(["--help"])
     help_text = " ".join(capsys.readouterr().out.split())
     for words in ("configured database keeps its open", "mode=ro&immutable=1", "under data/", "-wal/-shm/-journal",
-                  "absent", "without the app's configuration loaded reads its live file as a copy",
-                  "addendum 582 item 4"):
+                  "absent", "the live file's alone",
+                  "a machine whose configuration is not loaded reads its own live file as a copy under data/ and "
+                  "refuses (addendum 582 item 4)"):
         assert words in help_text

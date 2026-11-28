@@ -1,7 +1,8 @@
 """#1089 (ARCHITECT 2026-11-27 20:05 ET, addendum 582 item 4) for scripts/mlb_pitcher_season_receipt.py: the app's
 configured database keeps its open (mode=ro, #421's fallback); any other --db is a copy, opened mode=ro&immutable=1
-with no fallback, refused before any open (exit 2) with a sidecar beside it or absent. Copies are throwaway WAL files
-in tmp; nothing here opens or creates anything under data/."""
+with no fallback, refused before any open (exit 2) under data/, with a sidecar beside it, absent, or empty; a copy
+that cannot be read is refused in one line. Copies are throwaway WAL files in tmp; nothing here opens or creates
+anything under data/."""
 import importlib.util
 import sqlite3
 from pathlib import Path
@@ -72,8 +73,73 @@ def test_an_absent_db_is_refused_and_never_created(tmp_path, capsys):
     assert _receipt().main(["--db", str(p)]) == 2
     cap = capsys.readouterr()
     assert "REFUSED: " in cap.err and "no file at" in cap.err and str(p) in cap.err
+    assert "; nothing created, nothing read" in cap.err and "the gate never creates one" not in cap.err
     assert "D0 database" not in cap.out
     assert not p.exists() and dc.sidecars(p) == []
+
+
+def _no_open(mod, monkeypatch) -> list:
+    """Every open the script could make, recorded: a refusal before any open leaves the list empty."""
+    opened = []
+    monkeypatch.setattr(mod.db_copy, "connect_copy", lambda *a: opened.append(a))
+    monkeypatch.setattr(mod, "open_read", lambda *a: opened.append(a))
+    monkeypatch.setattr(mod.sqlite3, "connect", lambda *a, **k: opened.append(a))
+    return opened
+
+
+def test_a_copy_under_data_is_refused_before_any_open(tmp_path, capsys, monkeypatch):
+    from src.walters import mlb_pitchers_gate as mp
+    data = tmp_path / "data"                                     # a tmp folder stands in for data/; the repo's is
+    data.mkdir()                                                 # never touched
+    p = wal_copy(data / "x.db")
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
+    mod = _receipt()
+    opened = _no_open(mod, monkeypatch)
+    assert mod.main(["--db", str(p)]) == 2
+    cap = capsys.readouterr()
+    assert "REFUSED: " in cap.err and "under the repo's data/" in cap.err and str(p) in cap.err
+    assert len(cap.err.strip().splitlines()) == 1
+    assert "D0 database" not in cap.out and opened == []
+    assert dc.sidecars(p) == []
+
+
+def test_an_empty_db_is_refused_never_read_as_no_db(capsys, monkeypatch):
+    mod = _receipt()
+    opened = _no_open(mod, monkeypatch)
+    monkeypatch.setattr(mod, "db_path", lambda *_: (_ for _ in ()).throw(AssertionError("empty --db read as none")))
+    assert mod.main(["--db", ""]) == 2
+    cap = capsys.readouterr()
+    assert "REFUSED: --db is empty: " in cap.err and len(cap.err.strip().splitlines()) == 1
+    assert "D0 database" not in cap.out and opened == []
+
+
+def test_a_copy_that_is_not_a_sqlite_file_is_refused_in_one_line(tmp_path, capsys):
+    p = tmp_path / "junk.db"
+    p.write_bytes(b"not a database, " * 64)
+    assert _receipt().main(["--db", str(p)]) == 2
+    cap = capsys.readouterr()
+    lines = cap.err.strip().splitlines()
+    assert len(lines) == 1 and "REFUSED: --db " in lines[0] and str(p.resolve()) in lines[0]
+    assert "DatabaseError" in lines[0] and "Traceback" not in cap.err
+    assert "D0 database" not in cap.out
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["junk.db"]       # nothing created beside it
+
+
+def test_a_copy_missing_a_table_the_receipt_reads_is_refused(tmp_path, capsys):
+    p = wal_copy(tmp_path / "copy.db")
+    con = sqlite3.connect(p)
+    con.execute("DROP TABLE predictions")
+    con.commit()
+    con.close()
+    for s in dc.SIDECARS:
+        p.with_name(p.name + s).unlink(missing_ok=True)
+    assert _receipt().main(["--db", str(p), "--date", "2094-07-01", "--season", "2094"]) == 2
+    cap = capsys.readouterr()
+    lines = cap.err.strip().splitlines()
+    assert len(lines) == 1 and "REFUSED: --db " in lines[0] and "OperationalError" in lines[0]
+    assert "no such table: predictions" in lines[0] and "Traceback" not in cap.err
+    assert "D0 database" not in cap.out and "S1 " not in cap.out
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["copy.db"]       # nothing created beside it
 
 
 def test_the_apps_configured_database_takes_the_live_open(tmp_path, capsys, monkeypatch):

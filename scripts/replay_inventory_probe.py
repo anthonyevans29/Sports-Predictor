@@ -65,9 +65,9 @@ history (not mismatched) before kickoff + a closing file.
 Opens the database read-only and never creates one. The app's configured database (no --db, or a --db that is it by
 resolved path or by identity) keeps its open: mode=ro, falling back to the plain path with PRAGMA query_only = ON where
 mode=ro is refused (#421). Any other --db is a copy: mode=ro&immutable=1 with no fallback, refused before any open
-(exit 2, the path printed, never a row) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine
-without the app's configuration loaded reads its live file as a copy and refuses (addendum 582 item 4, #1089).
-Writes nothing.
+(exit 2, the path printed, never a row) under data/, with a -wal/-shm/-journal sidecar beside it, or absent, and a copy
+immutable=1 cannot read is refused the same way; a machine whose configuration is not loaded reads its own live file as
+a copy under data/ and refuses (addendum 582 item 4, #1089). Writes nothing.
 
     python3 scripts/replay_inventory_probe.py [--db PATH] [--since 2026-09-20] [--until YYYY-MM-DD] [--exports exports]
 """
@@ -91,6 +91,8 @@ from src.walters import db_copy  # noqa: E402  (#1089: the live file or a copy, 
 
 SINCE = "2026-09-20"
 CHUNK = 500
+# the tables inventory() reads without a has_table check (prediction_history and kalshi_settled_markets are optional)
+COPY_PROBE_TABLES = ("matches", "competitions", "predictions", "prediction_outcomes", "odds_snapshots", "odds")
 TWO_WAY, THREE_WAY = frozenset({"HOME", "AWAY"}), frozenset({"HOME", "DRAW", "AWAY"})
 SESSION_MS = int(CAPTURE_SESSION.total_seconds() * 1000)
 SNAP_SESSION = "a session = one captured_at"
@@ -129,8 +131,9 @@ def db_path(arg: str | None) -> Path:
 
 
 def open_read(p: Path):
-    """(connection, form): mode=ro first; a copy that refuses it, the plain path with query_only set (#421). Never
-    creates a database."""
+    """(connection, form) on the live file alone: mode=ro first; where the live file refuses it, the plain path with
+    query_only set (#421; the fallback is the live file's alone, addendum 582 item 4(a): a copy goes through
+    db_copy, open_copy). Never creates a database."""
     if not p.is_file():
         raise SystemExit(f"no database at {p}: the probe never creates one")
     con = None
@@ -143,7 +146,8 @@ def open_read(p: Path):
             con.close()
         # #421 RULED (ARCHITECT 2026-10-11, addendum 38): "A receipt opens the database mode=ro. Where a copy refuses
         # that, it opens the plain path with query_only set and prints which form it used [...] It opens the
-        # database no third way." (#421 put the -wal/-shm question, immutable or refusing, to the architect.)
+        # database no third way." (#421 put the -wal/-shm question to the architect; 582 item 4(a) answered it: this
+        # fallback is the live file's alone, and a copy opens mode=ro&immutable=1 through db_copy with no fallback.)
         con = sqlite3.connect(str(p), timeout=60)
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM matches LIMIT 1")
@@ -152,11 +156,13 @@ def open_read(p: Path):
 
 def open_copy(p: Path):
     """(connection, form) on a --db that db_copy.classify read as a copy (addendum 582 item 4(a)): mode=ro&immutable=1
-    through db_copy.connect_copy, no fallback, nothing created or written beside it; a copy it cannot read is refused
-    (db_copy.CopyRefused, the path printed, never a row) and its connection closed."""
+    through db_copy.connect_copy, no fallback, nothing created or written beside it; a copy it cannot read (not a
+    SQLite file, or a table in COPY_PROBE_TABLES missing) is refused (db_copy.CopyRefused: one line, the path and the
+    error class, never a row) and its connection closed."""
     con = db_copy.connect_copy(p)
     try:
-        con.execute("SELECT 1 FROM matches LIMIT 1")
+        for t in COPY_PROBE_TABLES:
+            con.execute(f"SELECT 1 FROM {t} LIMIT 1")
     except sqlite3.Error as e:
         con.close()
         raise db_copy.CopyRefused(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI "
@@ -439,8 +445,8 @@ def main(argv=None) -> int:
                     help="SQLite file (default: DATABASE_URL from the environment or .env). The app's configured "
                     "database keeps its open (mode=ro, the #421 fallback); any other file is a copy opened "
                     "mode=ro&immutable=1 with no fallback, refused (exit 2, nothing read) under data/, with a "
-                    "-wal/-shm/-journal sidecar beside it, or absent; a machine without the app's configuration "
-                    "loaded reads its live file as a copy and refuses (addendum 582 item 4)")
+                    "-wal/-shm/-journal sidecar beside it, or absent; a machine whose configuration is not loaded "
+                    "reads its own live file as a copy under data/ and refuses (addendum 582 item 4)")
     ap.add_argument("--since", default=SINCE, help="first kickoff day, UTC (default 2026-09-20)")
     ap.add_argument("--until", default=None, help="kickoffs before this day, UTC (default: now)")
     ap.add_argument("--exports", default="exports", help="the laptop's exports folder (closing_*.json)")

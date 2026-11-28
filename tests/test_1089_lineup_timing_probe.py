@@ -53,6 +53,12 @@ def run(db, capsys):
     return rc, capsys.readouterr().out
 
 
+def main(db, capsys):
+    """The script's own entry point (main), as the operator runs it: every refusal is decided before any poll."""
+    rc = probe.main(["--db", str(db), "--date", DAY])
+    return rc, capsys.readouterr().out
+
+
 def test_a_copy_is_read_through_its_own_open_and_leaves_no_sidecar(tmp_path, capsys, monkeypatch):
     p = wal_copy(tmp_path / "copy.db")
     seen = []
@@ -72,7 +78,7 @@ def test_a_copy_with_a_sidecar_is_refused_exit_2_nothing_opened(tmp_path, capsys
     p.with_name(p.name + side).write_bytes(b"")
     monkeypatch.setattr(probe.sqlite3, "connect", lambda *a, **k: pytest.fail("a refused copy was opened"))
     monkeypatch.setattr(probe.db_copy, "connect_copy", lambda *a: pytest.fail("a refused copy was opened"))
-    rc, out = run(p, capsys)
+    rc, out = main(p, capsys)
     assert rc == 2 == dc.EXIT_REFUSED
     assert f"REFUSED: --db {p} has a {side} sidecar (copy.db{side})" in out
     assert "D0 database" not in out and "row(s) stored" not in out                  # the path printed, never a row
@@ -81,9 +87,39 @@ def test_a_copy_with_a_sidecar_is_refused_exit_2_nothing_opened(tmp_path, capsys
 def test_an_absent_copy_is_refused_exit_2_and_never_created(tmp_path, capsys, monkeypatch):
     p = tmp_path / "absent.db"
     monkeypatch.setattr(probe.sqlite3, "connect", lambda *a, **k: pytest.fail("an absent copy was opened"))
-    rc, out = run(p, capsys)
-    assert rc == 2 and "REFUSED: " in out and str(p) in out and "D0 database" not in out
+    rc, out = main(p, capsys)
+    assert rc == 2 and f"REFUSED: --db {p}: no file at {p.resolve()}; nothing created, nothing read" in out
+    assert "D0 database" not in out and "never creates one" not in out
     assert not p.exists() and dc.sidecars(p) == []
+
+
+def test_an_empty_db_is_refused_exit_2_never_read_as_no_db(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(probe, "open_read", lambda *a: pytest.fail("an empty --db took the live file's open"))
+    monkeypatch.setattr(probe.db_copy, "connect_copy", lambda *a: pytest.fail("an empty --db was opened"))
+    rc, out = main("", capsys)
+    assert rc == 2 and "REFUSED: --db is empty: " in out and "D0 database" not in out
+
+
+@pytest.mark.parametrize("body", [b"not a sqlite file at all, just bytes" * 200, None])
+def test_an_unreadable_copy_is_refused_exit_2_one_line_nothing_beside_it(tmp_path, capsys, body):
+    """Item 4: a copy past the fence that immutable=1 cannot read (not SQLite; no matches table) is one REFUSED line
+    naming the path and the error class, exit 2, no traceback, no fallback, nothing created beside it."""
+    p = tmp_path / "copy.db"
+    if body is None:
+        con = sqlite3.connect(p)
+        con.execute("CREATE TABLE other (x)")
+        con.commit()
+        con.close()
+    else:
+        p.write_bytes(body)
+    before = sorted(x.name for x in tmp_path.iterdir())
+    rc, out = main(p, capsys)
+    refused = [ln for ln in out.splitlines() if "REFUSED" in ln]
+    assert rc == 2 and len(refused) == 1
+    assert f"REFUSED: --db {p.resolve()}: cannot be read through a mode=ro&immutable=1 URI (" in refused[0]
+    assert ("DatabaseError" if body else "OperationalError") in refused[0] and "no fallback" in refused[0]
+    assert "D0 database" not in out and "Traceback" not in out
+    assert sorted(x.name for x in tmp_path.iterdir()) == before and dc.sidecars(p) == []
 
 
 def test_a_copy_under_data_is_refused_exit_2(tmp_path, capsys, monkeypatch):
@@ -92,7 +128,7 @@ def test_a_copy_under_data_is_refused_exit_2(tmp_path, capsys, monkeypatch):
     data.mkdir()
     p = wal_copy(data / "sports.db")
     monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
-    rc, out = run(p, capsys)
+    rc, out = main(p, capsys)
     assert rc == 2 and "under the repo's data/" in out and "D0 database" not in out
 
 
@@ -115,7 +151,7 @@ def test_a_machine_without_configuration_reads_its_live_file_as_a_copy_under_dat
     p = wal_copy(data / "sports.db")
     monkeypatch.setattr(dc, "app_db", lambda: None)
     monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
-    rc, out = run(p, capsys)
+    rc, out = main(p, capsys)
     assert rc == 2 and "under the repo's data/" in out
 
 
@@ -124,5 +160,7 @@ def test_the_db_help_line_names_the_rule(capsys):
         probe.run(["--help"])
     out = " ".join(capsys.readouterr().out.split())
     for words in ("configured database keeps its open", "mode=ro&immutable=1", "under data/",
-                  "-wal/-shm/-journal sidecar", "or absent", "reads its live file as a copy", "addendum 582 item 4"):
+                  "-wal/-shm/-journal sidecar", "or absent",
+                  "a machine whose configuration is not loaded reads its own live file as a copy under data/ and "
+                  "refuses (addendum 582 item 4)"):
         assert words in out

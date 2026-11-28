@@ -67,8 +67,54 @@ def test_an_absent_copy_is_refused_exit_2_and_never_created(tmp_path, capsys, mo
     p = tmp_path / "absent.db"
     monkeypatch.setattr(probe.sqlite3, "connect", lambda *a, **k: pytest.fail("an absent copy was opened"))
     rc, out = run(p, capsys)
-    assert rc == 2 and "REFUSED: " in out and str(p) in out and "D0 database" not in out
+    assert rc == 2 and f"REFUSED: --db {p}: no file at" in out and "nothing created, nothing read" in out
+    assert "the gate never creates one" not in out and "D0 database" not in out
     assert not p.exists() and dc.sidecars(p) == []
+
+
+def test_an_empty_db_is_refused_exit_2_never_read_as_no_db(capsys, monkeypatch):
+    monkeypatch.setattr(probe, "open_read", lambda *a: pytest.fail("an empty --db took the live file's open"))
+    monkeypatch.setattr(probe.db_copy, "connect_copy", lambda *a: pytest.fail("an empty --db was opened"))
+    rc, out = run("", capsys)
+    assert rc == 2 and "REFUSED: --db is empty: " in out and "D0 database" not in out
+
+
+@pytest.mark.parametrize("case", ["not_sqlite", "no_matches_table"])
+def test_a_copy_immutable_cannot_read_is_one_refused_line_exit_2(tmp_path, capsys, monkeypatch, case):
+    """582 item 4 on a copy past the fence: not a SQLite file, or a table the probe needs missing; one REFUSED line
+    naming the path and the error class, the connection closed, no traceback, no fallback, nothing beside it."""
+    p = tmp_path / "copy.db"
+    if case == "not_sqlite":
+        p.write_bytes(b"this is not a sqlite database, not even close" * 20)
+    else:
+        con = sqlite3.connect(p)
+        con.execute("CREATE TABLE competitions (id INTEGER)")
+        con.commit()
+        con.close()
+    before = sorted(x.name for x in tmp_path.iterdir())
+    closed = []
+    real = dc.connect_copy
+
+    def tracked(path):
+        con = real(path)
+
+        class Wrap:
+            def execute(self, *a):
+                return con.execute(*a)
+
+            def close(self):
+                closed.append(True)
+                con.close()
+        return Wrap()
+    monkeypatch.setattr(probe.db_copy, "connect_copy", tracked)
+    monkeypatch.setattr(probe, "open_read", lambda *a: pytest.fail("a copy took the live file's open"))
+    rc, out = run(p, capsys)
+    lines = [ln for ln in out.splitlines() if "REFUSED" in ln]
+    err = "DatabaseError" if case == "not_sqlite" else "OperationalError"
+    assert rc == 2 and len(lines) == 1 and f"REFUSED: --db {p.resolve()}: " in lines[0] and err in lines[0]
+    assert "no fallback; nothing read" in lines[0] and "Traceback" not in out and "D0 database" not in out
+    assert closed == [True]
+    assert sorted(x.name for x in tmp_path.iterdir()) == before                        # nothing created beside it
 
 
 def test_a_copy_under_data_is_refused_exit_2(tmp_path, capsys, monkeypatch):
@@ -109,5 +155,6 @@ def test_the_db_help_line_names_the_rule(capsys):
         probe.main(["--help"])
     out = " ".join(capsys.readouterr().out.split())
     for words in ("configured database keeps its open", "mode=ro&immutable=1", "under data/",
-                  "-wal/-shm/-journal sidecar", "or absent", "reads its live file as a copy", "addendum 582 item 4"):
+                  "-wal/-shm/-journal sidecar", "or absent",
+                  "a machine whose configuration is not loaded reads its own live file as a copy under data/ and refuses (addendum 582 item 4)"):
         assert words in out

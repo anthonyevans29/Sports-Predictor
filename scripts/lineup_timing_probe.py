@@ -12,8 +12,8 @@ laptop awake 12:30pm to 3:00pm ET that day."
                      keeps its open: mode=ro, and a file that refuses it the plain path with PRAGMA query_only = ON
                      (#421). Any other --db is a copy, opened mode=ro&immutable=1 with no fallback, and refused before
                      any open (exit 2, its path printed, nothing read) under data/, with a -wal/-shm/-journal sidecar
-                     beside it, or absent; a machine without the app's configuration loaded reads its own live file as
-                     a copy under data/ and refuses (ARCHITECT 2026-11-27, addendum 582 item 4; #1089). The CL
+                     beside it, or absent; a machine whose configuration is not loaded reads its own live file as a
+                     copy under data/ and refuses (ARCHITECT 2026-11-27, addendum 582 item 4; #1089). The CL
                      competition's stored rows whose kickoff (matches.utc_date, UTC) falls on the day, each with its
                      id, kickoff, stored status, teams, and API-Football fixture id (matches.external_ids['api_football'],
                      APIFootballAdapter.source_name). Not polled, printed with the reason: a row with no fixture id, a
@@ -116,8 +116,8 @@ def db_path(arg: str | None) -> Path:
 
 
 def open_read(p: Path):
-    """(connection, form). mode=ro first; a copy that refuses it: the plain path with query_only set (#421). It opens
-    the database no third way, and never creates one."""
+    """(connection, form) on the live file alone. mode=ro first; a live file that refuses it: the plain path with
+    query_only set (#421's fallback, the live file's alone; a copy goes through open_copy, 582 item 4(a))."""
     if not p.is_file():
         raise SystemExit(f"no database at {p}: the probe never creates one")
     try:
@@ -133,13 +133,15 @@ def open_read(p: Path):
 
 def open_copy(p: Path):
     """(connection, form) on a --db that db_copy.classify read as a copy (addendum 582 item 4(a)): mode=ro with
-    immutable=1, no fallback, nothing created or written beside it; closed again when the first read fails."""
+    immutable=1, no fallback, nothing created or written beside it; a copy it cannot read is refused
+    (db_copy.CopyRefused, the path and the error class printed, never a row) and its connection closed."""
     con = db_copy.connect_copy(p)
     try:
         con.execute("SELECT 1 FROM matches LIMIT 1")
-    except BaseException:
+    except sqlite3.Error as e:
         con.close()
-        raise
+        raise db_copy.CopyRefused(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI "
+                                  f"({type(e).__name__}: {e}); no fallback; nothing read") from None
     return con, "mode=ro URI with immutable=1 (a copy; no fallback)"
 
 
@@ -344,9 +346,9 @@ def run(argv=None, clock=_clock, sleep=time.sleep, provider=None) -> int:
     ap.add_argument("--db", default=None,
                     help="the app's configured database keeps its open (mode=ro; #421's fallback); any other "
                          "file is a copy opened mode=ro&immutable=1, refused (exit 2, nothing read) under "
-                         "data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine without "
-                         "the app's configuration loaded reads its live file as a copy and refuses "
-                         "(addendum 582 item 4)")
+                         "data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine whose "
+                         "configuration is not loaded reads its own live file as a copy under data/ and "
+                         "refuses (addendum 582 item 4)")
     ap.add_argument("--date", default=None, help="the day in UTC, YYYY-MM-DD (default: today in UTC)")
     ap.add_argument("--plan", action="store_true", help="print the fixtures and the poll times; make no call")
     a = ap.parse_args(argv)
@@ -362,14 +364,14 @@ def run(argv=None, clock=_clock, sleep=time.sleep, provider=None) -> int:
           "past its time is missed, never counted under its label")
 
     kind = "live"
-    if a.db:
-        try:
+    try:
+        if a.db is not None:                         # an empty --db is refused, never read as "no --db"
             kind, copy = db_copy.classify(a.db)      # addendum 582 item 4(b): refused before any open, nothing read
-        except db_copy.CopyRefused as e:
-            print(f"✗ {e}")
-            return db_copy.EXIT_REFUSED
-    p = db_path(a.db) if kind == "live" else copy
-    con, form = open_read(p) if kind == "live" else open_copy(p)
+        p = db_path(a.db) if kind == "live" else copy
+        con, form = open_read(p) if kind == "live" else open_copy(p)
+    except db_copy.CopyRefused as e:
+        print(f"✗ {e}")
+        return db_copy.EXIT_REFUSED
     src = source_name()
     print(f"\nD0 database {p} · opened via {form}")
     print(f"  READ: matches (id, utc_date, status, external_ids['{src}']) of competitions.code = '{a.competition}', "

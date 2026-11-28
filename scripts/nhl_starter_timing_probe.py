@@ -52,11 +52,11 @@ scripts/nhl_api_probe.py green condition (a starter flag found, or the MoneyPuck
 --stored (no network): the stored fields, read-only. nhl_goalie_appearances (the stored starters): its rows per season
 by the game id's first four digits, is_starter True / False / NULL, and how many rows were captured before their game's
 start (captured_at < game_start): a row captured before the game is the only stored field that could reflect pre-game
-knowledge. Never creates a database. The open (addendum 582 item 4; #1089): no --db, or a --db that is the app's
-configured database by resolved path or by identity, keeps the live file's open, mode=ro (a file that refuses it: the
-plain path with PRAGMA query_only = ON, #421). Any other --db is a copy: mode=ro&immutable=1, no fallback, refused
-before any open (exit 2, the path printed, never a row) under data/, with a -wal/-shm/-journal sidecar beside it, or
-absent. A machine without the app's configuration loaded reads its live file as a copy and refuses (582 item 4(d)).
+knowledge. Never creates a database. The open (582 item 4; #1089): no --db, or the app's configured database by path
+or identity, keeps the live file's open, mode=ro (#421's plain path with query_only is the live file's fallback alone).
+Any other --db is a copy (db_copy): mode=ro&immutable=1, no fallback, refused before any open (exit 2, the path, never a
+row) when empty, under data/, with a -wal/-shm/-journal sidecar beside it, or absent, and refused unreadable; a machine
+whose configuration is not loaded reads its own live file as a copy under data/ and refuses (addendum 582 item 4).
 
 It never stops on an error: a failed request is printed and counted. It writes nothing; --save DIR keeps every
 answer whole (<game id>_<endpoint>_<label>.json; refused under data/).
@@ -384,15 +384,15 @@ def main(argv=None) -> int:
     if a.stored:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from nhl_gsax_feasibility import db_path
-        if not a.db:                                   # no --db: the default file, its open as before
+        if a.db is None:                               # no --db: the default file, its open as before ("" is refused)
             return stored(db_path(a.db))
         from src.walters import db_copy                # addendum 582 item 4: the live file or a copy
         try:
             kind, copy = db_copy.classify(a.db)        # 582 item 4(b): refused before any open, nothing read
-        except db_copy.CopyRefused as e:
+            return stored(db_path(a.db)) if kind == "live" else stored(copy, copy=True)
+        except db_copy.CopyRefused as e:               # the fence's case, or a copy immutable=1 cannot read (open_copy)
             print(e, file=sys.stderr)
             return db_copy.EXIT_REFUSED
-        return stored(db_path(a.db)) if kind == "live" else stored(copy, copy=True)
     day = date.fromisoformat(a.date) if a.date else datetime.now(timezone.utc).date()
     save = None
     if a.save:
@@ -415,19 +415,26 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--db", help="SQLite file for --stored (default: DATABASE_URL, else ./data/sports.db). The app's "
                                  "configured database keeps its open (mode=ro; #421's fallback); any other file is a "
                                  "copy opened mode=ro&immutable=1 with no fallback, refused (exit 2, its path printed, "
-                                 "nothing read) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a "
-                                 "machine without the app's configuration loaded reads its live file as a copy and "
+                                 "nothing read) when empty, under data/, with a -wal/-shm/-journal sidecar beside "
+                                 "it, or absent, and refused when immutable=1 cannot read it; a machine whose "
+                                 "configuration is not loaded reads its own live file as a copy under data/ and "
                                  "refuses (addendum 582 item 4)")
     return ap
 
 
 def open_copy(p: Path):
     """(connection, form) on a --db that db_copy.classify read as a copy (addendum 582 item 4(a)): mode=ro with
-    immutable=1, no fallback, nothing created or written beside it; closed again when its first read fails."""
+    immutable=1, no fallback (#421's fallback is the live file's alone), nothing created or written beside it. A copy
+    it cannot read (not a SQLite file, or nhl_goalie_appearances or a column stored() reads missing) is refused,
+    db_copy.CopyRefused (one line: the path and the error class, never a row), its connection closed."""
     from src.walters import db_copy
     con = db_copy.connect_copy(p)
     try:
-        con.execute("SELECT 1 FROM nhl_goalie_appearances LIMIT 1")
+        con.execute("SELECT nhl_game_id, game_start, captured_at, is_starter FROM nhl_goalie_appearances LIMIT 1")
+    except sqlite3.Error as e:
+        con.close()
+        raise db_copy.CopyRefused(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI "
+                                  f"({type(e).__name__}: {e}); no fallback; nothing read") from None
     except BaseException:
         con.close()
         raise

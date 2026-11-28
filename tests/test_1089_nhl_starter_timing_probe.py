@@ -85,3 +85,62 @@ def test_the_apps_configured_database_takes_the_live_open(tmp_path, capsys, monk
     assert tp.main(["--stored", "--db", str(live)]) == 0
     assert calls[0] == ((live.resolve().as_uri() + "?mode=ro",), {"uri": True})     # the live file's open, as before
     assert "read-only (mode=ro URI) · the stored starters" in capsys.readouterr().out
+
+
+def test_a_copy_under_data_is_refused_exit_2_nothing_opened(tmp_path, capsys, monkeypatch):
+    from src.walters import mlb_pitchers_gate as mp
+    data = tmp_path / "data"                     # a tmp folder stands in for data/: nothing under the repo's data/
+    data.mkdir()
+    p = wal_copy(data / "x.db")
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
+    _no_open(monkeypatch)
+    assert tp.main(["--stored", "--db", str(p)]) == 2
+    cap = capsys.readouterr()
+    assert cap.err.startswith("REFUSED: ") and "under the repo's data/" in cap.err and str(p) in cap.err
+    assert "rows" not in cap.out and cap.out == ""
+
+
+def test_an_absent_db_names_the_helpers_tail(tmp_path, capsys, monkeypatch):
+    p = tmp_path / "absent.db"
+    _no_open(monkeypatch)
+    assert tp.main(["--stored", "--db", str(p)]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("REFUSED: ") and str(p) in err and "; nothing created, nothing read" in err
+    assert "the gate never creates one" not in err and not p.exists()
+
+
+@pytest.mark.parametrize("db", ["", "   "])
+def test_an_empty_db_is_refused_exit_2_never_the_default_file(db, capsys, monkeypatch):
+    _no_open(monkeypatch)
+    assert tp.main(["--stored", "--db", db]) == 2
+    cap = capsys.readouterr()
+    assert cap.err.startswith("REFUSED: --db is empty: ") and cap.out == ""
+
+
+@pytest.mark.parametrize("kind", ["not sqlite", "no table"])
+def test_an_unreadable_copy_is_one_refused_line_exit_2_nothing_beside_it(kind, tmp_path, capsys):
+    p = tmp_path / "bad.db"
+    if kind == "not sqlite":
+        p.write_bytes(b"this is not a SQLite database file, only text" * 40)
+    else:
+        con = sqlite3.connect(p)
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("CREATE TABLE other (id INTEGER PRIMARY KEY)")
+        con.commit()
+        con.close()
+        for s in dc.SIDECARS:
+            p.with_name(p.name + s).unlink(missing_ok=True)
+    before = sorted(x.name for x in tmp_path.iterdir())
+    assert tp.main(["--stored", "--db", str(p)]) == 2
+    cap = capsys.readouterr()
+    lines = cap.err.strip().splitlines()
+    assert len(lines) == 1 and lines[0].startswith(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1")
+    assert ("DatabaseError" if kind == "not sqlite" else "OperationalError") in lines[0]
+    assert "Traceback" not in cap.err and cap.out == ""
+    assert sorted(x.name for x in tmp_path.iterdir()) == before and dc.sidecars(p) == []
+
+
+def test_the_help_line_carries_582_item_4d():
+    h = " ".join(tp.parser().format_help().split())
+    assert ("a machine whose configuration is not loaded reads its own live file as a copy under data/ and refuses "
+            "(addendum 582 item 4)") in h

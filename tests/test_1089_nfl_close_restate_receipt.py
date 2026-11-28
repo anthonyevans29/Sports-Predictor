@@ -64,7 +64,7 @@ def test_a_copy_with_a_wal_sidecar_is_refused_and_the_sidecar_left_as_it_was(tmp
     calls = _record_connects(monkeypatch)
     assert _mod().main(["--db", str(p), "--exports", str(ex)]) == 2
     out = capsys.readouterr().out
-    assert out.startswith("REFUSED: ") and str(p) in out and "nothing read" in out
+    assert out.startswith("REFUSED: ") and str(p) in out and "-wal sidecar" in out and "nothing read" in out
     assert calls == [] and side.read_bytes() == b"stale" and dc.sidecars(p) == ["copy.db-wal"]
 
 
@@ -72,8 +72,46 @@ def test_an_absent_db_is_refused_and_never_created(tmp_path, monkeypatch, capsys
     p = tmp_path / "absent.db"
     calls = _record_connects(monkeypatch)
     assert _mod().main(["--db", str(p), "--exports", str(tmp_path)]) == 2
-    assert capsys.readouterr().out.startswith("REFUSED: ")
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: ") and str(p) in out and "no file at" in out       # the absent case, named
+    assert "nothing created, nothing read" in out and "the gate" not in out
     assert calls == [] and not p.exists()
+
+
+def test_a_copy_under_data_is_refused_naming_the_case_and_nothing_is_opened(tmp_path, monkeypatch, capsys):
+    """582 item 4(b) and (d): a copy under data/ is refused, the case named; with no configuration loaded (app_db None)
+    the machine's own live file there reads as a copy under data/ and is refused. The data/ is a tmp folder the fence
+    is pointed at (mlb_pitchers_gate._data_dirs), never the repo's."""
+    from src.walters import mlb_pitchers_gate as mp
+    data = tmp_path / "data"
+    data.mkdir()
+    p = wal_copy(data / "sports.db")
+    before = p.read_bytes()
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
+    monkeypatch.setattr(dc, "app_db", lambda: None)                   # 582 item 4(d): no configuration loaded
+    ex = tmp_path / "exports"
+    ex.mkdir()
+    calls = _record_connects(monkeypatch)
+    assert _mod().main(["--db", str(p), "--exports", str(ex)]) == dc.EXIT_REFUSED == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: ") and str(p) in out and "under the repo's data/" in out
+    assert calls == [] and dc.sidecars(p) == [] and p.read_bytes() == before
+
+
+def test_an_empty_db_is_refused_before_any_open(tmp_path, monkeypatch, capsys):
+    calls = _record_connects(monkeypatch)
+    assert _mod().main(["--db", "", "--exports", str(tmp_path)]) == 2
+    assert capsys.readouterr().out.startswith("REFUSED: --db is empty: ") and calls == []
+
+
+def test_the_configured_database_absent_is_refused_and_never_created(tmp_path, monkeypatch, capsys):
+    live = tmp_path / "sports.db"
+    monkeypatch.setattr(dc, "app_db", lambda: live.resolve())
+    calls = _record_connects(monkeypatch)
+    assert _mod().main(["--db", str(live), "--exports", str(tmp_path)]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: ") and str(live) in out and "no file at" in out
+    assert calls == [] and not live.exists() and dc.sidecars(live) == []
 
 
 def test_the_apps_configured_database_takes_the_live_open(tmp_path, monkeypatch, capsys):

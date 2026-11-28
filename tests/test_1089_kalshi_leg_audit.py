@@ -1,6 +1,7 @@
 """#1089 (ARCHITECT 2026-11-27 20:05 ET, addendum 582 item 4) for scripts/kalshi_leg_audit.py: the app's configured
 database keeps its open (mode=ro, the #421 fallback); any other --db is a copy, opened mode=ro&immutable=1 with no
-fallback, refused before any open (exit 2) with a sidecar beside it or absent. Throwaway WAL files in tmp, never data/."""
+fallback, refused before any open (exit 2) under data/, with a sidecar beside it, or absent, and refused (exit 2, one
+line) when it cannot be read. Throwaway WAL files in tmp; data/ is a tmp folder the fence is pointed at, never the repo's."""
 import sqlite3
 import sys
 from pathlib import Path
@@ -62,8 +63,99 @@ def test_an_absent_db_is_refused_exit_2_and_not_created(tmp_path, capsys):
     assert la.main(["--db", str(p)]) == 2
     out = capsys.readouterr().out
     assert out.startswith("REFUSED: ") and "no file at" in out
+    assert out.strip().endswith("; nothing created, nothing read")
+    assert "the gate never creates one" not in out
+    assert len(out.strip().splitlines()) == 1
     assert not p.exists()
     assert [x for x in tmp_path.iterdir()] == []
+
+
+def _under_data(tmp_path, monkeypatch) -> Path:
+    """A copy inside a tmp folder the fence takes for the repo's data/ (the repo's own data/ is never touched)."""
+    from src.walters import mlb_pitchers_gate as mp
+    data = tmp_path / "data"
+    data.mkdir()
+    p = wal_copy(data / "x.db")
+    monkeypatch.setattr(mp, "_data_dirs", lambda: [data.resolve()])
+    return p
+
+
+def test_a_copy_under_data_is_refused_exit_2_nothing_opened(tmp_path, capsys, monkeypatch):
+    p = _under_data(tmp_path, monkeypatch)
+    opened = []
+    monkeypatch.setattr(la, "open_read", lambda *a, **k: opened.append("live"))
+    monkeypatch.setattr(la, "open_copy", lambda *a, **k: opened.append("copy"))
+    assert la.main(["--db", str(p)]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: ") and "under the repo's data/" in out and str(p) in out
+    assert len(out.strip().splitlines()) == 1
+    assert opened == []
+    assert dc.sidecars(p) == []
+
+
+def test_582_4d_no_configuration_loaded_the_live_file_reads_as_a_copy_under_data_and_is_refused(
+        tmp_path, capsys, monkeypatch):
+    p = _under_data(tmp_path, monkeypatch)
+    monkeypatch.setattr(dc, "app_db", lambda: None)               # a machine whose configuration is not loaded
+    monkeypatch.setattr(la, "open_read", lambda *a, **k: pytest.fail("the live open was taken"))
+    assert la.main(["--db", str(p)]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: ") and "under the repo's data/" in out
+
+
+@pytest.mark.parametrize("arg", ["", "   "])
+def test_an_empty_db_is_refused_exit_2(tmp_path, capsys, monkeypatch, arg):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(la, "open_read", lambda *a, **k: pytest.fail("an empty --db took the live open"))
+    assert la.main(["--db", arg]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("REFUSED: --db is empty: ")
+    assert len(out.strip().splitlines()) == 1
+    assert list(tmp_path.iterdir()) == []
+
+
+def _not_sqlite(tmp_path) -> Path:
+    p = tmp_path / "junk.db"
+    p.write_bytes(b"this is not a SQLite file at all, " * 64)
+    return p
+
+
+def _missing_matches(tmp_path) -> Path:
+    p = wal_copy(tmp_path / "nomatches.db")
+    con = sqlite3.connect(p)
+    con.execute("DROP TABLE matches")
+    con.commit()
+    con.close()
+    for s in dc.SIDECARS:
+        p.with_name(p.name + s).unlink(missing_ok=True)
+    return p
+
+
+@pytest.mark.parametrize("make,err", [(_not_sqlite, "DatabaseError"), (_missing_matches, "OperationalError")])
+def test_an_unreadable_copy_is_refused_one_line_exit_2_nothing_beside_it(tmp_path, capsys, monkeypatch, make, err):
+    p = make(tmp_path)
+    before = sorted(x.name for x in tmp_path.iterdir())
+    data_before = p.read_bytes()
+    closed = []
+    real = dc.connect_copy
+
+    def track(path):
+        con = real(path)
+        closed.append(con)
+        return con
+    monkeypatch.setattr(dc, "connect_copy", track)
+    monkeypatch.setattr(la, "open_read", lambda *a, **k: pytest.fail("a copy took the live open (the #421 fallback)"))
+    assert la.main(["--db", str(p)]) == 2
+    out = capsys.readouterr().out
+    lines = out.strip().splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith(f"REFUSED: --db {p.resolve()}: cannot be read through a mode=ro&immutable=1 URI ({err}")
+    assert "Traceback" not in out and "read-only open:" not in out
+    assert len(closed) == 1
+    with pytest.raises(sqlite3.ProgrammingError):                 # the connection was closed
+        closed[0].execute("SELECT 1")
+    assert sorted(x.name for x in tmp_path.iterdir()) == before
+    assert p.read_bytes() == data_before
 
 
 def test_the_apps_configured_database_takes_the_live_open(tmp_path, monkeypatch, capsys):

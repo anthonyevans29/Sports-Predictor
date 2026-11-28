@@ -14,10 +14,12 @@ provider answers for team 59 and for team 901. [...] Nothing is built until I ha
    never printed). --no-provider skips it.
 
 The app's configured database (no --db, or a --db that is it) keeps its open: mode=ro (URI); refused, the plain path
-with PRAGMA query_only = ON, and the console says which (#421's rule). Any other --db is a copy (addendum 582 item 4;
-#1089): mode=ro&immutable=1, no fallback, refused with exit 2 before any open under data/, with a -wal/-shm/-journal
-sidecar beside it, or absent; a machine without the app's configuration loaded reads its live file as a copy and
-refuses. It writes nothing.
+with PRAGMA query_only = ON, and the console says which (#421's rule; that fallback is the live file's alone). Any other
+--db is a copy (addendum 582 item 4; #1089), through src/walters/db_copy.py: mode=ro&immutable=1, no fallback, refused
+with exit 2 before any open under data/, with a -wal/-shm/-journal sidecar beside it, or absent (an empty --db too);
+a copy that passes the fence but cannot be read through immutable=1 is refused (one line, exit 2, never a row); a
+machine whose configuration is not loaded reads its own live file as a copy under data/ and refuses (addendum 582 item
+4). It writes nothing.
 
     python3 scripts/ncaa_hawaii_receipt.py [--match 32536 --match 32724 ...] [--provider-team 59 ...] [--no-provider]
            [--db PATH]
@@ -76,16 +78,34 @@ def open_read(p: Path):
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
 
 
+COPY_PROBE_TABLES = ("teams", "matches", "competitions")     # every table our_teams and the_games read
+
+
 def open_db(arg: str | None):
-    """Addendum 582 item 4: no --db, or a --db that is the app's configured database, keeps open_read (#421's rule);
-    any other --db is a copy, checked before any open (db_copy.CopyRefused: nothing read) and opened mode=ro&immutable=1
-    with no fallback."""
-    if not arg:
+    """Addendum 582 item 4: no --db, or a --db that is the app's configured database, keeps open_read (#421's rule, its
+    plain-path fallback the live file's alone); any other --db (an empty one included) is a copy, checked before any
+    open (db_copy.CopyRefused: nothing read) and opened mode=ro&immutable=1 with no fallback."""
+    if arg is None:
         return open_read(db_path(arg))
     kind, path = db_copy.classify(arg)
     if kind == "live":
         return open_read(db_path(arg))
-    return db_copy.connect_copy(path), "copy: mode=ro&immutable=1 URI (no fallback; addendum 582 item 4)"
+    return open_copy(path)
+
+
+def open_copy(p: Path):
+    """A copy (582 item 4(a)): db_copy.connect_copy, no fallback; a copy it cannot read (not a SQLite file, or a table
+    in COPY_PROBE_TABLES missing) is refused (db_copy.CopyRefused: one line, the path and the error class, never a row)
+    and its connection closed."""
+    con = db_copy.connect_copy(p)
+    try:
+        for t in COPY_PROBE_TABLES:
+            con.execute(f"SELECT 1 FROM {t} LIMIT 1")
+    except sqlite3.Error as e:
+        con.close()
+        raise db_copy.CopyRefused(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI "
+                                  f"({type(e).__name__}: {e}); no fallback; nothing read") from None
+    return con, "copy: mode=ro&immutable=1 URI (no fallback; addendum 582 item 4)"
 
 
 def _ext(v) -> dict:
@@ -175,10 +195,11 @@ def main(argv=None) -> int:
     ap.add_argument("--match", type=int, action="append", help=f"a stored match id (default {GAMES})")
     ap.add_argument("--provider-team", type=int, action="append", help=f"a provider team id (default {PROVIDER_TEAMS})")
     ap.add_argument("--no-provider", action="store_true")
-    ap.add_argument("--db", help="the app's configured database keeps its open (mode=ro, #421's fallback); any other "
-                    "file is a copy opened mode=ro&immutable=1, no fallback, refused (exit 2, nothing read) under data/, "
-                    "with a -wal/-shm/-journal sidecar beside it, or absent; a machine without the app's configuration "
-                    "loaded reads its live file as a copy and refuses (addendum 582 item 4)")
+    ap.add_argument("--db", help="the app's configured database keeps its open (mode=ro, #421's fallback, the live "
+                    "file's alone); any other file is a copy opened mode=ro&immutable=1, no fallback, refused (exit 2, "
+                    "nothing read) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine whose "
+                    "configuration is not loaded reads its own live file as a copy under data/ and refuses (addendum "
+                    "582 item 4)")
     a = ap.parse_args(argv)
     try:
         con, form = open_db(a.db)

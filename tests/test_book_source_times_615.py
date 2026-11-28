@@ -435,7 +435,7 @@ def test_the_baseball_adapter_reads_no_update_field():
     assert "source_updated_at" not in inspect.getsource(api_baseball)
 
 
-def test_the_cohort_receipt_prints_before_and_after_from_one_db_state(iso, capsys):
+def test_the_cohort_receipt_prints_before_and_after_from_one_db_state(iso, capsys, monkeypatch):
     """scripts/results_tally_cohort_receipt.py (addendum 147 item 3): main's read leaves the Kalshi-only close's
     divergence in retained-legacy; as built it reproduces and is verified. The DB is opened mode=ro."""
     import importlib.util
@@ -449,6 +449,8 @@ def test_the_cohort_receipt_prints_before_and_after_from_one_db_state(iso, capsy
         "rtc", Path(__file__).resolve().parent.parent / "scripts" / "results_tally_cohort_receipt.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    from src.walters import db_copy                        # 582 item 4(c): the live file is the configured database
+    monkeypatch.setattr(db_copy, "app_db", lambda: (iso / "iso.db").resolve())
     assert mod.main(["--db", str(iso / "iso.db"), "--exports", str(iso / "exports")]) == 0
     out = capsys.readouterr().out.splitlines()
     mlb = out[out.index("## MLB") + 1:]
@@ -459,7 +461,10 @@ def test_the_cohort_receipt_prints_before_and_after_from_one_db_state(iso, capsy
     want = ((0.65 - 0.605) + (0.66 - 0.58)) / 2 * 100
     assert any(f"verified close: {want:+.2f}pp (n=2)" in x for x in after)
     assert not any("Retained-legacy" in x for x in after)
+    monkeypatch.setattr(db_copy, "app_db", lambda: (iso / "missing.db").resolve())   # the configured file, absent
     assert mod.main(["--db", str(iso / "missing.db"), "--exports", str(iso / "exports")]) == 2   # never created
+    refused = capsys.readouterr().out.splitlines()[-1]
+    assert refused.startswith("REFUSED: ") and str(iso / "missing.db") in refused and "no file at" in refused
     assert not (iso / "missing.db").exists()
 
 
@@ -490,6 +495,8 @@ def test_the_cohort_receipt_refuses_when_the_db_changes_between_its_passes(iso, 
         "rtc", Path(__file__).resolve().parent.parent / "scripts" / "results_tally_cohort_receipt.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    from src.walters import db_copy                        # 582 item 4(c): the live file is the configured database
+    monkeypatch.setattr(db_copy, "app_db", lambda: db.resolve())
     assert mod.main(["--db", str(db), "--exports", str(iso / "exports")]) == 3
     out = capsys.readouterr().out
     assert out.startswith("REFUSED: the DB changed during the receipt") and "## MLB" not in out and len(calls) == 2
@@ -520,6 +527,8 @@ def test_the_cohort_receipt_holds_one_clock_and_leaves_grading_close_as_main_run
         "rtc", Path(__file__).resolve().parent.parent / "scripts" / "results_tally_cohort_receipt.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    from src.walters import db_copy                        # 582 item 4(c): the live file is the configured database
+    monkeypatch.setattr(db_copy, "app_db", lambda: (iso / "iso.db").resolve())
     assert mod.main(["--db", str(iso / "iso.db"), "--exports", str(iso / "exports")]) == 0
     assert len(nows) == 2 and nows[0] == nows[1]
     assert kinds == ["kalshi_only", "kalshi_only"]          # main's grading_close in BEFORE too

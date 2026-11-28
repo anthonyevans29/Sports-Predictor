@@ -75,7 +75,10 @@ the cases where only the guard changed the call. Measurement only; no rule, thre
   rule would read nothing from them. Both runs read alike, which is what isolates the guard.
 
 Opens the live file (the app's configured database) mode=ro (URI), else the plain path with PRAGMA query_only = ON
-(#421), and says which; any other --db is a copy, mode=ro&immutable=1, no fallback (582 item 4: --help). Writes nothing.
+(#421, the live file's fallback alone), and says which; any other --db is a copy, opened mode=ro&immutable=1 with no
+fallback, refused before any open (exit 2, nothing read) under data/, with a -wal/-shm/-journal sidecar beside it, or
+absent, and refused (exit 2) where immutable=1 cannot read it; a machine whose configuration is not loaded reads its own
+live file as a copy under data/ and refuses (addendum 582 item 4). Writes nothing.
 
     python3 scripts/soccer_injury_factor_receipt.py [--competition PL] [--db PATH] [--list]
 """
@@ -120,7 +123,7 @@ def db_path(arg: str | None) -> Path:
 
 
 def open_session(p: Path):
-    """(session, form): mode=ro first; a copy that refuses it: the plain path with query_only set (#421)."""
+    """The live file's (session, form): mode=ro first, else its own fallback, the plain path with query_only (#421)."""
     from sqlalchemy import create_engine, text
     from sqlalchemy.orm import Session
     if not p.exists():
@@ -130,7 +133,7 @@ def open_session(p: Path):
         with eng.connect() as c:
             c.execute(text("SELECT 1 FROM predictions LIMIT 1"))
         return Session(eng), "mode=ro URI"
-    except Exception:  # noqa: BLE001 - a copy that refuses mode=ro
+    except Exception:  # noqa: BLE001 - the live file refusing mode=ro (a copy never comes here: open_db)
         eng = query_only_engine(p)
         with eng.connect() as c:
             c.execute(text("SELECT 1 FROM predictions LIMIT 1"))
@@ -138,7 +141,8 @@ def open_session(p: Path):
 
 
 def query_only_engine(p: Path):
-    """The fallback (#421): the plain path, every connection set PRAGMA query_only = ON (a write fails)."""
+    """The live file's fallback alone (#421; 582 item 4(a)): the plain path, PRAGMA query_only = ON on every connection;
+    a copy never reaches it (db_copy, immutable=1, no fallback)."""
     from sqlalchemy import create_engine, event
     eng = create_engine(f"sqlite:///{p}")
 
@@ -543,17 +547,38 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
 
 
 COPY_FORM = "copy: mode=ro&immutable=1 URI (no fallback; addendum 582 item 4)"
+COPY_PROBE_TABLES = ("predictions", "prediction_outcomes", "matches", "competitions", "teams", "model_versions", "odds",
+                     "odds_snapshots")                       # what rows() reads; predictions first, as the live probe
+
+
+def probe_copy(path: Path) -> None:
+    """A copy that passes the fence but cannot be read through immutable=1 (not a SQLite file, or a table rows() needs
+    missing) is refused: db_copy.CopyRefused, one line, the path and the error class, never a row; the probe's
+    connection closed; no fallback (kalshi_leg_audit.open_copy's model)."""
+    import sqlite3
+    from src.walters import db_copy
+    con = db_copy.connect_copy(path)
+    try:
+        for t in COPY_PROBE_TABLES:
+            con.execute(f"SELECT 1 FROM {t} LIMIT 1")
+    except sqlite3.Error as e:
+        raise db_copy.CopyRefused(f"REFUSED: --db {path}: cannot be read through a mode=ro&immutable=1 URI "
+                                  f"({type(e).__name__}: {e}); no fallback; nothing read") from None
+    finally:
+        con.close()
 
 
 def open_db(arg: str | None):
     """(session, form) by addendum 582 item 4 (#1089): no --db, or the app's configured database by resolved path or by
     identity, is the live file and keeps its open (open_session, #421's fallback included); any other --db is a copy,
-    opened through db_copy.copy_engine (mode=ro&immutable=1, no fallback). Else db_copy.CopyRefused, nothing opened."""
+    opened through db_copy.copy_engine (mode=ro&immutable=1, no fallback) once probe_copy reads it. Else
+    db_copy.CopyRefused: refused by the fence before any open, or by the probe with its connection closed."""
     from sqlalchemy.orm import Session
     from src.walters import db_copy
-    if arg:
+    if arg is not None:                                  # an empty --db is refused (db_copy), never the default open
         kind, path = db_copy.classify(arg)
         if kind == "copy":
+            probe_copy(path)
             return Session(db_copy.copy_engine(path)), COPY_FORM
     return open_session(db_path(arg))
 
@@ -563,10 +588,11 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="addendum 40 item 6: the soccer injury factor, measured")
     ap.add_argument("--competition", default="PL")
     ap.add_argument("--db", help="the app's configured database (the default) keeps its open: mode=ro URI, else the "
-                    "plain path with PRAGMA query_only = ON (#421). Any other file is a copy, opened "
-                    "mode=ro&immutable=1 with no fallback, and refused before any open (exit 2, nothing read) under "
-                    "data/, with a -wal, -shm or -journal sidecar beside it, or absent. A machine without the app's configuration loaded reads "
-                    "its live file as a copy under data/ and refuses (addendum 582 item 4)")
+                    "plain path with PRAGMA query_only = ON (#421, the live file's alone). Any other file is a copy, "
+                    "opened mode=ro&immutable=1 with no fallback, and refused before any open (exit 2, nothing read) "
+                    "under data/, with a -wal, -shm or -journal sidecar beside it, or absent; a copy immutable=1 "
+                    "cannot read is refused (exit 2); a machine whose configuration is not loaded reads its own live "
+                    "file as a copy under data/ and refuses (addendum 582 item 4)")
     ap.add_argument("--list", action="store_true", help="also print one line per prediction")
     a = ap.parse_args(argv)
     try:

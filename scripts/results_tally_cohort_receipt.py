@@ -24,7 +24,11 @@ branch, with the laptop checkout as the working directory, so the checkout itsel
     python /tmp/sp615/scripts/results_tally_cohort_receipt.py --db data/sports.db --exports exports
     git worktree remove /tmp/sp615
 
-`--db` must be the app's configured database (582 item 4(c)): any other is refused by its path, exit 2, nothing read."""
+`--db` must be the app's configured database, the live file by resolved path or by identity, which keeps its mode=ro
+open (ARCHITECT 2026-11-27, addendum 582 item 4(a)); any other file is a copy (mode=ro&immutable=1 where a copy is read,
+refused under data/, with a -wal/-shm/-journal sidecar beside it, or absent), and this live-file receipt refuses any
+other file by its path, before any open, exit 2, nothing read (582 item 4(c)); a machine whose configuration is not
+loaded reads its own live file as a copy under data/ and is refused (addendum 582 item 4)."""
 from __future__ import annotations
 
 import argparse
@@ -54,11 +58,12 @@ def section_lines(text: str) -> dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="RESULTS.md's divergence cohorts BEFORE and AFTER #615 (read-only).")
     ap.add_argument("--db", required=True,
-                    help="the app's configured database, by resolved path or identity, which keeps its mode=ro open "
-                         "(a missing file is refused); any other file is a copy, and this live-file receipt takes no "
-                         "copy open (mode=ro&immutable=1): it is refused before any open, exit 2; a machine without "
-                         "the app's configuration loaded reads its live file as a copy and is refused (addendum 582 "
-                         "item 4)")
+                    help="the app's configured database (the live file, by resolved path or identity), which keeps "
+                         "its mode=ro open (a missing file is refused, never created); any other file is a copy, "
+                         "opened mode=ro&immutable=1 where a copy is read, refused under data/, with a "
+                         "-wal/-shm/-journal sidecar beside it, or absent; for this live-file receipt any other file "
+                         "is refused, before any open, exit 2; a machine whose configuration is not loaded reads its "
+                         "own live file as a copy under data/ and is refused (addendum 582 item 4)")
     ap.add_argument("--exports", required=True, help="the exports dir holding closing_*.json (read, never written)")
     ap.add_argument("--days", type=int, default=30, help="results-tally's window (default 30, as the command)")
     a = ap.parse_args(argv)
@@ -70,7 +75,7 @@ def main(argv=None) -> int:
         return db_copy.EXIT_REFUSED
     ex = Path(a.exports).expanduser().resolve()
     if not db.is_file():
-        print(f"REFUSED: no DB file at --db {a.db!r}: a read-only receipt never creates one")
+        print(f"REFUSED: --db {a.db}: no file at {db}; nothing created, nothing read")
         return 2
     if not ex.is_dir():
         print(f"REFUSED: --exports {a.exports!r} is not a directory: no receipt, never an empty one")

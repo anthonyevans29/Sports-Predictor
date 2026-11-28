@@ -11,8 +11,8 @@ the (player, season) the old read would have used vs the new, counts only, and w
                                  PRAGMA query_only = ON (#421). Any other --db is a copy, opened mode=ro&immutable=1
                                  with no fallback, and refused before any open (exit 2, its path printed, nothing
                                  read) under data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine
-                                 without the app's configuration loaded reads its own live file as a copy under data/
-                                 and refuses (ARCHITECT 2026-11-27, addendum 582 item 4; #1089). The form is printed;
+                                 whose configuration is not loaded reads its own live file as a copy under data/ and
+                                 refuses (addendum 582 item 4; ARCHITECT 2026-11-27, #1089). The form is printed;
                                  never created
   S1  pitcher_season_stats       rows and distinct pitchers per season, as stored
   S2  more than one season       pitchers (player_source_id) holding rows for two or more seasons, and the season sets
@@ -98,8 +98,9 @@ def db_path(arg: str | None) -> Path:
 
 
 def open_read(p: Path):
-    """(connection, form). mode=ro first; a copy that refuses it: the plain path with query_only set (#421). It opens
-    the database no third way, and never creates one."""
+    """(connection, form) on the live file alone. mode=ro first; a live file that refuses it: the plain path with
+    query_only set (#421's fallback is the live file's alone, 582 item 4(a); copies go through open_copy). Never
+    created."""
     if not p.is_file():
         raise SystemExit(f"no database at {p}: the receipt never creates one")
     try:
@@ -113,15 +114,23 @@ def open_read(p: Path):
         return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
 
 
+# The tables main() reads; a copy missing any of them is refused before the first section prints.
+COPY_PROBE_TABLES = ("pitcher_season_stats", "matches", "competitions", "match_participants", "predictions")
+
+
 def open_copy(p: Path):
     """(connection, form) on a --db that db_copy.classify read as a copy (addendum 582 item 4(a)): mode=ro with
-    immutable=1, no fallback, nothing created or written beside it; closed again when the first read fails."""
+    immutable=1, no fallback, nothing created or written beside it. A copy it cannot read (not a SQLite file, or a
+    table in COPY_PROBE_TABLES missing) is refused (db_copy.CopyRefused: one line, the path and the error class, never
+    a row) and its connection closed."""
     con = db_copy.connect_copy(p)
     try:
-        con.execute("SELECT 1 FROM pitcher_season_stats LIMIT 1")
-    except BaseException:
+        for t in COPY_PROBE_TABLES:
+            con.execute(f"SELECT 1 FROM {t} LIMIT 1")
+    except sqlite3.Error as e:
         con.close()
-        raise
+        raise db_copy.CopyRefused(f"REFUSED: --db {p}: cannot be read through a mode=ro&immutable=1 URI "
+                                  f"({type(e).__name__}: {e}); no fallback; nothing read") from None
     return con, "mode=ro URI with immutable=1 (a copy; no fallback)"
 
 
@@ -208,8 +217,8 @@ def main(argv=None) -> int:
     ap.add_argument("--db", default=None,
                     help="the app's configured database keeps its open (mode=ro; #421's fallback); any other "
                          "file is a copy opened mode=ro&immutable=1, refused (exit 2, nothing read) under "
-                         "data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine without "
-                         "the app's configuration loaded reads its live file as a copy and refuses "
+                         "data/, with a -wal/-shm/-journal sidecar beside it, or absent; a machine whose "
+                         "configuration is not loaded reads its own live file as a copy under data/ and refuses "
                          "(addendum 582 item 4)")
     ap.add_argument("--date", default=None, help="the day whose starters S3 lists (YYYY-MM-DD; default today UTC)")
     ap.add_argument("--season", default="2026", help="the season S4 reads (as stored)")
@@ -219,14 +228,14 @@ def main(argv=None) -> int:
     print(f"MLB PITCHER SEASON RECEIPT · {now:%Y-%m-%d %H:%M}Z · addendum 162 item 1 · read-only, nothing written")
 
     kind = "live"
-    if a.db:
-        try:
-            kind, copy = db_copy.classify(a.db)      # addendum 582 item 4(b): refused before any open, nothing read
-        except db_copy.CopyRefused as e:
-            print(f"✗ {e}", file=sys.stderr)         # the script's refusals go to stderr (SystemExit's message)
-            return db_copy.EXIT_REFUSED
-    p = db_path(a.db) if kind == "live" else copy
-    con, form = open_read(p) if kind == "live" else open_copy(p)
+    try:
+        if a.db is not None:                     # an empty --db is refused, never read as "no --db"
+            kind, copy = db_copy.classify(a.db)  # addendum 582 item 4(b): refused before any open, nothing read
+        p = db_path(a.db) if kind == "live" else copy
+        con, form = open_read(p) if kind == "live" else open_copy(p)
+    except db_copy.CopyRefused as e:
+        print(f"✗ {e}", file=sys.stderr)         # the script's refusals go to stderr (SystemExit's message)
+        return db_copy.EXIT_REFUSED
     print(f"\nD0 database {p} · opened via {form}")
     print("  READ: pitcher_season_stats (id, player_source_id, season, era, innings_pitched, games_started); "
           "match_participants (match_id, team_id, role = 'starting_pitcher', player_name, player_source_id); "

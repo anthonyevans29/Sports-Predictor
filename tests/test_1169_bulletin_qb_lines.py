@@ -27,6 +27,7 @@ from tests.test_bulletin import NOW, closing_file, displayed, md_of, repo, row  
 
 QB_LINE = "- QB tag on the Desk's call:"
 CLAUSE = "(the Desk's chain passed at {}; QB tags are written only when it sizes a PLAY)"
+CLAUSE_NO_KIND = "(the Desk's chain passed; QB tags are written only when it sizes a PLAY)"   # addendum 590 item 4
 VS_QB = "- value shadow's own QB tag: QB-flagged (a QB is listed on either side)"
 K = {"comp": "NFL", "series": "KXTESTNFL"}
 
@@ -128,16 +129,39 @@ def test_a_quarantine_row_carrying_qb_flagged_prints_the_tag_and_no_clause(repo)
     assert "chain passed" not in md
 
 
-def test_a_quarantine_row_with_no_qb_listed_reads_the_holds_kind_as_the_row_gives_it(repo):
-    """Ruled as written: none, and the chain's call (the hold's would_call) a PASS, so the clause prints; the chain's
-    quarantine PASS carries no pass kind (desk_policy: a quarantine sets none), so KIND, the hold's would_pass_kind,
-    prints "not stored" (law 4: never a default, never the row's market_only)."""
+def test_a_quarantine_row_with_no_qb_listed_leaves_the_kind_out_of_the_clause(repo):
+    """Addendum 590 item 4, RULED: "where the chain's kind is not stored the clause leaves it out: "(the Desk's chain
+    passed; QB tags are written only when it sizes a PLAY)". A reader cannot use "passed at not stored", and no kind is
+    defaulted." The chain's call (the hold's would_call) is a PASS, so the clause prints; the chain's quarantine PASS
+    carries no pass kind (desk_policy: a quarantine sets none), so no KIND is printed and none is defaulted (never the
+    row's own market_only)."""
     doc = annotated(nfl_rows(qb_away=False))
     h = desk(doc, 9313)["market_only_hold"]
     assert h["would_call"] == "PASS" and h["would_pass_kind"] is None
     md = rendered(repo, doc, 9313)
-    want = f"{QB_LINE} none {CLAUSE.format(b.NOT_STORED)}"
+    want = f"{QB_LINE} none {CLAUSE_NO_KIND}"
     assert qb_lines(md) == (want, want)
+    assert "passed at" not in md and f"at {b.NOT_STORED}" not in md and "at market_only" not in md
+
+
+@pytest.mark.parametrize("d", [
+    {"call": "PASS", "pass_kind": None, "tags": []},
+    {"call": "PASS", "tags": []},
+    {"call": "PASS", "pass_kind": "market_only", "tags": [], "market_only_hold": {"would_call": "PASS"}},
+    {"call": "PASS", "pass_kind": "market_only", "tags": [],
+     "market_only_hold": {"would_call": "PASS", "would_pass_kind": None}},
+])
+def test_a_pass_whose_kind_is_not_stored_leaves_it_out_and_reads_no_field(d):
+    """Addendum 590 item 4 on both paths (the hold's and the row's own): no kind stored, the clause without it, and no
+    field value is read for it (nothing is defaulted, so nothing reaches the field scan)."""
+    seen: list = []
+    t = b._FIELDS.set(seen)
+    try:
+        line = b.qb_call_line(d)
+    finally:
+        b._FIELDS.reset(t)
+    assert b.display_text(line) == f"{QB_LINE} none {CLAUSE_NO_KIND}"
+    assert seen == []
 
 
 def test_a_sized_play_carrying_qb_flagged_prints_the_tag_and_no_clause(repo, monkeypatch):

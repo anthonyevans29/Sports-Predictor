@@ -524,6 +524,10 @@ QB_CALL_LABEL = "QB tag on the Desk's call"
 QB_CALL_NONE = "none"
 QB_CLEAN = cl.qb_class({})                    # the classifier's own clean text ("QB inputs clean"), read from it
 QB_PASS_CLAUSE = "(the Desk's chain passed at {kind}; QB tags are written only when it sizes a PLAY)"
+# ARCHITECT 2026-11-28 14:05 ET, addendum 590 item 4, RULED: "where the chain's kind is not stored the clause leaves it
+# out: "(the Desk's chain passed; QB tags are written only when it sizes a PLAY)". A reader cannot use "passed at not
+# stored", and no kind is defaulted."
+QB_PASS_CLAUSE_NO_KIND = "(the Desk's chain passed; QB tags are written only when it sizes a PLAY)"
 VALUE_SHADOW_QB_TAG = "QB-flagged"            # desk_policy.value_side's tag when a QB is listed on either side
 VALUE_SHADOW_QB_LINE = "value shadow's own QB tag: QB-flagged (a QB is listed on either side)"
 
@@ -533,20 +537,21 @@ def qb_call_line(d: dict) -> str:
     The tags are closing.qb_class's text through fv('desk.qb_class'); "none" where it reads clean. The chain's call is
     the market-only hold's would_call where the row carries the hold (addendum 214), else the row's call; its KIND is
     the hold's would_pass_kind where the hold is there, else the row's pass_kind (desk_policy.chain_kind's rule), each
-    through its own field. A kind the row does not carry prints "not stored" (law 4)."""
+    through its own field. A kind the row does not carry is left out of the clause (addendum 590 item 4: never "at not
+    stored", and never a default)."""
     got = cl.qb_class(d)
     if got != QB_CLEAN:
         return f"- {QB_CALL_LABEL}: {fv('desk.qb_class', got)}"
     h = d.get("market_only_hold")
     if isinstance(h, dict):
-        chain_call = h.get("would_call")
-        kind = fv("desk.market_only_hold.would_pass_kind", h.get("would_pass_kind")) if chain_call == "PASS" else None
+        chain_call, field, raw = h.get("would_call"), "desk.market_only_hold.would_pass_kind", h.get("would_pass_kind")
     else:
-        chain_call = d.get("call")
-        kind = fv("desk.pass_kind", d.get("pass_kind")) if chain_call == "PASS" else None
+        chain_call, field, raw = d.get("call"), "desk.pass_kind", d.get("pass_kind")
     if chain_call != "PASS":
         return f"- {QB_CALL_LABEL}: {QB_CALL_NONE}"
-    return f"- {QB_CALL_LABEL}: {QB_CALL_NONE} {QB_PASS_CLAUSE.format(kind=kind)}"
+    if raw is None:                                   # addendum 590 item 4: the kind is not stored, so it is left out
+        return f"- {QB_CALL_LABEL}: {QB_CALL_NONE} {QB_PASS_CLAUSE_NO_KIND}"
+    return f"- {QB_CALL_LABEL}: {QB_CALL_NONE} {QB_PASS_CLAUSE.format(kind=fv(field, raw))}"
 
 
 def value_shadow_qb_flagged(d: dict) -> bool:
